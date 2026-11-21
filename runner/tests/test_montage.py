@@ -116,13 +116,14 @@ class RuleTests(Folder):
         # Whole, with black on two sides; then filling the picture, what overflows cut.
         cut = '[0:v]trim=start=0:end=1.5,setpts=PTS-STARTPTS,scale=320:180:force_original_aspect_ratio=decrease'
         self.assertIn(cut, parts[0])
-        held = 'pad=320:180:(ow-iw)/2:(oh-ih)/2:black,fps=24,tpad=stop_mode=clone:stop_duration=1.5,trim=duration=1.5'
+        # (0.6.196) Its length in frames of the film (1.5 s at 24: 36), its sound as long to the sample.
+        held = 'pad=320:180:(ow-iw)/2:(oh-ih)/2:black,fps=24,tpad=stop_mode=clone:stop_duration=1.5,trim=end_frame=36'
         self.assertIn(held, parts[0])
         self.assertIn('scale=320:180:force_original_aspect_ratio=increase,crop=320:180,fps=24', parts[2])
         # A clip without a sound of its own is silent for its length; the other keeps its sound, lowered.
-        self.assertEqual(parts[1], 'anullsrc=r=48000:cl=stereo,atrim=duration=1.5[a0]')
+        self.assertEqual(parts[1], 'anullsrc=r=48000:cl=stereo,atrim=end_sample=72000[a0]')
         self.assertIn('[1:a]atrim=start=0.5:end=1.5,asetpts=PTS-STARTPTS,volume=0.5,', parts[3])
-        self.assertTrue(parts[3].endswith('apad,atrim=duration=1[a1]'))
+        self.assertTrue(parts[3].endswith('apad,atrim=end_sample=48000[a1]'))
         self.assertTrue(parts[4].startswith('[2:v]scale='), 'an image is not cut in time')
         self.assertEqual(parts[6], '[v0][a0][v1][a1][v2][a2]concat=n=3:v=1:a=1[film][clips]')
         # The music starts half a second in, and stops with the film: 3 s of its 10.
@@ -140,7 +141,7 @@ class RuleTests(Folder):
         muted = self.asked()
         muted['plans'][1]['volume'] = 0
         graph = montage.graph(montage.validated(muted, self.root), [False, True, False])[1]
-        self.assertIn('anullsrc=r=48000:cl=stereo,atrim=duration=1[a1]', graph)
+        self.assertIn('anullsrc=r=48000:cl=stereo,atrim=end_sample=48000[a1]', graph)
 
     def test_a_hole_before_a_plan_is_black_and_silent_as_long_as_it_is(self):
         # (0.6.149, La Bobine) The first plan at 0.5 s, the second at 3 s: a hole of half a second before
@@ -153,9 +154,10 @@ class RuleTests(Folder):
         self.assertEqual((montage.seconds(plan), montage.holes(plan)), (5, [(0, 0.5), (1, 1)]))
         inputs, filters, sound, total = montage.graph(plan, [False, True, False])
         parts = filters.split(';')
-        self.assertEqual(parts[0], 'color=c=black:s=320x180:r=24:d=0.5,setsar=1,format=yuv420p[g0]')
-        self.assertEqual(parts[1], 'anullsrc=r=48000:cl=stereo,atrim=duration=0.5[h0]')
-        self.assertIn('color=c=black:s=320x180:r=24:d=1,setsar=1,format=yuv420p[g1]', parts)
+        # (0.6.196) In frames and in samples: 12 frames and 24 000 samples for half a second.
+        self.assertEqual(parts[0], 'color=c=black:s=320x180:r=24,trim=end_frame=12,setsar=1,format=yuv420p[g0]')
+        self.assertEqual(parts[1], 'anullsrc=r=48000:cl=stereo,atrim=end_sample=24000[h0]')
+        self.assertIn('color=c=black:s=320x180:r=24,trim=end_frame=24,setsar=1,format=yuv420p[g1]', parts)
         self.assertEqual(parts[-1], '[g0][h0][v0][a0][g1][h1][v1][a1][v2][a2]concat=n=5:v=1:a=1[film][clips]')
         # (A hole is made in the graph: no file is read for it.)
         self.assertEqual((sound, total, inputs.count('-i')), ('[clips]', 5, 3))
@@ -232,6 +234,41 @@ class FilmTests(Folder):
         self.assertGreater(loud(0.2, 0.8), 0.05, 'the sound of the clip')
         self.assertLess(loud(1.2, 1.8), 0.005, 'silent in the hole')
         self.assertGreater(loud(2.2, 2.8), 0.05, 'the sound of the clip after the hole')
+
+    def test_the_film_follows_the_instants_of_its_bobine_whatever_the_lengths_of_its_takes_0_6_196(self):
+        import av
+        import imageio.v3 as iio
+        import numpy as np
+
+        # Six takes end to end, 1.063 s each: 25.5 frames at 24, as a take of Wan 2.2 is 121.5 (16 frames a
+        # second, 5.063 s). The blue clip and the green one in turn, silent; the music laid on the last take.
+        blue = dict(path=self.silent, kind='video', **{'from': 0, 'to': 1.063}, frame='fill', volume=1)
+        green = dict(path=self.heard, kind='video', **{'from': 0, 'to': 1.063}, frame='fill', volume=0)
+        plans = [dict(green if index % 2 else blue, at=round(index * 1.063, 3)) for index in range(6)]
+        music = dict(path=self.music, at=5.315, **{'from': 0, 'to': 1}, volume=1)
+        asked = self.asked(plans=plans, sounds=[music])
+        plan = montage.validated(asked, self.root)
+        # Each edge at the frame nearest to its instant: 25.5 → 26, 51.0 → 51, 76.5 → 77, 102.0, 127.6, 153.1.
+        self.assertEqual(montage.frames_of(plan), [(0, 26), (26, 25), (51, 26), (77, 25), (102, 26), (128, 25)])
+        self.assertEqual(montage.seconds(plan), 6.375)
+        result = montage.assemble(asked, self.config, lambda **data: None)
+        self.assertEqual((result['metadata']['frames'], result['metadata']['film_seconds']), (153, 6.375))
+        film = self.root / result['outputs'][0]['filename']
+        frames = iio.imread(film)
+        self.assertEqual(len(frames), 153, 'each take cut to its own length (26 frames), the film had 156')
+        # Where each take starts in the film: the first frame of its colour (blue, then green, in turn).
+        blueish = [int(frame[90, 160][2]) > int(frame[90, 160][1]) for frame in frames]
+        starts = [0] + [index for index in range(1, len(frames)) if blueish[index] != blueish[index - 1]]
+        self.assertEqual(starts, [0, 26, 51, 77, 102, 128])
+        # The sound laid on the start of the last take is heard when its picture comes, half a frame from it
+        # at most (it was heard two frames before it; five, after twelve takes of Wan 2.2).
+        with av.open(str(film)) as source:
+            rate = source.streams.audio[0].rate
+            samples = np.concatenate([frame.to_ndarray()[0] for frame in source.decode(audio=0)])
+        heard = int(np.flatnonzero(np.abs(samples) > 0.02)[0]) / rate
+        self.assertLess(abs(heard - starts[-1] / 24), 0.5 / 24 + 0.005, (heard, starts[-1] / 24))
+        # Picture and sound of the same length.
+        self.assertLess(abs(len(samples) / rate - 153 / 24), 0.05)
 
     def test_a_plan_asked_longer_than_its_clip_holds_its_last_picture_and_a_sound_must_be_one(self):
         import imageio.v3 as iio
@@ -422,20 +459,20 @@ class WatermarkTests(Folder):
 
 
 # (0.6.193) The graph of `Folder.asked` with L'Éclipse, to the character, as 0.6.187 made it: a film without a take
-# that carries a watermark is made as it was.
+# that carries a watermark is made as it was. (0.6.196) But for the lengths, in frames and in samples.
 GRAPH_0_6_187 = ';'.join(
     (
         '[0:v]trim=start=0:end=1.5,setpts=PTS-STARTPTS,scale=320:180:force_original_aspect_ratio=decrease,'
-        'pad=320:180:(ow-iw)/2:(oh-ih)/2:black,fps=24,tpad=stop_mode=clone:stop_duration=1.5,trim=duration=1.5,'
+        'pad=320:180:(ow-iw)/2:(oh-ih)/2:black,fps=24,tpad=stop_mode=clone:stop_duration=1.5,trim=end_frame=36,'
         'setsar=1,format=yuv420p[v0]',
-        'anullsrc=r=48000:cl=stereo,atrim=duration=1.5[a0]',
+        'anullsrc=r=48000:cl=stereo,atrim=end_sample=72000[a0]',
         '[1:v]trim=start=0.5:end=1.5,setpts=PTS-STARTPTS,scale=320:180:force_original_aspect_ratio=increase,'
-        'crop=320:180,fps=24,tpad=stop_mode=clone:stop_duration=1,trim=duration=1,setsar=1,format=yuv420p[v1]',
+        'crop=320:180,fps=24,tpad=stop_mode=clone:stop_duration=1,trim=end_frame=24,setsar=1,format=yuv420p[v1]',
         '[1:a]atrim=start=0.5:end=1.5,asetpts=PTS-STARTPTS,volume=0.5,aresample=48000,'
-        'aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=duration=1[a1]',
+        'aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=end_sample=48000[a1]',
         '[2:v]scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2:black,fps=24,'
-        'tpad=stop_mode=clone:stop_duration=1,trim=duration=1,setsar=1,format=yuv420p[v2]',
-        'anullsrc=r=48000:cl=stereo,atrim=duration=1[a2]',
+        'tpad=stop_mode=clone:stop_duration=1,trim=end_frame=24,setsar=1,format=yuv420p[v2]',
+        'anullsrc=r=48000:cl=stereo,atrim=end_sample=48000[a2]',
         '[v0][a0][v1][a1][v2][a2]concat=n=3:v=1:a=1[plain][clips]',
         '[3:a]atrim=start=0:end=3,asetpts=PTS-STARTPTS,volume=0.3,aresample=48000,'
         'aformat=sample_fmts=fltp:channel_layouts=stereo,adelay=500:all=1[s0]',
@@ -496,15 +533,16 @@ class MarkedTakeTests(Folder):
         self.assertEqual(montage.frames_of(montage.validated(holed, self.root)), [(12, 36), (72, 24), (96, 24)])
         self.assertEqual(self.enable(holed, 1), 'not(between(n,72,95))')
         self.assertEqual(self.enable(holed, 0, 2), 'not(between(n,12,47)+between(n,96,119))')
-        # The film is made of whole frames, not cut at `at` × 24: a take of 1.03 s has 25 (24.72, the
-        # nearest), one of 1.01 s 24 (24.24), a hole of 0.21 s 6 (5.04, a frame begun is a frame). The second
-        # take starts at frame 31, not 29.76; the image at 55, not 54.
+        # The film is made of whole frames: (0.6.196) each edge at the frame nearest to its instant. A take of
+        # 1.03 s ends at frame 25 (24.72); the second, at 1.24 s, starts at 30 (29.76) after a hole of 5 frames
+        # and ends with 2.25 s at 54; the image follows it. (A hole had every frame begun in it, 6 here: the
+        # second take started at 31, the image at 55, a frame after their instants.)
         uneven = self.asked(watermark='eclipse')
         uneven['plans'][0]['to'] = 1.03
         uneven['plans'][1].update(at=1.24, to=1.51)
-        self.assertEqual(montage.frames_of(montage.validated(uneven, self.root)), [(0, 25), (31, 24), (55, 24)])
-        self.assertEqual(self.enable(uneven, 1), 'not(between(n,31,54))')
-        self.assertEqual(self.enable(uneven, 2), 'not(between(n,55,78))')
+        self.assertEqual(montage.frames_of(montage.validated(uneven, self.root)), [(0, 25), (30, 24), (54, 24)])
+        self.assertEqual(self.enable(uneven, 1), 'not(between(n,30,53))')
+        self.assertEqual(self.enable(uneven, 2), 'not(between(n,54,77))')
 
     def test_without_a_take_that_carries_a_watermark_the_graph_is_that_of_0_6_187_0_6_193(self):
         plan = montage.validated(self.asked(watermark='eclipse'), self.root)

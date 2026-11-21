@@ -24,6 +24,11 @@ at the top left in 9:16, where TikTok covers nothing. A take never has one: only
 one says so (`watermarked`, lib/montage-export.mjs): the watermark of the film is laid on every frame but
 those of that plan, from its first to its last. One on each picture, never two. A film of another format
 has its own in its picture, not in the corner of the new one; filling the picture, it may be cut out.
+
+(0.6.196) The film follows the instants of its bobine: each plan starts and ends at the frame nearest to its
+instant (frames_of), picture and sound of the same length, to the sample. Cut each to its own length, the
+plans drifted: half a frame at most each, but added up (takes at 16 frames a second in a film at 24: 20 ms
+each, the sounds laid on the bobine heard before their pictures).
 """
 
 import os
@@ -207,9 +212,9 @@ def validated(params, root):
 
 
 def seconds(plan):
-    """How long the film is: to the end of its last plan, each at its instant."""
-    last = plan['plans'][-1]
-    return round(last['at'] + last['to'] - last['from'], 3)
+    """How long the film is: to the end of its last plan, each at its instant; (0.6.196) of whole frames."""
+    first, count = frames_of(plan)[-1]
+    return round((first + count) / plan['fps'], 3)
 
 
 def holes(plan):
@@ -222,18 +227,30 @@ def holes(plan):
     return found
 
 
+def _frame(instant, fps):
+    """The frame of the film nearest to that instant (half a frame: the next one)."""
+    return (round(instant * 1000) * fps + 500) // 1000
+
+
+def _sample(frame, fps):
+    """The sample of the film's sound where that frame starts."""
+    return frame * RATE // fps
+
+
 def frames_of(plan):
-    """(0.6.193) [(its first frame, its frames)] of each plan in the film as ffmpeg makes it: of whole frames,
-    not cut at `at` × fps. A plan has the number nearest to its length (`trim`: from half a frame, one more), a
-    hole every frame that starts in it (`color`: a frame begun is a frame). After five holes of 0.21 s, a plan
-    starts five frames later than its instant says."""
-    fps, hole, found, first = plan['fps'], dict(holes(plan)), [], 0
-    for index, item in enumerate(plan['plans']):
-        if index in hole:
-            first += -(-round(hole[index] * 1000) * fps // 1000)
-        count = (round((item['to'] - item['from']) * 1000) * fps + 500) // 1000
-        found.append((first, count))
-        first += count
+    """[(its first frame, its frames)] of each plan in the film. A film is made of whole frames.
+
+    (0.6.196) Each edge of the bobine, where a plan starts and where it ends, is the frame nearest to its
+    instant, counted from the start of the film: no plan is ever more than half a frame from where the bobine
+    says. Each plan was cut to the number of frames nearest to its own length instead, and a hole had every
+    frame begun in it: what each was over its length added up. Twelve takes of Wan 2.2 (16 frames a second,
+    5.063 s: 121.5 frames at 24, made 122) and the twelfth started 0.22 s late, the sound laid on its start
+    heard five frames before it (measured, claude_design/verification-21-11/derive)."""
+    fps, found, end = plan['fps'], [], 0
+    for item in plan['plans']:
+        first = max(end, _frame(item['at'], fps))
+        end = max(first + 1, _frame(item['at'] + item['to'] - item['from'], fps))
+        found.append((first, end - first))
     return found
 
 
@@ -243,14 +260,19 @@ def graph(plan, audible):
     `audible[index]`: whether the file of that plan has a sound of its own."""
     width, height, fps, total = plan['width'], plan['height'], plan['fps'], seconds(plan)
     inputs, filters, joined = [], [], []
-    hole = dict(holes(plan))
-    for index, item in enumerate(plan['plans']):
-        if index in hole:
+    end = 0
+    for index, (item, (start, count)) in enumerate(zip(plan['plans'], frames_of(plan))):
+        if start > end:
             # (0.6.149) A hole before this plan: black and silent, as long as it is, made in the graph.
-            length = _n(hole[index])
-            filters.append(f'color=c=black:s={width}x{height}:r={fps}:d={length},setsar=1,format=yuv420p[g{index}]')
-            filters.append(f'anullsrc=r={RATE}:cl=stereo,atrim=duration={length}[h{index}]')
+            # (0.6.196) In frames and in samples, as every plan: picture and sound of the same length.
+            hole, silent = start - end, _sample(start, fps) - _sample(end, fps)
+            filters.append(
+                f'color=c=black:s={width}x{height}:r={fps},trim=end_frame={hole},setsar=1,format=yuv420p[g{index}]'
+            )
+            filters.append(f'anullsrc=r={RATE}:cl=stereo,atrim=end_sample={silent}[h{index}]')
             joined.append(f'[g{index}][h{index}]')
+        end = start + count
+        heard = _sample(end, fps) - _sample(start, fps)
         length = _n(item['to'] - item['from'])
         still = item['kind'] == 'image'
         inputs += (['-loop', '1', '-t', length] if still else []) + ['-i', item['path']]
@@ -263,17 +285,18 @@ def graph(plan, audible):
                 f'pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black'
             )
         # Exactly its length: a clip shorter than asked holds its last picture.
+        # (0.6.196) Its length in frames of the film (frames_of), its sound as long to the sample.
         filters.append(
             f'[{index}:v]{cut}{sized},fps={fps},tpad=stop_mode=clone:stop_duration={length},'
-            f'trim=duration={length},setsar=1,format=yuv420p[v{index}]'
+            f'trim=end_frame={count},setsar=1,format=yuv420p[v{index}]'
         )
         if audible[index] and item['volume'] > 0:
             filters.append(
                 f"[{index}:a]atrim=start={_n(item['from'])}:end={_n(item['to'])},asetpts=PTS-STARTPTS,"
-                f"volume={item['volume']},{SOUND},apad,atrim=duration={length}[a{index}]"
+                f"volume={item['volume']},{SOUND},apad,atrim=end_sample={heard}[a{index}]"
             )
         else:
-            filters.append(f'anullsrc=r={RATE}:cl=stereo,atrim=duration={length}[a{index}]')
+            filters.append(f'anullsrc=r={RATE}:cl=stereo,atrim=end_sample={heard}[a{index}]')
         joined.append(f'[v{index}][a{index}]')
     marked = plan.get('watermark')
     filters.append(''.join(joined) + f"concat=n={len(joined)}:v=1:a=1[{'plain' if marked else 'film'}][clips]")
