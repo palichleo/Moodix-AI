@@ -415,9 +415,10 @@ def _generate(job, config, progress, key, holder):
     # only add keyframe condition rows, which the reference model reads like LongForge does.
     # A file the workflow names for reference images (MiniMax's Ref2VA) takes them too.
     if kind == 'base' and 'reference_image' in roles and paths['model'] != paths.get('referenceModel'):
+        # (0.6.198) In the words of the page: « sujet », and the field as Paramètres › Modèles names it.
         raise ValueError(
-            'Ce modèle MiniMax H3 ne prend pas d’images de référence : utilisez FastH3 Omni, '
-            'ou donnez au workflow son modèle pour les références (Ref2VA).'
+            'Ce modèle MiniMax H3 ne prend pas de sujet : utilisez FastH3 Omni, ou donnez-lui son '
+            '« Modèle pour les sujets » (Ref2VA) dans Paramètres › Modèles.'
         )
     references = []
     keyframe_inputs = {}

@@ -90,7 +90,7 @@ test('a setting the editor leaves open changes the job of every shipped workflow
       }
       const changed = structuredClone(workflow);
       changed.parameters[name][key] = alternative;
-      // « Prompt enhance » (its own section): switched on, with the instruction the family proposes.
+      // « Enrichir le prompt » (its own section): switched on, with the instruction the family proposes.
       if (name === 'expandPrompt' && alternative) changed.promptExpansion ??= manifest.promptExpansionDefault;
       // A setting the engine only reads with an input (the denoise of Krea 2 with an image to
       // modify) is tried with that input: without it, it changes nothing, and its help says so.

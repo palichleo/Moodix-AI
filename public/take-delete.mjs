@@ -1,7 +1,7 @@
 /**
  * (0.6.147) Deleting a take, asked the same way everywhere (the Sortie of the Studio, the Pellicule:
  * « on doit pouvoir supprimer n'importe quel media dans la gallery, avec msg de confirmation comme
- * dans studio », 20/11). The question is on the take itself: « Supprimer #12 ? », the montages that
+ * dans studio », 20/11). The question is on the take itself: « Supprimer la prise 12 ? », the montages that
  * use it under it, ✕ (or Échap) to keep it, the light bin to take it away.
  *
  * What goes is decided in one place, the Studio's own deletion (studio.mjs, `remove`: the route
@@ -9,16 +9,18 @@
  * number), its thumbnail with it; its file stays in the output folder. There is no bin for a take.
  */
 export const DELETE_TIP = 'Supprimer de sa conversation (le fichier reste dans le dossier output)';
-const WHAT = { image: 'cette image', video: 'ce clip', audio: 'ce son' };
+// (0.6.198) « cette vidéo », as the filters of the Archives say « Vidéos » (« ce clip » before).
+const WHAT = { image: 'cette image', video: 'cette vidéo', audio: 'ce son' };
 
 /**
- * « Supprimer #12 ? »: the number of the take (« PRISE 12 »); one without it, the number it is shown
+ * « Supprimer la prise 12 ? »: the number of the take, as its badge says it (« PRISE 12 »; « #12 » before
+ * 0.6.198); one without it, the number it is shown
  * with (`shown`, the Studio's « #3 »), else what it is (« Supprimer cette image ? »). The « ? » is held
  * to the word before it (a no-break space): on a small take of the Sortie it went to a line of its own.
  */
 export function deleteWords(record, media, shown = null) {
   const take = record?.outputs?.[0]?.take;
-  if (Number.isInteger(take)) return `Supprimer #${take} ?`;
+  if (Number.isInteger(take)) return `Supprimer la prise ${take} ?`;
   if (Number.isInteger(shown)) return `Supprimer #${shown} ?`;
   return `Supprimer ${WHAT[media] ?? 'cette création'} ?`;
 }
@@ -37,7 +39,7 @@ export function montageWords(names, short = false) {
 
 /**
  * The question on a take. `node(tag, className, text)` and `icon(name)` draw it; `name` says the take
- * to a screen reader (« Image #4 »); `short`: the montages said in short (their names under the
+ * to a screen reader (« Prise 4 »); `short`: the montages said in short (their names under the
  * pointer and to a screen reader); `onKeep` (✕, Échap) and `onDelete` (the light bin) answer it.
  */
 export function deleteQuestion({ node, icon, record, media, shown = null, name, short = false, onKeep, onDelete }) {

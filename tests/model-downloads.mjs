@@ -329,11 +329,12 @@ test('nothing starts without room on the disk, for a workflow of the user, or tw
   const small = await fixture(t, { free: 1000 });
   await assert.rejects(small.downloads.start(small.workflow), /Pas assez de place/);
   const f = await fixture(t);
-  await assert.rejects(f.downloads.start({ ...f.workflow, builtin: false }), /fournis avec Atelier/);
+  // (0.6.198) Said to the user: « modèles », « Moodix » (« Seuls les workflows fournis avec Atelier » before).
+  await assert.rejects(f.downloads.start({ ...f.workflow, builtin: false }), { message: 'Seuls les modèles fournis avec Moodix se téléchargent.' });
   await f.downloads.start(f.workflow);
   await assert.rejects(f.downloads.start(f.workflow), /déjà en cours/);
   await f.finish();
-  await assert.rejects(f.downloads.start(f.workflow), /Rien à télécharger/);
+  await assert.rejects(f.downloads.start(f.workflow), { message: 'Rien à télécharger : tous les fichiers de ce modèle sont là.' });
   assert.equal(formatBytes(43.7 * 1024 ** 3), '43,7 Go');
   assert.equal(formatBytes(67061725), '64 Mo');
 });

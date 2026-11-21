@@ -461,12 +461,13 @@ test('confirming applies the edits first and runs the revised proposal', async (
     });
     const pending = ui.requestTool(videoProposal(), new AbortController().signal, () => {});
     await new Promise(setImmediate);
-    const seed = all.find(n => n.attributes['aria-label'] === 'Graine');
+    // (0.6.198) « Seed », as the Studio names it (« Graine » before).
+    const seed = all.find(n => n.attributes['aria-label'] === 'Seed');
     seed.value = 'abc';
     nodes.get('tool-once').onclick();
     await new Promise(setImmediate);
     assert.ok(!calls.some(call => ['tools/revise', 'tools/execute'].includes(call.route)), 'caught before sending');
-    assert.ok(all.some(n => n.className === 'video-edit-error' && /Graine/.test(n.textContent)));
+    assert.ok(all.some(n => n.className === 'video-edit-error' && n.textContent === 'Seed : nombre invalide.'));
     seed.value = '99';
     labelled(all, 'Prompt').value = 'the boat dives into the clouds';
     const duration = labelled(all, 'Durée');

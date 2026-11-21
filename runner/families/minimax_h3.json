@@ -74,7 +74,7 @@
           "parameters": { "steps": 8 }
         }
       ],
-      "note": "Checkpoints élagués. Distillés, en 8 étapes : FastH3 Omni (références) ou FastH3 v2 (texte, image de début/fin). De base, en 20 étapes : le modèle de MiniMax (FL2VA : texte, image de début/fin).",
+      "note": "Checkpoints élagués. Distillés, en 8 étapes : FastH3 Omni (sujets) ou FastH3 v2 (texte, image de début/fin). De base, en 20 étapes : le modèle de MiniMax (FL2VA : texte, image de début/fin).",
       "signature": [
         {
           "key": "^adaln_t_table$",
@@ -87,10 +87,10 @@
       ]
     },
     "referenceModel": {
-      "label": "Modèle pour les références",
+      "label": "Modèle pour les sujets",
       "folder": "diffusion_models",
       "required": false,
-      "note": "Facultatif. Les modèles de base de MiniMax sont en deux fichiers : celui-ci (Ref2VA) est lu quand la demande a des images de référence. FastH3 Omni n’en a pas besoin.",
+      "note": "Facultatif. Les modèles de base de MiniMax sont en deux fichiers : celui-ci (Ref2VA) est lu quand la demande a des sujets. FastH3 Omni n’en a pas besoin.",
       "signature": [
         {
           "key": "^adaln_t_table$",

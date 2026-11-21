@@ -102,9 +102,12 @@ test('the proposal is one form: prompt, inputs, version, length, format, resolut
     !labelled(advanced, 'Images') && !labelled(advanced, 'Durée (images)'),
     'no frame count next to the duration',
   );
-  for (const label of ['Cadence (i/s)', 'Audio', 'Largeur', 'Hauteur', 'Étapes'])
+  // (0.6.198) Under the names the Studio and Paramètres › Modèles give them (« Cadence (i/s) », « Audio »,
+  // « Graine » before).
+  for (const label of ['Images par seconde', 'Son', 'Largeur', 'Hauteur', 'Étapes'])
     assert.ok(labelled(advanced, label), label);
-  assert.ok(!labelled(advanced, 'Graine'), 'the seed is shown once');
+  assert.ok(!labelled(advanced, 'Seed'), 'the seed is shown once');
+  assert.ok(labelled(box, 'Seed'));
   assert.deepEqual(form.edits(), {});
 });
 
@@ -140,16 +143,18 @@ test('subject-reference settings show only while an input is a subject reference
   );
   const form = renderProposal(box, request, { node });
   const wrapper = label => all(box).find(item => item.tag === 'label' && item.children[0]?.textContent === label);
-  assert.equal(wrapper('Longueur des références (images)').hidden, false);
-  assert.match(text(wrapper('Longueur des références (images)')), /court plan fixe/);
+  // (0.6.198) Named of « sujets » too, as in the Studio and Paramètres › Modèles (« Longueur des références
+  // (images) », « Force des références » before).
+  assert.equal(wrapper('Durée latente des sujets').hidden, false);
+  assert.match(text(wrapper('Durée latente des sujets')), /court plan fixe/);
   // (0.6.190) What they do, said of « sujets »: the cases that receive a character, an object or a place.
-  assert.match(text(wrapper('Longueur des références (images)')), /Chaque sujet est montré au modèle comme un court plan fixe de ce nombre d’images, avant la vidéo : plus long, il pèse un peu plus/);
-  assert.match(text(wrapper('Force des références')), /À quel point la vidéo suit ses sujets \(1 : au plus près\)\./);
+  assert.match(text(wrapper('Durée latente des sujets')), /Chaque sujet est montré au modèle comme un court plan fixe de ce nombre d’images, avant la vidéo : plus long, il pèse un peu plus/);
+  assert.match(text(wrapper('Influence des sujets')), /À quel point la vidéo suit ses sujets \(1 : au plus près\)\./);
   const role = all(box).find(item => item.attributes['aria-label'] === 'Rôle de Upscale SeedVR2');
   role.value = 'start_image';
   role.onchange();
-  assert.equal(wrapper('Longueur des références (images)').hidden, true);
-  assert.equal(wrapper('Force des références').hidden, true);
+  assert.equal(wrapper('Durée latente des sujets').hidden, true);
+  assert.equal(wrapper('Influence des sujets').hidden, true);
   assert.deepEqual(form.edits(), { references: [{ index: 0, role: 'start_image' }] });
 });
 
@@ -180,7 +185,9 @@ test('a size typed by hand is kept as « Autre », and invalid values are refuse
 test('the seed gets a new random value from its button, within its limits', () => {
   const box = node('section');
   const form = renderProposal(box, proposal(), { node });
-  const roll = all(box).find(item => item.attributes['aria-label'] === 'Graine au hasard');
+  // (0.6.198) In the words of the dice of the Studio (« Graine au hasard » before).
+  const roll = all(box).find(item => item.attributes['aria-label'] === 'Tirer une seed au hasard');
+  assert.equal(roll.title, 'Tirer une seed au hasard');
   roll.onclick();
   const { seed } = form.edits();
   assert.ok(Number.isSafeInteger(seed) && seed >= 0);
@@ -306,7 +313,9 @@ test('in the card of the conversation: the length in one click, version and seed
   assert.equal(all(folded).find(item => item.className === 'proposal-back').textContent, 'Revenir au prompt de Moodix');
   // The version and the seed are advanced settings in a card.
   assert.equal(labelled(advanced, 'Version').value, 'draft');
-  assert.ok(labelled(advanced, 'Graine'));
+  // (0.6.198) Its two versions as everywhere else: « Brouillon », « Vidéo finale » (« Finale » before).
+  assert.deepEqual(labelled(advanced, 'Version').options.map(option => option.text), ['Brouillon', 'Vidéo finale']);
+  assert.ok(labelled(advanced, 'Seed'));
   assert.equal(labelled(box, 'Version'), undefined);
   // The length in one click: the whole seconds the model accepts, and the one proposed, marked.
   const lengths = all(box).find(item => item.className === 'proposal-lengths'),
@@ -448,4 +457,67 @@ test('in a card a source says what is done with it, « À MODIFIER », « À PRO
   );
   // Its name unknown (its role alone): the word of its role all the same.
   assert.deepEqual(captions(card('image', 'Krea 2', ['img2img'], [{ input: 'source', role: 'img2img', label: '#ref1' }], [])), ['À MODIFIER']);
+});
+
+test('(0.6.198) a proposal names each setting as the Studio and Paramètres › Modèles do: one table, public/setting-names.mjs', async () => {
+  // (Vérification du 21/11, A3 and D1) The card had a table of its own: « Force des références » there,
+  // « Influence des références MSR » in the Studio and on the page of a model; « Graine » beside « Seed »,
+  // « Cadence (i/s) » beside « Images par seconde »; « negative_prompt », its key, for want of a name. Only
+  // « Durée (images) » is the card's: nowhere else is a length shown in frames.
+  const names = await import('../public/setting-names.mjs');
+  assert.equal(typeof names.settingName, 'function', 'setting-names.mjs names a setting for every screen');
+  const { settingName } = names,
+    numbers = ['steps', 'cfg', 'denoise', 'fps', 'start_strength', 'end_strength', 'image_compression', 'overlap_frames', 'msr_frames', 'msr_strength', 'tile', 'max_side', 'multiplier', 'guidance_scale', 'shift', 'sparse_keep', 'sparse_start', 'scale', 'passes', 'step_lora_strength', 'identity_lora_strength'],
+    switches = ['audio', 'expandPrompt', 'sparse_attention', 'color_correction'],
+    lists = ['attention', 'mode'],
+    words = ['negative_prompt', 'subject', 'reference_subject'],
+    request = proposal();
+  request.plan.editable.parameters = [
+    ...request.plan.editable.parameters.filter(item => !['fps', 'audio', 'steps'].includes(item.key)),
+    ...numbers.map(key => ({ key, value: 1, type: 'number', min: 0, max: 2 })),
+    ...switches.map(key => ({ key, value: false, type: 'boolean' })),
+    ...lists.map(key => ({ key, value: 'a', type: 'string', choices: ['a', 'b'] })),
+    ...words.map(key => ({ key, value: 'x', type: 'string' })),
+  ];
+  request.plan.edited = ['fps', 'audio', 'msr_strength'];
+  for (const card of [false, true]) {
+    const box = node('section'),
+      form = renderProposal(box, request, { node, card }),
+      // A card keeps its advanced settings in a fold it gives back.
+      named = label => [box, ...form.folds.map(fold => fold.panel)].map(root => labelled(root, label)).find(Boolean);
+    const keys = [...numbers, ...switches, ...lists, ...words];
+    for (const key of keys) {
+      assert.notEqual(settingName(key), key, key + ' has a name');
+      assert.ok(named(settingName(key)), `${key} : « ${settingName(key)} »${card ? ' (card)' : ''}`);
+    }
+    // Each field under its own name, as many as the settings that have it: two « Guidage » (cfg and guidance_scale),
+    // neither « CFG » nor « Guidance » beside it.
+    const shown = [...new Set([box, ...form.folds.map(fold => fold.panel)].flatMap(all))]
+      .filter(item => item.tag === 'label')
+      .map(item => item.children[0]?.textContent);
+    for (const name of new Set(keys.map(settingName)))
+      assert.equal(shown.filter(label => label === name).length, keys.filter(key => settingName(key) === name).length, name);
+    assert.ok(named('Seed'));
+    assert.match(text(box), /Modifié par vous : Images par seconde, Son, Influence des sujets\./);
+    // A refusal says it under the same name.
+    named('Influence des sujets').value = '3';
+    assert.throws(() => form.edits(), { message: 'Influence des sujets : entre 0 et 2.' });
+  }
+  // The names that changed on the card, or in the table itself (« Audio », « Expansion du prompt »,
+  // « … des références MSR », « Compression des références (CRF) » before).
+  assert.deepEqual(
+    ['msr_strength', 'msr_frames', 'image_compression', 'audio', 'expandPrompt', 'fps', 'cfg', 'guidance_scale', 'start_strength', 'step_lora_strength', 'seed', 'subject', 'reference_subject'].map(settingName),
+    ['Influence des sujets', 'Durée latente des sujets', 'Compression des images (CRF)', 'Son', 'Prompt enrichi', 'Images par seconde', 'Guidage', 'Guidage', 'Influence de l’image de début', 'Intensité du LoRA d’étapes', 'Seed', 'Qui remplacer', 'Qui dessiner'],
+  );
+  // What a card shows of the model without letting it change: its cadence and its steps; a prompt it fixes; its
+  // seed and its version (« Graine », « Finale » before).
+  const fixed = proposal({ stage: 'final', prompt: 'A tiger runs', parameters: { width: 384, height: 256, frames: 121, fps: 24, seed: 7, steps: 8 } });
+  fixed.plan.editable = { prompt: false, stages: [], references: [[]], parameters: [] };
+  const box = node('section'),
+    form = renderProposal(box, fixed, { node, card: true }),
+    roots = [box, ...form.folds.map(fold => fold.panel)];
+  assert.deepEqual(
+    ['Images par seconde', 'Étapes', 'Prompt (fixé par le modèle)', 'Seed', 'Version'].map(label => roots.map(root => labelled(root, label)?.textContent).find(Boolean)),
+    ['24', '8', 'A tiger runs', '7', 'Vidéo finale'],
+  );
 });

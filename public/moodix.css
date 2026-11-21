@@ -16252,7 +16252,7 @@ body:not([data-view='studio']) .ai-cursor {
   color: var(--warning);
   font: 400 13px/1.45 var(--font-ui);
 }
-/* La consigne d'amélioration du prompt, sous sa ligne. */
+/* La consigne d'enrichissement du prompt, sous sa ligne (son nom depuis 0.6.198). */
 #settings #workflow-editor .set-more {
   display: block;
   margin: 0 38px 10px 12px;

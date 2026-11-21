@@ -52,6 +52,7 @@ class Element {
     if (selector === ':focus-visible') return true;
     // (0.6.189) A list of glass, and a popover shown (above the page, as an open dialog).
     if (selector === '.glass-menu') return this.className.split(' ').includes('glass-menu');
+    if (selector === '.studio-item-menu') return this.className.split(' ').includes('studio-item-menu');
     if (selector === ':popover-open') return this.popoverOpen === true;
     if (selector.includes(', ')) return selector.split(', ').some(part => this.is(part));
     return false;
@@ -223,6 +224,26 @@ test('(0.6.189) data-tip-side="left" on a choice of a list (« Exporter », 0.6.
   // 20 - 8 - 120 is out of the window: at the right of the list (above its choice, it was under the list).
   body.fire('focusin', { target: near });
   assert.deepEqual([bubble.style.left, bubble.style.top], ['368px', '143px']);
+});
+
+test('(0.6.198) the menu of a take of the Studio: the bubble of a line beside the menu, never over the line before', () => {
+  // (« Ouvrir : l’original, ses paramètres, Télécharger », above its line, covered « Modifier ».)
+  const { body } = page();
+  const menu = new Element('div', { className: 'studio-item-menu', box: { left: 1058, top: 580, right: 1178, bottom: 700 } }),
+    first = new Element('div', { className: 'studio-item-menu', box: { left: 30, top: 580, right: 150, bottom: 700 } });
+  const open = new Element('button', { className: 'studio-menu-item', attributes: { 'data-tip': 'Ouvrir', 'data-tip-side': 'left' }, box: { left: 1062, top: 644, right: 1174, bottom: 672 } }),
+    near = new Element('button', { className: 'studio-menu-item', attributes: { 'data-tip': 'Animer', 'data-tip-side': 'left' }, box: { left: 34, top: 584, right: 146, bottom: 612 } });
+  menu.append(open);
+  first.append(near);
+  body.append(menu, first);
+  setupHelpTips(body);
+  const bubble = body.children.find(child => child.className === 'help-bubble');
+  // 1058 - 8 - 120, its middle on the line's (658): the lines above and under it stay readable.
+  body.fire('focusin', { target: open });
+  assert.deepEqual([bubble.style.left, bubble.style.top], ['930px', '645px']);
+  // Against the left edge of the window: at the right of the menu.
+  body.fire('focusin', { target: near });
+  assert.deepEqual([bubble.style.left, bubble.style.top], ['158px', '585px']);
 });
 
 test('(0.6.189) no room at either side of a list: over its choice as every bubble, and in the list, above the page with it', () => {

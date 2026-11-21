@@ -194,7 +194,8 @@ test('the miniature says a failure, a cancellation, and an answer made of words 
   mini.take({ type: 'start', request: video });
   mini.take({ type: 'progress', request: video, text: 'Génération · 1/8', fraction: 0.1 });
   mini.take({ type: 'stopped' });
-  assert.equal(said(), 'Génération arrêtée');
+  // (0.6.198) With its full stop, as the Studio, the Chat and the server say it.
+  assert.equal(said(), 'Génération arrêtée.');
 
   // A turn of words alone, over while the user was away.
   mini.begin(WORK);

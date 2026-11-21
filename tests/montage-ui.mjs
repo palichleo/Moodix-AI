@@ -272,7 +272,8 @@ test('a new bobine shows the takes of the project, its four tracks and « À cr�
   ]);
   assert.deepEqual(f.said('montage-take-number'), ['Prise 1', 'Prise 2', 'Prise 3', 'Prise 4']);
   assert.deepEqual(f.said('montage-take-length'), ['05.00 s', '03.00 s', 'Image', '30.00 s']);
-  assert.deepEqual(f.said('montage-track-name'), ['Photos', 'Prises', 'Piste audio 1', 'Piste audio 2']);
+  // (0.6.198) The track of the images says « Images », as the Bobine says « image de début » (« Photos » before).
+  assert.deepEqual(f.said('montage-track-name'), ['Images', 'Prises', 'Piste audio 1', 'Piste audio 2']);
   // The preview of an empty bobine: its frame and the Éclipse, no words.
   const [blank] = f.get('montage-blank');
   assert.deepEqual([blank.hidden, blank.children.map(child => child.className), blank.textContent], [false, ['icon-eclipse'], '']);
@@ -1096,8 +1097,8 @@ test('« Créer 1 prise » asks the Studio for the clip, shows it being made, an
 });
 
 test('a take to create whose images are gone says which, in the words of the Bobine: « image de début », « image de fin » (0.6.190)', async () => {
-  // (0.6.190, capture 104) « Image » in the Bobine, no longer « Photo ». The track keeps its name (PHOTOS), and the
-  // data their keys (`photos`).
+  // (0.6.190, capture 104) « Image » in the Bobine, no longer « Photo ». (0.6.198) Its track too (IMAGES); the
+  // data keep their keys (`photos`).
   const photo = n => ({ conversationId: C, runId: id(n), output: 0 }),
     asked = [],
     create = async wanted => (asked.push(wanted), null),
@@ -1916,7 +1917,7 @@ test('a licence with conditions is read in « À créer » before the download, 
   assert.deepEqual(f.said('bobine-missing'), ['Téléchargement impossible : Disque plein.']);
   // A model behind a Hugging Face account: said, the button greyed.
   const { f: g } = await series({ times: { workflowName: 'LTX 2.5', missing: { ...offer, needsToken: true, page: 'huggingface.co/Lightricks' } }, downloads });
-  assert.deepEqual([g.get('bobine-go-download')[0].disabled, g.said('bobine-missing')], [true, ['LTX 2.5 demande un compte Hugging Face : acceptez sa licence sur huggingface.co/Lightricks, puis enregistrez votre jeton dans Paramètres › Mise à jour.']]);
+  assert.deepEqual([g.get('bobine-go-download')[0].disabled, g.said('bobine-missing')], [true, ['LTX 2.5 demande un compte Hugging Face : acceptez sa licence sur huggingface.co/Lightricks, puis enregistrez votre jeton dans Paramètres › Modèles › Fichiers.']]);
   // Its download already under way (from Paramètres › Modèles): followed here.
   Object.assign(job, { state: 'running', workflowId: 'ltx', name: 'LTX 2.5', received: 10 * GB, total: 20 * GB });
   const { f: h } = await series({ times: { workflowName: 'LTX 2.5', missing: offer }, downloads });
@@ -2794,7 +2795,7 @@ test('the detail of what was laid: what Moodix AI said, and each adjustment with
     find(box(), 'bobine-ask-notes')[0].children.map(item => item.children.map(part => part.textContent)),
     [
       ['Le 3e ajout du plan n’a ni texte ni prise : il est laissé de côté.'],
-      ['05.00 → 09.00', 'Elle commence sur la prise 5 : une suite ne commence pas sur une image, c’est un nouveau plan.'],
+      ['05.00 → 09.00', 'Elle commence sur la prise 5 : une suite ne commence pas sur une image, c’est une nouvelle prise.'],
       ['09.00 → 14.00', 'La prise 42 n’est pas dans ce projet : pas d’image de fin.'],
     ],
   );

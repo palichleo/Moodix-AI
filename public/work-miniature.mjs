@@ -149,7 +149,7 @@ export function setupMiniature({
                 : phase === 'failed'
                   ? stageText
                   : phase === 'stopped'
-                    ? 'Génération arrêtée'
+                    ? 'Génération arrêtée.'
                     : 'Moodix a répondu';
     title.textContent = work?.title || 'Nouvelle conversation';
     kind.textContent = phase === 'answer' || phase === 'answered' ? '' : kindText;

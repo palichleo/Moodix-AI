@@ -364,8 +364,10 @@ export function setupAssets({
     // engine itself (its models loaded, the computation, the file written).
     if (took?.whole && took.prepare !== undefined) row('Temps de préparation', generationTime(took.prepare), { more: true });
     if (took?.whole && took.engine !== undefined) row('Temps du moteur', generationTime(took.engine), { more: true });
-    if (expanded) row('Prompt amélioré (utilisé pour l’image)', expanded, { more: true });
-    if (parameters.expandPrompt !== undefined) row('Prompt enhance', expanded ? 'Activé' : 'Désactivé', { more: true });
+    // (0.6.198) In the words of the Studio and of the page of a model: « Enrichir », « Prompt enrichi ». Only an
+    // image is enriched (the text encoder of Krea 2).
+    if (expanded) row('Prompt enrichi (utilisé pour l’image)', expanded, { more: true });
+    if (parameters.expandPrompt !== undefined) row('Enrichir le prompt', expanded ? 'Activé' : 'Désactivé', { more: true });
     // Its file as it lies in the output folder: in its sub-folder (image/, video/, son/) when it has
     // one (a take of before them has none). Downloaded under its name alone.
     const folder = String(output.source.subfolder ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');

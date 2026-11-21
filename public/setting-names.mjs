@@ -1,9 +1,12 @@
 /**
- * The name of each setting of a workflow as Paramètres › Workflows shows it (native-workflow-ui.mjs),
+ * The name of each setting of a workflow as Paramètres › Modèles shows it (native-workflow-ui.mjs),
  * and of the values it shows by a word. (0.6.94) Read by the server too: a value it refuses, or a
  * value it needs and is not given, is said under that same name (lib/native-workflows.mjs), never by
  * its key in English (« steps is required »). (0.6.102) So is a value it leaves aside or brings within
  * its limits (the notes of lib/tool-catalog.mjs), and a setting of the Studio that has no name of its own.
+ * (0.6.198) And on the card of a proposal in the Chat, which had a table of its own (« Force des
+ * références », « Graine », « Cadence (i/s) »): `settingName` below. The settings of the subjects say
+ * « sujets », as their cases (« … des références MSR » before); the sound is « Son » (« Audio »).
  */
 export const SETTING_NAMES = {
   prompt: 'Prompt',
@@ -14,17 +17,17 @@ export const SETTING_NAMES = {
   steps: 'Étapes',
   cfg: 'Guidage',
   denoise: 'Débruitage',
-  expandPrompt: 'Expansion du prompt',
+  expandPrompt: 'Prompt enrichi',
   frames: 'Images vidéo',
   fps: 'Images par seconde',
-  audio: 'Audio',
+  audio: 'Son',
   stage: 'Brouillon / finale',
   start_strength: 'Influence de l’image de début',
   end_strength: 'Influence de l’image de fin',
-  image_compression: 'Compression des références (CRF)',
+  image_compression: 'Compression des images (CRF)',
   overlap_frames: 'Images de chevauchement',
-  msr_frames: 'Durée latente des références MSR',
-  msr_strength: 'Influence des références MSR',
+  msr_frames: 'Durée latente des sujets',
+  msr_strength: 'Influence des sujets',
   tile: 'Taille des tuiles (px, 0 = entière)',
   max_side: 'Plus grand côté de sortie (px, 0 = libre)',
   multiplier: 'Multiplicateur d’images',
@@ -47,6 +50,14 @@ export const SETTING_NAMES = {
   identity_lora_strength: 'Intensité du LoRA d’identité',
 };
 export const CHOICE_NAMES = { draft: 'Brouillon', final: 'Vidéo finale', smooth: 'Fluide', slow_motion: 'Ralenti' };
+/**
+ * (0.6.198) Where a request is written, its field has a short name beside it, the Studio's since
+ * 0.6.102 (« Durée (s) », « Qui remplacer »): the Studio and the card of a proposal show the same.
+ * The server's sentences keep the long one (« Durée (secondes) : … »).
+ */
+const SHORT_NAMES = { seconds: 'Durée (s)', language: 'Langue', subject: 'Qui remplacer', reference_subject: 'Qui dessiner' };
+/** A setting by its name on a screen: never by its key (« steps »). */
+export const settingName = key => SHORT_NAMES[key] ?? SETTING_NAMES[key] ?? key;
 /**
  * (0.6.128) What is part of a request: written or chosen at each creation, by the user in the Studio
  * or by Moodix AI in the chat (the prompt, the size, the length, the version, the words of a song,

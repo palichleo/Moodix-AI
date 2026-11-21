@@ -835,7 +835,7 @@ test('a setting is one line: its name, its value, its « ? »; neither « Fixe �
   record.parameters.width = size;
   record.parameters.height = size;
   await f.ui.edit(record);
-  assert.deepEqual(namesOf(f, 'native-workflow-parameters'), ['Étapes', 'Améliorer le prompt avant chaque image']);
+  assert.deepEqual(namesOf(f, 'native-workflow-parameters'), ['Étapes', 'Enrichir le prompt avant chaque image']);
   assert.equal(f.$('native-workflow-empty').hidden, true);
   for (const id of [
     'native-policy-steps',
@@ -990,17 +990,20 @@ test('a video model: the size of its draft and of its final on a line each, what
   const f = await setup(t),
     ltx = await shippedWorkflow('ltx25');
   await f.ui.edit({ ...structuredClone(ltx), builtin: true }, { name: 'LTX 2.5' });
+  // (0.6.198) « Son », as the Studio says it; the settings of the subjects say « sujets » (« … des références MSR »
+  // before); the compression is that of the images, start and end, as its help says (« Compression des références
+  // (CRF) » before; « … des images de début et de fin (CRF) » went to two lines in the Studio and on a card).
   assert.deepEqual(namesOf(f, 'native-workflow-parameters'), [
     'Taille du brouillon',
     'Taille de la vidéo finale',
     'Étapes',
     'Images par seconde',
-    'Audio',
+    'Son',
     'Influence de l’image de début',
     'Influence de l’image de fin',
-    'Compression des références (CRF)',
-    'Influence des références MSR',
-    'Durée latente des références MSR',
+    'Compression des images (CRF)',
+    'Influence des sujets',
+    'Durée latente des sujets',
     'Images de chevauchement',
   ]);
   const size = stage => ['width', 'height'].map(key => f.$(`native-profile-${stage}-${key}`).value);
@@ -1036,8 +1039,13 @@ test('a video model: the size of its draft and of its final on a line each, what
     assert.deepEqual(saved.parameters[name], ltx.parameters[name], name);
   assert.doesNotThrow(() => validateNativeWorkflow(saved));
   // The LoRA of the subject references: on by itself with them, a file of the model among its files.
-  assert.deepEqual(namesOf(f, 'native-workflow-components').at(-1), 'LoRA des sujets de référence');
-  assert.match(linesOf(f, 'native-workflow-components').at(-1).children.at(-3).dataset.help, /^Activé seul quand un sujet de référence est donné, jamais autrement\./);
+  // (0.6.198) « LoRA des sujets » (« LoRA des sujets de référence » before).
+  const subjects = linesOf(f, 'native-workflow-components').at(-1);
+  assert.deepEqual(
+    [namesOf(f, 'native-workflow-components').at(-1), subjects.children[0].title, subjects.children[1].attributes['aria-label']],
+    ['LoRA des sujets', 'LoRA des sujets', 'Fichier · LoRA des sujets'],
+  );
+  assert.match(subjects.children.at(-3).dataset.help, /^Activé seul quand un sujet est donné, jamais autrement\./);
   assert.deepEqual(saved.loras, ltx.loras);
   assert.equal(f.$('native-lora-note').textContent, 'Aucun LoRA ajouté.');
 
@@ -1345,12 +1353,35 @@ test('a LoRA is added on and removed by its cross; a model that takes none says 
   assert.equal(f.$('native-workflow-add-lora').disabled, true, 'stays greyed after a busy spell');
 });
 
-test('« Améliorer le prompt » is one line with its switch, whose instruction is saved with the model', async t => {
+test('(0.6.198) MiniMax H3: the file it reads for subjects says « sujets », as its case « SUJET 1 » does', async t => {
+  // (Vérification du 21/11, D1) « Modèle pour les références », read « quand la demande a des images de référence ».
+  const f = await setup(t),
+    minimax = structuredClone(await shippedWorkflow('minimax_h3'));
+  // (Its line shows once the model has that file: FastH3 Omni, shipped, needs none.)
+  minimax.components.referenceModel = { policy: 'fixed', asset: '' };
+  await f.ui.edit(minimax, { name: 'MiniMax H3' });
+  const names = namesOf(f, 'native-workflow-components');
+  assert.ok(names.includes('Modèle pour les sujets'), names.join(' | '));
+  assert.ok(!names.some(name => /référence/.test(name)), names.join(' | '));
+  // Its note, which the server says when a file is not the one expected (lib/generation-assets.mjs), and the note
+  // of the model: « sujets » too (« images de référence », « FastH3 Omni (références) » before).
+  const { components } = familyCatalog().find(item => item.family === 'minimax_h3');
+  assert.match(components.referenceModel.note, /celui-ci \(Ref2VA\) est lu quand la demande a des sujets\./);
+  assert.match(components.model.note, /FastH3 Omni \(sujets\)/);
+  assert.doesNotMatch(components.referenceModel.note + components.model.note, /référence/);
+});
+
+test('« Enrichir le prompt » is one line with its switch, whose instruction is saved with the model (« Améliorer » before 0.6.198)', async t => {
   const f = await setup(t);
   await f.ui.edit(f.template);
   const toggle = f.$('native-enhance-switch'),
     instruction = f.$('native-enhance-template');
   assert.deepEqual([toggle.type, toggle.checked], ['checkbox', false]);
+  // (0.6.198) In the words of the wand of the Studio, « Enrichir », and of the page of a take, « Prompt enrichi ».
+  assert.deepEqual(
+    [toggle.attributes['aria-label'], instruction.attributes['aria-label'], instruction.parent.children[0].textContent],
+    ['Enrichir le prompt avant chaque image', 'Consigne d’enrichissement du prompt', 'Consigne d’enrichissement'],
+  );
   assert.match(instruction.value, /\{\{prompt\}\}/, 'the family default instruction is proposed');
   assert.deepEqual([instruction.parent.className, instruction.parent.hidden], ['set-more', true], 'the instruction only shows when it is on');
   // Off in a workflow that never had the setting: nothing is added to it.
@@ -1373,7 +1404,7 @@ test('« Améliorer le prompt » is one line with its switch, whose instruction 
   assert.equal(f.ui.editorDirty(), false);
   f.$('native-enhance-template').value = 'No placeholder';
   assert.equal(await f.ui.saveEditor(), false);
-  assert.match(f.$('native-workflow-error').textContent, /\{\{prompt\}\} exactement une fois/);
+  assert.equal(f.$('native-workflow-error').textContent, 'La consigne d’enrichissement doit contenir {{prompt}} exactement une fois.');
   ticked(f.$('native-enhance-switch'), false);
   assert.equal(await f.ui.saveEditor(), true);
   saved = lastSave(f);
@@ -1407,7 +1438,7 @@ test('the prompt, the seed and the size are no lines: what a workflow holds of t
   assert.equal(await f.ui.saveEditor(), true, f.$('native-workflow-error').textContent);
   const untouched = lastSave(f);
   assert.deepEqual(untouched.parameters.prompt, { policy: 'fixed', value: 'Un portrait' });
-  // (nor is a setting it never had added to it: « Améliorer le prompt », off)
+  // (nor is a setting it never had added to it: « Enrichir le prompt », off)
   assert.equal(untouched.parameters.expandPrompt, undefined);
   assert.equal(workflowFingerprint(untouched), workflowFingerprint(fixed));
   // …and with a change of the user's, the prompt is written at each creation from then on.
@@ -1422,7 +1453,7 @@ test('Krea 2: its denoise is Moodix AI’s, no line; one a copy of before fixed 
   const f = await setup(t),
     krea = await shippedWorkflow('krea2');
   await f.ui.edit(structuredClone(krea), { name: 'Krea 2' });
-  assert.deepEqual(namesOf(f, 'native-workflow-parameters'), ['Étapes', 'Guidage', 'Améliorer le prompt avant chaque image']);
+  assert.deepEqual(namesOf(f, 'native-workflow-parameters'), ['Étapes', 'Guidage', 'Enrichir le prompt avant chaque image']);
   assert.equal(
     under(f.$('native-workflow-parameters')).some(node => node.id === 'native-value-denoise'),
     false,

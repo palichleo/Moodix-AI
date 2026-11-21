@@ -2,7 +2,7 @@ import { FORMATS, formatOf, nearestFormat, nearestSize, sizeFits, sizesFor } fro
 import { healThumbnail, thumbnailOf } from './thumbnails.mjs';
 import { livePreview } from './live-preview.mjs';
 import { fluxStart, takeFlux } from './take-flux.mjs';
-import { outputActions } from './output-actions.mjs';
+import { ACTION_TIPS, outputActions } from './output-actions.mjs';
 import { setupPointer } from './studio-pointer.mjs';
 import { closePopup, openPopup } from './glass-menu.mjs';
 import { fileInfo } from './media-info.mjs';
@@ -11,7 +11,7 @@ import { DELETE_TIP, deleteQuestion } from './take-delete.mjs';
 import { explanation, foldPrompt } from './studio-explain.mjs';
 import { clipPlayer, stillClip } from './take-player.mjs';
 import { elapsedClock } from './generation-time.mjs';
-import { SETTING_NAMES } from './setting-names.mjs';
+import { settingName } from './setting-names.mjs';
 import { setupMontage } from './montage.mjs';
 
 /**
@@ -65,17 +65,9 @@ const ADD = {
   start_image: 'Ajouter l’image de début',
   end_image: 'Ajouter l’image de fin',
 };
-const SETTINGS = {
-  lyrics: 'Paroles',
-  seconds: 'Durée (s)',
-  language: 'Langue',
-  subject: 'Qui remplacer',
-  reference_subject: 'Qui dessiner',
-  denoise: 'Débruitage',
-};
-// (0.6.102) A setting by its name in the Studio, else by the one Paramètres › Workflows gives it
-// (« Étapes », « Audio »): never by its key (« steps »).
-const settingName = key => SETTINGS[key] ?? SETTING_NAMES[key] ?? key;
+// (0.6.102) A setting by its name in the Studio, else by the one Paramètres › Modèles gives it
+// (« Étapes », « Son »): never by its key (« steps »). (0.6.198) `settingName` of setting-names.mjs, which
+// holds the short names of the Studio (« Durée (s) », « Qui remplacer »): the card of a proposal says the same.
 /**
  * (0.6.102) A value of a setting as a creation takes it: a switch is true or false; a number within
  * the bounds of its workflow (the nearest one when it is beyond them), whole and in its steps when it
@@ -855,7 +847,7 @@ export function setupStudio({
       draft.inputs[to.role][to.index] = other;
       draft.inputs[from.role][from.index] = image;
       failure = refused
-        ? `${ROLES[to.role]} : ce rôle n’est pas possible pour cette image avec ce workflow.`
+        ? `${ROLES[to.role]} : ce rôle n’est pas possible pour cette image avec ce modèle.`
         : `${ROLES[to.role]} ne se combine pas avec : ${[...new Set(clash)].map(role => ROLES[role]).join(', ')}.`;
     } else {
       failure = '';
@@ -1136,7 +1128,7 @@ export function setupStudio({
       labels = [];
     for (const [role, spec] of Object.entries(workflow.roles ?? {})) {
       if (['start_image', 'end_image', 'reference'].includes(role)) continue;
-      // A continuation: its clip is the one named above the prompt (« Suite du clip »), never asked
+      // A continuation: its clip is the one named above the prompt (« Suite de la prise 4 »), never asked
       // again in an empty case that « Générer » would not read.
       if (role === 'source' && mode === 'video' && extending) continue;
       // The video a character is replaced in: a slot like an image's, which takes a video.
@@ -1210,7 +1202,7 @@ export function setupStudio({
         store[setting.key] = control.value;
       };
       aiTarget(control, 'setting-' + setting.key);
-      block.append(field(SETTINGS[setting.key], control, { tip: WHO[setting.key].help }));
+      block.append(field(settingName(setting.key), control, { tip: WHO[setting.key].help }));
     }
     return block;
   }
@@ -1722,10 +1714,10 @@ export function setupStudio({
     // (Left to the assistant, it has its switch: no mark of Moodix AI beside its name, 0.6.92.)
     name.append(node('span', 'studio-lora-label', lora.name));
     name.title = lora.description ? lora.name + ' · ' + lora.description : lora.name;
-    if (!free) value.title = 'Force fixée dans Workflows';
+    if (!free) value.title = 'Force fixée dans Paramètres › Modèles';
     lock.append(icon('lock'));
     lock.setAttribute('role', 'img');
-    lock.setAttribute('aria-label', 'LoRA du workflow');
+    lock.setAttribute('aria-label', 'LoRA du modèle');
     lock.title = 'LoRA du modèle : réglé dans Paramètres › Modèles';
     row.append(name, track, value);
     if (lora.assistant) {
@@ -1939,7 +1931,7 @@ export function setupStudio({
       }
       aiTarget(control, 'setting-' + setting.key);
       const wrapper = field(label, control, { wide: setting.type === 'string' && !setting.choices }),
-        // (0.6.102) Read only with an input not given (« Compression des références » without a start
+        // (0.6.102) Read only with an input not given (« Compression des images (CRF) » without a start
         // or an end image): greyed as a bar is, and why in its tip.
         idle = idleReason(workflow, setting, draft);
       // Its name, its switch at the right, on one line.
@@ -2134,7 +2126,8 @@ export function setupStudio({
         sign.classList?.add('studio-blank-mark');
         blank.append(sign);
       }
-      blank.append(node('p', 'studio-blank-title', 'Votre première prise apparaîtra ici.'));
+      // (0.6.198) « première » only in a project without takes: above those of the Sortie, the next one.
+      blank.append(node('p', 'studio-blank-title', runs.some(record => record.outputs?.length) ? 'Votre prochaine prise apparaîtra ici.' : 'Votre première prise apparaîtra ici.'));
       // How to begin, but not while Moodix AI sets the Studio or its proposal waits (0.6.101): it said
       // « laissez Moodix AI régler le Studio » as it did so. What it proposes is said at the top of the
       // screen (studio-explain.mjs): nothing more here than where the take comes and its size.
@@ -2614,7 +2607,7 @@ export function setupStudio({
       workflow = current(),
       verb = verbOf(),
       prompt = draft.prompt.trim();
-    if (!workflow) throw Error('Aucun workflow prêt pour cette création.');
+    if (!workflow) throw Error('Aucun modèle prêt pour cette création.');
     if (!prompt)
       throw Error(
         workflow?.follows
@@ -2662,7 +2655,7 @@ export function setupStudio({
       if (!Number.isSafeInteger(seed) || seed < 0)
         throw Error(
           seedFixed !== null
-            ? 'Seed : un entier positif, ou vide pour celle du workflow.'
+            ? 'Seed : un entier positif, ou vide pour celle du modèle.'
             : 'Seed : un entier positif, ou vide pour un tirage.',
         );
       // (0.6.102) A seed « Fixe » holds Moodix AI, not the user: changed here, it is the user's own change.
@@ -4017,7 +4010,7 @@ export function setupStudio({
   // ------------------------------------------------------------------ the Sortie
   // (moodix-design.md 15, 15 bis, 22-24; 7 bis 7, 8, 11): pictures only, the newest at the left
   // with the largest number; one round button on each (Prolonger, Animer), the bin on hover or
-  // focus, all of them and « Détails » under a right click or a long press; a click shows it whole
+  // focus, all of them and « Ouvrir » under a right click or a long press; a click shows it whole
   // with its details; a deletion is asked on the picture itself.
   const KIND = { video: 'Clip', image: 'Image', audio: 'Son' };
   // What the Sortie shows: the whole project, images, clips and sounds (16/11: its button at the
@@ -4100,7 +4093,7 @@ export function setupStudio({
     draft.inputs.reference = list;
     useImage(record, 'video', 'reference', list.length);
   }
-  /** « Détails » of a creation: shown whole, its details beside it (what a click on it does). */
+  /** « Ouvrir » a creation (« Détails » before 0.6.198): shown whole, its details beside it (what a click on it does). */
   function showDetails(record) {
     menuFor = confirmFor = null;
     render();
@@ -4144,9 +4137,9 @@ export function setupStudio({
     if (proposal) return 'Moodix AI est en train de proposer';
     const list = info?.tools?.extend_video ?? [];
     if (list.some(item => !item.unavailable)) return '';
-    return list[0]?.unavailable || 'Aucun workflow ne sait prolonger une vidéo.';
+    return list[0]?.unavailable || 'Aucun modèle ne sait prolonger une vidéo.';
   }
-  /** What can be done with a creation: Prolonger or Animer first, then Modifier, Détails, Supprimer. */
+  /** What can be done with a creation: Prolonger or Animer first, then Modifier, Ouvrir, Supprimer. */
   function actionsOf(record) {
     const media = mediaOf(record),
       list = [];
@@ -4179,7 +4172,8 @@ export function setupStudio({
         id: 'animate',
         label: 'Animer',
         glyph: 'act-animate',
-        title: proposal ? 'Moodix AI est en train de proposer' : 'Animer · en faire une vidéo',
+        // (0.6.198) The words of the bar of a take (« Animer · en faire une vidéo » before).
+        title: proposal ? 'Moodix AI est en train de proposer' : ACTION_TIPS.animate,
         off: Boolean(proposal),
         run: () => animateImage(record),
       });
@@ -4194,7 +4188,8 @@ export function setupStudio({
         off: proposal?.mode === 'image',
         run: () => editImage(record),
       });
-    list.push({ id: 'details', label: 'Détails', glyph: 'info', title: 'Détails', run: () => showDetails(record) });
+    // (0.6.198) « Ouvrir », as the bar of a take opens the same page (« Détails » before).
+    list.push({ id: 'details', label: 'Ouvrir', glyph: 'info', title: ACTION_TIPS.details, run: () => showDetails(record) });
     list.push({
       id: 'delete',
       label: 'Supprimer',
@@ -4219,15 +4214,21 @@ export function setupStudio({
     const media = mediaOf(record),
       output = record.outputs[0] ?? {},
       number = numberOf(record),
-      name = (KIND[media] ?? 'Création') + ' #' + number,
+      // (0.6.198) A take by the number its badge shows (« PRISE 4 »): « Prise 4 »; one without it by its place in the
+      // Sortie, as its badge (« #3 »). The clip it comes from likewise (« Clip #4 · suite du clip #3 » before).
+      name = Number.isInteger(output.take) ? 'Prise ' + output.take : '#' + number,
+      madeFrom = (id, place) => {
+        const take = runs.find(run => run.id === id)?.outputs?.[0]?.take;
+        return Number.isInteger(take) ? 'la prise ' + take : '#' + place;
+      },
       from = media === 'video' && sourceOf(record) ? numberOf({ id: sourceOf(record), mediaType: 'video' }) : null,
       // An upscale or an interpolation of a clip: the clip it was made from.
       transform = media === 'video' ? transformOf(record) : null,
       origin = transform && transformedFrom(record) ? numberOf({ id: transformedFrom(record), mediaType: 'video' }) : null,
       said = [
         name,
-        from ? 'suite du clip #' + from : '',
-        transform ? (transform === 'AGRANDIE' ? 'agrandissement' : 'interpolation') + (origin ? ' du clip #' + origin : '') : '',
+        from ? 'suite de ' + madeFrom(sourceOf(record), from) : '',
+        transform ? (transform === 'AGRANDIE' ? 'agrandissement' : 'interpolation') + (origin ? ' de ' + madeFrom(transformedFrom(record), origin) : '') : '',
         record.prompt || '',
       ]
         .filter(Boolean)
@@ -4387,6 +4388,9 @@ export function setupStudio({
         });
         entry.setAttribute('role', 'menuitem');
         entry.title = action.title;
+        // (0.6.198) Its bubble beside the menu, as beside a list (help-tips.mjs): above its line, « Ouvrir :
+        // l’original, ses paramètres, Télécharger » covered « Modifier ».
+        entry.dataset.tipSide = 'left';
         if (action.off) entry.setAttribute('aria-disabled', 'true');
         menu.append(entry);
       }
@@ -4411,7 +4415,7 @@ export function setupStudio({
       });
       tile.append(menu);
     }
-    // « Supprimer #12 ? » (0.6.147: the number of the take, as the Pellicule asks it; the montages that
+    // « Supprimer la prise 12 ? » (0.6.147: the number of the take, as the Pellicule asks it; the montages that
     // use it said under it), written once for both (take-delete.mjs).
     if (confirmFor === record.id)
       tile.append(
@@ -4753,7 +4757,7 @@ export function setupStudio({
     if (!workflow)
       return message(
         mode === 'audio'
-          ? 'Aucun workflow de son prêt : téléchargez les modèles de musique et de bruitages dans models\\audio.'
+          ? 'Aucun modèle de son prêt : téléchargez les modèles de musique et de bruitages dans models\\audio.'
           : 'Aucun modèle prêt pour cette création : vérifiez Paramètres › Modèles.',
       );
     // The first time a mode shows its model, the settings saved for it come back (not over a
@@ -4777,7 +4781,11 @@ export function setupStudio({
     write.append(named);
     if (mode === 'video' && extending) {
       const banner = node('div', 'studio-extending');
-      banner.append(icon('forward'), node('span', '', 'Suite du clip : ' + (extending.prompt || extending.name || '').slice(0, 90)));
+      // (0.6.198) The clip by the number of its take, as the Bobine says it; a clip of the disk, « la vidéo » (« Suite du
+      // clip : » before).
+      const take = extending.outputs?.[0]?.take,
+        what = (extending.prompt || extending.name || '').slice(0, 90);
+      banner.append(icon('forward'), node('span', '', 'Suite de ' + (Number.isInteger(take) ? 'la prise ' + take : 'la vidéo') + (what ? ' : ' + what : '')));
       if (!answering())
         banner.append(
           button('studio-link', 'Annuler', () => {
@@ -4877,7 +4885,7 @@ export function setupStudio({
         });
         if (lyrics.maxLength) box.maxLength = lyrics.maxLength;
         aiTarget(box, 'setting-lyrics');
-        write.append(field(SETTINGS.lyrics, box, { wide: true }));
+        write.append(field(settingName('lyrics'), box, { wide: true }));
       } else
         write.append(
           button('studio-lyrics-toggle', '+ Paroles (facultatif)', () => {
@@ -5473,7 +5481,7 @@ export function setupStudio({
       resource: resource.id,
       mediaType: kind,
       prompt: String(sheet?.prompt ?? ''),
-      // How it is named where a clip continued is named (« Suite du clip : view.mp4 »).
+      // How it is named where a clip continued is named (« Suite de la vidéo : view.mp4 »).
       name: resource.name || name || '',
       workflowId: sheet?.workflowId,
       workflowName: sheet?.workflowName,

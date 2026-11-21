@@ -517,6 +517,36 @@ test('the window of a take says how long it took to make, apart from « Durée �
   $('original-close').onclick();
 });
 
+test('(0.6.198) the page of a take says « Prompt enrichi » and « Enrichir le prompt », as the Studio and the page of a model do', async t => {
+  // (Vérification du 21/11, C1 and C2) « Prompt amélioré (utilisé pour l’image) » and « Prompt enhance : Activé »
+  // under « Plus de détails ». Only an image is ever enriched (the text encoder of Krea 2 rewrites its prompt).
+  const { ui, $ } = await fixture(t);
+  const take = parameters => ({
+    id: 'run',
+    conversationId: 'conversation',
+    workflowName: 'Krea 2',
+    prompt: 'Un phare',
+    createdAt: '2026-11-21T10:00:00Z',
+    parameters: { seed: 7, width: 1024, height: 1024, ...parameters },
+    outputs: [{ source: { filename: 'image.png' }, analysisDataUrl: 'data:image/png;base64,AA==', take: 3 }],
+  });
+  const lines = () => {
+    const texts = $('media-more-list').children.map(item => item.textContent);
+    return Object.fromEntries(texts.flatMap((text, at) => (at % 2 ? [] : [[text, texts[at + 1]]])));
+  };
+  await ui.viewOutput(take({ expandPrompt: true, expanded_prompt: 'A white lighthouse at dusk, its lamp lit.' }), 0);
+  let more = lines();
+  assert.deepEqual(
+    [more['Prompt enrichi (utilisé pour l’image)'], more['Enrichir le prompt']],
+    ['A white lighthouse at dusk, its lamp lit.', 'Activé'],
+  );
+  assert.ok(!Object.keys(more).some(label => /amélioré|enhance/i.test(label)), Object.keys(more).join(' | '));
+  await ui.viewOutput(take({ expandPrompt: false }), 0);
+  more = lines();
+  assert.deepEqual([more['Prompt enrichi (utilisé pour l’image)'], more['Enrichir le prompt']], [undefined, 'Désactivé']);
+  $('original-close').onclick();
+});
+
 test('the prompt of a take opened: cut, a round arrow shows it whole and folds it again; short, no arrow; folded again at another take', async t => {
   const { ui, $ } = await fixture(t);
   const take = (id, prompt) => ({

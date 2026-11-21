@@ -1459,7 +1459,8 @@ test('the Sortie: pictures only, the newest at the left with the largest number,
     assert.deepEqual(numbers(), ['#4', '#2']);
     assert.deepEqual(body.find('studio-item-title'), []);
     assert.deepEqual(body.find('studio-caption'), []);
-    assert.equal(items()[0].find('studio-item-pick')[0].attributes['aria-label'], 'Image #4 · un phare');
+    // (0.6.198) Its name as its badge says it, « #4 » without a number of take (« Image #4 » before).
+    assert.equal(items()[0].find('studio-item-pick')[0].attributes['aria-label'], '#4 · un phare');
     // The wheel scrolls it sideways, the pointer anywhere over it; a sideways move is the
     // browser's, and nothing moves when all of it shows.
     const [sortie] = body.find('is-output'),
@@ -1483,9 +1484,9 @@ test('the Sortie: pictures only, the newest at the left with the largest number,
     // A clip: its continuation said too; « Prolonger » is its round button; no « Lire ».
     assert.equal(
       items()[0].find('studio-item-pick')[0].attributes['aria-label'],
-      'Clip #3 · suite du clip #1 · la suite',
+      '#3 · suite de #1 · la suite',
     );
-    assert.equal(items()[0].find('studio-item-main')[0].attributes['aria-label'], 'Prolonger · Clip #3');
+    assert.equal(items()[0].find('studio-item-main')[0].attributes['aria-label'], 'Prolonger · #3');
     assert.deepEqual(body.find('studio-play'), []);
     // The screen shows the last clip; it is ringed in the Sortie.
     assert.match(items()[0].className, /is-shown/);
@@ -1495,8 +1496,8 @@ test('the Sortie: pictures only, the newest at the left with the largest number,
     assert.deepEqual(opened, ['c1']);
     assert.match(items()[0].className, /is-shown/);
     assert.deepEqual(body.find('studio-item-info'), []);
-    // A right click: every action in a menu; « Détails » is the same view; « Supprimer » asks on the
-    // picture before anything goes.
+    // A right click: every action in a menu; « Ouvrir » is the same view (« Détails » before 0.6.198);
+    // « Supprimer » asks on the picture before anything goes.
     items()[0].oncontextmenu({ preventDefault() {} });
     body.find('studio-item-menu')[0].children[1].onclick();
     assert.deepEqual(opened, ['c1', 'c2']);
@@ -1505,7 +1506,7 @@ test('the Sortie: pictures only, the newest at the left with the largest number,
     assert.equal(menu.attributes.role, 'menu');
     assert.deepEqual(
       menu.children.map(entry => entry.children.at(-1).textContent),
-      ['Prolonger', 'Détails', 'Supprimer'],
+      ['Prolonger', 'Ouvrir', 'Supprimer'],
     );
     menu.children[2].onclick();
     assert.deepEqual(body.find('studio-item-menu'), []);
@@ -1545,7 +1546,7 @@ test('the Sortie: pictures only, the newest at the left with the largest number,
 
     // « Animer »: the picture goes to the references of the first video model, once.
     mode(0);
-    assert.equal(items()[0].find('studio-item-main')[0].attributes['aria-label'], 'Animer · Image #4');
+    assert.equal(items()[0].find('studio-item-main')[0].attributes['aria-label'], 'Animer · #4');
     items()[0].find('studio-item-main')[0].onclick();
     assert.equal(body.dataset.mode, 'video');
     assert.deepEqual(references(), ['@1']);
@@ -1560,7 +1561,7 @@ test('the Sortie: pictures only, the newest at the left with the largest number,
     items()[0].oncontextmenu({ preventDefault() {} });
     assert.deepEqual(
       body.find('studio-item-menu')[0].children.map(entry => entry.children.at(-1).textContent),
-      ['Animer', 'Modifier', 'Détails', 'Supprimer'],
+      ['Animer', 'Modifier', 'Ouvrir', 'Supprimer'],
     );
   } finally {
     restore();
@@ -1760,13 +1761,124 @@ test('in the Sortie, an upscale or an interpolation of a clip is said so, with i
     assert.deepEqual(
       items.slice(0, 5).map(item => item.find('studio-item-pick')[0].attributes['aria-label']),
       [
-        // What it is stays said to a screen reader, without a clip it cannot name.
-        'Clip #6 · interpolation · un renard qui court',
-        'Clip #5 · agrandissement · un renard qui court',
-        'Clip #4 · suite du clip #3 · un renard qui court',
-        'Clip #3 · interpolation du clip #2 · un renard qui court',
-        'Clip #2 · agrandissement du clip #1 · un renard qui court',
+        // What it is stays said to a screen reader, without a clip it cannot name. (0.6.198) Each by the
+        // number of its take, as its badge, and the clip it comes from by its own (« Clip #4 · suite du
+        // clip #3 » before: their places in the Sortie, while the badges said « PRISE 24 », « PRISE 23 »).
+        '#6 · interpolation · un renard qui court',
+        'Prise 25 · agrandissement · un renard qui court',
+        'Prise 24 · suite de la prise 23 · un renard qui court',
+        'Prise 23 · interpolation de la prise 22 · un renard qui court',
+        'Prise 22 · agrandissement de la prise 21 · un renard qui court',
       ],
+    );
+  } finally {
+    restore();
+  }
+});
+
+test('(0.6.198) a take of the Sortie is said « Prise n », as its badge shows it; « Ouvrir » and « Animer » say what the bar of a take says', async () => {
+  // (Vérification du 21/11, B1, B3, B4) Its badge said « PRISE 4 », its bubble and its name « Clip #4 », its
+  // place in the Sortie; its menu « Détails » for the page « Ouvrir » opens everywhere else; « Animer · en faire
+  // une vidéo » beside « Animer : une vidéo qui part de cette prise » on the bar of the screen.
+  const image = { id: 'w', name: 'Image', roles: {}, limits: sizes, size: { width: 1024, height: 1024 }, settings: [] },
+    video = { id: 'v', name: 'Clip', roles: { start_image: { count: 1, media: ['image'] } }, limits: sizes, size: { width: 768, height: 448 }, settings: [] },
+    runs = [
+      {
+        id: 'c2',
+        mediaType: 'video',
+        prompt: 'la suite',
+        parameters: { frames: 121, fps: 24, references: [{ role: 'source_video', output_id: 'c1' }] },
+        outputs: [{ originalUrl: '/c2.mp4', take: 9 }],
+      },
+      { id: 'p1', prompt: 'un phare', parameters: { width: 1024, height: 1024 }, outputs: [{ originalUrl: '/p1.png', thumbUrl: '/p1.jpg', take: 8 }] },
+      { id: 'c1', mediaType: 'video', prompt: 'un renard qui court', outputs: [{ originalUrl: '/c1.mp4', take: 4 }] },
+    ];
+  const opened = [];
+  const { body, restore } = await studioPage(
+    { create_image: [image], create_video: [video] },
+    {},
+    { runs, viewOutput: record => opened.push(record.id) },
+  );
+  try {
+    const tile = id => body.find('studio-item').find(item => item.dataset.id === id),
+      named = id => [tile(id).find('studio-item-pick')[0].attributes['aria-label'], tile(id).find('studio-item-pick')[0].title];
+    assert.deepEqual(named('c1'), ['Prise 4 · un renard qui court', 'Prise 4 · un renard qui court']);
+    assert.deepEqual(named('c2'), ['Prise 9 · suite de la prise 4 · la suite', 'Prise 9 · suite de la prise 4 · la suite']);
+    assert.deepEqual(named('p1'), ['Prise 8 · un phare', 'Prise 8 · un phare']);
+    assert.deepEqual(
+      ['c1', 'p1'].map(id => [tile(id).find('studio-item-main')[0].attributes['aria-label'], tile(id).find('studio-item-del')[0].attributes['aria-label']]),
+      [
+        ['Prolonger · Prise 4', 'Supprimer · Prise 4'],
+        ['Animer · Prise 8', 'Supprimer · Prise 8'],
+      ],
+    );
+    assert.equal(tile('p1').find('studio-item-main')[0].title, 'Animer : une vidéo qui part de cette prise');
+    // Its menu: « Ouvrir », with the words of the bar of a take, opens its page.
+    tile('p1').oncontextmenu({ preventDefault() {} });
+    const [menu] = body.find('studio-item-menu');
+    assert.equal(menu.attributes['aria-label'], 'Actions · Prise 8');
+    assert.deepEqual(
+      menu.children.map(entry => [entry.children.at(-1).textContent, entry.title]),
+      [
+        ['Animer', 'Animer : une vidéo qui part de cette prise'],
+        ['Ouvrir', 'Ouvrir : l’original, ses paramètres, Télécharger'],
+        ['Supprimer', 'Supprimer de sa conversation (le fichier reste dans le dossier output)'],
+      ],
+    );
+    // Their bubbles beside the menu (help-tips.mjs): above its line, that of « Ouvrir » covered the line before.
+    assert.deepEqual(menu.children.map(entry => entry.dataset.tipSide), ['left', 'left', 'left']);
+    menu.children[1].onclick();
+    assert.deepEqual(opened, ['p1']);
+    // Its question: « Supprimer la prise 4 ? ».
+    tile('c1').find('studio-item-del')[0].onclick();
+    assert.equal(body.find('studio-item-confirm')[0].find('studio-confirm-text')[0].textContent, 'Supprimer la prise 4 ?');
+  } finally {
+    restore();
+  }
+});
+
+test('(0.6.198) the Studio says « modèle » where it said « workflow »: a seed of the model, its LoRA always on, no model of sound', async () => {
+  // (Vérification du 21/11, A8) « Seed : … ou vide pour celle du workflow. », « LoRA du workflow », « Force fixée
+  // dans Workflows », « Aucun workflow de son prêt ».
+  const krea = {
+    id: 'k',
+    name: 'Krea 2',
+    family: 'krea2',
+    seedFixed: 7,
+    roles: {},
+    limits: sizes,
+    direct: true,
+    size: { width: 1024, height: 1024 },
+    settings: [],
+    loras: [
+      { id: 'grain', name: 'film_grain', description: 'Grain de film', assistant: true, on: false, strength: { min: 0, max: 1.5, default: 0.8 } },
+      { id: 'net', name: 'net', description: '', assistant: false, on: true, strength: { value: 1 } },
+    ],
+  };
+  const page = await studioPage({ create_image: [krea] }, { 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }) });
+  const { body, restore } = page;
+  try {
+    // Its LoRA always on: its padlock and its strength say where they are set.
+    const net = body.find('studio-lora-row')[1],
+      [lock] = net.find('studio-lora-lock');
+    assert.deepEqual(
+      [lock.attributes['aria-label'], lock.title, net.find('studio-bar-value')[0].title],
+      ['LoRA du modèle', 'LoRA du modèle : réglé dans Paramètres › Modèles', 'Force fixée dans Paramètres › Modèles'],
+    );
+    // A seed the model fixes: what to type instead of a wrong one.
+    body.find('studio-more-pill')[0].onclick();
+    const seed = body.find('studio-seed')[0].children[1];
+    seed.value = '-3';
+    seed.oninput();
+    page.prompt().value = 'un phare';
+    page.prompt().oninput();
+    await body.find('studio-go')[0].onclick();
+    assert.equal(body.find('studio-error')[0]?.textContent, 'Seed : un entier positif, ou vide pour celle du modèle.');
+    // Son, without a model of sound.
+    page.mode(2);
+    assert.equal(
+      body.find('asset-empty')[0]?.textContent,
+      'Aucun modèle de son prêt : téléchargez les modèles de musique et de bruitages dans models\\audio.',
     );
   } finally {
     restore();
@@ -1799,18 +1911,19 @@ test('(0.6.147) the bin asks with the number of the take and the montages that u
     item('a3').find('studio-item-del')[0].onclick();
     let [ask] = body.find('studio-item-confirm');
     // Its number, as the Pellicule asks it (« #2 » before: its place in the Sortie); the montage under it.
-    assert.equal(ask.find('studio-confirm-text')[0].textContent, 'Supprimer #7\u00a0?');
+    // (0.6.198) « la prise 7 », as its badge says it (« #7 » before).
+    assert.equal(ask.find('studio-confirm-text')[0].textContent, 'Supprimer la prise 7\u00a0?');
     // Too small for the name of the montage: in short, whole under the pointer and to a screen reader.
     assert.equal(ask.find('studio-confirm-note')[0].textContent, 'Dans une bobine');
     assert.equal(ask.find('studio-confirm-note')[0].title, 'Elle sert dans la bobine « Le pêcheur »');
-    assert.equal(ask.attributes['aria-label'], 'Supprimer #7\u00a0? Elle sert dans la bobine « Le pêcheur ».');
+    assert.equal(ask.attributes['aria-label'], 'Supprimer la prise 7\u00a0? Elle sert dans la bobine « Le pêcheur ».');
     assert.equal(ask.find('studio-confirm-yes')[0].title, 'Supprimer de sa conversation (le fichier reste dans le dossier output)');
     ask.find('studio-confirm-no')[0].onclick();
     assert.deepEqual(body.find('studio-item-confirm'), []);
     // In no montage: no line.
     item('a2').find('studio-item-del')[0].onclick();
     [ask] = body.find('studio-item-confirm');
-    assert.equal(ask.find('studio-confirm-text')[0].textContent, 'Supprimer #5\u00a0?');
+    assert.equal(ask.find('studio-confirm-text')[0].textContent, 'Supprimer la prise 5\u00a0?');
     assert.deepEqual(ask.find('studio-confirm-note'), []);
     ask.find('studio-confirm-no')[0].onclick();
     assert.equal(asked.filter(([route]) => route === 'studio/delete').length, 0);
@@ -2740,19 +2853,20 @@ test('« Enrichir le prompt » rewrites what is typed, which can be taken back; 
 });
 
 test('the wand says « Enrichir » everywhere (21/11): its old words are nowhere in the application', async () => {
-  // Except « Améliorer le prompt avant chaque image » on the page Modèles, which is no wand: the text encoder
-  // of the model rewrites the prompt there; its name is not decided yet (simple interface, point 4 of 21/11).
+  // (0.6.198) Nor on the page Modèles, where the text encoder of the model rewrites the prompt: « Enrichir le
+  // prompt avant chaque image », its « Consigne d’enrichissement »; « Prompt enrichi » on the page of a take
+  // and for its setting (« Prompt amélioré », « Prompt enhance », « Expansion du prompt » before).
   const { readFile, readdir } = await import('node:fs/promises'),
     root = new URL('../', import.meta.url),
     files = ['server.mjs', 'README.md'],
-    old = /Améliorer le prompt|Amélioration du prompt|« Améliorer »|réécrit votre texte/;
+    old = /Améliorer le prompt|[Aa]mélioration du prompt|[Cc]onsigne d’amélioration|Prompt amélioré|Prompt enhance|Expansion du prompt|« Améliorer »|réécrit votre texte/;
   for (const folder of ['public/', 'lib/', 'scripts/'])
     for (const name of await readdir(new URL(folder, root)))
       if (/\.(m?js|css|html)$/.test(name)) files.push(folder + name);
   assert.ok(files.length > 100, 'the files of the application are read');
   const saying = [];
   for (const name of files) if (old.test(await readFile(new URL(name, root), 'utf8'))) saying.push(name);
-  assert.deepEqual(saying, ['public/native-workflow-ui.mjs']);
+  assert.deepEqual(saying, []);
 });
 
 test('Ctrl+E improves the prompt from the Studio; an image pasted or dropped on its column goes to the first free slot', async () => {
@@ -3793,15 +3907,17 @@ test('the screen is the conversation’s, the Sortie the project’s: a new conv
     await go(null);
     assert.deepEqual(items(), ['b', 'a']);
     assert.equal(body.find('studio-frame')[0].className.includes('is-empty'), true);
-    assert.equal(body.find('studio-blank-title')[0].textContent, 'Votre première prise apparaîtra ici.');
+    // (0.6.198) Not « Votre première prise » above the takes of its project: the next one will be the PRISE 5.
+    assert.equal(body.find('studio-blank-title')[0].textContent, 'Votre prochaine prise apparaîtra ici.');
     // Another conversation of the project: its own take above, the same Sortie.
     await go('c2');
     assert.deepEqual(items(), ['b', 'a']);
     assert.equal(onScreen(), '/b.png');
-    // Another project: its own takes (none), the Studio empty (etats-maquette.md, 55).
+    // Another project: its own takes (none), the Studio empty (etats-maquette.md, 55); its first take to come.
     await go('c9', 'p2');
     assert.deepEqual(items(), []);
     assert.equal(body.find('studio-frame')[0].className.includes('is-empty'), true);
+    assert.equal(body.find('studio-blank-title')[0].textContent, 'Votre première prise apparaîtra ici.');
   } finally {
     restore();
   }
@@ -4197,7 +4313,7 @@ test('on a take of the Sortie, « Prolonger » and « Animer » wear the pictos 
   try {
     const main = id => page.body.find('studio-item').find(tile => tile.dataset.id === id).find('studio-item-main')[0];
     assert.equal(main('c1').children[0].glyph, 'act-extend');
-    assert.equal(main('c1').attributes['aria-label'], 'Prolonger · Clip #2');
+    assert.equal(main('c1').attributes['aria-label'], 'Prolonger · #2');
     assert.equal(main('p1').children[0].glyph, 'act-animate');
   } finally {
     page.restore();
@@ -4580,8 +4696,9 @@ test('Moodix AI continues a clip of the disk (« #ref1 »): the Studio shows tha
     const answer = studio.propose(structuredClone(request), new AbortController().signal);
     await until(() => said.includes('attend votre accord'));
     assert.equal(body.dataset.mode, 'video');
-    // The clip continued is named, and on the screen: it is not a take of the Sortie.
-    assert.equal(body.find('studio-extending')[0].children[1].textContent, 'Suite du clip : view.mp4');
+    // The clip continued is named, and on the screen: it is not a take of the Sortie. (0.6.198) A video
+    // without a number of take: « Suite de la vidéo » (« Suite du clip » before).
+    assert.equal(body.find('studio-extending')[0].children[1].textContent, 'Suite de la vidéo : view.mp4');
     const shown = screenOf(body.find('studio-frame-result')[0]);
     assert.deepEqual([shown.tag, shown.src, shown.poster], ['video', '/media/view/original', '/media/view/preview']);
     assert.equal(body.find('studio-go-label')[0].textContent, 'Générer la suite');
@@ -4671,7 +4788,7 @@ test('a clip of the disk is continued with the model chosen in the Studio, which
     const extendIt = body.find('output-action-extend')[0];
     assert.ok(extendIt, 'the action is offered for a clip of the disk');
     extendIt.onclick();
-    assert.equal(body.find('studio-extending')[0].children[1].textContent, 'Suite du clip : view.mp4');
+    assert.equal(body.find('studio-extending')[0].children[1].textContent, 'Suite de la vidéo : view.mp4');
     assert.equal(body.find('studio-go-label')[0].textContent, 'Générer la suite');
     // No model made this clip: the list of the models that can continue one, to choose from.
     const [model] = body.find('studio-model-pick');
@@ -4916,7 +5033,8 @@ test('the empty screen says how to begin, but not while Moodix AI sets the Studi
     // At each step of the pointer, then while it waits: where the take comes and its size, nothing more
     // (what is proposed is said at the top of the screen).
     assert.deepEqual(hints, [0, 0, 0, 0, 0, 0, 0]);
-    assert.equal(body.find('studio-blank-title')[0].textContent, 'Votre première prise apparaîtra ici.');
+    // (0.6.198) « prochaine »: its project has a take already (the portrait, PRISE 1).
+    assert.equal(body.find('studio-blank-title')[0].textContent, 'Votre prochaine prise apparaîtra ici.');
     // Its size breaks after « · » only, in a narrow frame: never « 768 » alone on a line.
     assert.equal(body.find('studio-blank-size')[0].textContent, '9:16 · 448 × 768');
     studio.decline();
@@ -5085,9 +5203,10 @@ test('« Prolonger » on a clip of the Sortie opens Vidéo with its banner, from
     assert.equal(body.dataset.mode, 'image');
     assert.equal(prolonger(body).attributes['aria-disabled'], undefined);
     prolonger(body).onclick();
-    // A continuation is made in Vidéo: its banner with « Annuler », no format to choose.
+    // A continuation is made in Vidéo: its banner with « Annuler », no format to choose. (0.6.198) The clip
+    // by the number of its take, as the Bobine says it (« Suite du clip » before).
     assert.equal(body.dataset.mode, 'video');
-    assert.equal(body.find('studio-extending')[0].children[1].textContent, 'Suite du clip : un renard court');
+    assert.equal(body.find('studio-extending')[0].children[1].textContent, 'Suite de la prise 1 : un renard court');
     assert.equal(body.find('studio-extending')[0].find('studio-link').length, 1);
     assert.equal(body.find('studio-go-label')[0].textContent, 'Générer la suite');
     page.prompt().value = 'il s’arrête';
@@ -5115,9 +5234,9 @@ test('« Prolonger » on a clip of the Sortie opens Vidéo with its banner, from
     const main = prolonger(body);
     assert.equal(main.attributes['aria-disabled'], 'true');
     assert.match(main.className, /is-off/);
-    assert.match(main.title, /Aucun workflow ne sait prolonger une vidéo\./);
+    assert.match(main.title, /Aucun modèle ne sait prolonger une vidéo\./);
     main.onclick();
-    assert.equal(notices.at(-1), 'Aucun workflow ne sait prolonger une vidéo.');
+    assert.equal(notices.at(-1), 'Aucun modèle ne sait prolonger une vidéo.');
     assert.equal(body.find('studio-go').length, 1, 'the Studio is still there');
     assert.equal(body.find('studio-item').length, 2);
     assert.deepEqual(body.find('studio-extending'), []);
@@ -5181,7 +5300,7 @@ test('a continuation proposed by Moodix AI stays one while it waits: another mod
     assert.equal(body.find('studio-look-back').length, 1);
     const answer = studio.propose(continuation(), new AbortController().signal);
     await settle();
-    const proposed = { banner: 'Suite du clip : un renard court', go: 'Générer la suite', formats: 0, duration: '07.67 S' };
+    const proposed = { banner: 'Suite de la prise 1 : un renard court', go: 'Générer la suite', formats: 0, duration: '07.67 S' };
     assert.deepEqual(shown(), proposed);
     // The other modes still work by hand: the user looks at Image, then comes back.
     page.mode(0);
@@ -5268,7 +5387,7 @@ test('the images of a proposal change role as the server offers, said by its own
     answer = studio.propose(narrow, new AbortController().signal);
     await rested();
     drag(0, 1);
-    assert.equal(error(), 'Image de fin : ce rôle n’est pas possible pour cette image avec ce workflow.');
+    assert.equal(error(), 'Image de fin : ce rôle n’est pas possible pour cette image avec ce modèle.');
     assert.deepEqual(shown(), ['/portrait.webp', null, null]);
     studio.decline();
     assert.equal(await answer, 'deny');
@@ -5732,7 +5851,7 @@ test('« Modifier » chooses a model that takes an image when the one in hand ta
     alone.body.find('studio-item')[0].oncontextmenu({ preventDefault() {} });
     assert.deepEqual(
       alone.body.find('studio-menu-item').map(item => item.children.at(-1).textContent),
-      ['Détails', 'Supprimer'],
+      ['Ouvrir', 'Supprimer'],
     );
   } finally {
     alone.restore();

@@ -248,7 +248,7 @@ test('no text of the interface is smaller than 12 px', async () => {
   assert.ok(labels.length > 10);
   for (const rule of labels) assert.match(rule, /letter-spacing: 0\.\d+em/, rule);
   // (21/11, decision 2 of the simple interface) The words that name a piece are no labels: 12 px, under
-  // the images of a card of the Chat (« DÉBUT », « SUJET 1 »), on the track PHOTOS of the Bobine (« Début »,
+  // the images of a card of the Chat (« DÉBUT », « SUJET 1 »), on the track IMAGES of the Bobine (« Début »,
   // « Fin ») and under a slot a take is carried over (« FIN », « REMPLACER »).
   const naming = [
     /\n\.proposal-input figcaption \{[^}]*\}/,
@@ -554,4 +554,57 @@ test('the picture of a plan of the montage is never stretched to the width of th
   }
   // (The rule of the plans comes after the one that gave them « cover »: it is the one read.)
   assert.ok(sheet.lastIndexOf('\n.montage-piece:not(.is-sound):not(.is-todo) {') > sheet.indexOf('\n.montage-piece {'));
+});
+
+test('(0.6.198) a sentence that sends the user to a setting names where it is, as the screen names it; one assistant, « Moodix AI »', async () => {
+  // (Vérification du 21/11, A1, A2, A5) The token was said to be in « Paramètres › Mise à jour », the own
+  // llama-server in « Réglages › Génération › Moteur llama.cpp », and Paramètres › Génération said « Moodix Agent ».
+  const read = async name => (await readFile(new URL('../' + name, import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  const html = await read('public/index.html');
+  // « Paramètres › <the tab of its panel> › <the title of its block> », read from the page itself.
+  const placeOf = id => {
+    const at = html.indexOf(`id="${id}"`),
+      before = html.slice(0, at),
+      [, panel, tab] = [...before.matchAll(/role="tabpanel" id="([^"]+)"[^>]*aria-labelledby="([^"]+)"/g)].at(-1),
+      name = new RegExp(`id="${tab}"[^>]*><span class="settings-tab-label">([^<]+)</span>`).exec(html)[1],
+      block = [...before.matchAll(/<h3>([^<]+)<\/h3>/g)].at(-1);
+    assert.ok(at > 0 && block.index > before.lastIndexOf(`id="${panel}"`), id);
+    return { tab, path: `Paramètres › ${name} › ${block[1]}` };
+  };
+  const token = placeOf('hf-token'),
+    engine = placeOf('engine-path');
+  assert.deepEqual([token.path, engine.path], ['Paramètres › Modèles › Fichiers', 'Paramètres › Moodix AI › Moteur et calcul']);
+  // The Hugging Face token: the Bobine, the card of a missing file in the Chat, the server's refusal, the README.
+  for (const name of ['public/montage.mjs', 'public/missing-file.mjs', 'lib/model-downloads.mjs']) {
+    const said = [...(await read(name)).matchAll(/enregistrez votre jeton dans ([^.`]+)\./g)].map(([, where]) => where);
+    assert.ok(said.length > 0, name);
+    for (const where of said) assert.equal(where, token.path, name);
+  }
+  assert.ok((await read('README.md')).includes(`(**${token.path}**)`), 'README');
+  // Their own llama-server: the bubble of « Choisir le mien… » says where its field is, and the click goes there.
+  const app = await read('public/app.js'),
+    own = app.slice(app.indexOf("'Choisir le mien…'"), app.indexOf('line.append(text, go, own)'));
+  assert.ok(own.includes(`own.title = 'Utiliser votre propre llama-server : ${engine.path}';`), own);
+  assert.ok(own.includes(`$('${engine.tab}').click();`), own);
+  // « Moodix Agent » nowhere on a screen: the assistant is « Moodix AI », two lines further too.
+  const { readdir } = await import('node:fs/promises');
+  for (const name of (await readdir(new URL('../public/', import.meta.url))).filter(file => /\.(m?js|html)$/.test(file)))
+    assert.doesNotMatch(await read('public/' + name), /Moodix Agent/, name);
+});
+
+test('(0.6.198) what the page says to the user calls a model « modèle », never « workflow », and says « agrandir », never « upscale »', async () => {
+  // (Vérification du 21/11, A8) Reasons of a greyed button, errors, names read. In these files every sentence is
+  // the user's; what the chat model reads is written elsewhere (app.js, lib/tool-*.mjs) and keeps its words.
+  const files = ['public/output-actions.mjs', 'public/studio.mjs', 'public/native-workflow-ui.mjs', 'public/video-plan.mjs', 'lib/model-downloads.mjs'],
+    french = /\b(?:[Aa]ucun|ce|du|le|les|un|des|de|dans|par) [Ww]orkflows?\b|d’upscale|\bupscale (?:image|vidéo)\b/;
+  for (const name of files) {
+    const lines = (await readFile(new URL('../' + name, import.meta.url), 'utf8')).split(/\r?\n/);
+    assert.deepEqual(lines.filter(line => !/^\s*(?:\/\/|\*|\/\*\*)/.test(line) && french.test(line)), [], name);
+  }
+  // The refusals of routes only the page calls: a download, a model removed or set back.
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8'),
+    catalog = await readFile(new URL('../lib/native-workflows.mjs', import.meta.url), 'utf8');
+  for (const said of ["problem('Modèle introuvable.', 404)", "problem('Les modèles fournis avec Moodix ne se suppriment pas.')"])
+    assert.ok(server.includes(said), said);
+  assert.ok(catalog.includes("invalid('Seul un modèle fourni et modifié peut être rétabli.')"));
 });

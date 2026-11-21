@@ -339,7 +339,7 @@ test('on an empty bobine: from its start, each against the one before; a suite t
   ]);
   assert.deepEqual(result.added, [500, 501, 502, 503, 504, 505].map(id));
   assert.deepEqual(links(result), ['own', 'wait', 'made', 'suite', 'made', 'photo']);
-  assert.deepEqual(said(result), [[id(500), 'Rien avant elle à continuer : c’est un nouveau plan, pas une suite.']]);
+  assert.deepEqual(said(result), [[id(500), 'Rien avant elle à continuer : c’est une nouvelle prise, pas une suite.']]);
   assert.deepEqual(result.filled, []);
 });
 
@@ -359,13 +359,14 @@ test('after a video shown whole, a suite goes on from it; towards a photo it arr
 });
 
 test('after a video cut before its end, of a length nobody knows, or after an image: a new shot, said so (0.6.161)', () => {
+  // (0.6.198) Said « une nouvelle prise », as the Bobine names what it lays (« un nouveau plan » before).
   const whole = withTake(empty(), clip(5, 5), { id: id(10) }),
     suite = [todo('Il se retourne.', { link: 'suite' })],
-    image = 'Une image est avant elle, une suite ne la continue pas : c’est un nouveau plan.',
-    unknown = 'La durée de la vidéo d’avant n’est pas connue : c’est un nouveau plan, pas une suite.';
+    image = 'Une image est avant elle, une suite ne la continue pas : c’est une nouvelle prise.',
+    unknown = 'La durée de la vidéo d’avant n’est pas connue : c’est une nouvelle prise, pas une suite.';
   const cut = arranged(withItemChanged(whole, id(10), { to: 3 }, { longest: 5 }), suite);
   assert.deepEqual([shape(cut.montage)[1], links(cut)], [['à créer', 3, 5, 'Il se retourne.', false, null, null], ['own']]);
-  assert.deepEqual(said(cut), [[id(500), 'La vidéo d’avant est coupée avant sa fin : c’est un nouveau plan, pas une suite.']]);
+  assert.deepEqual(said(cut), [[id(500), 'La vidéo d’avant est coupée avant sa fin : c’est une nouvelle prise, pas une suite.']]);
   // A take nobody knows the length of: in the project, or for whoever lays the plan.
   assert.deepEqual(said(arranged(withTake(empty(), record(8, 'video'), { id: id(10) }), suite)), [[id(500), unknown]]);
   const blind = arranged(whole, suite, [], { lengthOf: () => null });
@@ -395,7 +396,7 @@ test('after a take to create, a suite waits for it (0.6.161)', () => {
 test('a suite that starts on a photo is a new shot on that photo (0.6.161)', () => {
   const result = arranged(withTake(empty(), clip(5, 5), { id: id(10) }), [todo('Le phare s’allume.', { link: 'suite', start: 1, end: 3 })]);
   assert.deepEqual(shape(result.montage)[1], ['à créer', 5, 5, 'Le phare s’allume.', false, 1, 3]);
-  assert.deepEqual([links(result), said(result)], [['photo'], [[id(500), 'Elle commence sur la prise 1 : une suite ne commence pas sur une image, c’est un nouveau plan.']]]);
+  assert.deepEqual([links(result), said(result)], [['photo'], [[id(500), 'Elle commence sur la prise 1 : une suite ne commence pas sur une image, c’est une nouvelle prise.']]]);
 });
 
 test('a photo that is not of the project, or no image, is left out, and said (0.6.161)', () => {

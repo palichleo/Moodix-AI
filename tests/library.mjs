@@ -203,7 +203,8 @@ test('every project: each creation with its project and its conversation; a clic
   assert.deepEqual(find(sound, 'library-sound-head').children.map(item => item.textContent), ['SON', 'BRUITAGE']);
   assert.equal(find(sound, 'library-sound-name').textContent, 'Des vagues');
   assert.ok(find(sound, 'library-listen'));
-  assert.equal(find(clip, 'library-pick').attributes['aria-label'], 'Clip · Un clip · Sans projet · Idées');
+  // (0.6.198) Without a number of take, what it is as the filters say it: « Vidéo » (« Clip » before).
+  assert.equal(find(clip, 'library-pick').attributes['aria-label'], 'Vidéo · Un clip · Sans projet · Idées');
   find(image, 'library-pick').onclick();
   assert.deepEqual(f.viewed, [['r1', 0]]);
   find(clip, 'library-from').onclick();
@@ -648,12 +649,14 @@ test('GET /api/library: the creations of every project, each with its own, the o
 });
 
 test('(0.6.147) the question of a take: its number, else what it is; the montages that use it', () => {
-  assert.equal(deleteWords({ outputs: [{ take: 12 }] }, 'image'), 'Supprimer #12\u00a0?');
-  // Without a number of take: the one it is shown with (the Studio), else what it is.
+  // (0.6.198) « la prise 12 », as its badge says it (« #12 » before).
+  assert.equal(deleteWords({ outputs: [{ take: 12 }] }, 'image'), 'Supprimer la prise 12\u00a0?');
+  // Without a number of take: the one it is shown with (the Studio, « #3 » on its badge), else what it is
+  // (« cette vidéo », as the filters say « Vidéos »; « ce clip » before 0.6.198).
   assert.equal(deleteWords({ outputs: [{}] }, 'video', 3), 'Supprimer #3\u00a0?');
   assert.deepEqual(
     ['image', 'video', 'audio', undefined].map(media => deleteWords({ outputs: [{}] }, media)),
-    ['Supprimer cette image\u00a0?', 'Supprimer ce clip\u00a0?', 'Supprimer ce son\u00a0?', 'Supprimer cette création\u00a0?'],
+    ['Supprimer cette image\u00a0?', 'Supprimer cette vidéo\u00a0?', 'Supprimer ce son\u00a0?', 'Supprimer cette création\u00a0?'],
   );
   assert.equal(montageWords(undefined), '');
   assert.equal(montageWords([]), '');
@@ -699,12 +702,18 @@ test('(0.6.147) every take has the bin of the Studio: asked on the take, ✕ and
   assert.deepEqual(
     ['r1', 'r2', 'r3', 'r4', 'u1'].map(id => [bin(id).attributes['aria-label'], bin(id).attributes['aria-disabled']]),
     [
-      ['Supprimer · Image #12', 'false'],
-      ['Supprimer · Clip #3', 'false'],
-      ['Supprimer · Son #4', 'false'],
+      // (0.6.198) « Prise 12 », as everywhere else (« Image #12 », « Clip #3 », « Son #4 » before).
+      ['Supprimer · Prise 12', 'false'],
+      ['Supprimer · Prise 3', 'false'],
+      ['Supprimer · Prise 4', 'false'],
       ['Supprimer · Image', 'false'],
       ['Supprimer · Image', 'false'],
     ],
+  );
+  // Its name read by a screen reader begins so too (« Image · Une plage · … » before), what it is without one.
+  assert.deepEqual(
+    ['r1', 'r2', 'r4'].map(id => find(card(f, id), 'library-pick').attributes['aria-label'].split(' · ')[0]),
+    ['Prise 12', 'Prise 3', 'Image'],
   );
   assert.equal(bin('r1').title, 'Supprimer de sa conversation (le fichier reste dans le dossier output)');
   assert.equal(bin('r1').children[0].className, 'icon-trash');
@@ -715,7 +724,7 @@ test('(0.6.147) every take has the bin of the Studio: asked on the take, ✕ and
   assert.deepEqual(
     ask.children.map(item => [item.className, item.textContent]),
     [
-      ['studio-confirm-text', 'Supprimer #12\u00a0?'],
+      ['studio-confirm-text', 'Supprimer la prise 12\u00a0?'],
       ['studio-confirm-note', 'Elle sert dans la bobine « Le pêcheur »'],
       ['studio-confirm-row', ''],
     ],
@@ -730,7 +739,7 @@ test('(0.6.147) every take has the bin of the Studio: asked on the take, ✕ and
   // One at a time: another bin closes it.
   bin('r2').onclick();
   assert.deepEqual(open().map(item => item.parent.dataset.id), ['r2']);
-  assert.equal(find(asked('r2'), 'studio-confirm-text').textContent, 'Supprimer #3\u00a0?');
+  assert.equal(find(asked('r2'), 'studio-confirm-text').textContent, 'Supprimer la prise 3\u00a0?');
   assert.equal(find(asked('r2'), 'studio-confirm-note'), undefined, 'in no montage: no line');
   // ✕ keeps it; Échap too. Without a number: what it is.
   find(asked('r2'), 'studio-confirm-no').onclick();

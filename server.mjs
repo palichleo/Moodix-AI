@@ -753,7 +753,7 @@ export async function createApplication({
   }
   /**
    * (0.6.147) The runs of a list, each with the names of the montages of its project that use it
-   * (`montages`): the question « Supprimer #12 ? » says them before a take goes (public/take-delete.mjs).
+   * (`montages`): the question « Supprimer la prise 12 ? » says them before a take goes (public/take-delete.mjs).
    * A project whose montages cannot be read says none; the takes are listed all the same.
    */
   async function withMontages(runs, projectOf) {
@@ -1563,7 +1563,8 @@ export async function createApplication({
       if (path === '/api/downloads/start') {
         if (closing || relaunching) throw problem('L’application est en cours de fermeture.', 409);
         const record = (await generation.catalog.list()).find(item => item.id === body.id);
-        if (!record) throw problem('Workflow introuvable.', 404);
+        // (0.6.198) Said to the user, as the page names a model (« Workflow introuvable » before).
+        if (!record) throw problem('Modèle introuvable.', 404);
         // `accepted`: the licences with conditions of these files were shown, read and confirmed.
         return send(200, await generation.downloads.start(record, { accepted: body.accepted === true }));
       }
@@ -1595,9 +1596,9 @@ export async function createApplication({
           if (path === '/api/generation/validate') return send(200, { workflow: validateNativeWorkflow(body) });
           if (path === '/api/generation/workflows') return send(200, await generation.catalog.save(body));
           if (path === '/api/generation/remove') {
-            // The workflows shipped with Atelier stay: an edited one can only be restored.
+            // The workflows shipped with Moodix stay: an edited one can only be restored. (0.6.198) Said so to the user.
             if ((await generation.catalog.list()).find(item => item.id === body.id)?.builtin)
-              throw problem('Les workflows fournis avec Atelier ne se suppriment pas.');
+              throw problem('Les modèles fournis avec Moodix ne se suppriment pas.');
             await generation.catalog.remove(body.id);
             return send(200, { removed: true });
           }

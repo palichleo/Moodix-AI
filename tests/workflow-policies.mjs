@@ -449,12 +449,12 @@ test('an « Assistant » setting saved without a default takes the value its fam
   const [shownLora] = (await lora.tools.studio()).create_image[0].loras;
   assert.deepEqual([shownLora.on, shownLora.strength], [false, { min: 0, max: 0.5, default: 0.5 }], 'the Studio says the same');
   // Nothing to take (the template of LTX 2.5 has no strength for its subject references): asked
-  // for, under the name the editor shows, with what to do.
+  // for, under the name the editor shows, with what to do. (0.6.198) « … des sujets » (« … des références MSR » before).
   const msr = world([variant('ltx25', { msr_strength: { policy: 'model', type: 'number', min: 0, max: 1 } })]);
   await assert.rejects(ask(msr, 'create_video', { prompt: 'Un renard court', intention: 'Essai', duration: 2 }), {
     status: 400,
     message:
-      'Influence des références MSR : aucune valeur donnée, et ce modèle n’en a pas par défaut. Choisissez-en une dans ses réglages (Paramètres › Modèles).',
+      'Influence des sujets : aucune valeur donnée, et ce modèle n’en a pas par défaut. Choisissez-en une dans ses réglages (Paramètres › Modèles).',
   });
 });
 
@@ -960,8 +960,9 @@ test('Studio · of a change in Paramètres and the last take of a conversation, 
   }
 });
 
-test('Studio · a setting on or off (« Audio » of LTX 2.5) is a switch, sent as true or false, « Fixe » or « Assistant »', async () => {
-  // (0.6.102) It was a number field: « false » from a take was sent as the number 0, refused.
+test('Studio · a setting on or off (« Son » of LTX 2.5) is a switch, sent as true or false, « Fixe » or « Assistant »', async () => {
+  // (0.6.102) It was a number field: « false » from a take was sent as the number 0, refused. (0.6.198) Named
+  // « Son », as the mode of the Studio and « avec le son » of the models (« Audio » before).
   const sound = variant('ltx25', { audio: { policy: 'model', type: 'boolean', default: true } }),
     w = world([sound]),
     [shown] = (await w.tools.studio()).create_video;
@@ -974,13 +975,13 @@ test('Studio · a setting on or off (« Audio » of LTX 2.5) is a switch, sent a
   const page = await studioPage(w);
   try {
     page.mode(1);
-    const field = page.field('Audio');
+    const field = page.field('Son');
     assert.deepEqual([field.tag, field.type, field.checked], ['input', 'checkbox', false], 'a switch, off');
     write(page, 'Un renard court dans la neige');
     assert.equal((await page.generate()).parameters.audio, false);
     assert.equal(page.lastAction().arguments.audio, false);
-    page.field('Audio').checked = true;
-    page.field('Audio').onchange();
+    page.field('Son').checked = true;
+    page.field('Son').onchange();
     assert.equal((await page.generate()).parameters.audio, true);
     assert.equal(page.lastAction().arguments.audio, true);
   } finally {
@@ -992,9 +993,9 @@ test('Studio · a setting on or off (« Audio » of LTX 2.5) is a switch, sent a
   try {
     fixedPage.mode(1);
     write(fixedPage, 'Un renard court dans la neige');
-    assert.equal(fixedPage.field('Audio').checked, true);
-    fixedPage.field('Audio').checked = false;
-    fixedPage.field('Audio').onchange();
+    assert.equal(fixedPage.field('Son').checked, true);
+    fixedPage.field('Son').checked = false;
+    fixedPage.field('Son').onchange();
     assert.equal((await fixedPage.generate()).parameters.audio, false);
     assert.deepEqual(fixedPage.lastRevise().edits, { audio: false });
   } finally {

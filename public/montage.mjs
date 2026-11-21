@@ -10,7 +10,7 @@
  * The fil at the top: « projet / bobine », then (0.6.154) Annuler, Rétablir, « Enregistrer » (the
  * bobine put in the Archives, a point while it changed since) and « Exporter » (« Un seul fichier », « Un
  * fichier par prise »). The words of the page are those of the
- * maquette: prises, prises à créer, suites; the tracks are Photos, Prises, Piste audio 1 and 2. The
+ * maquette: prises, prises à créer, suites; the tracks are Images (Photos before 0.6.198), Prises, Piste audio 1 and 2. The
  * code keeps its own names (montage, plans, sounds).
  *
  * What is kept (lib/montages.mjs) is unchanged: every change is kept a moment after it is made. A take
@@ -1343,7 +1343,7 @@ export function setupMontage({
     if (model) args.workflow = model;
     if (wanted.format) args.format = wanted.format;
     // (0.6.190) « L’image de début », no longer « La photo de début »: « image » in every word of the Bobine
-    // (capture 104); the track keeps its name (PHOTOS), the data their keys (photos).
+    // (capture 104); (0.6.198) the track too (IMAGES), the data keep their keys (photos).
     if (wanted.start) args.start_image = named(wanted.start, wanted.start.frame ? 'La vidéo d’avant' : 'L’image de début');
     if (wanted.end) args.end_image = named(wanted.end, 'L’image de fin');
     if (wanted.continues) args.source = named({ source: wanted.continues }, 'La vidéo continuée');
@@ -1536,7 +1536,7 @@ export function setupMontage({
         fetch.title = licenseSentence(offer.files) || `Télécharger ${name} (${size})`;
         if (offer.needsToken) {
           fetch.disabled = true;
-          said = `${name} demande un compte Hugging Face : acceptez sa licence${offer.page ? ' sur ' + offer.page : ''}, puis enregistrez votre jeton dans Paramètres › Mise à jour.`;
+          said = `${name} demande un compte Hugging Face : acceptez sa licence${offer.page ? ' sur ' + offer.page : ''}, puis enregistrez votre jeton dans Paramètres › Modèles › Fichiers.`;
         }
         watch({ name, offer });
       }
@@ -2499,7 +2499,7 @@ export function setupMontage({
             });
           pin.dataset.plan = plan.id;
           pin.dataset.missing = String(Boolean(photo) && !record);
-          // (0.6.190) « Image de début », no longer « Photo de début »; the track keeps its name (PHOTOS).
+          // (0.6.190) « Image de début », no longer « Photo de début »; (0.6.198) its track is IMAGES too.
           pin.setAttribute('aria-label', `${side === 'start' ? 'Image de début' : 'Image de fin'}, ${span}${empty ? ' : glissez une image ici' : ''}`);
           pin.setAttribute('aria-pressed', String(chosen === plan.id));
           if (picture) pin.style.backgroundImage = `url("${picture}")`;
@@ -2553,7 +2553,7 @@ export function setupMontage({
         if (laid.reason) return notice(laid.reason);
         change(laid.montage, { select: laid.chosen });
       };
-      track.append(node('span', 'montage-track-name', 'Photos'), lane);
+      track.append(node('span', 'montage-track-name', 'Images'), lane);
       lanes.append(track);
     }
     for (const [id, name] of TRACKS) {

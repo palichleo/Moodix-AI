@@ -247,10 +247,11 @@ const suited = (montage, id) => ({
  */
 function whyNoSuite(montage, lengthOf) {
   const before = montage.plans.at(-1);
-  if (!before) return 'Rien avant elle à continuer : c’est un nouveau plan, pas une suite.';
-  if (before.kind === 'image') return 'Une image est avant elle, une suite ne la continue pas : c’est un nouveau plan.';
-  if (!(lengthOf(before.source) > 0)) return 'La durée de la vidéo d’avant n’est pas connue : c’est un nouveau plan, pas une suite.';
-  return 'La vidéo d’avant est coupée avant sa fin : c’est un nouveau plan, pas une suite.';
+  // (0.6.198) « une nouvelle prise », as the Bobine names what it lays (« un nouveau plan » before).
+  if (!before) return 'Rien avant elle à continuer : c’est une nouvelle prise, pas une suite.';
+  if (before.kind === 'image') return 'Une image est avant elle, une suite ne la continue pas : c’est une nouvelle prise.';
+  if (!(lengthOf(before.source) > 0)) return 'La durée de la vidéo d’avant n’est pas connue : c’est une nouvelle prise, pas une suite.';
+  return 'La vidéo d’avant est coupée avant sa fin : c’est une nouvelle prise, pas une suite.';
 }
 
 /** A length brought back within `low` and `high`, as a note says it. */
@@ -280,7 +281,7 @@ function todoLaid(montage, item, { recordOf, newId, tell, lengthOf }) {
     end = photoOf(item.end, 'fin');
   let suite = item.link === 'suite';
   if (suite && start) {
-    tell(id, `Elle commence sur la prise ${item.start} : une suite ne commence pas sur une image, c’est un nouveau plan.`);
+    tell(id, `Elle commence sur la prise ${item.start} : une suite ne commence pas sur une image, c’est une nouvelle prise.`);
     suite = false;
   }
   // (Without a length, the usual one, unsaid: it is no repair.)

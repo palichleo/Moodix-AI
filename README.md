@@ -115,7 +115,7 @@ Workflows shipped with Moodix:
 
 ## Models
 
-Git ignores weights, and the app never moves them. For a shipped workflow whose files are missing, the app offers to download them from their publisher (Hugging Face, or GitHub for Real-ESRGAN): nothing is downloaded before you ask, and a license that sets conditions is shown first and must be accepted (« J’ai lu, télécharger »). Files behind a license gate need your own Hugging Face account and a read token (**Paramètres › Workflows › Hugging Face**), which stays on this computer. Every model keeps its own license, and some restrict commercial use or the countries where the model may be used (MiniMax H3 is not licensed in the European Union, the United Kingdom, South Korea and the United States): see the [table of model licenses](THIRD_PARTY_NOTICES.md#models). Each folder under `models/` contains a short placement guide.
+Git ignores weights, and the app never moves them. For a shipped workflow whose files are missing, the app offers to download them from their publisher (Hugging Face, or GitHub for Real-ESRGAN): nothing is downloaded before you ask, and a license that sets conditions is shown first and must be accepted (« J’ai lu, télécharger »). Files behind a license gate need your own Hugging Face account and a read token (**Paramètres › Modèles › Fichiers**), which stays on this computer. Every model keeps its own license, and some restrict commercial use or the countries where the model may be used (MiniMax H3 is not licensed in the European Union, the United Kingdom, South Korea and the United States): see the [table of model licenses](THIRD_PARTY_NOTICES.md#models). Each folder under `models/` contains a short placement guide.
 
 | Folder | Contents |
 | --- | --- |

@@ -73,7 +73,7 @@ export function inertSetting(manifest, workflow, name, part) {
     if (!stages.includes(part))
       return workflow.parameters?.stage
         ? `Jamais utilisé : « ${labels.stage} » ne prend pas cette version.`
-        : `Jamais utilisé : ce workflow n’a pas de réglage « ${labels.stage} ».`;
+        : `Jamais utilisé : ce modèle n’a pas de réglage « ${labels.stage} ».`;
     // The router always passes a length (the one asked, else the default): the profile's is never used.
     if (name === 'frames' && policy?.policy === 'model')
       return `La durée est celle demandée, sinon « ${labels.frames} » des réglages de génération.`;
@@ -1492,15 +1492,16 @@ export function setupNativeWorkflows(options) {
     const id = 'native-lora-asset-' + lora.id,
       picker = assetPicker('lora', id, lora.asset, {
         detects: false,
-        named: bound ? 'LoRA des sujets de référence' : 'LoRA',
-        about: bound ? 'Activé seul quand un sujet de référence est donné, jamais autrement.' : '',
+        // (0.6.198) « sujets », as their cases say it (« LoRA des sujets de référence » before).
+        named: bound ? 'LoRA des sujets' : 'LoRA',
+        about: bound ? 'Activé seul quand un sujet est donné, jamais autrement.' : '',
       });
     if (bound) {
       // Its own line among the files of the model: nothing of it is a choice.
       const line = node('div', 'set-line set-file'),
-        caption = node('label', 'set-name', 'LoRA des sujets de référence');
+        caption = node('label', 'set-name', 'LoRA des sujets');
       caption.setAttribute('for', id + '-file');
-      caption.title = 'LoRA des sujets de référence';
+      caption.title = 'LoRA des sujets';
       line.append(caption, picker.field, picker.browse, picker.detect, picker.help, picker.control, picker.list);
       $('native-workflow-components').append(line);
       readLoras.push({ bound: true, read: () => ({ ...lora, asset: picker.selected() }) });
@@ -1770,7 +1771,8 @@ export function setupNativeWorkflows(options) {
     setBusy(busy);
   }
   /**
-   * « Améliorer le prompt » on its line, with its switch. On, the family's text encoder rewrites the
+   * « Enrichir le prompt » on its line, with its switch (0.6.198: the verb of the wand of the Studio; the page
+   * of a take says « Prompt enrichi »). On, the family's text encoder rewrites the
    * prompt before each image with an instruction the user may edit, under the line; the prompt
    * actually used is kept with the image. Returns its elements, or null when the family has none.
    */
@@ -1785,17 +1787,17 @@ export function setupNativeWorkflows(options) {
     if (!supported) return null;
     const on = policy?.policy === 'model' ? policy.default === true : policy?.value === true,
       line = node('div', 'set-line set-value'),
-      caption = node('label', 'set-name', 'Améliorer le prompt avant chaque image'),
-      toggle = valueControl({ id: 'native-enhance-switch', title: 'Améliorer le prompt avant chaque image', type: 'boolean', initial: on }),
+      caption = node('label', 'set-name', 'Enrichir le prompt avant chaque image'),
+      toggle = valueControl({ id: 'native-enhance-switch', title: 'Enrichir le prompt avant chaque image', type: 'boolean', initial: on }),
       template = element('textarea', 'native-enhance-template'),
       instruction = node('details', 'set-more');
     caption.setAttribute('for', 'native-enhance-switch');
     template.value = config.template;
     template.rows = 6;
     template.spellcheck = false;
-    template.setAttribute('aria-label', 'Consigne d’amélioration du prompt');
+    template.setAttribute('aria-label', 'Consigne d’enrichissement du prompt');
     instruction.append(
-      node('summary', '', 'Consigne d’amélioration'),
+      node('summary', '', 'Consigne d’enrichissement'),
       template,
       node('p', 'field-help', 'Le texte {{prompt}} est remplacé par le prompt demandé ; il doit apparaître une seule fois.'),
     );
@@ -1825,7 +1827,7 @@ export function setupNativeWorkflows(options) {
           expansion: draft.promptExpansion,
         };
       if (template.value.split('{{prompt}}').length !== 2)
-        throw Error('La consigne d’amélioration doit contenir {{prompt}} exactement une fois.');
+        throw Error('La consigne d’enrichissement doit contenir {{prompt}} exactement une fois.');
       return {
         parameter: policy?.policy === 'fixed' && policy.value === true ? policy : { policy: 'fixed', value: true },
         expansion: { ...config, template: template.value },

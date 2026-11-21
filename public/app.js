@@ -1649,11 +1649,13 @@ function llamaLine() {
       own = node('button', 'text-button llama-install-own', 'Choisir le mien…');
     go.type = 'button';
     go.hidden = true;
-    // Their own llama-server stays theirs to choose: the field of the engine, in Génération.
+    // Their own llama-server stays theirs to choose: the field of the engine, in Paramètres › Moodix AI › Moteur et
+    // calcul (0.6.198: the bubble named « Réglages › Génération › Moteur llama.cpp », and the click opened Génération,
+    // where the field is not).
     own.type = 'button';
-    own.title = 'Utiliser votre propre llama-server : Réglages › Génération › Moteur llama.cpp';
+    own.title = 'Utiliser votre propre llama-server : Paramètres › Moodix AI › Moteur et calcul';
     own.onclick = () => {
-      $('settings-tab-generation').click();
+      $('settings-tab-ai').click();
       $('engine-path').scrollIntoView({ block: 'center' });
       $('engine-path').focus();
     };

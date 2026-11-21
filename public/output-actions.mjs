@@ -7,6 +7,8 @@
  * Icons only (claude_design/icones-actions: their drawing and the words under the pointer, which are
  * their name for screen readers too). One that no active workflow can do is greyed, with the reason
  * under its words. « Ouvrir » shows the original and its settings (« Détails » before 0.6.6).
+ * (0.6.198) The reason says « modèle » and « agrandir », as the rest of the application (« Aucun
+ * workflow d’upscale image actif » before).
  */
 const ACTIONS = [
   {
@@ -23,7 +25,7 @@ const ACTIONS = [
     tip: 'Prolonger : la suite de cette vidéo',
     icon: 'act-extend',
     media: ['video'],
-    missing: () => 'Aucun workflow ne sait prolonger une vidéo.',
+    missing: () => 'Aucun modèle ne sait prolonger une vidéo.',
   },
   {
     id: 'interpolate',
@@ -32,7 +34,7 @@ const ACTIONS = [
     tip: 'Interpoler : des images en plus, un mouvement plus fluide',
     icon: 'act-interpolate',
     media: ['video'],
-    missing: () => 'Aucun workflow d’interpolation actif.',
+    missing: () => 'Aucun modèle d’interpolation actif.',
   },
   {
     id: 'upscale',
@@ -41,7 +43,7 @@ const ACTIONS = [
     tip: 'Agrandir et affiner ce résultat',
     icon: 'act-upscale',
     media: ['image', 'video'],
-    missing: media => `Aucun workflow d’upscale ${media === 'video' ? 'vidéo' : 'image'} actif.`,
+    missing: media => `Aucun modèle ne sait agrandir ${media === 'video' ? 'une vidéo' : 'une image'}.`,
   },
   {
     id: 'animate',
@@ -50,7 +52,7 @@ const ACTIONS = [
     tip: 'Animer : une vidéo qui part de cette prise',
     icon: 'act-animate',
     media: ['image'],
-    missing: () => 'Aucun workflow vidéo ne part d’une image.',
+    missing: () => 'Aucun modèle vidéo ne part d’une image.',
   },
   {
     id: 'studio',
@@ -60,6 +62,8 @@ const ACTIONS = [
     media: ['image', 'video', 'audio'],
   },
 ];
+/** (0.6.198) The words of each action under the pointer, by its id: the Studio says them too (its « Ouvrir », « Animer »). */
+export const ACTION_TIPS = Object.fromEntries(ACTIONS.map(action => [action.id, action.tip]));
 const CACHE_MS = 5000;
 /** The words of an action under the pointer; greyed, why under them. */
 const tipOf = (action, reason = '') => (reason ? `${action.tip}\n${reason}` : action.tip);

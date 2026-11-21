@@ -1,49 +1,12 @@
 import { formatOf, formatsFor, nearestSize, sizesFor } from './formats.mjs';
+import { CHOICE_NAMES, settingName } from './setting-names.mjs';
 
-// The names of the settings on the card of a proposal (« Paramètres avancés »). (0.6.102) The
-// server no longer reads them: what it refuses or leaves aside, it says under the name Paramètres ›
-// Workflows gives the setting (public/setting-names.mjs, read by lib/native-workflows.mjs and
-// lib/tool-catalog.mjs).
-export const LABELS = {
-  width: 'Largeur',
-  height: 'Hauteur',
-  frames: 'Images',
-  fps: 'Cadence (i/s)',
-  steps: 'Étapes',
-  seed: 'Graine',
-  audio: 'Audio',
-  overlap_frames: 'Chevauchement (images)',
-  cfg: 'CFG',
-  guidance: 'Guidance',
-  denoise: 'Débruitage',
-  start_strength: 'Force de l’image de début',
-  end_strength: 'Force de l’image de fin',
-  image_compression: 'Compression des images',
-  msr_strength: 'Force des références',
-  msr_frames: 'Longueur des références (images)',
-  max_side: 'Plus grand côté (px)',
-  scale: 'Facteur',
-  passes: 'Passes',
-  color_correction: 'Correction des couleurs',
-  multiplier: 'Multiplicateur',
-  mode: 'Mode',
-  tile: 'Tuile',
-  expandPrompt: 'Prompt enrichi',
-  seconds: 'Durée (s)',
-  lyrics: 'Paroles',
-  language: 'Langue',
-  guidance_scale: 'Guidance',
-  shift: 'Décalage',
-  attention: 'Attention',
-  sparse_attention: 'Attention creuse',
-  sparse_keep: 'Cubes gardés (%)',
-  sparse_start: 'Début de l’attention creuse',
-  subject: 'Qui remplacer dans la vidéo',
-  reference_subject: 'Qui dessiner depuis l’image',
-  step_lora_strength: 'Force du LoRA de distillation',
-  identity_lora_strength: 'Force du LoRA d’identité',
-};
-const STAGES = { draft: 'Brouillon', final: 'Finale' };
+// (0.6.198) The names of the settings on the card of a proposal are those of the Studio and of Paramètres ›
+// Modèles (public/setting-names.mjs, read by the server too): the card had a table of its own (« Force des
+// références », « Graine », « Cadence (i/s) »). Its own name is kept for the one setting no other screen
+// shows: a length in frames, « Durée (images) » (the server says « Images vidéo »).
+const CARD_NAMES = { frames: 'Durée (images)' };
+const labelOf = key => CARD_NAMES[key] ?? settingName(key);
 // Shown in the main area; every other editable parameter goes to « Paramètres avancés ».
 const MAIN = new Set(['frames', 'width', 'height', 'seed']);
 // Sound settings that matter to every take: shown in the main area too.
@@ -164,17 +127,17 @@ export function renderProposal(container, request, { node, onStage, card = false
     prompt.value = plan.prompt || '';
     prompt.setAttribute('aria-label', 'Prompt');
     promptField = field('Prompt', prompt, { wide: true });
-  } else if (plan.prompt) promptField = field('Prompt (fixé par le workflow)', fixed(plan.prompt), { wide: true });
+  } else if (plan.prompt) promptField = field('Prompt (fixé par le modèle)', fixed(plan.prompt), { wide: true });
   if (promptField && !card) container.append(promptField);
 
   // Text settings (the lyrics of a song): wide, under the prompt.
   const texts = [...items.values()].filter(item => item.type === 'string' && !item.choices && !item.locked);
   for (const item of texts) {
     const input = control(item);
-    input.setAttribute('aria-label', LABELS[item.key] || item.key);
+    input.setAttribute('aria-label', labelOf(item.key));
     controls.set(item.key, input);
     container.append(
-      field(LABELS[item.key] || item.key, input, {
+      field(labelOf(item.key), input, {
         wide: true,
         help: item.key === 'lyrics' ? 'Vide pour un morceau instrumental.' : item.note,
       }),
@@ -197,12 +160,12 @@ export function renderProposal(container, request, { node, onStage, card = false
       if (!item) continue;
       shown.add(key);
       if (item.locked) {
-        grid.append(field(LABELS[key] || key, fixed(String(item.value)), { help: item.locked }));
+        grid.append(field(labelOf(key), fixed(String(item.value)), { help: item.locked }));
         continue;
       }
       const input = control(item);
       controls.set(key, input);
-      grid.append(field(LABELS[key] || key, input));
+      grid.append(field(labelOf(key), input));
     }
 
   // Inputs, each with the role it plays (and the others it may play); in a card their pictures say
@@ -228,7 +191,7 @@ export function renderProposal(container, request, { node, onStage, card = false
   let versionField = null;
   if (editable.stages?.length > 1) {
     const stage = select(
-      editable.stages.map(value => [value, STAGES[value] || value]),
+      editable.stages.map(value => [value, CHOICE_NAMES[value] ?? value]),
       plan.stage,
     );
     stage.onchange = () => {
@@ -245,7 +208,7 @@ export function renderProposal(container, request, { node, onStage, card = false
     };
     controls.set('stage', stage);
     versionField = field('Version', stage);
-  } else if (STAGES[plan.stage]) versionField = field('Version', fixed(STAGES[plan.stage]));
+  } else if (plan.stage === 'draft' || plan.stage === 'final') versionField = field('Version', fixed(CHOICE_NAMES[plan.stage]));
   if (versionField) grid.append(versionField);
 
   // Length: in seconds here, in frames under the advanced settings; both are the same value.
@@ -419,11 +382,12 @@ export function renderProposal(container, request, { node, onStage, card = false
     seed.min = String(seedItem.min ?? 0);
     if (seedItem.max !== undefined) seed.max = String(seedItem.max);
     seed.step = '1';
-    seed.setAttribute('aria-label', 'Graine');
+    seed.setAttribute('aria-label', settingName('seed'));
     const roll = node('button', 'icon-button proposal-roll');
     roll.type = 'button';
-    roll.title = 'Graine au hasard';
-    roll.setAttribute('aria-label', 'Graine au hasard');
+    // (0.6.198) The words of the dice of the Studio (« Graine au hasard » before).
+    roll.title = 'Tirer une seed au hasard';
+    roll.setAttribute('aria-label', 'Tirer une seed au hasard');
     roll.append(diceIcon(node));
     roll.onclick = () => {
       const max = Math.min(seedItem.max ?? 2 ** 32, Number.MAX_SAFE_INTEGER);
@@ -433,8 +397,8 @@ export function renderProposal(container, request, { node, onStage, card = false
     const row = node('div', 'proposal-seed');
     row.append(seed, roll);
     controls.set('seed', seed);
-    seedField = field('Graine', row);
-  } else if (numeric(parameters.seed)) seedField = field('Graine', fixed(String(parameters.seed)));
+    seedField = field(settingName('seed'), row);
+  } else if (numeric(parameters.seed)) seedField = field(settingName('seed'), fixed(String(parameters.seed)));
   if (seedField) grid.append(seedField);
 
   // Everything else the user may change.
@@ -457,7 +421,7 @@ export function renderProposal(container, request, { node, onStage, card = false
     if (key === 'frames' && duration) continue;
     // In a card the size is the format and the resolution: its two numbers would repeat them.
     if (card && resizable && (key === 'width' || key === 'height')) continue;
-    const label = key === 'frames' ? 'Durée (images)' : LABELS[key] || key;
+    const label = labelOf(key);
     if (item.locked) {
       const wrapper = field(label, fixed(String(item.value)), { help: item.locked });
       more.append(wrapper);
@@ -472,8 +436,8 @@ export function renderProposal(container, request, { node, onStage, card = false
   }
   // In a card, the cadence and the steps of the workflow, read only (direction-artistique.md).
   if (card) {
-    if (!items.has('fps') && numeric(parameters.fps)) more.append(field('Cadence', fixed(parameters.fps + ' i/s')));
-    if (!items.has('steps') && numeric(parameters.steps)) more.append(field('Étapes', fixed(String(parameters.steps))));
+    if (!items.has('fps') && numeric(parameters.fps)) more.append(field(settingName('fps'), fixed(String(parameters.fps))));
+    if (!items.has('steps') && numeric(parameters.steps)) more.append(field(settingName('steps'), fixed(String(parameters.steps))));
   }
   // Subject-reference settings show only while an input is a subject reference.
   const showSubject = () => {
@@ -596,7 +560,7 @@ export function renderProposal(container, request, { node, onStage, card = false
 
   const notes = [...(request.notes || [])];
   if (plan.edited?.length)
-    notes.push('Modifié par vous : ' + plan.edited.map(key => LABELS[key] || key).join(', ') + '.');
+    notes.push('Modifié par vous : ' + plan.edited.map(labelOf).join(', ') + '.');
   for (const note of notes) container.append(node('p', 'field-help proposal-note', note));
   container.append(message);
 
@@ -652,7 +616,7 @@ export function renderProposal(container, request, { node, onStage, card = false
       }
       for (const [key, raw] of values) {
         const item = items.get(key),
-          label = LABELS[key] || key;
+          label = labelOf(key);
         let value;
         if (item.type === 'boolean') value = raw;
         else if (item.type === 'string') {

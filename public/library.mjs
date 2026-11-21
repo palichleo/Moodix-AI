@@ -26,7 +26,8 @@ export const KINDS = [
   { id: 'audio', icon: 'wave', label: 'Sons' },
   { id: 'bobine', icon: 'reel', label: 'Bobines' },
 ];
-const NAMES = { image: 'Image', video: 'Clip', audio: 'Son' };
+// (0.6.198) What a take is, as its filter says it (« Vidéos »): « Vidéo », no longer « Clip ».
+const NAMES = { image: 'Image', video: 'Vidéo', audio: 'Son' };
 /** The height of a row of the sheet; a take is as wide as its format makes it at that height. */
 const ROW = 196;
 
@@ -285,7 +286,8 @@ export function setupLibrary({
         take = output.take;
       bin.type = 'button';
       bin.append(icon('trash'));
-      kept.name = (NAMES[media] ?? 'Création') + (Number.isInteger(take) ? ' #' + take : '');
+      // (0.6.198) « Prise 12 », as its badge says it (« Image #12 » before); without a number, what it is.
+      kept.name = Number.isInteger(take) ? 'Prise ' + take : (NAMES[media] ?? 'Création');
       bin.setAttribute('aria-label', 'Supprimer · ' + kept.name);
       bin.onclick = () => ask(kept);
       kept.bin = bin;
@@ -419,10 +421,13 @@ export function setupLibrary({
       kept.from.textContent = where;
       kept.from.setAttribute('aria-label', 'Ouvrir la conversation : ' + titleOf(record.conversationId));
     }
-    // For a screen reader, everything at once: its kind, its prompt, where it was made and when.
+    // For a screen reader, everything at once: its take (its kind without one), its prompt, where it was made and when.
+    const take = record.outputs?.[0]?.take;
     kept.pick.setAttribute(
       'aria-label',
-      [NAMES[kept.media] ?? 'Création', record.prompt || '', where, date(record.createdAt)].filter(Boolean).join(' · '),
+      [Number.isInteger(take) ? 'Prise ' + take : (NAMES[kept.media] ?? 'Création'), record.prompt || '', where, date(record.createdAt)]
+        .filter(Boolean)
+        .join(' · '),
     );
     return kept.card;
   }

@@ -81,7 +81,7 @@ export function missingFileCard({
       'p',
       'missing-note',
       missing.needsToken
-        ? `Ce fichier demande un compte Hugging Face : acceptez la licence${missing.page ? ' sur ' + missing.page : ''}, puis enregistrez votre jeton dans Paramètres › Mise à jour.`
+        ? `Ce fichier demande un compte Hugging Face : acceptez la licence${missing.page ? ' sur ' + missing.page : ''}, puis enregistrez votre jeton dans Paramètres › Modèles › Fichiers.`
         : 'Il va dans votre dossier des modèles, depuis Hugging Face. Le téléchargement reprend où il en était si vous l’arrêtez.',
     );
     const foot = node('div', 'missing-foot');

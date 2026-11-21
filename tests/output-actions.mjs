@@ -65,9 +65,9 @@ test('the same actions on a take everywhere: icons only, their name and help und
   assert.equal(upscale.disabled, false);
   assert.equal(interpolate.disabled, false);
   assert.equal(extend.disabled, true);
-  assert.match(extend.title, /^Prolonger : la suite de cette vidéo\nAucun workflow ne sait prolonger une vidéo\.$/);
+  assert.match(extend.title, /^Prolonger : la suite de cette vidéo\nAucun modèle ne sait prolonger une vidéo\.$/);
   assert.equal(imageRow.children[1].disabled, true, 'no image upscaler is active');
-  assert.match(imageRow.children[1].title, /upscale image/);
+  assert.match(imageRow.children[1].title, /agrandir une image/);
   assert.equal(imageRow.children[2].disabled, false, 'a video workflow starts from an image');
   details.onclick();
   interpolate.onclick();
@@ -82,6 +82,24 @@ test('the same actions on a take everywhere: icons only, their name and help und
   // Without a way to show it in the Studio (in the Studio itself), that action is not offered.
   const plain = outputActions({ api: async () => Response.json({}), node, onDetails() {}, onAction() {} });
   assert.deepEqual(plain(image, 0).children.map(label), ['Ouvrir', 'Agrandir et affiner', 'Animer']);
+});
+
+test('(0.6.198) a greyed action says why in the words of the application: « modèle », « agrandir », never « workflow » nor « upscale »', async () => {
+  // The application says « modèle » everywhere else (Paramètres › Modèles), and the button « Agrandir et affiner ».
+  const actions = outputActions({ api: async () => Response.json({}), node, onDetails() {}, onAction() {} });
+  const video = actions({ id: 'run', mediaType: 'video' }, 0),
+    image = actions({ id: 'still' }, 0);
+  await new Promise(setImmediate);
+  const reasons = row => row.children.filter(button => button.disabled).map(button => [label(button), button.title.split('\n')[1]]);
+  assert.deepEqual(reasons(video), [
+    ['Prolonger', 'Aucun modèle ne sait prolonger une vidéo.'],
+    ['Interpoler', 'Aucun modèle d’interpolation actif.'],
+    ['Agrandir et affiner', 'Aucun modèle ne sait agrandir une vidéo.'],
+  ]);
+  assert.deepEqual(reasons(image), [
+    ['Agrandir et affiner', 'Aucun modèle ne sait agrandir une image.'],
+    ['Animer', 'Aucun modèle vidéo ne part d’une image.'],
+  ]);
 });
 
 test('a row drawn before a workflow became ready enables its button when the pointer comes back', async () => {
