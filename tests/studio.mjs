@@ -6318,6 +6318,87 @@ test('followed again with its request, the Studio shows the settings it is made 
   }
 });
 
+test('what is being written in another mode stays when a take is made in the conversation, by the Bobine or by the Chat (0.6.192)', async () => {
+  // (Found by the check of 21/11.) The conversation has an image already; the user writes a prompt in Image,
+  // without making it. A video is made meanwhile (a take of the Bobine since 0.6.177, a take of the Chat since
+  // 0.6.96): the Studio took the settings of the last take of every mode, and the old image came over what
+  // was being typed. Only the mode of the take new to it now.
+  const photo = { id: 'p1', conversationId: 'c0', mediaType: 'image', prompt: 'Un pêcheur', parameters: {}, outputs: [{ take: 3, originalUrl: '/media/p1', thumbUrl: '/thumb/p1' }] },
+    clip = { id: 'v9', conversationId: 'c1', mediaType: 'video', workflowId: 'v', workflowName: 'Clip', prompt: 'Il lève les yeux.', parameters: { frames: 121, fps: 24 }, outputs: [{ take: 9, originalUrl: '/media/v9' }] },
+    video = { id: 'v', name: 'Clip', roles: {}, limits: sizes, size: { width: 768, height: 448 }, settings: [], seeded: true },
+    image = { id: 'i', name: 'Image', roles: {}, limits: sizes, size: { width: 1024, height: 1024 }, settings: [], seeded: true },
+    older = { id: 'i1', conversationId: 'c1', workflowId: 'i', workflowName: 'Image', prompt: 'Une vieille image', parameters: { width: 1024, height: 1024 }, outputs: [{ take: 1, originalUrl: '/media/i1' }] };
+  const draft = page => {
+    page.mode(0);
+    page.prompt().value = 'mon brouillon';
+    page.prompt().oninput();
+  };
+  // A take of the Bobine.
+  const kept = [],
+    stored = {
+      schemaVersion: 1, id: 'm1', name: 'Film', format: '16:9', width: 1344, height: 768, fps: 24, sounds: [],
+      plans: [{ id: 'a', kind: 'video', todo: { prompt: 'Il lève les yeux.' }, from: 0, to: 5, frame: 'fit', volume: 1, photos: { start: { conversationId: 'c0', runId: 'p1', output: 0 } } }],
+      createdAt: '2026-11-20T03:00:00.000Z',
+      updatedAt: '2026-11-20T03:00:00.000Z',
+    };
+  const routes = new Proxy({}, {
+    get: (_, route) =>
+      typeof route !== 'string'
+        ? undefined
+        : route === 'tools/action'
+          ? body => (body.estimate ? { workflowName: 'LTX 2.5', seconds: 5.042 } : proposalOf({ prompt: body.arguments.prompt }).request)
+          : route === 'montages/save'
+            ? body => (kept.push(body.montage), { ...body.montage, createdAt: 'a', updatedAt: 'b' })
+            : /^montages\/[^/]+\/m1$/.test(route)
+              ? () => stored
+              : /^montages\/[^/]+$/.test(route)
+                ? () => ({ montages: [{ id: 'm1', name: 'Film' }] })
+                : undefined,
+  });
+  const runs = [older, photo];
+  let page = await studioPage({ create_image: [image], create_video: [video] }, routes, {
+    runs,
+    run: async () => {
+      runs.unshift(clip);
+      return { record: clip };
+    },
+  });
+  try {
+    const desk = page.studio.bobine().desk();
+    await until(() => desk.find('montage-piece').length === 1 && desk.find('bobine-line-right')[0]?.textContent === 'LTX 2.5');
+    draft(page);
+    desk.find('bobine-go-main')[0].onclick();
+    await until(() => kept.some(montage => !montage.plans[0].todo));
+    await until(() => page.studio.screenTake()?.take === 9);
+    // The Studio shows the take made, in Vidéo, with its text (0.6.177); Image is as it was being written.
+    assert.deepEqual([page.body.dataset.mode, page.prompt().value], ['video', 'Il lève les yeux.']);
+    page.mode(0);
+    assert.equal(page.prompt().value, 'mon brouillon');
+  } finally {
+    page.restore();
+  }
+  // A take of the Chat, the Studio not on screen: read when it opens.
+  const { clip: chatClip, request } = proposalOf({ prompt: 'Un phare dans la tempête' });
+  let take = null;
+  const made = { id: 'r1', conversationId: 'c1', mediaType: 'video', workflowId: chatClip.id, workflowName: chatClip.name, prompt: 'Un phare dans la tempête', parameters: { width: 768, height: 448, frames: 121, fps: 24 }, outputs: [{ take: 2, originalUrl: '/media/r1' }] },
+    chatRuns = [older];
+  page = await studioPage({ create_image: [image], create_video: [chatClip] }, {}, { runs: chatRuns, extra: { making: () => take } });
+  try {
+    draft(page);
+    take = chatTakeOf(request, { running: true });
+    page.studio.watch();
+    chatRuns.unshift(made);
+    Object.assign(take, { running: false, ended: { type: 'done', record: made, message: '' } });
+    page.studio.watch();
+    await page.studio.open();
+    assert.deepEqual([page.body.dataset.mode, page.prompt().value], ['video', 'Un phare dans la tempête']);
+    page.mode(0);
+    assert.equal(page.prompt().value, 'mon brouillon');
+  } finally {
+    page.restore();
+  }
+});
+
 test('followed again before its tools are read (a page just reloaded), the Studio shows the settings of the take once they are (0.6.184)', async () => {
   // (Seen on the card on 21/11: the page reloaded during a take of the Bobine follows its job at once,
   // before the Studio has read its models. It stayed in Image, « En cours · 20 % » under the form of an
@@ -6361,11 +6442,10 @@ test('followed again before its tools are read (a page just reloaded), the Studi
     early.studio.followAgain(request);
     assert.equal(early.body.dataset.mode, 'image');
     tools.create_video = [clip];
+    // (0.6.192) Read ahead by the page once the engine is ready (app.js: invalidate, then prefetch, never open):
+    // drawn there. Nothing drew it while the take went on, and the Studio stayed in Image under « En cours ».
     early.studio.invalidate({ tools: true });
-    await early.studio.open();
-    await settle();
-    // (The page of the test hands the same list again: nothing new to draw for it. Drawn here.)
-    early.studio.render();
+    await early.studio.prefetch();
     assert.deepEqual([early.body.dataset.mode, early.prompt().value], ['video', 'Un phare']);
   } finally {
     early.restore();
@@ -6654,8 +6734,12 @@ test('a take to create of the bobine is made as a take of the Studio is, which f
       said = () => [desk.find('montage-piece')[0].children[0].textContent, desk.find('bobine-line-right')[0].textContent, desk.find('bobine-go-main')[0].disabled];
     // (The Bobine is the page shown: the Studio tells it when the takes of the project are read again.)
     globalThis.document.body = { dataset: { view: 'bobine' } };
+    assert.equal(studio.studio.bobineWorking(), false);
     assert.equal(studio.studio.followAgain({ ...request, bobine: place }), true);
     assert.deepEqual(said(), ['En cours', 'En cours', true]);
+    // (0.6.192) The Bobine says it on its take: the miniature stays hidden there (app.js syncMiniature), as for
+    // a take the Bobine asked itself. It came over the timeline after a reload.
+    assert.equal(studio.studio.bobineWorking(), true);
     studio.studio.follow('Étape 4 sur 8', 0.5, null, { ms: 48000, running: true });
     assert.deepEqual(said(), ['En cours · 50 %', 'En cours · 50 %', true]);
     // (0.6.182) Its step and its time above the button, as for a take the Bobine asked itself.

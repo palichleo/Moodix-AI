@@ -2917,6 +2917,7 @@ export function setupStudio({
           asItWas(followed.before);
           if (record) {
             // (The newest take of the conversation: `settle` shows its mode, and its settings when the Studio has its model.)
+            // (0.6.192: the mode of that take alone, what was being written in another one stays.)
             pinned = null;
             settle();
           }
@@ -5301,10 +5302,14 @@ export function setupStudio({
    */
   async function prefetch() {
     try {
-      const before = info && JSON.stringify(info);
+      const before = info && JSON.stringify(info),
+        // (0.6.192) A work followed again whose request waits for its model to be shown (showLate, 0.6.184).
+        waiting = Boolean(working?.asked);
       if (!info || toolsStale) await load();
       if (runsStale || runsFor !== where() || seenConversation !== conversation()) await refresh();
-      if (settle()) render();
+      // (0.6.192) Shown now that its model is read (the engine was not ready at the first reading): drawn.
+      // Nothing drew it while the take went on, and the Studio stayed in Image under « En cours ».
+      if (settle() || (waiting && working && !working.asked)) render();
       // Read again (the engine is ready): drawn again if what it offers changed.
       if (before && JSON.stringify(info) !== before && !ai && !working) {
         await afterMove();
@@ -5617,6 +5622,10 @@ export function setupStudio({
    * comes back as it was left unless a take was made in it since. A conversation without a take keeps
    * the model and the settings in hand, its prompt and its inputs empty. Nothing while a take is made
    * or Moodix AI proposes: the Studio is theirs.
+   * (0.6.192) In a conversation the Studio had settled already, only the modes that have a take new to it:
+   * a video made meanwhile (by the Chat, by the Bobine) says nothing of the mode Image. Taken mode by mode,
+   * the last image of the conversation came over the prompt being written in Image, and what was typed
+   * there was lost.
    */
   function settle() {
     if (!info || legacy || runsFor !== where() || working || proposal || ai || checking) return false;
@@ -5629,6 +5638,9 @@ export function setupStudio({
       left = leftDrafts.get(key);
     leftDrafts.delete(key);
     if (!left && lastSeen.has(key) && lastSeen.get(key) === newest) return false;
+    // (The take it knew as the newest; none for a conversation never settled here, or one come back to: all
+    // its modes then, as when it is opened.)
+    const known = !left && lastSeen.has(key) ? lastSeen.get(key) : null;
     lastSeen.set(key, newest);
     if (lastSeen.size > 200) lastSeen.delete(lastSeen.keys().next().value);
     if (left && left.newest === newest) {
@@ -5638,8 +5650,12 @@ export function setupStudio({
     }
     if (!newest) return false;
     let lost = 0;
-    const gone = [];
+    const gone = [],
+      // The modes of the takes made since the one it knew (`own` is newest first).
+      since = known ? own.findIndex(record => record.id === known) : -1,
+      fresh = since > 0 ? new Set(own.slice(0, since).map(mediaOf)) : null;
     for (const item of MODES) {
+      if (fresh && !fresh.has(item.id)) continue;
       // The last take of the mode that one of its models made (not an enlargement, which has no settings).
       const models = new Set(modelsOf(item.id).map(model => model.id)),
         last = own.find(record => mediaOf(record) === item.id && models.has(record.workflowId));
@@ -5937,6 +5953,8 @@ export function setupStudio({
     /** (0.6.148) The Bobine, a page of its own (public/montage.mjs): its takes are made by the Studio. */
     bobine: () => montage,
     /** (0.6.148) A take of the bobine is being made: the bobine shows it, no miniature is needed. */
-    bobineWorking: () => Boolean(working?.montage),
+    // (0.6.192) Or follows one again after a reload (`place`, 0.6.181): the Bobine says it on its take, and
+    // the miniature came over the timeline to say it a second time.
+    bobineWorking: () => Boolean(working?.montage || working?.place),
   };
 }
