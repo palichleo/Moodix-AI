@@ -1567,6 +1567,122 @@ test('the Sortie: pictures only, the newest at the left with the largest number,
   }
 });
 
+// (0.6.194, audit of 21/11) The gestures of the menus of the Studio, as those of the other menus.
+const menuImage = {
+  id: 'i',
+  name: 'Image',
+  styled: true,
+  limits: sizes,
+  size: { width: 1024, height: 1024 },
+  settings: [],
+  seeded: true,
+  roles: { source: { count: 1, media: ['image'] } },
+};
+
+test('the menu of a take closes on a press beside it, and when the focus leaves it for another control (0.6.194)', async () => {
+  // (A6: its focus gone, or never in it, the menu of a right click stayed open whatever was clicked; only
+  // Échap closed it, with its focus still in it. `onfocusout` is no property of an element in Chromium.)
+  let shown = null;
+  const removed = [];
+  const { studio, body, restore, pagePointers } = await studioPage(
+    { create_image: [menuImage] },
+    {},
+    {
+      runs: [{ id: 'p1', prompt: 'un phare', outputs: [{ originalUrl: '/p1.png' }], parameters: { width: 1024, height: 1024 } }],
+      // The page: the menu as the Studio drew it.
+      querySelector: selector => (selector === '#studio-view .studio-item-menu' ? shown : null),
+    },
+  );
+  try {
+    const menus = () => body.find('studio-item-menu'),
+      press = target => pagePointers.forEach(listener => listener({ target })),
+      open = () => {
+        body.find('studio-item')[0].oncontextmenu({ preventDefault() {} });
+        [shown] = menus();
+        shown.remove = () => removed.push(shown);
+      };
+    open();
+    // A press in it (one of its actions): it stays.
+    press({ closest: selector => (selector === '.studio-item-menu' ? shown : null) });
+    assert.deepEqual(removed, []);
+    // Beside it, anywhere on the page: closed at once where it is (the Studio is not drawn again under
+    // the pointer: the click goes to what was pressed), and left out of the next drawing.
+    press({ closest: () => null });
+    assert.deepEqual(removed, [shown]);
+    studio.render();
+    assert.deepEqual(menus(), []);
+    // Nothing open: a press closes nothing.
+    press({ closest: () => null });
+    assert.equal(removed.length, 1);
+    // The focus gone to another control (Tab): closed where it is, the focus left where it went. To one
+    // of its actions, or nowhere (drawn again, its button taken out of the page), it stays.
+    open();
+    const entry = {};
+    shown.contains = node => node === entry;
+    shown.listeners.focusout({ relatedTarget: entry });
+    shown.listeners.focusout({ relatedTarget: null });
+    assert.equal(removed.length, 1);
+    shown.listeners.focusout({ relatedTarget: {} });
+    assert.equal(removed.length, 2);
+    studio.render();
+    assert.deepEqual(menus(), []);
+  } finally {
+    restore();
+  }
+});
+
+test('« ··· » of the formats closes with Échap too, the focus back on it (0.6.194)', async () => {
+  // (B14: a click beside it closed it, Échap did nothing; every other menu of the page closes with it.)
+  let menu = null,
+    more = null,
+    dialog = null;
+  const { studio, body, restore, pageKeys } = await studioPage(
+    { create_image: [menuImage] },
+    {},
+    {
+      querySelector: selector =>
+        selector === '#studio-view .studio-format-menu'
+          ? menu
+          : selector === '#studio-view .studio-format.is-more'
+            ? more
+            : selector === 'dialog[open]'
+              ? dialog
+              : null,
+    },
+  );
+  try {
+    let focused = 0;
+    const take = () => {
+        [menu] = body.find('studio-format-menu');
+        more = body.find('studio-format').find(chip => chip.className.includes('is-more'));
+        more.focus = () => focused++;
+      },
+      key = name => {
+        let taken = 0;
+        pageKeys.forEach(listener => listener({ key: name, target: {}, preventDefault: () => taken++ }));
+        return taken;
+      };
+    take();
+    more.onclick();
+    assert.deepEqual([menu.hidden, more.attributes['aria-expanded']], [false, 'true']);
+    // Another key: it stays open.
+    assert.deepEqual([key('ArrowDown'), menu.hidden], [0, false]);
+    // A window open over the page has Échap: it stays open under it.
+    dialog = {};
+    assert.deepEqual([key('Escape'), menu.hidden], [0, false]);
+    dialog = null;
+    // Échap: closed, the focus back on « ··· », the key taken (the chat opened over the Studio stays).
+    assert.equal(key('Escape'), 1);
+    assert.deepEqual([menu.hidden, more.attributes['aria-expanded'], focused], [true, 'false', 1]);
+    // Drawn again, it stays closed; Échap with nothing open is left to the page.
+    studio.render();
+    take();
+    assert.deepEqual([menu.hidden, more.attributes['aria-expanded'], key('Escape')], [true, 'false', 0]);
+  } finally {
+    restore();
+  }
+});
+
 test('in the Sortie, an upscale or an interpolation of a clip is said so, with its whole length, not « ↳ SUITE »', async () => {
   const video = {
       id: 'v',

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mono, setupMontage } from '../public/montage.mjs';
+import { KINDS } from '../public/library.mjs';
 
 // (0.6.148) La Bobine (ex-Montage, the fourth mode of the Studio from 0.6.137 to 0.6.146): a page of its
 // own, three fixed columns (« Prises », the preview, « À créer ») over a timeline of four tracks, a small
@@ -293,7 +294,8 @@ test('a new bobine shows the takes of the project, its four tracks and « À cr�
   // A kind alone: the others leave the grid, the count stays that of the project.
   f.get('montage-filter')[3].onclick();
   assert.deepEqual([f.said('montage-take-number'), f.said('montage-count')], [['Prise 4'], ['4']]);
-  f.get('montage-filter')[2].onclick();
+  // (0.6.194) « Images » second, as in the Archives.
+  f.get('montage-filter')[1].onclick();
   assert.deepEqual(f.said('montage-take-number'), ['Prise 3']);
 });
 
@@ -3597,4 +3599,110 @@ test('a creation in pause is not taken up again while a work goes on outside the
   f.goMain().onclick();
   await settle();
   assert.deepEqual([asked.length, f.ui.state().filling.stage, f.goMain().disabled], [2, 'running', true]);
+});
+
+// ------------------------------------------------------------------ gestures and greyed buttons (0.6.194, audit of 21/11)
+// (Audit of 21/11, A4 and point 6 of the overload check: « Raccords » has nothing to create, and « Créer »
+// was greyed with nothing to say why, nor where to begin. The rule of the page: greyed, its reason said.)
+const NOTHING = 'Aucune prise à créer dans cette bobine.',
+  BEGIN = 'Cliquez dans la piste Prises, là où elle est vide, pour poser une prise à créer.',
+  INVITE = 'Ce qui se passe dans cette prise';
+/** What « Créer » says under the pointer (help-tips.mjs shows it): null when it says nothing. */
+const tipOf = f => f.goMain().dataset.tip ?? null;
+
+test('an empty « À créer » says where to begin; « Créer » greyed says why: nothing to create, a text to write (0.6.194)', async () => {
+  const f = await setup({ create: async () => null }).open();
+  // A new bobine: nothing to create, said on the button; the panel says where to begin.
+  assert.deepEqual([f.goMain().disabled, tipOf(f), f.said('bobine-none')], [true, NOTHING, [BEGIN]]);
+  // Its takes all made (« Raccords »): the same.
+  f.get('montage-take')[0].ondblclick();
+  assert.deepEqual([f.plans().length, f.goMain().disabled, tipOf(f), f.said('bobine-none')], [1, true, NOTHING, [BEGIN]]);
+  // The gesture it says is the one that lays a take to create: a click in the void of the track « Prises ».
+  f.lanes()[0].onclick({ clientX: 900, target: f.lanes()[0] });
+  assert.deepEqual(f.ui.state().montage.plans.map(plan => Boolean(plan.todo)), [false, true]);
+  // Its line takes the place of the sentence; its empty field says what it is for; « Créer » says what is missing.
+  assert.deepEqual([f.said('bobine-none'), f.get('bobine-line-words').map(field => field.placeholder)], [[], [INVITE]]);
+  assert.deepEqual([f.goMain().disabled, tipOf(f)], [true, 'Écrivez ce qui se passe dans la prise à créer.']);
+  // Two without their text: said of both.
+  f.lanes()[0].onclick({ clientX: 990, target: f.lanes()[0] });
+  assert.deepEqual([f.get('bobine-line').length, tipOf(f)], [2, 'Écrivez ce qui se passe dans les prises à créer.']);
+  // A text written: it can be pressed, and says nothing more under the pointer.
+  f.write(0, 'Il lève les yeux.');
+  assert.deepEqual([f.go(), f.goMain().disabled, tipOf(f)], ['Créer 1 prise', false, null]);
+  // (Never under 12 px, in the quiet colour of what is said above the button.)
+  const { readFile } = await import('node:fs/promises');
+  const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n'),
+    at = css.lastIndexOf('.bobine-none {');
+  assert.notEqual(at, -1);
+  assert.match(css.slice(at, css.indexOf('}', at)), /font: 400 12\.5px\/1\.4 var\(--font-ui\);\n  color: var\(--muted\);/);
+});
+
+test('« Créer » greyed says why whatever holds it: its model, the video before it, Moodix AI at work, a work elsewhere (0.6.194)', async () => {
+  // Its model not on this computer (nothing to download): the sentence above the button, under the pointer too.
+  let { f } = await series({ times: { workflowName: 'LTX 2.5', missing: true } });
+  assert.deepEqual([f.goMain().disabled, tipOf(f)], [true, 'LTX 2.5 n’est pas sur cet ordinateur.']);
+  // A suite whose video stops before its end: what its line says.
+  const cut = {
+    schemaVersion: 1, id: id(960), name: 'Coupée', format: '16:9', width: 1344, height: 768, fps: 24, sounds: [],
+    plans: [
+      { id: id(961), at: 0, kind: 'video', source: { conversationId: C, runId: id(1), output: 0 }, from: 0, to: 3, frame: 'fit', volume: 1 },
+      { id: id(962), at: 3, kind: 'video', todo: { prompt: 'Il se retourne.', suite: true }, from: 0, to: 4, frame: 'fit', volume: 1 },
+    ],
+  };
+  f = await setup({ stored: [cut], create: async () => null }).open();
+  assert.deepEqual([f.goMain().disabled, tipOf(f)], [true, 'La vidéo d’avant est coupée avant sa fin : rendez-lui sa fin, ou posez une image de début.']);
+  // Moodix AI writes the takes: the sentence of the Bobine; the field it writes in has no invitation (its words go there).
+  ({ f } = await series({ texts: ['', ''], write: pen().write }));
+  f.get('bobine-go-agent')[0].onclick();
+  await settle();
+  assert.deepEqual([f.goMain().disabled, tipOf(f)], [true, 'Moodix AI écrit les prises : attendez la fin, ou arrêtez l’écriture.']);
+  assert.deepEqual(f.get('bobine-line-words').map(field => field.placeholder ?? ''), ['', INVITE]);
+  // Takes being created.
+  ({ f } = await series());
+  f.goMain().onclick();
+  await settle();
+  assert.deepEqual([f.goMain().disabled, tipOf(f)], [true, 'Des prises sont en cours de création : attendez la fin, ou arrêtez.']);
+  // A text being enriched.
+  f = await setup({ create: async () => null, enrich: () => new Promise(() => {}) }).open();
+  f.lanes()[0].onclick({ clientX: 300, target: f.lanes()[0] });
+  f.write(0, 'Il lève les yeux.');
+  f.get('bobine-go-wand')[0].onclick();
+  f.get('bobine-line')[0].onclick({ target: f.get('bobine-line')[0] });
+  assert.deepEqual([f.ui.state().enrichingId, f.goMain().disabled, tipOf(f)], [f.ui.state().montage.plans[0].id, true, 'Moodix AI enrichit le texte d’une prise : attendez la fin.']);
+  // Moodix AI arranges the bobine: greyed too, its sentence said (lit, its click was refused without a
+  // word); the takes it lays will fill « À créer »: no sentence of where to begin meanwhile.
+  let { f: g, type, enter } = await asking();
+  assert.deepEqual(g.said('bobine-none'), [BEGIN]);
+  g.lanes()[0].onclick({ clientX: 900, target: g.lanes()[0] });
+  g.write(0, 'Il lève les yeux.');
+  assert.deepEqual([g.go(), g.goMain().disabled], ['Créer 1 prise', false]);
+  type('Invente la suite.');
+  enter();
+  await settle();
+  assert.deepEqual([Boolean(g.ui.state().arranging), g.goMain().disabled, tipOf(g)], [true, true, 'Moodix AI arrange la bobine : attendez la fin, ou arrêtez.']);
+  ({ f: g, type, enter } = await asking());
+  type('Invente un film.');
+  enter();
+  await settle();
+  assert.deepEqual([Boolean(g.ui.state().arranging), g.said('bobine-none'), tipOf(g)], [true, [], 'Moodix AI arrange la bobine : attendez la fin, ou arrêtez.']);
+  // A work going on elsewhere: the sentence above the button, under the pointer too; gone with it.
+  let why = '';
+  ({ f } = await series({ more: { busyWith: () => why } }));
+  assert.deepEqual([f.go(), f.goMain().disabled, tipOf(f)], ['Créer 2 prises', false, null]);
+  why = 'Génération en cours dans cette conversation : attendez sa fin.';
+  f.ui.busyChanged();
+  assert.deepEqual([f.goMain().disabled, tipOf(f), f.get('bobine-waits')[0].textContent], [true, why, why]);
+  why = '';
+  f.ui.busyChanged();
+  assert.deepEqual([f.goMain().disabled, tipOf(f)], [false, null]);
+});
+
+test('the kinds of takes of the Bobine are in the order of the Archives: Tout, Images, Vidéos, Sons (0.6.194)', async () => {
+  // (Audit of 21/11, B9: « Tout, Vidéos, Images, Sons » here, « Tout, Images, Vidéos, Sons » there.)
+  const f = await setup().open();
+  assert.deepEqual(f.said('montage-filter'), ['Tout', 'Images', 'Vidéos', 'Sons']);
+  assert.deepEqual(f.said('montage-filter'), KINDS.filter(kind => kind.id !== 'bobine').map(kind => kind.label));
+  // Each shows what it says.
+  const shown = at => (f.get('montage-filter')[at].onclick(), f.said('montage-take-number'));
+  assert.deepEqual([shown(1), shown(2), shown(3), shown(0)], [['Prise 3'], ['Prise 1', 'Prise 2'], ['Prise 4'], ['Prise 1', 'Prise 2', 'Prise 3', 'Prise 4']]);
 });

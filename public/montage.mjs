@@ -59,10 +59,11 @@ import {
   withoutPhoto,
 } from './montage-model.mjs';
 
+// (0.6.194, audit of 21/11, B9) In the order of the Archives (KINDS of library.mjs): images before videos.
 const FILTERS = [
   ['all', 'Tout'],
-  ['video', 'Vidéos'],
   ['image', 'Images'],
+  ['video', 'Vidéos'],
   ['audio', 'Sons'],
 ];
 // (0.6.148) The tracks under their names of the maquette; a sound goes on the one it is dropped on.
@@ -1455,6 +1456,8 @@ export function setupMontage({
       if (lit === item.id) line.dataset.lit = 'true';
       top.append(node('span', 'bobine-line-when', `${mono(starts[index])} → ${mono(starts[index] + plan.to - plan.from)}`), right);
       Object.assign(field, { value: plan.todo.prompt, rows: 2, maxLength: 4000, disabled: busy() || enrichingId === item.id });
+      // (0.6.194, audit of 21/11, A4) Empty, it says what it is for; not while Moodix AI writes in it.
+      if (!written) field.placeholder = 'Ce qui se passe dans cette prise';
       field.dataset.id = item.id;
       field.setAttribute('aria-label', `Ce qui se passe, de ${mono(starts[index])} à ${mono(starts[index] + plan.to - plan.from)}`);
       field.oninput = () => change(withItemChanged(montage, item.id, { prompt: field.value }), { sliding: true, group: 'text:' + item.id });
@@ -1490,6 +1493,9 @@ export function setupMontage({
       live.lines.set(item.id, line);
       lines.append(line);
     }
+    // (0.6.194, audit of 21/11, A4) Nothing to create: where to begin, the gesture that lays a take to
+    // create (drawable). Not while Moodix AI arranges the bobine: the takes it lays come here.
+    if (!series.length && !arranging) lines.append(node('p', 'bobine-none', 'Cliquez dans la piste Prises, là où elle est vide, pour poser une prise à créer.'));
     const row = node('div', 'bobine-foot');
     // (Capture 86: « Arrêter » at the left of the button while Moodix AI writes; in a series, its own stop.)
     if (writing && !writing.series) row.append(button('bobine-halt', 'Arrêter', () => writing?.controller.abort()));
@@ -1605,8 +1611,13 @@ export function setupMontage({
     const ready = creatable().reduce((sum, item) => sum + item.parts, 0),
       running = inSeries(),
       count = running ? filling.ids.length : ready;
+    // (0.6.194) Nor while Moodix AI arranges the bobine: lit, its click was refused without a word (createAll).
     live.goMain.disabled =
-      writing || enrichingId || held ? true : running ? filling.stage === 'running' : !create || !ready || Boolean(making);
+      writing || arranging || enrichingId || held ? true : running ? filling.stage === 'running' : !create || !ready || Boolean(making);
+    // (0.6.194, audit of 21/11, A4) Greyed, it says why under the pointer; lit, nothing.
+    const why = live.goMain.disabled ? whyGreyed(held) : '';
+    if (why) live.goMain.dataset.tip = why;
+    else delete live.goMain.dataset.tip;
     live.goMain.dataset.state = running ? filling.stage : '';
     live.goLabel.textContent = running
       ? filling.stage === 'paused'
@@ -1625,6 +1636,29 @@ export function setupMontage({
     const texts = seriesOf(montage, lengthOf).map(item => Boolean(item.prompt));
     if (live.wand) live.wand.disabled = !wand && (busy() || Boolean(enrichingId) || Boolean(held) || !texts.some(Boolean));
     if (live.agent) live.agent.disabled = busy() || wand || Boolean(held) || !texts.some(has => !has);
+  }
+  /**
+   * (0.6.194, audit of 21/11, A4) Why « Créer » is greyed (sayGo), in the words the page says it elsewhere:
+   * the work going on (`held`: outside the Bobine, said above the button too), or what the first take to
+   * create that cannot be made lacks (its text, its model, the video it goes on from). Greyed, it was left
+   * unexplained: « Raccords », nothing to create, said nothing of where to begin.
+   */
+  function whyGreyed(held) {
+    if (held) return held;
+    if (writing || arranging || inSeries() || making) return refusal();
+    if (enrichingId) return 'Moodix AI enrichit le texte d’une prise : attendez la fin.';
+    if (!create) return '';
+    const series = seriesOf(montage, lengthOf, { limits: limits(), writable }),
+      can = new Set(creatable().map(item => item.id)),
+      first = series.find(item => !can.has(item.id));
+    if (!series.length) return 'Aucune prise à créer dans cette bobine.';
+    if (!first) return '';
+    if (first.ready && modelMissing(first.id)) return `${modelOf(first.id).name} n’est pas sur cet ordinateur.`;
+    if (!first.ready && !first.prompt && !first.blocked)
+      return series.filter(item => !item.ready && !item.prompt && !item.blocked).length > 1
+        ? 'Écrivez ce qui se passe dans les prises à créer.'
+        : 'Écrivez ce qui se passe dans la prise à créer.';
+    return first.reason || 'Elle continue la prise d’avant, qui ne peut pas être créée.';
   }
   const modelMissing = id => Boolean(modelOf(id)?.missing);
   /**

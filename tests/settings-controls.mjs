@@ -208,6 +208,36 @@ test('a window without empty parts: only its backdrop closes it, whatever is und
   listeners.click({ clientX: 20, clientY: 10, target: dialog });
   assert.equal(closed, 1);
 });
+test('the second click of a double click never closes a window: the first one opened it (0.6.194)', () => {
+  // (Audit of 21/11, B13: a sound double-clicked in the Studio or the Archives showed its take, and the
+  // second click, beside the narrow window, closed it at once.)
+  const listeners = {};
+  let closed = 0;
+  const dialog = {
+      addEventListener(name, fn) {
+        listeners[name] = fn;
+      },
+      getBoundingClientRect: () => ({ left: 115, right: 1295, top: 60, bottom: 830 }),
+      close: () => closed++,
+    },
+    layout = { classList: { contains: name => name === 'media-details-layout' } };
+  dismissSettingsOnOutsideClick(dialog, undefined, {
+    empty: target => target === dialog || Boolean(target?.classList?.contains('media-details-layout')),
+  });
+  const press = (x, y, target, detail) => {
+    listeners.pointerdown({ clientX: x, clientY: y, target });
+    listeners.click({ clientX: x, clientY: y, target, detail });
+  };
+  // Beside its box, in an empty part of it: the second click of a double click (and a third) leaves it open.
+  press(20, 10, dialog, 2);
+  press(260, 400, layout, 2);
+  press(20, 10, dialog, 3);
+  assert.equal(closed, 0);
+  // A click of its own there closes it, as before.
+  press(20, 10, dialog, 1);
+  press(260, 400, layout, 1);
+  assert.equal(closed, 2);
+});
 
 function computeControls() {
   const nodes = new Map([

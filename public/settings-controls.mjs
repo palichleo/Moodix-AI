@@ -185,8 +185,12 @@ export function dismissSettingsOnOutsideClick(dialog, requestClose = () => dialo
   dialog.addEventListener('pointercancel', () => {
     startedOutside = false;
   });
+  // (0.6.194, audit of 21/11, B13) The second click of a double click (or a third) never closes it: the
+  // first one opened it. A sound double-clicked in the Studio or the Archives showed its take, and the
+  // second click, beside its narrow window, closed it at once.
+  const again = event => event.detail >= 2;
   dialog.addEventListener('click', event => {
-    if (startedOutside && (beyond(event) || (empty(event.target, event) && empty(releasedOn(event), event)))) requestClose();
+    if (startedOutside && !again(event) && (beyond(event) || (empty(event.target, event) && empty(releasedOn(event), event)))) requestClose();
     startedOutside = false;
   });
   dialog.addEventListener('close', () => {

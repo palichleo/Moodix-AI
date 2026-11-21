@@ -17997,6 +17997,13 @@ body[data-view='bobine'] .chat-panel {
 #bobine-view .bobine-create .bobine-waits {
   margin: 10px 0 0;
 }
+/* (0.6.194, audit du 21/11, A4) « À créer » vide : par où commencer, le geste qui pose une prise à créer,
+   sous le titre, dans la couleur calme de ce qui est dit au-dessus du bouton. */
+.bobine-none {
+  margin: 0;
+  font: 400 12.5px/1.4 var(--font-ui);
+  color: var(--muted);
+}
 /* (0.6.182) The step and the time of the take being made, above the button, as the Studio says them under
    « Générer »; in amber when the engine lacks video memory and tries again more slowly. */
 #bobine-view .bobine-create .bobine-stage {

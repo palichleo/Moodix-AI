@@ -4126,6 +4126,15 @@ export function setupStudio({
     document.querySelector?.(`#studio-view .studio-item[data-id="${record.id}"] .studio-item-pick`)?.focus?.();
   }
   /**
+   * (0.6.194, audit of 21/11, A6) The menu of a creation closed where it is, the Studio not drawn again:
+   * what was pressed beside it, or given the focus, keeps it (drawn again under the pointer, the click of
+   * a press beside it went to nothing). The next drawing leaves it out.
+   */
+  function dropMenu(menu = document.querySelector?.('#studio-view .studio-item-menu')) {
+    menuFor = null;
+    menu?.remove?.();
+  }
+  /**
    * Why a clip cannot be continued now, or '' when it can: a proposal of Moodix AI waits (the Studio
    * shows what it will make, as for « Animer »), or no workflow continues a video here. Then
    * « Prolonger » is greyed with that reason, as on the bar of the screen (output-actions.mjs): set
@@ -4393,13 +4402,13 @@ export function setupStudio({
           entries[(at + (event.key === 'ArrowDown' ? 1 : entries.length - 1)) % entries.length]?.focus?.();
         }
       };
-      // Closed when the focus leaves it (a click elsewhere, Tab).
-      menu.onfocusout = event => {
-        if (menuFor === record.id && !menu.contains?.(event.relatedTarget)) {
-          menuFor = null;
-          render();
-        }
-      };
+      // Closed when the focus leaves it for another control (Tab), where it is: the focus stays where it
+      // went. (0.6.194, audit of 21/11, A6) Listened to: `onfocusout` is no property of an element in
+      // Chromium, it was never called. Taken out of the page (drawn again), it goes nowhere and stays
+      // open: a press beside it closes it (dropMenu, at the end of setupStudio).
+      menu.addEventListener?.('focusout', event => {
+        if (menuFor === record.id && event.relatedTarget && !menu.contains?.(event.relatedTarget)) dropMenu(menu);
+      });
       tile.append(menu);
     }
     // « Supprimer #12 ? » (0.6.147: the number of the take, as the Pellicule asks it; the montages that
@@ -5869,13 +5878,39 @@ export function setupStudio({
     if (event.target !== document.body || $('studio-view')?.offsetParent == null) return;
     if (!document.querySelector('dialog[open]')) shortcut(event);
   });
-  // A click outside « ··· » closes it.
+  // A click outside « ··· » closes it; (0.6.194, audit of 21/11, B14) Échap too, as every other menu of
+  // the page, the focus back on « ··· » (a window open over the page keeps Échap for itself).
+  function closeFormats({ refocus = false } = {}) {
+    formatsOpen = false;
+    const menu = document.querySelector?.('#studio-view .studio-format-menu'),
+      more = document.querySelector?.('#studio-view .studio-format.is-more');
+    if (menu) closePopup(menu);
+    more?.setAttribute?.('aria-expanded', 'false');
+    if (refocus) more?.focus?.();
+  }
   document.addEventListener?.('pointerdown', event => {
     if (!formatsOpen || event.target?.closest?.('.studio-formats-wrap')) return;
-    formatsOpen = false;
-    const menu = document.querySelector?.('#studio-view .studio-format-menu');
-    if (menu) closePopup(menu);
+    closeFormats();
   });
+  document.addEventListener?.(
+    'keydown',
+    event => {
+      if (event.key !== 'Escape' || !formatsOpen || document.querySelector?.('dialog[open]')) return;
+      // (Taken: the chat opened over the Studio folds at Échap when nothing else has it, app.js.)
+      event.preventDefault();
+      closeFormats({ refocus: true });
+    },
+    true,
+  );
+  // (0.6.194, audit of 21/11, A6) A press beside the menu of a creation closes it, as « ··· » and the
+  // lists: its focus may be gone (drawn again meanwhile) or elsewhere, and nothing else heard the press.
+  document.addEventListener?.(
+    'pointerdown',
+    event => {
+      if (menuFor && !event.target?.closest?.('.studio-item-menu')) dropMenu();
+    },
+    true,
+  );
   // The modes of the Studio are there from the start.
   kinds();
   return {
