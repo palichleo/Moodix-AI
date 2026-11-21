@@ -118,6 +118,12 @@ export function setupMiniature({
   } catch {
     // Without the browser's storage: the card.
   }
+  // (0.6.200) Put as its pill whatever the user keeps (`place`: on the page of the Bobine, open in its corner, it
+  // covered the end of the timeline), and whether its chevron opened it there: for that page only, the choice
+  // kept for the other pages left as it was.
+  let pillHere = false,
+    openedHere = false;
+  const foldedNow = () => (pillHere ? !openedHere : folded);
 
   /** The Flux of the take in progress, in the frame, from the picture so far (as the card's). */
   function startFlux(asked) {
@@ -159,7 +165,7 @@ export function setupMiniature({
     fill.style?.setProperty?.('--mini-progress', String(Number.isFinite(fraction) ? Math.min(1, Math.max(0, fraction)) : 0));
     root.dataset.phase = phase;
     root.classList.toggle('has-take', Boolean(kindText) && phase !== 'answer' && phase !== 'answered');
-    root.classList.toggle('is-folded', folded);
+    root.classList.toggle('is-folded', foldedNow());
     bar.hidden = !(phase === 'making' || phase === 'done');
     bar.classList.toggle('is-determinate', Number.isFinite(fraction));
     still.hidden = !picture || making;
@@ -169,10 +175,10 @@ export function setupMiniature({
     }
     // The × once the work is over: it stays until the user is back there, or closes it.
     close.hidden = running || !ended;
-    const folding = folded ? 'Agrandir la miniature' : 'Réduire la miniature';
+    const folding = foldedNow() ? 'Agrandir la miniature' : 'Réduire la miniature';
     fold.setAttribute('aria-label', folding);
-    fold.setAttribute('aria-pressed', String(folded));
-    fold.title = folded ? 'Agrandir' : 'Réduire';
+    fold.setAttribute('aria-pressed', String(foldedNow()));
+    fold.title = foldedNow() ? 'Agrandir' : 'Réduire';
     back.setAttribute(
       'aria-label',
       `Revenir à la conversation « ${title.textContent} » : ${[kind.textContent, said, figure.textContent, stageTime.textContent].filter(Boolean).join(' · ')}`,
@@ -180,6 +186,11 @@ export function setupMiniature({
   }
   back.onclick = () => open(work);
   fold.onclick = () => {
+    // (0.6.200) Where it comes as its pill: opened, or folded again, there alone; nothing kept.
+    if (pillHere) {
+      openedHere = !openedHere;
+      return paint();
+    }
     folded = !folded;
     try {
       storage?.setItem?.(FOLDED_KEY, folded ? 'pill' : 'card');
@@ -304,9 +315,12 @@ export function setupMiniature({
   }
   /**
    * Where it shows: `null` hidden, 'corner' at the bottom right of the page, or an element (the foot
-   * of the Paramètres) where it goes as the pill. The Flux draws only while it is in sight.
+   * of the Paramètres) where it goes as the pill. The Flux draws only while it is in sight. (0.6.200)
+   * `pill`: as its pill whatever the user keeps (the page of the Bobine), until its chevron opens it there.
    */
-  function place(where) {
+  function place(where, { pill = false } = {}) {
+    if (!pill) openedHere = false;
+    pillHere = pill;
     const visible = Boolean(work && where);
     shown = visible;
     root.hidden = !visible;
@@ -350,8 +364,9 @@ export function setupMiniature({
     get phase() {
       return phase;
     },
+    /** Whether it shows as its pill (0.6.200: on the page that puts it so, whatever the user keeps). */
     get folded() {
-      return folded;
+      return foldedNow();
     },
   };
 }

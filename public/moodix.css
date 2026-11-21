@@ -7084,6 +7084,30 @@ html[data-switch='open']::view-transition-old(chat) {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* (0.6.200, check of 21/11, overload, point G) On the picture only: the number under it is left to be read (the
+   question went over it, and out of a take of 120 px). Narrower than its words (a take of an image is 96 px wide,
+   one of a 16:9 clip 171 px), « Supprimer ? » alone (take-delete.mjs): the take and its number say which one.
+   (The question is a container of its own width.) */
+#studio-view .studio-item-confirm {
+  bottom: auto;
+  height: var(--strip-h);
+  container-type: inline-size;
+}
+#studio-view .studio-confirm-brief {
+  display: none;
+  color: var(--text-1);
+  font-size: var(--size-2);
+  font-weight: 700;
+  white-space: nowrap;
+}
+@container (max-width: 179px) {
+  #studio-view .studio-item-confirm .studio-confirm-text {
+    display: none;
+  }
+  #studio-view .studio-item-confirm .studio-confirm-brief {
+    display: block;
+  }
+}
 /* The creations, and the button that shows the whole project (on the line « SORTIE », at the
    right: captures 20 to 23). */
 .studio-sortie-row {
@@ -11775,7 +11799,8 @@ body:has(#settings[data-tab='interface'][open]) :is(#top, .workspace) {
   border-radius: 50%;
   background: transparent;
   color: var(--text-3);
-  font: 400 11px/18px var(--font-ui);
+  /* (0.6.200, check of 21/11, overload, point G) Never under 12 px: it was 11. */
+  font: 400 12px/18px var(--font-ui);
 }
 #settings .settings-block > :not(h3, .help-tip) {
   flex: 1 0 100%;
@@ -13563,7 +13588,8 @@ body[data-setup='incomplete'] #resume-last {
 }
 
 /* 55 · The Studio empty: the frame at the format chosen (a rule at 10 %), the Éclipse small at 45 %,
-   « Votre première prise apparaîtra ici. » in Gloock, how to begin, the format and its size in mono;
+   « Votre première prise apparaîtra ici. » in Gloock and how to begin, while nothing is begun (0.6.200: no
+   more the format and its size in mono, at 11 px, which Format and Résolution say at the right);
    « Générer » greyed (45 %) while the prompt is empty. */
 #studio-view .studio-frame.is-empty {
   outline-color: rgba(238, 232, 222, 0.1);
@@ -13601,17 +13627,10 @@ body[data-setup='incomplete'] #resume-last {
   color: var(--text-3);
   font: 400 13.5px/1.55 var(--font-ui);
 }
-#studio-view .studio-blank-size {
-  margin: 6px 0 0;
-  color: var(--text-3);
-  font: 400 11px/1 var(--font-mono);
-  letter-spacing: 0.08em;
-  opacity: 0.75;
-}
 /* Never out of its frame, nor cut in the middle of a word, whatever the format (0.6.101): a frame of
    9:16 is 150 px wide in a window of 720 px. The title follows the width of the frame, 23 px at most and
    12 % of it, so that its longest word holds on a line of its own; a frame too narrow or too low for how
-   to begin leaves it out, then a very low one the Éclipse: the title and the size stay. (The frame is a
+   to begin leaves it out, then a very low one the Éclipse: the title stays. (The frame is a
    container of its own size, « the take in its frame » below.) */
 #studio-view .studio-blank-title {
   font-size: min(23px, 12cqw);
@@ -16351,7 +16370,8 @@ body:not([data-view='studio']) .ai-cursor {
   align-items: center;
 }
 .montage-count {
-  font: 400 11.5px/1 var(--font-ui);
+  /* (0.6.200, check of 21/11, overload, point G) Never under 12 px: it was 11.5. */
+  font: 400 12px/1 var(--font-ui);
   color: var(--muted);
 }
 .montage-filters {
@@ -18013,11 +18033,16 @@ body[data-view='bobine'] .chat-panel {
   font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
-#bobine-view .bobine-create .bobine-waits:not([hidden]) + .bobine-stage {
-  margin-top: 2px;
-}
 #bobine-view .bobine-create .bobine-stage[data-warned='true'] {
   color: var(--warning);
+}
+/* (0.6.200, check of 21/11, overload, problem 4) One line at a time above « Créer », never two lines high: the
+   page says it short where its words would take two (montage.mjs), cut with « … » rather than wrapped whatever
+   comes; whole in its bubble. The wait and the step are never said at once. */
+#bobine-view .bobine-create :is(.bobine-waits, .bobine-stage) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 #bobine-view .bobine-create .bobine-missing + .bobine-waits {
   margin-top: 4px;
@@ -18238,6 +18263,11 @@ body[data-view='bobine'] .chat-panel {
   height: auto;
   min-height: calc(2lh + 18px);
   max-height: calc(4lh + 18px);
+}
+/* (0.6.200) A take whose creation failed: why, before its field, and its field two lines high (it scrolls in
+   it), so that the reason is read without scrolling « À créer » at 1280 × 720. */
+#bobine-view .bobine-desk .bobine-line:has(.bobine-line-reason) textarea.bobine-line-words {
+  max-height: calc(2lh + 18px);
 }
 /* (Ce que montre l’aperçu, « PRISE 4 », « À CRÉER · SUITE DE LA PRISE 5 » : sur la plaque sombre des étiquettes, captures 70 et 83.) */
 #bobine-view .montage-caption {

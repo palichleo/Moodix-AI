@@ -242,6 +242,35 @@ test('the miniature folds into a pill the browser keeps; in the foot of the Para
   assert.equal(drawn.fluxes.at(-1).seen, false);
 });
 
+test('(0.6.200) on the page of the Bobine it comes as its pill, opened there by its chevron; the choice kept for the other pages is left as it was', () => {
+  // (Check of 21/11, overload, problem 7: open in its corner, 232 × 224, it covered the end of the timeline.)
+  const kept = new Map(),
+    storage = { getItem: key => kept.get(key) ?? null, setItem: (key, value) => kept.set(key, value) };
+  const { mini, part } = miniature({ storage }),
+    folded = () => mini.element.classList.contains('is-folded');
+  mini.begin(WORK);
+  mini.place('corner', { pill: true });
+  assert.deepEqual([folded(), part('work-mini-fold').getAttribute('aria-label')], [true, 'Agrandir la miniature']);
+  // Opened there as anywhere; put again there (the page follows its work), it stays open.
+  part('work-mini-fold').onclick();
+  mini.place('corner', { pill: true });
+  assert.deepEqual([folded(), part('work-mini-fold').getAttribute('aria-label'), kept.get(FOLDED_KEY)], [false, 'Réduire la miniature', undefined]);
+  // Another page, left open: as the user keeps it (open). Back on the Bobine: its pill again.
+  mini.place('corner');
+  assert.equal(folded(), false);
+  mini.place('corner', { pill: true });
+  assert.equal(folded(), true);
+  // Opened and folded again there by its chevron: nothing kept.
+  part('work-mini-fold').onclick();
+  part('work-mini-fold').onclick();
+  assert.deepEqual([folded(), kept.get(FOLDED_KEY)], [true, undefined]);
+  // Folded by the user on another page: kept, and folded on the Bobine too.
+  mini.place('corner');
+  part('work-mini-fold').onclick();
+  mini.place('corner', { pill: true });
+  assert.deepEqual([kept.get(FOLDED_KEY), folded(), mini.folded], ['pill', true, true]);
+});
+
 test('« × » asks the page first: kept when it says no, and the page told what went with it (0.6.87)', () => {
   // Without the history, the conversation it leads back to can be opened from nowhere else: the page
   // asks before, and lets it go with it.
@@ -391,6 +420,23 @@ test('in the conversation of its work, its Chat as its Studio, the miniature nev
   state.view = 'studio';
   sync();
   assert.equal(mini.work, null);
+});
+
+test('(0.6.200) the page puts the miniature as its pill on the Bobine, as the user keeps it everywhere else', () => {
+  const { mini, state, sync } = shownPage(),
+    folded = () => mini.element.classList.contains('is-folded');
+  state.work = { ...WORK };
+  mini.begin(WORK);
+  mini.take({ type: 'start', request: { workflowName: 'Krea 2', autoAllow: true } });
+  state.conversationId = 'b2222222-2222-4222-8222-222222222222';
+  state.view = 'bobine';
+  sync();
+  assert.deepEqual([mini.element.hidden, folded()], [false, true]);
+  for (const view of ['library', 'chat', 'studio']) {
+    state.view = view;
+    sync();
+    assert.deepEqual([mini.element.hidden, folded()], [false, false], view);
+  }
 });
 
 test('the page keeps the take of the Chat being made for the Studio of its conversation, not one of the Studio (0.6.96)', () => {

@@ -40,8 +40,15 @@ export function setupHelpTips(root, { id = 'help-bubble', host = root, delay = 1
   if (typeof view.MutationObserver === 'function')
     new view.MutationObserver(records => {
       for (const record of records)
-        if (record.type === 'attributes') adopt(record.target);
-        else for (const added of record.addedNodes) if (added.nodeType === 1) adoptAll(added);
+        if (record.type === 'attributes') {
+          const titled = record.target.hasAttribute?.('title');
+          adopt(record.target);
+          // (0.6.200) The bubble shown says the new title of its control at once (« Générer » during a
+          // creation: its step and its time, which change every second); with nothing to say, it goes.
+          if (!titled || record.target !== current) continue;
+          if (textOf(current)) show(current);
+          else hide();
+        } else for (const added of record.addedNodes) if (added.nodeType === 1) adoptAll(added);
     }).observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['title'] });
 
   /** What the bubble says for `target`: its help, or its name where it does not show it itself. */

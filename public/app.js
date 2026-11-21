@@ -1563,7 +1563,11 @@ function syncMiniature() {
         ? 'Le modèle se charge…'
         : 'Moodix répond…',
   );
-  mini.place(settings?.open ? (settings.querySelector?.('.settings-footer') ?? 'corner') : 'corner');
+  // (0.6.200) On the page of the Bobine, as its pill (open in its corner, it covered the end of the timeline);
+  // its chevron opens it there, the choice kept for the other pages left as it was.
+  mini.place(settings?.open ? (settings.querySelector?.('.settings-footer') ?? 'corner') : 'corner', {
+    pill: state.view === 'bobine' && !settings?.open,
+  });
 }
 
 /** Whether `version` (x.y.z) is newer than the one installed: an update is offered only then. */

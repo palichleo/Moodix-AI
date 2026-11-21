@@ -118,6 +118,28 @@ const SLIDING = 'cubic-bezier(0.25, 0.46, 0.45, 0.94)';
 // (0.6.169) How far the take in the hand must jump, in pixels, to slide there rather than follow it
 // (0.6.173: further than the hand itself went, which may go fast).
 const JUMP = 24;
+// (0.6.200, check of 21/11, overload, problem 4) Above « Créer », in the 262 px of « À créer » at 1280 × 720: the
+// steps of the engine whose words took two lines there with their time (« 12 min 34 s »), and the waits, said short
+// on one line (measured in Brave, claude_design/construction/alleger); whole in their bubble.
+const SHORT_STEPS = new Map([
+  ['Chargement de l’encodeur de texte…', 'Chargement de l’encodeur…'],
+  ['Préparation du son de la vidéo source…', 'Préparation du son…'],
+  ['Repérage des personnages dans la vidéo…', 'Repérage des personnages…'],
+  ['Mémoire vidéo insuffisante : nouvel essai, plus lent…', 'Nouvel essai, plus lent…'],
+  ['Décodage de la vidéo, avec toute la carte…', 'Décodage de la vidéo…'],
+  ['Agrandissement de la première passe…', 'Agrandissement…'],
+  // (What the server says itself of a work, lib/tool-runtime.mjs: at its start, at its end, after it.)
+  ['Vérification du moteur de génération…', 'Vérification du moteur…'],
+  ['Libération du moteur de génération…', 'Libération du moteur…'],
+  ['Rechargement du modèle et de la vision…', 'Rechargement du modèle…'],
+]);
+const SHORT_WAITS = [
+  [/^Moodix attend votre accord/, 'Répondez d’abord à Moodix.'],
+  [/^Moodix répond/, 'Attendez la fin de la réponse de Moodix.'],
+  [/^(Génération|Une création est) en cours/, 'Attendez la fin de la génération en cours.'],
+];
+/** (0.6.200) What is said of a wait above « Créer », short (SHORT_WAITS); any other words as they are. */
+const briefly = whole => SHORT_WAITS.find(([pattern]) => pattern.test(whole))?.[1] ?? whole;
 /** (0.6.154) Every key in its order, at every depth: two bobines alike say the same. */
 const sorted = value =>
   Array.isArray(value)
@@ -845,10 +867,11 @@ export function setupMontage({
     put(frame.dataset, 'busy', String(busy));
     put(frame.dataset, 'hole', String(hole));
     blank.hidden = Boolean(url) || hole;
+    // (0.6.200) « En cours » without its figure: the button of « Créer » says how far it is.
     const said = !at
       ? ''
       : busy
-        ? 'En cours' + (Number.isFinite(making.fraction) ? ` · ${Math.round(making.fraction * 100)} %` : '')
+        ? 'En cours'
         : todo
           ? 'À créer' + (link.kind === 'suite' || link.kind === 'last' ? ' · suite de la ' + (takeLabel(before?.source) || 'prise à créer').toLowerCase() : '')
           : takeLabel(at.plan.source) || 'Prise introuvable';
@@ -1405,9 +1428,15 @@ export function setupMontage({
         : 'Suite de la ' + (takeLabel(before?.source) || 'prise à créer').toLowerCase();
     return [first, photos.length === 2 ? 'images de début et de fin' : photos[0]].filter(Boolean).join(' · ');
   }
-  const stateOf = id =>
+  /**
+   * What a take to create is at, on its take of the timeline and in its line. (0.6.200) « En cours » without its
+   * figure, which the button of « Créer » says (« 1 sur 1 · 40 % »): « 40 % » was said four times (check of 21/11,
+   * overload, problem 2). Only a take followed here after a reload, which no button of the Bobine makes, says how
+   * far it is, in its line (`line`) alone.
+   */
+  const stateOf = (id, { line = false } = {}) =>
     beingMade(id)
-      ? 'En cours' + (Number.isFinite(beingMade(id).fraction) ? ` · ${Math.round(beingMade(id).fraction * 100)} %` : '')
+      ? 'En cours' + (line && making?.id !== id && Number.isFinite(beingMade(id).fraction) ? ` · ${Math.round(beingMade(id).fraction * 100)} %` : '')
       : writing?.id === id
         ? 'Moodix AI écrit'
         : inSeries() && filling.ids.slice(filling.done).includes(id)
@@ -1438,7 +1467,7 @@ export function setupMontage({
         index = montage.plans.indexOf(plan),
         line = node('div', 'bobine-line'),
         top = node('div', 'bobine-line-top'),
-        state = stateOf(item.id),
+        state = stateOf(item.id, { line: true }),
         model = modelOf(item.id),
         // (Capture 86: while Moodix AI writes it, its model stays at the right, its field says it.)
         written = writing?.id === item.id,
@@ -1492,8 +1521,9 @@ export function setupMontage({
       box.append(field);
       if (written) box.append(node('span', 'bobine-line-writing', 'Moodix AI écrit'));
       if (enrichingId === item.id) box.append(node('span', 'bobine-line-writing', 'Moodix AI enrichit'));
-      line.append(top, middle, box);
-      if (reason) line.append(node('p', 'bobine-line-reason', reason));
+      // (0.6.200) Why it failed before its field, read without scrolling at 1280 × 720 (its field two lines high
+      // then, moodix.css): after it, the reason was under the fade of the list.
+      line.append(top, middle, ...(reason ? [node('p', 'bobine-line-reason', reason)] : []), box);
       live.models.set(item.id, right);
       live.states.set(item.id, right);
       live.lines.set(item.id, line);
@@ -1607,12 +1637,9 @@ export function setupMontage({
   /** What the button says: how many takes « Créer » makes, or where the creation is. */
   function sayGo() {
     if (!montage) return;
-    // (0.6.175) A work going on outside the Bobine: said above the button, which waits for its end.
+    // (0.6.175) A work going on outside the Bobine: said above the button, which waits for its end (sayWait).
     const held = outside();
-    if (live.waiting) {
-      live.waiting.textContent = held;
-      live.waiting.hidden = !held;
-    }
+    sayWait();
     if (!live.goMain) return;
     const ready = creatable().reduce((sum, item) => sum + item.parts, 0),
       running = inSeries(),
@@ -1759,7 +1786,7 @@ export function setupMontage({
     if (live.bar) live.bar.style.width = Math.round((beingMade(id)?.fraction ?? 0) * 100) + '%';
     if (live.making) live.making.textContent = stateOf(id);
     const line = live.states?.get(id);
-    if (line) line.textContent = stateOf(id);
+    if (line) line.textContent = stateOf(id, { line: true });
     sayStep();
   }
   /**
@@ -1772,10 +1799,33 @@ export function setupMontage({
   function sayStep() {
     if (!live.step) return;
     const { label = '', time = '' } = montage?.plans.map(plan => beingMade(plan.id)).find(Boolean) ?? {},
-      words = [label, time].filter(Boolean).join(' · ');
-    live.step.textContent = words;
-    live.step.hidden = !words;
+      words = said => [said, time].filter(Boolean).join(' · ');
+    // (0.6.200) On one line at 1280 × 720: short there when its words would take two (SHORT_STEPS), whole in its bubble.
+    live.step.hidden = !words(label);
+    sayShort(live.step, words(SHORT_STEPS.get(label) ?? label), words(label));
     live.step.dataset.warned = String(/^Mémoire vidéo insuffisante/.test(label));
+  }
+  /**
+   * (0.6.200, check of 21/11, overload, problem 4) Why « Créer » waits for a work going on outside the Bobine,
+   * above it: short on one line (SHORT_WAITS), whole in its bubble and in that of « Créer » (sayGo). Never with
+   * the step of a take followed here, which the button waits for: the two lines, two lines high each, made
+   * « À créer » scroll for a single take at 1280 × 720.
+   */
+  function sayWait() {
+    if (!live.waiting) return;
+    const held = outside();
+    live.waiting.hidden = !held || Boolean(live.step && !live.step.hidden);
+    sayShort(live.waiting, briefly(held), held);
+  }
+  /**
+   * (0.6.200) Words said short on their line, whole in its bubble when they are not the same, or when the line cuts
+   * them all the same (words this page has none shorter for, cut with « … » by moodix.css): measured shown.
+   */
+  function sayShort(line, short, whole) {
+    if (line.textContent !== short) line.textContent = short;
+    const bubble = short !== whole || line.scrollWidth > line.clientWidth ? whole : '';
+    line.title = bubble;
+    if (!bubble) delete line.dataset.tip;
   }
   /** (0.6.148) « Créer n prises »: at once, in the order of the bobine, one after the other. */
   async function createAll() {

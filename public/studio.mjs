@@ -396,6 +396,7 @@ export function setupStudio({
     laidOut = false, // the stage was in sight at the last look: its screen eases to a new shape
     live = null, // { frame, preview } : the picture so far, in the frame now on the page
     flux = null, // { frame, flux }: the Flux of the take being made, in the frame now on the page
+    blankLines = null, // (0.6.200) { title, text }: the words of the empty screen now on the page (sayBlank)
     proposal = null, // a proposal of Moodix AI waiting for « Générer »
     checking = null, // { record, resolve }: the character Moodix AI made, waiting for the user
     ai = null, // { stopped, active, touched } while the pointer sets the Studio
@@ -1542,13 +1543,14 @@ export function setupStudio({
     return block;
   }
   /**
-   * Why the greyed models of the list cannot be used on this computer (no NVIDIA card for a model
-   * that computes on one), each reason once; null when every model can.
+   * Why the model in hand cannot be used on this computer (no NVIDIA card for a model that computes on
+   * one); null when it can. (0.6.200) Its reason alone: the others, greyed in the list, say theirs in their
+   * bubble. Under the list it said those of the four, the model in hand ready or not (check of 21/11,
+   * overload, problem 8).
    */
-  function unavailableNote(list) {
-    const reasons = [...new Set(list.map(item => item.unavailable).filter(Boolean))];
-    if (!reasons.length) return null;
-    const note = node('p', 'studio-model-note', reasons.join(' '));
+  function unavailableNote(workflow) {
+    if (!workflow?.unavailable) return null;
+    const note = node('p', 'studio-model-note', workflow.unavailable);
     note.setAttribute('role', 'note');
     return note;
   }
@@ -2000,17 +2002,6 @@ export function setupStudio({
    * and its length, « 16:9 - 05.17 S »; an image, its format; a sound, its length. Whether it is
    * a draft or a final is said in the details of the creation (a click in the Sortie).
    */
-  /** Under the empty frame (55): « 1:1 · 1024 × 1024 », the format and the size the settings have. */
-  function blankSize(workflow = current()) {
-    if (!workflow || mode === 'audio') return '';
-    const draft = drafts[mode],
-      kept = /^\d+x\d+$/.test(draft.size ?? '') ? draft.size.split('x').map(Number) : null,
-      first = workflow.limits ? sizing(workflow).sizes[0] : null,
-      [width, height] = kept ?? (first ? [first.width, first.height] : []);
-    // (0.6.101) In a narrow frame the line breaks after « · » only: « 9:16 · » then « 448 × 768 »,
-    // never « 768 » alone on a line of its own.
-    return [shapeOf().label, width && height ? `${width} × ${height}` : ''].filter(Boolean).join(' · ');
-  }
   function readoutText(workflow = current()) {
     if (!workflow) return '';
     const shape = shapeOf(),
@@ -2032,9 +2023,28 @@ export function setupStudio({
   function readout() {
     const text = document.querySelector?.('.studio-readout');
     if (text) text.textContent = readoutText();
-    const blank = document.querySelector?.('#studio-view .studio-blank-size');
-    if (blank) blank.textContent = blankSize();
     paintSave();
+  }
+  /** (0.6.200) Whether an image, a clip or a sound is put in a case of the model in hand. */
+  function inputGiven(workflow = current()) {
+    return Object.entries(drafts[mode].inputs ?? {}).some(
+      ([role, list]) => workflow?.roles?.[role]?.count && (list ?? []).some(Boolean),
+    );
+  }
+  /**
+   * (0.6.200) The words of the empty screen, in place: a key does not draw the Studio again. Where the take
+   * comes only while nothing is begun: no prompt, nothing in a case, no clip continued, no reason said under
+   * « Générer », never over the wave of a sound. How to begin with it in a project without takes only, and
+   * not while Moodix AI sets the Studio nor while its proposal waits (0.6.101).
+   */
+  function sayBlank() {
+    if (!blankLines) return;
+    const taken = runs.some(record => record.outputs?.length),
+      begun = mode === 'audio' || Boolean(drafts[mode].prompt.trim() || failure || extending) || inputGiven();
+    // (0.6.198) « première » only in a project without takes: above those of the Sortie, the next one.
+    blankLines.title.textContent = taken ? 'Votre prochaine prise apparaîtra ici.' : 'Votre première prise apparaîtra ici.';
+    blankLines.title.hidden = begun;
+    blankLines.text.hidden = begun || taken || Boolean(ai || answering());
   }
   /** The room the frame has: its stage, less a margin; a default before the stage is laid out. */
   function room(frame) {
@@ -2087,6 +2097,7 @@ export function setupStudio({
         numbered ? 'PRISE ' + take : coming ? 'PRISE ' + coming : next.label,
       ),
     );
+    blankLines = null;
     if (mode === 'audio') {
       const bars = node('div', 'studio-bars');
       bars.setAttribute('aria-hidden', 'true');
@@ -2119,27 +2130,24 @@ export function setupStudio({
       frame.append(result(last));
     } else if (!working) {
       // Nothing made in this mode yet (etats-maquette.md, 55): the Éclipse small, where the first take
-      // will come, how to begin, and the format with its size, which follow the settings.
+      // will come, how to begin. (0.6.200) Their words only while nothing is begun (sayBlank); never the
+      // format and its size under them, which Format and Résolution say at the right.
       const blank = node('div', 'studio-blank'),
         sign = mark?.();
       if (sign) {
         sign.classList?.add('studio-blank-mark');
         blank.append(sign);
       }
-      // (0.6.198) « première » only in a project without takes: above those of the Sortie, the next one.
-      blank.append(node('p', 'studio-blank-title', runs.some(record => record.outputs?.length) ? 'Votre prochaine prise apparaîtra ici.' : 'Votre première prise apparaîtra ici.'));
-      // How to begin, but not while Moodix AI sets the Studio or its proposal waits (0.6.101): it said
-      // « laissez Moodix AI régler le Studio » as it did so. What it proposes is said at the top of the
-      // screen (studio-explain.mjs): nothing more here than where the take comes and its size.
-      if (!(ai || answering()))
-        blank.append(
-          node(
-            'p',
-            'studio-blank-text',
-            'Écrivez un prompt à gauche, ou laissez Moodix AI régler le Studio avec la moitié droite du bouton.',
-          ),
-        );
-      blank.append(node('p', 'studio-blank-size', blankSize()));
+      blankLines = {
+        title: node('p', 'studio-blank-title'),
+        text: node(
+          'p',
+          'studio-blank-text',
+          'Écrivez un prompt à gauche, ou laissez Moodix AI régler le Studio avec la moitié droite du bouton.',
+        ),
+      };
+      blank.append(blankLines.title, blankLines.text);
+      sayBlank();
       frame.append(blank);
     } else frame.setAttribute('aria-hidden', 'true');
     const shown = node('span', 'studio-readout', readoutText());
@@ -2957,6 +2965,9 @@ export function setupStudio({
     if (!working || timed !== working) return elapsed.stop();
     working.time = text;
     if (elapsedNode) elapsedNode.textContent = text;
+    // (0.6.200) In the bubble of « Générer » too, second after second (workTip).
+    const go = away() ? null : document.querySelector?.('#studio-view .studio-go');
+    if (go) go.title = workTip();
     // (0.6.182) A take of the Bobine: said there too, beside the step, second after second.
     working.tell?.();
   });
@@ -2968,6 +2979,12 @@ export function setupStudio({
     }
     elapsed.update(time);
   }
+  /**
+   * (0.6.200) The bubble of « Générer » while a take is made: the words of the line of its step, and its time
+   * (« Génération · 5/8 · 1 min 12 s »). It said « Générer (Ctrl+Entrée) » under « EN COURS · 40 % » (check of
+   * 21/11, overload, problem 3). A take of the Chat followed here keeps why nothing else is made (0.6.96).
+   */
+  const workTip = () => (working.chat ? BUSY_HERE : [working.label, working.time].filter(Boolean).join(' · '));
   /** Updates the button and the screen alone: the form keeps its focus while a generation runs. */
   function progress() {
     if (!working) return;
@@ -2984,6 +3001,7 @@ export function setupStudio({
       const label = go.querySelector('.studio-go-label');
       if (label) label.textContent = known ? `En cours · ${percent} %` : 'En cours…';
       go.setAttribute('aria-valuenow', known ? String(percent) : '');
+      go.title = workTip();
     }
     if (line) {
       line.hidden = false;
@@ -3086,6 +3104,8 @@ export function setupStudio({
       draft.prompt = text.slice(0, index);
       box.value = draft.prompt;
       box.scrollTop = box.scrollHeight;
+      // (0.6.200) Nothing said on the empty screen under the words being written.
+      sayBlank();
       await wait(length / ticks);
     }
     draft.prompt = text;
@@ -4827,6 +4847,8 @@ export function setupStudio({
         // « Enrichir le prompt » waits for a few words; « Générer », for one.
         improvable();
         goable();
+        // (0.6.200) The empty screen says nothing from the first key, and again when it is all taken away.
+        sayBlank();
       },
     );
     prompt.id = 'studio-prompt';
@@ -4905,7 +4927,7 @@ export function setupStudio({
     // Réglages (moodix-design.md 16, 20, 28): blocks without titles, Modèle · Durée + Taille ·
     // LoRA, and « ··· » for the rare ones (the seed, the workflow's own settings).
     settings.append(modelBlock(workflow, list));
-    const lacking = extending ? null : unavailableNote(list);
+    const lacking = extending ? null : unavailableNote(workflow);
     if (lacking) settings.append(lacking);
     // The format, above the resolution (studio-maquette.md: no longer under the screen).
     if (workflow.limits && !extending && mode !== 'audio') {
@@ -5033,6 +5055,8 @@ export function setupStudio({
       go.classList.add('is-unavailable');
     }
     // A take of the Chat of this conversation, followed here (watch, 0.6.96): one creation at a time.
+    // (0.6.200) Any other take made: the words of the line of its step and its time, which progress() puts
+    // in its bubble at the end of each drawing (workTip).
     if (working?.chat) go.title = BUSY_HERE;
     if (working) {
       go.setAttribute('role', 'progressbar');

@@ -134,6 +134,39 @@ test('one bubble, one delay: under the pointer after 150 ms, at once on the keyb
   tips.hide();
 });
 
+test('(0.6.200) the bubble shown says the new title of its control at once; with none, it goes', () => {
+  // (« Générer » during a creation, check of 21/11, overload, problem 3: its bubble says the step and the time, which
+  // change every second; it kept the words it had when it was shown.)
+  const { document, body } = page();
+  let heard = null;
+  document.defaultView.MutationObserver = class {
+    constructor(callback) {
+      heard = callback;
+    }
+    observe() {}
+  };
+  const go = new Element('button', { attributes: { title: 'Étape 3 sur 8 · 42 s' }, text: 'En cours · 40 %' }),
+    other = new Element('button', { attributes: { title: 'Arrêter la génération' } });
+  body.append(go, other);
+  setupHelpTips(body);
+  const bubble = body.children.find(child => child.className === 'help-bubble'),
+    retitle = (element, text) => {
+      element.setAttribute('title', text);
+      heard([{ type: 'attributes', target: element, attributeName: 'title' }]);
+    };
+  body.fire('focusin', { target: go });
+  assert.deepEqual([bubble.hidden, bubble.textContent], [false, 'Étape 3 sur 8 · 42 s']);
+  retitle(go, 'Étape 3 sur 8 · 43 s');
+  assert.deepEqual([bubble.hidden, bubble.textContent, go.dataset.tip], [false, 'Étape 3 sur 8 · 43 s', 'Étape 3 sur 8 · 43 s']);
+  // Another control's title: the bubble shown is left as it is.
+  retitle(other, 'Arrêter');
+  assert.deepEqual([bubble.textContent, other.dataset.tip], ['Étape 3 sur 8 · 43 s', 'Arrêter']);
+  // Nothing to say any more (its tip taken away, an empty title): the bubble goes.
+  delete go.dataset.tip;
+  retitle(go, '');
+  assert.equal(bubble.hidden, true);
+});
+
 // The sidebar is gone (0.6.0), and with it the bubble at the right of its folded icons: the icons
 // of the top bar say their name under them, like every other.
 test('the top bar: its icons say their name in the bubble, under them', () => {

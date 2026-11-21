@@ -726,8 +726,10 @@ try {
           !!view.querySelector('.studio-prompt-field.is-folded.is-cut') && !view.querySelector('.studio-prompt-more').hidden &&
           view.scrollHeight <= view.clientHeight + 1 &&
           // (0.6.101) The empty screen does not tell to « laisser Moodix AI régler le Studio » while it
-          // does so; the label of its pointer was whole in the window all along.
-          !!view.querySelector('.studio-frame.is-empty .studio-blank-title') && !view.querySelector('.studio-blank-text') &&
+          // does so; the label of its pointer was whole in the window all along. (0.6.200) Nor where the
+          // take comes, under the prompt it wrote.
+          view.querySelector('.studio-frame.is-empty .studio-blank-title')?.hidden === true &&
+          !view.querySelector('.studio-blank-text:not([hidden])') &&
           window.__label.seen > 0 && window.__label.left >= 0 && window.__label.right <= innerWidth;
       })()`),
     { within: 15000 },
@@ -750,6 +752,13 @@ try {
       await wait(400);
       return js(`(async () => {
         const pause = ms => new Promise(resolve => setTimeout(resolve, ms)), wrong = [];
+        // (0.6.200) The prompt kept by « Refuser » taken away: the empty screen says where the take comes
+        // only while nothing is begun, and its words are what is measured.
+        const field = document.getElementById('studio-prompt');
+        if (field) {
+          field.value = '';
+          field.dispatchEvent(new Event('input', { bubbles: true }));
+        }
         for (const format of ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9']) {
           const chip = [...document.querySelectorAll('#studio-view .studio-format')].find(button => button.textContent.trim() === format);
           if (chip) chip.click();
@@ -770,6 +779,7 @@ try {
             continue;
           }
           const edge = frame.getBoundingClientRect();
+          if (frame.querySelector('.studio-blank-title')?.hidden !== false) wrong.push(format + ' sans titre');
           for (const part of frame.querySelectorAll('.studio-blank > *')) {
             if (getComputedStyle(part).display === 'none') continue;
             const box = part.getBoundingClientRect();

@@ -40,7 +40,9 @@ export function montageWords(names, short = false) {
 /**
  * The question on a take. `node(tag, className, text)` and `icon(name)` draw it; `name` says the take
  * to a screen reader (« Prise 4 »); `short`: the montages said in short (their names under the
- * pointer and to a screen reader); `onKeep` (✕, Échap) and `onDelete` (the light bin) answer it.
+ * pointer and to a screen reader), and (0.6.200) « Supprimer ? » beside its words, which moodix.css
+ * shows in their place on a take narrower than them; `onKeep` (✕, Échap) and `onDelete` (the light
+ * bin) answer it.
  */
 export function deleteQuestion({ node, icon, record, media, shown = null, name, short = false, onKeep, onDelete }) {
   const words = deleteWords(record, media, shown),
@@ -69,6 +71,13 @@ export function deleteQuestion({ node, icon, record, media, shown = null, name, 
   };
   row.append(no, yes);
   ask.append(node('span', 'studio-confirm-text', words));
+  // (0.6.200, check of 21/11, overload, point G) On a small take of the Sortie its words wrapped, went over the
+  // number under the picture and out of the take: there, « Supprimer ? » alone (the question says it whole aloud).
+  if (short) {
+    const brief = node('span', 'studio-confirm-brief', 'Supprimer ?');
+    brief.setAttribute('aria-hidden', 'true');
+    ask.append(brief);
+  }
   if (note) {
     const said = node('span', 'studio-confirm-note', shownNote);
     // Short or cut to two lines on a small take: whole under the pointer.

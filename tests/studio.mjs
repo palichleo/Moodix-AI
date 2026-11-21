@@ -1512,6 +1512,10 @@ test('the Sortie: pictures only, the newest at the left with the largest number,
     assert.deepEqual(body.find('studio-item-menu'), []);
     const [ask] = body.find('studio-item-confirm');
     assert.equal(ask.attributes.role, 'alertdialog');
+    // (0.6.200) Its short form for a take too narrow for it (moodix.css, a container of its width): « Supprimer ? »,
+    // the take named under the picture and to a screen reader (check of 21/11, overload, point G).
+    const [brief] = ask.find('studio-confirm-brief');
+    assert.deepEqual([brief.textContent, brief.attributes['aria-hidden']], ['Supprimer\u00a0?', 'true']);
     assert.equal(ask.find('studio-confirm-text')[0].textContent, 'Supprimer #3\u00a0?');
     // ✕ keeps it.
     ask.find('studio-confirm-no')[0].onclick();
@@ -2349,13 +2353,14 @@ test('a model this computer cannot run is greyed in the list with its reason, an
   });
   const routes = { 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }) };
   const started = asked => asked.filter(([route]) => route === 'tools/action').length;
-  // Another model can run: it is the one in hand, the other is greyed in the list, its reason under it.
+  // Another model can run: it is the one in hand, the other is greyed in the list, its reason in its bubble.
+  // (0.6.200) Nothing under the list: the model chosen can run (check of 21/11, overload, problem 8).
   let studio = await studioPage({ create_image: [model('moss'), model('krea', { unavailable: reason })] }, routes);
   try {
     const [usable, greyed] = studio.body.find('studio-model-pick')[0].children;
     assert.equal(usable.disabled, undefined);
     assert.deepEqual([greyed.disabled, greyed.title], [true, reason]);
-    assert.equal(studio.body.find('studio-model-note')[0].textContent, reason);
+    assert.deepEqual(studio.body.find('studio-model-note'), []);
     // « Générer » waits for a prompt only (55), not for the model greyed in the list.
     assert.deepEqual(
       [studio.body.find('studio-go')[0].disabled, studio.body.find('studio-go')[0].title],
@@ -2384,6 +2389,17 @@ test('a model this computer cannot run is greyed in the list with its reason, an
     await settle();
     assert.equal(started(studio.asked), 0);
     assert.equal(studio.notices.at(-1), reason);
+  } finally {
+    studio.restore();
+  }
+  // (0.6.200) None can run (a computer without an NVIDIA card): under the list, the reason of the one in hand
+  // alone, one sentence; the others greyed in the list, each its reason in its bubble. The four were said there.
+  const other = 'MOSS Image demande une carte graphique NVIDIA : son pilote n’en voit aucune sur cet ordinateur.';
+  studio = await studioPage({ create_image: [model('krea', { unavailable: reason }), model('moss', { unavailable: other })] }, routes);
+  try {
+    const options = studio.body.find('studio-model-pick')[0].children;
+    assert.deepEqual(studio.body.find('studio-model-note').map(note => note.textContent), [reason]);
+    assert.deepEqual(options.map(option => [option.disabled, option.title]), [[true, reason], [true, other]]);
   } finally {
     studio.restore();
   }
@@ -3373,6 +3389,89 @@ test('while a take is made the Studio says beside its step how long since its go
   } finally {
     restore();
   }
+});
+
+test('(0.6.200) while a take is made the bubble of « Générer » says its step and its time, the words of the line of the step', async () => {
+  // (Check of 21/11, overload, problem 3: it said « Générer (Ctrl+Entrée) » under « EN COURS · 40 % ».) Said in
+  // place as the step goes on, the button not drawn again; drawn again, the same words.
+  const image = { id: 'w', name: 'Image', roles: {}, limits: sizes, size: { width: 1024, height: 1024 }, settings: [] },
+    // (« Générer » as it is laid out, its bar too: progress() writes in it.)
+    laidOut = selector => {
+      const go = laidOutGo(selector);
+      if (go) go.style.setProperty ??= () => {};
+      return go;
+    };
+  const page = await studioPage({ create_image: [image] }, {}, { querySelector: laidOut });
+  const { body, studio, restore } = page;
+  try {
+    const go = () => body.find('studio-go')[0],
+      step = () => body.find('studio-progress')[0].textContent;
+    page.prompt().value = 'un phare';
+    page.prompt().oninput();
+    // Followed again after a reload: its step, its time not known yet.
+    studio.followAgain();
+    assert.deepEqual([step(), go().title], ['Génération en cours…', 'Génération en cours…']);
+    const drawn = go();
+    studio.follow('Génération · 5/8', 0.42, null, { ms: 72000, running: true });
+    assert.deepEqual([go() === drawn, go().title], [true, 'Génération · 5/8 · 1 min 12 s']);
+    // Drawn again: the words of its line, « Génération · 5/8 » and « 1 min 12 s ».
+    studio.render();
+    assert.deepEqual([step(), body.find('studio-elapsed')[0].textContent, go().title], ['Génération · 5/8', '1 min 12 s', 'Génération · 5/8 · 1 min 12 s']);
+    // A second later, by the count alone (no word from the server meanwhile): in its bubble too.
+    const again = go();
+    for (let at = 0; at < 150 && body.find('studio-elapsed')[0].textContent === '1 min 12 s'; at++) await new Promise(resolve => setTimeout(resolve, 20));
+    assert.deepEqual([go() === again, body.find('studio-elapsed')[0].textContent, go().title], [true, '1 min 13 s', 'Génération · 5/8 · 1 min 13 s']);
+    // Its file written: its time, which no longer moves.
+    studio.follow('Libération du moteur de génération…', 0.95, null, { ms: 73400, running: false });
+    assert.equal(go().title, 'Libération du moteur de génération… · 1 min 13 s');
+    // Over: « Générer » again, with its keys.
+    await studio.settled({ record: null, error: 'Arrêtée.' });
+    assert.match(go().title, /^Générer \((Ctrl|⌘)\+Entrée\)$/);
+  } finally {
+    restore();
+  }
+});
+
+test('(0.6.200) no word under 12 px where the check of 21/11 found one; « Supprimer ? » within a small take of the Sortie', async () => {
+  // (Check of 21/11, overload, point G: the « ? » of the Paramètres at 11 px, the count of « Prises » at 11.5 px; the
+  // question on a take of 120 px wrapped, went over the number under the picture, and out of the take.)
+  const css = (await (await import('node:fs/promises')).readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n'),
+    rule = selector => {
+      const at = css.lastIndexOf(selector + ' {');
+      assert.notEqual(at, -1, selector);
+      return css.slice(at, css.indexOf('}', at));
+    };
+  assert.match(rule('#settings .settings-block > .help-tip'), /font: 400 12px\/18px var\(--font-ui\);/);
+  assert.match(rule('.montage-count'), /font: 400 12px\/1 var\(--font-ui\);/);
+  // On the picture only, the number under it left to be read; narrower than its words, « Supprimer ? » alone.
+  assert.match(rule('#studio-view .studio-item-confirm'), /bottom: auto;\n  height: var\(--strip-h\);\n  container-type: inline-size;/);
+  assert.match(rule('#studio-view .studio-confirm-brief'), /display: none;/);
+  assert.match(css, /@container \(max-width: 179px\) \{\n  #studio-view \.studio-item-confirm \.studio-confirm-text \{\n    display: none;\n  \}\n  #studio-view \.studio-item-confirm \.studio-confirm-brief \{\n    display: block;\n  \}\n\}/);
+  // The Pellicule asks on a card wide enough for its words: no short form there.
+  const { deleteQuestion } = await import('../public/take-delete.mjs'),
+    made = [],
+    node = (tag, className = '', text = '') => {
+      const element = {
+        tag,
+        className,
+        textContent: text,
+        children: [],
+        attributes: {},
+        append(...items) {
+          this.children.push(...items);
+        },
+        setAttribute(name, value) {
+          this.attributes[name] = String(value);
+        },
+      };
+      made.push(element);
+      return element;
+    },
+    asked = { node, icon: () => null, record: { outputs: [{ take: 12 }] }, media: 'image', onKeep() {}, onDelete() {} };
+  deleteQuestion(asked);
+  assert.deepEqual(made.filter(element => element.className === 'studio-confirm-brief'), []);
+  deleteQuestion({ ...asked, short: true });
+  assert.deepEqual(made.filter(element => element.className === 'studio-confirm-brief').map(element => element.textContent), ['Supprimer\u00a0?']);
 });
 
 test('a proposal left as it is goes as it is; declined, it is answered « deny »', async () => {
@@ -5029,33 +5128,185 @@ test('the empty screen says how to begin, but not while Moodix AI sets the Studi
     said = [],
     hints = [];
   let page = null;
+  // (0.6.200) What is shown of it: its lines are drawn hidden, and shown again in place (sayBlank).
+  const shownHints = () => (page ? page.body.find('studio-blank-text').filter(line => !line.hidden).length : null);
   Object.defineProperty(said, 'push', {
     value(label) {
-      hints.push(page ? page.body.find('studio-blank-text').length : null);
+      hints.push(shownHints());
       return Array.prototype.push.call(this, label);
     },
   });
-  page = await studioPage(tools, {}, { runs, cursor: said, targets: true });
+  // (0.6.200) Whether the empty screen says where the take comes, each time the pointer types a letter of the prompt.
+  const typed = [],
+    target = () => ({
+      getBoundingClientRect: () => ({ left: 100, top: 100, width: 40, height: 40 }),
+      scrollIntoView() {},
+      style: { setProperty() {} },
+      classList: { toggle() {} },
+      querySelector: () => null,
+      setAttribute() {},
+    }),
+    querySelector = selector =>
+      selector === '#studio-view [data-ai="prompt"]'
+        ? Object.defineProperty(target(), 'value', { set: () => typed.push(!page.body.find('studio-blank-title')[0]?.hidden) })
+        : target();
+  page = await studioPage(tools, {}, { runs, cursor: said, querySelector });
   const { body, studio, restore } = page;
   try {
     const answer = studio.propose(structuredClone(recorded.request), new AbortController().signal, { said: recorded.content });
     await until(() => said.includes('attend votre accord'));
-    // At each step of the pointer, then while it waits: where the take comes and its size, nothing more
-    // (what is proposed is said at the top of the screen).
+    // (0.6.200) Said before its first letter, no more from it on: the Studio is not drawn again at each one.
+    assert.deepEqual([typed.length > 1, typed[0], typed.slice(1).some(Boolean)], [true, true, false]);
+    // At each step of the pointer, then while it waits: where the take comes, nothing more (what is proposed
+    // is said at the top of the screen).
     assert.deepEqual(hints, [0, 0, 0, 0, 0, 0, 0]);
-    // (0.6.198) « prochaine »: its project has a take already (the portrait, PRISE 1).
-    assert.equal(body.find('studio-blank-title')[0].textContent, 'Votre prochaine prise apparaîtra ici.');
-    // Its size breaks after « · » only, in a narrow frame: never « 768 » alone on a line.
-    assert.equal(body.find('studio-blank-size')[0].textContent, '9:16 · 448 × 768');
+    // (0.6.198) « prochaine »: its project has a take already (the portrait, PRISE 1). (0.6.200) Not said under
+    // the prompt the pointer wrote; nor the format and its size, which Format and Résolution say.
+    const [title] = body.find('studio-blank-title');
+    assert.deepEqual([title.textContent, title.hidden], ['Votre prochaine prise apparaîtra ici.', true]);
+    assert.deepEqual(body.find('studio-blank-size'), []);
     studio.decline();
     assert.equal(await answer, 'deny');
-    // The Studio the user's again: how to begin, as before.
-    assert.deepEqual(
-      body.find('studio-blank-text').map(line => line.textContent),
-      ['Écrivez un prompt à gauche, ou laissez Moodix AI régler le Studio avec la moitié droite du bouton.'],
-    );
+    // The Studio the user's again, its prompt and its start image kept: nothing said; both taken away, where the
+    // next take comes, alone (how to begin is said in a project without takes).
+    assert.deepEqual([body.find('studio-blank-title')[0].hidden, shownHints()], [true, 0]);
+    page.prompt().value = '';
+    page.prompt().oninput();
+    assert.deepEqual([body.find('studio-blank-title')[0].hidden, shownHints()], [true, 0]);
+    body.find('studio-slot-remove')[0].onclick();
+    assert.deepEqual([body.find('studio-blank-title')[0].hidden, shownHints()], [false, 0]);
   } finally {
     restore();
+  }
+});
+
+test('(0.6.200) in a project without takes, how to begin is not said either while Moodix AI sets the Studio nor while its proposal waits', async () => {
+  // (Above, a project with a take, where it is not said at all.) The proposal recorded, without the take it carries.
+  const recorded = await recordedProposal(),
+    { tools } = replayStudio(),
+    request = structuredClone(recorded.request),
+    call = JSON.parse(request.call.function.arguments),
+    said = [],
+    hints = [];
+  delete call.start_image;
+  delete request.plan.references;
+  request.call.function.arguments = JSON.stringify(call);
+  let page = null;
+  const shownHints = () => (page ? page.body.find('studio-blank-text').filter(line => !line.hidden).length : null);
+  Object.defineProperty(said, 'push', {
+    value(label) {
+      hints.push(shownHints());
+      return Array.prototype.push.call(this, label);
+    },
+  });
+  // The Studio opens on an image model, its screen empty: how to begin is said there.
+  const image = { id: 'k', name: 'Krea 2', verb: 'create_image', direct: true, roles: {}, inputs: {}, limits: sizes, settings: [] };
+  page = await studioPage({ create_image: [image], ...tools }, {}, { runs: [], cursor: said, targets: true });
+  const { body, studio, restore } = page;
+  try {
+    assert.deepEqual([body.dataset.mode, shownHints()], ['image', 1]);
+    const answer = studio.propose(request, new AbortController().signal, { said: recorded.content });
+    await until(() => said.includes('attend votre accord'));
+    assert.ok(hints.length > 2 && hints.every(count => count === 0), hints.join(' '));
+    // Refused, its prompt taken away: where the first take comes, and how to begin, again.
+    studio.decline();
+    assert.equal(await answer, 'deny');
+    page.prompt().value = '';
+    page.prompt().oninput();
+    assert.deepEqual([body.find('studio-blank-title')[0].hidden, shownHints()], [false, 1]);
+  } finally {
+    restore();
+  }
+});
+
+test('(0.6.200) the empty screen says where the take comes only while nothing is begun: the first one with how to begin, the next one alone', async () => {
+  // (Check of 21/11, overload, problem 1: the title, how to begin and « 16:9 · 512 × 288 » in 11 px stayed under a
+  // prompt written, an image given, a clip continued, an error, over the wave of a sound.) Shown and taken away
+  // in place: a key does not draw the Studio again.
+  const image = {
+      id: 'k',
+      name: 'Krea 2',
+      verb: 'create_image',
+      direct: true,
+      roles: { source: { count: 1, media: ['image'], many: false } },
+      inputs: { img2img: 'source' },
+      limits: sizes,
+      size: { width: 1024, height: 1024 },
+      settings: [],
+      seeded: true,
+    },
+    // (A model without a case for it: what is put in its case for another is not given to this one.)
+    plain = { ...image, id: 'p', name: 'Image simple', roles: {}, inputs: {} },
+    sound = { id: 's', name: 'Bruitages', roles: {}, settings: [{ key: 'seconds', type: 'number', min: 1, max: 30, default: 10 }] },
+    shown = body =>
+      body
+        .find('studio-blank')
+        .flatMap(blank => blank.children)
+        .filter(line => /^studio-blank-(title|text)$/.test(line.className) && !line.hidden)
+        .map(line => line.textContent),
+    FIRST = ['Votre première prise apparaîtra ici.', 'Écrivez un prompt à gauche, ou laissez Moodix AI régler le Studio avec la moitié droite du bouton.'];
+  let page = await studioPage(
+    { create_image: [image, plain], create_audio: [sound] },
+    { 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }), 'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }) },
+    { runs: [] },
+  );
+  try {
+    const { body } = page,
+      type = words => {
+        page.prompt().value = words;
+        page.prompt().oninput();
+      };
+    // A project without takes, nothing written, nothing given: where the first one comes, and how to begin.
+    assert.deepEqual(shown(body), FIRST);
+    assert.deepEqual(body.find('studio-blank-size'), []);
+    // A prompt written: nothing, from the first key, in place (the same screen, the same field).
+    const frame = body.find('studio-frame')[0],
+      field = page.prompt();
+    type('U');
+    assert.deepEqual(shown(body), []);
+    type('');
+    assert.deepEqual([shown(body), body.find('studio-frame')[0] === frame, page.prompt() === field], [FIRST, true, true]);
+    // An image given to modify: nothing; taken back, said again.
+    body.find('studio-slot')[0].ondrop({ preventDefault() {}, stopPropagation() {}, dataTransfer: { files: [{ name: 'phare.png', type: 'image/png' }], setData() {} } });
+    await settle();
+    assert.deepEqual(shown(body), []);
+    const pick = model => {
+      body.find('studio-model-pick')[0].value = model;
+      body.find('studio-model-pick')[0].onchange();
+    };
+    pick('p');
+    assert.deepEqual(shown(body), FIRST);
+    pick('k');
+    assert.deepEqual(shown(body), []);
+    body.find('studio-slot-remove')[0].onclick();
+    assert.deepEqual(shown(body), FIRST);
+    // A creation that failed: nothing while its reason is said under « Générer », its prompt taken away or not.
+    type('Un phare');
+    await body.find('studio-go')[0].onclick();
+    await settle();
+    assert.equal(body.find('studio-error').length, 1);
+    type('');
+    assert.deepEqual(shown(body), []);
+    // Son: over its wave, nothing.
+    page.mode(2);
+    assert.deepEqual([body.find('studio-bars').length, shown(body)], [1, []]);
+  } finally {
+    page.restore();
+  }
+  // A project with takes, in a conversation without any: where the next one comes, alone. A clip of it
+  // continued (« Prolonger »), its prompt not written yet: nothing (its banner says what is made).
+  const more = continuing();
+  for (const record of more.runs) record.conversationId = 'c0';
+  page = await studioPage(more.tools, {}, { runs: more.runs });
+  try {
+    assert.deepEqual(shown(page.body), ['Votre prochaine prise apparaîtra ici.']);
+    prolonger(page.body).onclick();
+    assert.deepEqual(
+      [page.body.dataset.mode, page.body.find('studio-frame')[0].className.includes('is-empty'), page.body.find('studio-extending').length, shown(page.body)],
+      ['video', true, 1, []],
+    );
+  } finally {
+    page.restore();
   }
 });
 
@@ -6859,8 +7110,9 @@ test('a take to create of the bobine is made as a take of the Studio is, which f
     assert.deepEqual([sent.conversationId, sent.studio, sent.name, sent.estimate, sent.size], ['c1', true, 'create_video', undefined, { width: 1344, height: 768 }]);
     assert.deepEqual(sent.arguments, { prompt: 'Il lève les yeux.', intention: 'Prise d’une bobine, demandée dans la Bobine.', duration: 5, format: '16:9', start_image: { output: 'p1', conversation: 'c0' } });
     // While it is made the bobine says it on the take and in its button; the Studio follows it, in Vidéo,
-    // with the text it is made with (0.6.177: it showed Image and the draft of an image).
-    assert.deepEqual(seen, [{ mode: 'video', prompt: 'Il lève les yeux.', bobine: true, place: { id: 'm1', plan: 'a', from: 0 }, step: ['Étape 2 sur 8 · 1 min 11 s', 'Étape 2 sur 8 · 1 min 12 s', 'Étape 3 sur 8 · 1 min 12 s'], pieces: ['En cours · 25 %'], button: '1 sur 1 · 25 %' }]);
+    // with the text it is made with (0.6.177: it showed Image and the draft of an image). (0.6.200) How far it
+    // is, in its button only.
+    assert.deepEqual(seen, [{ mode: 'video', prompt: 'Il lève les yeux.', bobine: true, place: { id: 'm1', plan: 'a', from: 0 }, step: ['Étape 2 sur 8 · 1 min 11 s', 'Étape 2 sur 8 · 1 min 12 s', 'Étape 3 sur 8 · 1 min 12 s'], pieces: ['En cours'], button: '1 sur 1 · 25 %' }]);
     // (In Vidéo from its first instant, before the server has said what it is made with.)
     assert.deepEqual(asking, ['video']);
     // Made: the take to create is the take made, kept as such; « À créer » is empty.
@@ -6936,13 +7188,16 @@ test('a take to create of the bobine is made as a take of the Studio is, which f
   try {
     const { desk, notices, actions } = studio,
       go = () => desk.find('bobine-go-main')[0],
-      waits = () => desk.find('bobine-waits').map(line => [line.textContent, line.hidden]);
+      // (0.6.200) Said short on its line at 1280 × 720, whole in its bubble and in that of « Créer ».
+      waits = () => desk.find('bobine-waits').map(line => [line.textContent, line.hidden]),
+      tips = () => [desk.find('bobine-waits')[0].title, go().dataset.tip];
     assert.deepEqual([go().disabled, waits()], [false, [['', true]]]);
     // A take of the Chat of this conversation, which the Studio follows: « Créer » waits for its end, and says so.
     take = chatTakeOf(request);
     studio.studio.watch();
     studio.studio.busyChanged();
-    assert.deepEqual([go().disabled, waits()], [true, [['Génération en cours dans cette conversation : attendez sa fin.', false]]]);
+    assert.deepEqual([go().disabled, waits()], [true, [['Attendez la fin de la génération en cours.', false]]]);
+    assert.deepEqual(tips(), Array(2).fill('Génération en cours dans cette conversation : attendez sa fin.'));
     take = null;
     studio.studio.watch();
     studio.studio.busyChanged();
@@ -6950,7 +7205,7 @@ test('a take to create of the bobine is made as a take of the Studio is, which f
     // What greys « Générer » greys « Créer », with the same words: Moodix answering in this conversation.
     elsewhere = 'Moodix répond : attendez la fin de sa réponse.';
     studio.studio.busyChanged();
-    assert.deepEqual([go().disabled, waits()], [true, [[elsewhere, false]]]);
+    assert.deepEqual([go().disabled, waits(), tips()], [true, [['Attendez la fin de la réponse de Moodix.', false]], [elsewhere, elsewhere]]);
     elsewhere = '';
     studio.studio.busyChanged();
     assert.deepEqual([go().disabled, waits()], [false, [['', true]]]);
@@ -6986,9 +7241,13 @@ test('a take to create of the bobine is made as a take of the Studio is, which f
     // a take the Bobine asked itself. It came over the timeline after a reload.
     assert.equal(studio.studio.bobineWorking(), true);
     studio.studio.follow('Étape 4 sur 8', 0.5, null, { ms: 48000, running: true });
-    assert.deepEqual(said(), ['En cours · 50 %', 'En cours · 50 %', true]);
+    // (0.6.200) How far it is, in its line only: no button of the Bobine makes it.
+    assert.deepEqual(said(), ['En cours', 'En cours · 50 %', true]);
     // (0.6.182) Its step and its time above the button, as for a take the Bobine asked itself.
     assert.deepEqual(desk.find('bobine-stage').map(line => line.textContent), ['Étape 4 sur 8 · 48 s']);
+    // (0.6.200) Never with the wait it holds « Créer » for (the Studio follows it: « Génération en cours… »), which
+    // « Créer » says in its bubble: two lines above the button made « À créer » scroll at 1280 × 720.
+    assert.deepEqual([desk.find('bobine-waits')[0].hidden, desk.find('bobine-go-main')[0].dataset.tip], [true, 'Génération en cours dans cette conversation : attendez sa fin.']);
     const made = { ...clip, createdAt: '2026-11-20T03:05:00.000Z', bobine: place };
     runs.push(made);
     await studio.studio.settled({ record: made });

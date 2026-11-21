@@ -1031,13 +1031,14 @@ test('« Créer 1 prise » asks the Studio for the clip, shows it being made, an
     place: placeOf(f, 0),
   });
   // Being made: said on the take, in its line, in the button that fills, in the preview (what the engine shows, blurred).
+  // (0.6.200) How far it is, in the button alone (check of 21/11, overload, problem 2: « 40 % » four times).
   asked[0].hooks.onProgress('Étape 3 sur 8', 0.4, '/preview/a.jpg');
   const [frame] = f.get('montage-frame'),
     [, picture, , caption] = frame.children;
-  assert.deepEqual([f.plans()[0].className, f.names()[0], find(f.root, 'montage-piece-bar-done')[0].style.width], ['montage-piece is-todo is-making', 'En cours · 40 %', '40%']);
-  assert.deepEqual([f.lines()[0][1], f.get('bobine-line')[0].dataset.state], ['En cours · 40 %', 'making']);
+  assert.deepEqual([f.plans()[0].className, f.names()[0], find(f.root, 'montage-piece-bar-done')[0].style.width], ['montage-piece is-todo is-making', 'En cours', '40%']);
+  assert.deepEqual([f.lines()[0][1], f.get('bobine-line')[0].dataset.state], ['En cours', 'making']);
   assert.deepEqual([f.go(), f.goMain().disabled, f.get('bobine-go-fill')[0].style.width], ['1 sur 1 · 40 %', true, '40%']);
-  assert.deepEqual([picture.src, picture.hidden, caption.textContent, frame.dataset.busy], ['/preview/a.jpg', false, 'En cours · 40 %', 'true']);
+  assert.deepEqual([picture.src, picture.hidden, caption.textContent, frame.dataset.busy], ['/preview/a.jpg', false, 'En cours', 'true']);
   // (0.6.159, capture 87) No text over what is being made: it covered the frame, under « EN COURS ».
   const [words] = find(frame, 'montage-frame-words');
   assert.deepEqual([words.hidden, words.textContent], [true, '']);
@@ -1469,9 +1470,10 @@ test('« Créer 2 prises » makes them at once, one after the other, in the orde
   assert.deepEqual([f.button('Mettre en pause après cette prise').children[0].className, f.button('Arrêter').children[0].className], ['icon-pause', 'icon-stop']);
   assert.deepEqual([f.ui.state().chosen, f.get('montage-pop').length], [f.ui.state().montage.plans[0].id, 0]);
   assert.deepEqual([f.get('montage-export')[0].disabled, f.get('montage-pick')[0].disabled, f.get('montage-format')[0].disabled], [true, true, true]);
-  // Its progress: on the take, in its line, in the button, which fills (half of the first of two: a quarter).
+  // Its progress: in the button, which fills (half of the first of two: a quarter). (0.6.200) « En cours » alone on
+  // the take and in its line: the figure once.
   asked[0].hooks.onProgress('Étape 4 sur 8', 0.5);
-  assert.deepEqual([f.names()[0], f.lines()[0][1], f.go(), f.get('bobine-go-fill')[0].style.width], ['En cours · 50 %', 'En cours · 50 %', '1 sur 2 · 50 %', '25%']);
+  assert.deepEqual([f.names()[0], f.lines()[0][1], f.go(), f.get('bobine-go-fill')[0].style.width], ['En cours', 'En cours', '1 sur 2 · 50 %', '25%']);
   f.plans()[1].onkeydown({ key: 'Delete' });
   assert.deepEqual([f.plans().length, f.notices.at(-1)], [2, 'Des prises sont en cours de création : attendez la fin, ou arrêtez.']);
   // The first made: the second is asked in its turn, from the last image of the first.
@@ -3359,13 +3361,14 @@ test('its take found being made after a reload says « En cours » on its take a
   assert.deepEqual(shown(), REST);
   going = { id: id(700), plan: id(701), fraction: 0.4 };
   f.ui.busyChanged();
-  assert.deepEqual(shown(), ['montage-piece is-todo is-making', ['En cours · 40 %'], 'En cours · 40 %', 'making', ['40%']]);
+  // (0.6.200) How far it is, once: in its line (no button of the Bobine makes it); « En cours » on its take.
+  assert.deepEqual(shown(), ['montage-piece is-todo is-making', ['En cours'], 'En cours · 40 %', 'making', ['40%']]);
   // As it goes on its words follow it, nothing drawn again: a text being typed keeps its field.
   const [piece] = f.plans(),
     row = line();
   going = { ...going, fraction: 0.6 };
   f.ui.busyChanged();
-  assert.deepEqual([f.plans()[0] === piece, line() === row, ...shown().slice(1)], [true, true, ['En cours · 60 %'], 'En cours · 60 %', 'making', ['60%']]);
+  assert.deepEqual([f.plans()[0] === piece, line() === row, ...shown().slice(1)], [true, true, ['En cours'], 'En cours · 60 %', 'making', ['60%']]);
   // A work for another bobine, for a take that is not here, or over without a take: as it was.
   for (const other of [{ id: id(799), plan: id(701), fraction: 0.6 }, { id: id(700), plan: id(702), fraction: 0.6 }, null]) {
     going = other;
@@ -3409,11 +3412,13 @@ test('the take being made says the step the engine is at and how long it has bee
   // The second goes by, the step unchanged; nothing is drawn again under the hands.
   asked[0].hooks.onProgress('', 0.5, null, '1 min 13 s');
   assert.deepEqual([step(), f.get('bobine-stage')[0] === row], [[['Étape 4 sur 8 · 1 min 13 s', false, 'false']], true]);
-  // The engine lacks video memory and tries again, more slowly: its words, in amber; back to ink after.
+  // The engine lacks video memory and tries again, more slowly: in amber; back to ink after. (0.6.200) On one
+  // line at 1280 × 720, its whole words in its bubble.
   asked[0].hooks.onProgress('Mémoire vidéo insuffisante : nouvel essai, plus lent…', 0.5, null, '1 min 20 s');
-  assert.deepEqual(step(), [['Mémoire vidéo insuffisante : nouvel essai, plus lent… · 1 min 20 s', false, 'true']]);
+  assert.deepEqual(step(), [['Nouvel essai, plus lent… · 1 min 20 s', false, 'true']]);
+  assert.equal(f.get('bobine-stage')[0].title, 'Mémoire vidéo insuffisante : nouvel essai, plus lent… · 1 min 20 s');
   asked[0].hooks.onProgress('Étape 5 sur 8', 0.6, null, '2 min 04 s');
-  assert.deepEqual(step(), [['Étape 5 sur 8 · 2 min 04 s', false, 'false']]);
+  assert.deepEqual([step(), f.get('bobine-stage')[0].title], [[['Étape 5 sur 8 · 2 min 04 s', false, 'false']], '']);
   // Made: the next one counts from nothing. The last one made: nothing said any more.
   f.runs.push(made(50, 121));
   answers[0].resolve(f.runs.at(-1));
@@ -3441,10 +3446,135 @@ test('a take found being made after a reload says its step and its time too (0.6
   assert.deepEqual(step(), [['Étape 3 sur 8 · 48 s', false, 'false']]);
   going = { ...going, label: 'Mémoire vidéo insuffisante : nouvel essai, plus lent…', time: '52 s' };
   f.ui.busyChanged();
-  assert.deepEqual(step(), [['Mémoire vidéo insuffisante : nouvel essai, plus lent… · 52 s', false, 'true']]);
+  assert.deepEqual(step(), [['Nouvel essai, plus lent… · 52 s', false, 'true']]);
   going = null;
   f.ui.busyChanged();
   assert.deepEqual(step(), [['', true, 'false']]);
+});
+
+// (0.6.200, check of 21/11, overload, problem 4) At 1280 × 720 « À créer » is 262 px wide: the wait and the step
+// of a take followed after a reload were said at once above « Créer », each on two lines, and the list scrolled
+// for a single take; why a take failed was under the fade of the list. One line at a time, each said short there
+// when its words would take two (measured in Brave, claude_design/construction/alleger), whole in its bubble.
+test('(0.6.200) above « Créer », never the wait and the step at once: a take followed here says its step, « Créer » the wait in its bubble', async () => {
+  const HELD = 'Génération en cours dans cette conversation : attendez sa fin.';
+  let going = null,
+    why = '';
+  const f = await setup({ stored: [waiting()], followed: () => going, busyWith: () => why }).open();
+  const said = () =>
+    [...f.get('bobine-waits'), ...f.get('bobine-stage')].filter(line => !line.hidden).map(line => [line.className, line.textContent, line.title || '']);
+  // Found before its step is known: the wait alone, short.
+  going = { id: id(700), plan: id(701), fraction: 0.4 };
+  why = HELD;
+  f.ui.busyChanged();
+  assert.deepEqual(said(), [['bobine-waits', 'Attendez la fin de la génération en cours.', HELD]]);
+  // Its step, in place: words it has none shorter for, too long for the line all the same (as the browser lays them
+  // out, nothing while hidden), cut with « … » there and whole in its bubble; the wait goes.
+  const [stage] = f.get('bobine-stage'),
+    untold = 'Une étape que la page ne connaît pas encore, aux mots bien trop longs…';
+  let width = 300;
+  Object.defineProperties(stage, { scrollWidth: { get: () => (stage.hidden ? 0 : width) }, clientWidth: { get: () => (stage.hidden ? 0 : 262) } });
+  going = { ...going, label: untold, time: '1 min 20 s' };
+  f.ui.busyChanged();
+  assert.deepEqual([said(), f.get('bobine-stage')[0] === stage], [[['bobine-stage', untold + ' · 1 min 20 s', untold + ' · 1 min 20 s']], true]);
+  width = 200;
+  going = { ...going, label: 'Repérage des personnages dans la vidéo…', time: '1 min 24 s' };
+  f.ui.busyChanged();
+  assert.deepEqual(said(), [['bobine-stage', 'Repérage des personnages… · 1 min 24 s', 'Repérage des personnages dans la vidéo… · 1 min 24 s']]);
+  assert.deepEqual([f.goMain().disabled, f.goMain().dataset.tip], [true, HELD]);
+  // Over: nothing above the button any more.
+  going = null;
+  why = '';
+  f.ui.busyChanged();
+  assert.deepEqual(said(), []);
+  // Words it has none shorter for, too long for the line all the same (as the browser lays them out, nothing while
+  // hidden): cut with « … » there, whole in its bubble.
+  const [waits] = f.get('bobine-waits'),
+    unknown = 'Un travail que la page ne connaît pas encore est en cours ailleurs : attendez sa fin.';
+  let wide = 400;
+  Object.defineProperties(waits, { scrollWidth: { get: () => (waits.hidden ? 0 : wide) }, clientWidth: { get: () => (waits.hidden ? 0 : 262) } });
+  why = unknown;
+  f.ui.busyChanged();
+  assert.deepEqual(said(), [['bobine-waits', unknown, unknown]]);
+  wide = 200;
+  // Each wait alone, short on its line; whole in its bubble and in that of « Créer ». Short enough: as it is.
+  for (const [whole, short] of [
+    ['Moodix attend votre accord dans « Renard dans la neige » : répondez-lui d’abord.', 'Répondez d’abord à Moodix.'],
+    ['Moodix attend votre accord dans le Chat : répondez-lui d’abord.', 'Répondez d’abord à Moodix.'],
+    ['Moodix répond dans « Renard dans la neige » : attendez la fin de sa réponse.', 'Attendez la fin de la réponse de Moodix.'],
+    ['Moodix répond : attendez la fin de sa réponse.', 'Attendez la fin de la réponse de Moodix.'],
+    ['Génération en cours dans « Renard dans la neige » : attendez sa fin.', 'Attendez la fin de la génération en cours.'],
+    ['Génération en cours : attendez sa fin.', 'Attendez la fin de la génération en cours.'],
+    [HELD, 'Attendez la fin de la génération en cours.'],
+    ['Une création est en cours dans une autre conversation : attendez sa fin.', 'Attendez la fin de la génération en cours.'],
+    ['Attendez la fin de la réponse en cours.', 'Attendez la fin de la réponse en cours.'],
+    ['Attendez la fin de l’opération en cours.', 'Attendez la fin de l’opération en cours.'],
+  ]) {
+    why = whole;
+    f.ui.busyChanged();
+    assert.deepEqual([said(), f.goMain().dataset.tip], [[['bobine-waits', short, short === whole ? '' : whole]], whole]);
+  }
+});
+
+test('(0.6.200) the step of the take being made, short above « Créer » when its words would take two lines, whole in its bubble', async () => {
+  const { f, asked } = await series();
+  f.goMain().onclick();
+  await settle();
+  const step = () => f.get('bobine-stage').map(line => [line.textContent, line.title || '']);
+  // (How wide its words are on one line, as the browser lays them out: nothing while it is hidden.)
+  const [line] = f.get('bobine-stage');
+  let wide = 0;
+  Object.defineProperties(line, { scrollWidth: { get: () => (line.hidden ? 0 : wide) }, clientWidth: { get: () => (line.hidden ? 0 : 262) } });
+  // Words this page has no short ones for, too long for the line all the same, the first it says: cut with « … »
+  // there, whole in its bubble.
+  const unknown = 'Une étape que la page ne connaît pas encore, aux mots bien trop longs…';
+  wide = 300;
+  asked[0].hooks.onProgress(unknown, 0.1, null, '5 s');
+  assert.deepEqual(step(), [[unknown + ' · 5 s', unknown + ' · 5 s']]);
+  // (The page makes its title the words of its bubble, help-tips.mjs.) Fitting, no bubble saying the same words.
+  line.dataset.tip = line.title;
+  wide = 200;
+  for (const [whole, short] of [
+    ['Chargement de l’encodeur de texte…', 'Chargement de l’encodeur…'],
+    // (0.6.199: the server says « Préparation des images… » itself, short as it is.)
+    ['Préparation des images…', 'Préparation des images…'],
+    ['Préparation du son de la vidéo source…', 'Préparation du son…'],
+    ['Repérage des personnages dans la vidéo…', 'Repérage des personnages…'],
+    ['Mémoire vidéo insuffisante : nouvel essai, plus lent…', 'Nouvel essai, plus lent…'],
+    ['Décodage de la vidéo, avec toute la carte…', 'Décodage de la vidéo…'],
+    ['Agrandissement de la première passe…', 'Agrandissement…'],
+    // (What the server says itself of a work, lib/tool-runtime.mjs: at its start, at its end, after it.)
+    ['Vérification du moteur de génération…', 'Vérification du moteur…'],
+    ['Libération du moteur de génération…', 'Libération du moteur…'],
+    ['Rechargement du modèle et de la vision…', 'Rechargement du modèle…'],
+    ['Chargement du modèle vidéo…', 'Chargement du modèle vidéo…'],
+    ['Génération · 5/8', 'Génération · 5/8'],
+  ]) {
+    asked[0].hooks.onProgress(whole, 0.5, null, '12 min 34 s');
+    assert.deepEqual(step(), [[short + ' · 12 min 34 s', short === whole ? '' : whole + ' · 12 min 34 s']]);
+  }
+  assert.equal(line.dataset.tip, undefined);
+  // (Never under 12 px; on one line whatever is said: cut with « … » rather than on two.)
+  const { readFile } = await import('node:fs/promises');
+  const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  const rule = selector => css.slice(css.lastIndexOf(selector + ' {'), css.indexOf('}', css.lastIndexOf(selector + ' {')));
+  assert.match(rule('#bobine-view .bobine-create :is(.bobine-waits, .bobine-stage)'), /white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;/);
+});
+
+test('(0.6.200) why a take to create failed is said before its field, two lines high then: read at 1280 × 720 without scrolling', async () => {
+  const { f, answers } = await series();
+  f.goMain().onclick();
+  await settle();
+  answers[0].reject(new Error('Mémoire vidéo insuffisante : fermez les programmes qui utilisent la carte graphique, puis réessayez.'));
+  await settle();
+  await settle();
+  const [failed, next] = f.get('bobine-line');
+  assert.deepEqual(failed.children.map(part => part.className), ['bobine-line-top', 'bobine-line-middle', 'bobine-line-reason', 'bobine-line-field']);
+  assert.deepEqual(next.children.map(part => part.className), ['bobine-line-top', 'bobine-line-middle', 'bobine-line-field']);
+  const { readFile } = await import('node:fs/promises');
+  const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  const rule = selector => css.slice(css.lastIndexOf(selector + ' {'), css.indexOf('}', css.lastIndexOf(selector + ' {')));
+  assert.match(rule('#bobine-view .bobine-desk .bobine-line:has(.bobine-line-reason) textarea.bobine-line-words'), /max-height: calc\(2lh \+ 18px\);/);
 });
 
 test('a part laid by the page that asked for it is never laid again on what is left of its take (0.6.181)', async () => {
@@ -3528,10 +3658,12 @@ test('a work going on outside the Bobine greys « Créer », the wand, the Écli
   Object.assign(field(), { value: 'Un film sur la mer' }).oninput();
   assert.deepEqual([greyed(), waits(), field().disabled], [[false, false, false, false], [['', true]], false]);
   // A work begins outside (the Studio says which): everything that would ask the card or Moodix AI waits,
-  // and the sentence above « Créer » says why. The words of a request can still be written.
+  // and the sentence above « Créer » says why. The words of a request can still be written. (0.6.200) Short, on
+  // one line at 1280 × 720; whole in its bubble, and in that of « Créer ».
   why = HELD;
   f.ui.busyChanged();
-  assert.deepEqual([greyed(), waits(), field().disabled], [[true, true, true, true], [[HELD, false]], false]);
+  assert.deepEqual([greyed(), waits(), field().disabled], [[true, true, true, true], [['Attendez la fin de la génération en cours.', false]], false]);
+  assert.deepEqual([f.get('bobine-waits')[0].title, f.goMain().dataset.tip], [HELD, HELD]);
   // Asked all the same (a key, a click sent before the grey): said, and nothing begins.
   const said = f.notices.length;
   f.goMain().onclick();
@@ -3613,7 +3745,7 @@ test('a creation in pause is not taken up again while a work goes on outside the
   // A creation begins in the Chat meanwhile: « Reprendre » waits for it, and says so.
   why = 'Génération en cours dans cette conversation : attendez sa fin.';
   f.ui.busyChanged();
-  assert.deepEqual([f.go(), f.goMain().disabled, f.get('bobine-waits')[0].textContent], ['Reprendre · 1 sur 2', true, why]);
+  assert.deepEqual([f.go(), f.goMain().disabled, f.get('bobine-waits')[0].textContent], ['Reprendre · 1 sur 2', true, 'Attendez la fin de la génération en cours.']);
   // (Its click sent all the same: said, the second take is not asked.)
   f.goMain().onclick();
   await settle();
@@ -3715,7 +3847,7 @@ test('« Créer » greyed says why whatever holds it: its model, the video befor
   assert.deepEqual([f.go(), f.goMain().disabled, tipOf(f)], ['Créer 2 prises', false, null]);
   why = 'Génération en cours dans cette conversation : attendez sa fin.';
   f.ui.busyChanged();
-  assert.deepEqual([f.goMain().disabled, tipOf(f), f.get('bobine-waits')[0].textContent], [true, why, why]);
+  assert.deepEqual([f.goMain().disabled, tipOf(f), f.get('bobine-waits')[0].textContent], [true, why, 'Attendez la fin de la génération en cours.']);
   why = '';
   f.ui.busyChanged();
   assert.deepEqual([f.goMain().disabled, tipOf(f)], [false, null]);

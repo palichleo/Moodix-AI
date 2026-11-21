@@ -11,6 +11,7 @@ import {
   validateNativeWorkflow,
   resolveNativeWorkflow,
   nativeWorkflowReferences,
+  namedReason,
   referenceLora,
   unreadParameters,
   workflowSchema,
@@ -72,6 +73,26 @@ async function withCatalog(fn) {
     await rm(directory, { recursive: true, force: true });
   }
 }
+
+test('(0.6.200) what this computer lacks for a model is said under the name the Studio lists it by, not that of its family', async () => {
+  // (Check of 21/11, overload, problem 8: « Krea2 demande une carte graphique NVIDIA… » under a list saying « Krea 2 »;
+  // « LTX2.5 », « MiniMax H3 » for « LTX 2.5 », « MiniMax H3 Omni ». The runner says it with the label of the family.)
+  const lacking = label => label + ' demande une carte graphique NVIDIA : son pilote n’en voit aucune sur cet ordinateur.';
+  await withCatalog(async catalog => {
+    await catalog.save({ ...fixture(), name: 'Krea 2' });
+    catalog.capabilities = { krea2: { ready: false, hardware: true, reason: lacking(family('krea2').label) } };
+    const [listed] = await catalog.list();
+    assert.deepEqual([listed.ready, listed.unavailableKind, listed.unavailableReason], [false, 'hardware', lacking('Krea 2')]);
+    // A reason that is not of the computer (a package missing) is said as it is.
+    catalog.capabilities = { krea2: { ready: false, reason: 'Missing packages: torch' } };
+    assert.equal((await catalog.list())[0].unavailableReason, 'Missing packages: torch');
+  });
+  assert.equal(namedReason(lacking('LTX2.5'), 'LTX2.5', 'LTX 2.5'), lacking('LTX 2.5'));
+  assert.equal(namedReason(lacking('MiniMax H3'), 'MiniMax H3', 'MiniMax H3 Omni'), lacking('MiniMax H3 Omni'));
+  // Only its first words, only the label whole: « Krea2x » is not « Krea2 ».
+  assert.equal(namedReason('Krea2x demande une carte', 'Krea2', 'Krea 2'), 'Krea2x demande une carte');
+  assert.equal(namedReason('Rien pour Krea2 ici', 'Krea2', 'Krea 2'), 'Rien pour Krea2 ici');
+});
 
 test('strict policy resolver rejects locked overrides, unsupported fields and out-of-range model choices', async () => {
   const workflow = fixture();
