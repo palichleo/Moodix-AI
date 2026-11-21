@@ -2869,6 +2869,16 @@ test('the wand says « Enrichir » everywhere (21/11): its old words are nowhere
   assert.deepEqual(saying, []);
 });
 
+test('(0.6.199) what a generation is doing never says « images de référence »: the page names a start, an end, a subject', async () => {
+  // (« Préparation des images de référence… » for the start image of Wan 2.2 as for the subjects of MiniMax H3.)
+  const { readFile, readdir } = await import('node:fs/promises'),
+    root = new URL('../lib/', import.meta.url),
+    saying = [];
+  for (const name of await readdir(root)) if (/\.mjs$/.test(name) && /images? de référence/.test(await readFile(new URL(name, root), 'utf8'))) saying.push(name);
+  assert.deepEqual(saying, []);
+  assert.match(await readFile(new URL('tool-runtime.mjs', root), 'utf8'), /'encoding references': 'Préparation des images…',[\s\S]*'subjects found': 'Préparation des images…',/);
+});
+
 test('Ctrl+E improves the prompt from the Studio; an image pasted or dropped on its column goes to the first free slot', async () => {
   const video = {
     id: 'v',

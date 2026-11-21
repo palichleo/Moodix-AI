@@ -295,7 +295,7 @@ def find_masks(job, raw, width, height, progress):
         ranked = identity.order(one.frames, one.count)
         if not ranked:
             raise ValueError(
-                f'Aucun sujet « {drawn} » n’a été trouvé dans l’image de référence. Décrivez-le autrement.'
+                f'Aucun sujet « {drawn} » n’a été trouvé dans l’image du personnage. Décrivez-le autrement.'
             )
         shown = identity.coloured(one.frames[0], ranked, raw.shape[-2], raw.shape[-1], behind_reference)
         reference_mask = scail.cover(shown, width, height, flat=True)
