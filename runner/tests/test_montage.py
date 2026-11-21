@@ -421,5 +421,137 @@ class WatermarkTests(Folder):
         self.assertGreater(marked[1080 - 43 - 8, 1080 - 43 - 40].min(), 170, marked[1080 - 43 - 8, 1080 - 43 - 40])
 
 
+# (0.6.193) The graph of `Folder.asked` with L'Éclipse, to the character, as 0.6.187 made it: a film without a take
+# that carries a watermark is made as it was.
+GRAPH_0_6_187 = ';'.join(
+    (
+        '[0:v]trim=start=0:end=1.5,setpts=PTS-STARTPTS,scale=320:180:force_original_aspect_ratio=decrease,'
+        'pad=320:180:(ow-iw)/2:(oh-ih)/2:black,fps=24,tpad=stop_mode=clone:stop_duration=1.5,trim=duration=1.5,'
+        'setsar=1,format=yuv420p[v0]',
+        'anullsrc=r=48000:cl=stereo,atrim=duration=1.5[a0]',
+        '[1:v]trim=start=0.5:end=1.5,setpts=PTS-STARTPTS,scale=320:180:force_original_aspect_ratio=increase,'
+        'crop=320:180,fps=24,tpad=stop_mode=clone:stop_duration=1,trim=duration=1,setsar=1,format=yuv420p[v1]',
+        '[1:a]atrim=start=0.5:end=1.5,asetpts=PTS-STARTPTS,volume=0.5,aresample=48000,'
+        'aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=duration=1[a1]',
+        '[2:v]scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2:black,fps=24,'
+        'tpad=stop_mode=clone:stop_duration=1,trim=duration=1,setsar=1,format=yuv420p[v2]',
+        'anullsrc=r=48000:cl=stereo,atrim=duration=1[a2]',
+        '[v0][a0][v1][a1][v2][a2]concat=n=3:v=1:a=1[plain][clips]',
+        '[3:a]atrim=start=0:end=3,asetpts=PTS-STARTPTS,volume=0.3,aresample=48000,'
+        'aformat=sample_fmts=fltp:channel_layouts=stereo,adelay=500:all=1[s0]',
+        '[4:v]scale=28:28:flags=area,format=rgba[mark]',
+        '[plain][mark]overlay=x=292:y=152:format=auto,format=yuv420p[film]',
+        '[clips][s0]amix=inputs=2:duration=first:normalize=0[sound]',
+    )
+)
+
+
+class MarkedTakeTests(Folder):
+    """(0.6.193) A film exported from a bobine is a take of its project, with its watermark. Laid on another bobine,
+    the application says it carries one (`watermarked`): the watermark of the new film is laid on every frame but
+    its own. One watermark on each picture, never two."""
+
+    def overlay(self, asked, *marks):
+        """The overlay of the watermark in the graph of `asked`, the plans `marks` said to carry one already."""
+        plans = [dict(item) for item in asked['plans']]
+        for index in marks:
+            plans[index]['watermarked'] = True
+        filters = montage.graph(montage.validated(dict(asked, plans=plans), self.root), [False, True, False])[1]
+        return next(part for part in filters.split(';') if part.startswith('[plain][mark]overlay='))
+
+    def enable(self, asked, *marks):
+        """When it is laid: the expression of its `enable`."""
+        return self.overlay(asked, *marks).split("enable='")[1].split("'")[0]
+
+    def test_a_take_says_it_carries_a_watermark_by_true_and_nothing_else_0_6_193(self):
+        asked = self.asked(watermark='eclipse')
+        asked['plans'][1]['watermarked'] = True
+        plan = montage.validated(asked, self.root)
+        self.assertEqual([item.get('watermarked') for item in plan['plans']], [None, True, None])
+        # Not said: nothing of it in the plan, as before.
+        self.assertEqual(['watermarked' in item for item in plan['plans']], [False, True, False])
+        for wrong in (False, 1, 'true', None, [True], {}):
+            asked['plans'][1]['watermarked'] = wrong
+            with self.assertRaisesRegex(ValueError, 'Plan 2: invalid watermarked', msg=repr(wrong)):
+                montage.validated(asked, self.root)
+
+    def test_the_watermark_is_not_laid_over_a_take_that_carries_one_from_its_first_frame_to_the_next_0_6_193(self):
+        # 1.5 s, 1 s and 1 s at 24 frames a second: frames 0 to 35, 36 to 59, 60 to 83. Not over the second
+        # take, from its first frame to its last: frame 60, the first of the image after it, has it.
+        self.assertEqual(
+            self.overlay(self.asked(watermark='eclipse'), 1),
+            "[plain][mark]overlay=x=292:y=152:format=auto:enable='not(between(n,36,59))',format=yuv420p[film]",
+        )
+        # Several, all of them.
+        self.assertEqual(self.enable(self.asked(watermark='eclipse'), 0, 2), 'not(between(n,0,35)+between(n,60,83))')
+        self.assertEqual(
+            self.enable(self.asked(watermark='eclipse'), 0, 1, 2),
+            'not(between(n,0,35)+between(n,36,59)+between(n,60,83))',
+        )
+        # Holes (black, the watermark on them): half a second before the first take, a second after it (it
+        # ends at 2 s, the second is at 3 s). Frames 0 to 11 the hole, 12 to 47 the first take, 48 to 71 the
+        # hole, 72 to 95 the second, 96 to 119 the image.
+        holed = self.asked(watermark='eclipse', sounds=[])
+        holed['plans'][0]['at'], holed['plans'][1]['at'] = 0.5, 3
+        self.assertEqual(montage.frames_of(montage.validated(holed, self.root)), [(12, 36), (72, 24), (96, 24)])
+        self.assertEqual(self.enable(holed, 1), 'not(between(n,72,95))')
+        self.assertEqual(self.enable(holed, 0, 2), 'not(between(n,12,47)+between(n,96,119))')
+        # The film is made of whole frames, not cut at `at` × 24: a take of 1.03 s has 25 (24.72, the
+        # nearest), one of 1.01 s 24 (24.24), a hole of 0.21 s 6 (5.04, a frame begun is a frame). The second
+        # take starts at frame 31, not 29.76; the image at 55, not 54.
+        uneven = self.asked(watermark='eclipse')
+        uneven['plans'][0]['to'] = 1.03
+        uneven['plans'][1].update(at=1.24, to=1.51)
+        self.assertEqual(montage.frames_of(montage.validated(uneven, self.root)), [(0, 25), (31, 24), (55, 24)])
+        self.assertEqual(self.enable(uneven, 1), 'not(between(n,31,54))')
+        self.assertEqual(self.enable(uneven, 2), 'not(between(n,55,78))')
+
+    def test_without_a_take_that_carries_a_watermark_the_graph_is_that_of_0_6_187_0_6_193(self):
+        plan = montage.validated(self.asked(watermark='eclipse'), self.root)
+        self.assertEqual(montage.graph(plan, [False, True, False])[1], GRAPH_0_6_187)
+        # Said of a take of a film without a watermark: nothing of it either.
+        asked = self.asked()
+        asked['plans'][1]['watermarked'] = True
+        plain = montage.graph(montage.validated(self.asked(), self.root), [False, True, False])
+        self.assertEqual(montage.graph(montage.validated(asked, self.root), [False, True, False]), plain)
+
+    def test_a_film_has_the_watermark_on_every_frame_but_those_of_the_takes_that_carry_one_0_6_193(self):
+        import imageio.v3 as iio
+        import numpy as np
+
+        # Takes of one colour each, none a whole number of frames long, two holes (black): the second, the
+        # fourth and the last are said to carry a watermark already (the test reads the new one alone).
+        colours = dict(red=(255, 0, 0), lime=(0, 255, 0), blue=(0, 0, 255), yellow=(255, 255, 0))
+        colours['magenta'] = (255, 0, 255)
+        encode = ('-c:v', 'libx264', '-pix_fmt', 'yuv420p')
+        clips = {}
+        for name in colours:
+            source = f'color=c={name}:size=512x512:rate=24:duration=2'
+            clips[name] = lavfi(self.root / 'video' / f'{name}-512.mp4', source, extra=encode)
+        laid = (('red', 0, 1.03, False), ('lime', 1.24, 1.01, True), ('blue', 2.25, 0.52, False))
+        laid += (('yellow', 2.77, 0.73, True), ('magenta', 3.8, 1.11, True))
+        plans = [
+            dict(path=clips[name], kind='video', at=at, **{'from': 0, 'to': length}, frame='fill', volume=1)
+            | ({'watermarked': True} if carries else {})
+            for name, at, length, carries in laid
+        ]
+        asked = dict(id='film-m', width=512, height=512, fps=24, plans=plans)
+        films = {}
+        for mark in ('eclipse', None):
+            request = dict(asked, **({'watermark': mark} if mark else {}))
+            made = montage.assemble(request, self.config, lambda **data: None)['outputs'][0]
+            films[mark] = iio.imread(self.root / made['subfolder'] / made['filename']).astype(int)
+        self.assertEqual(len(films['eclipse']), len(films[None]))
+        _, wide, high, x, y = montage.watermark_place('eclipse', 512, 512)
+        carrying = {name for name, *_, carries in laid if carries}
+        seen = set()
+        for index, (frame, plain) in enumerate(zip(films['eclipse'], films[None])):
+            name = next((key for key, value in colours.items() if np.abs(plain[256, 256] - value).max() < 60), 'hole')
+            laid_here = bool(np.abs(frame - plain)[y : y + high, x : x + wide].max() > 24)
+            self.assertEqual(laid_here, name not in carrying, f'frame {index}, {name}')
+            seen.add(name)
+        self.assertEqual(seen, set(colours) | {'hole'}, 'every take and the holes are in the film')
+
+
 if __name__ == '__main__':
     unittest.main()

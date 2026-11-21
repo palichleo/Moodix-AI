@@ -245,3 +245,42 @@ test('the preferences take one of the three watermarks only, and say none before
   }
   for (const name of WATERMARKS) assert.equal((await (await send({ watermark: name })).json()).preferences.watermark, name);
 });
+
+// (0.6.193) The film exported from a bobine is a take of its project, with its watermark: laid on another bobine and
+// exported, it received a second one (two in 9:16, one more opaque in 16:9). The engine is told which takes carry one
+// already (their record says `parameters.watermark`), and lays none over them (runner/video/montage.py).
+test('a take that is a film exported with a watermark is said to carry one, alone, and only when the new film has one (0.6.193)', async t => {
+  const { call, asked, talk, bobine } = await moodix(t);
+  const exported = async () => {
+    const made = await call('montages/export', { project: 'inbox', id: bobine.id, conversation: talk });
+    assert.equal(made.status, 200, JSON.stringify(made.body));
+    return made.body.id;
+  };
+  // A film with L'Éclipse (the default); of a picture only, nothing said of its take.
+  const marked = await exported();
+  assert.deepEqual(asked[0].plans.map(plan => 'watermarked' in plan), [false]);
+  // A film without a watermark is a take as the others.
+  assert.equal((await call('preferences', { watermark: 'aucun' })).status, 200);
+  const plain = await exported();
+  // Both on another bobine, between two takes of the picture.
+  const picture = () => ({ id: randomUUID(), kind: 'image', source: bobine.plans[0].source, from: 0, to: 2, frame: 'fit' }),
+    film = runId => ({ id: randomUUID(), kind: 'video', source: { conversationId: talk, runId, output: 0 }, from: 0, to: 2, frame: 'fit', volume: 1 });
+  const again = { ...newMontage({ name: 'Compilation' }), plans: [picture(), film(marked), film(plain), picture()], sounds: [] };
+  assert.equal((await call('montages/save', { project: 'inbox', montage: again })).status, 200);
+  const exportAgain = async () => {
+    const made = await call('montages/export', { project: 'inbox', id: again.id, conversation: talk });
+    assert.equal(made.status, 200, JSON.stringify(made.body));
+    return asked.at(-1);
+  };
+  // « L'Éclipse et le nom » asked: said of the film that carries one, and of it alone.
+  assert.equal((await call('preferences', { watermark: 'eclipse-nom' })).status, 200);
+  const told = await exportAgain();
+  assert.equal(told.watermark, 'eclipse-nom');
+  assert.deepEqual(told.plans.map(plan => plan.watermarked), [undefined, true, undefined, undefined]);
+  assert.deepEqual(told.plans.map(plan => 'watermarked' in plan), [false, true, false, false]);
+  // No watermark asked: nothing of it.
+  assert.equal((await call('preferences', { watermark: 'aucun' })).status, 200);
+  const none = await exportAgain();
+  assert.equal('watermark' in none, false);
+  assert.deepEqual(none.plans.map(plan => 'watermarked' in plan), [false, false, false, false]);
+});

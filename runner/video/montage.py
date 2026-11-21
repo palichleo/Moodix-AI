@@ -19,6 +19,11 @@ as it is. Without instants, the plans follow one another.
 name; claude_design/maquettes/watermark-maquette.md): one of the pictures of `watermark/`, ivory at
 85 % with its shadow, brought to the size of the film and laid over it, in the lower right corner, or
 at the top left in 9:16, where TikTok covers nothing. A take never has one: only the exports do.
+
+(0.6.193) But a film exported from a bobine is a take of its project, its watermark in it. A plan that is
+one says so (`watermarked`, lib/montage-export.mjs): the watermark of the film is laid on every frame but
+those of that plan, from its first to its last. One on each picture, never two. A film of another format
+has its own in its picture, not in the corner of the new one; filling the picture, it may be cut out.
 """
 
 import os
@@ -154,10 +159,13 @@ def validated(params, root):
         result['watermark'] = params['watermark']
     for index, item in enumerate(plans):
         label = f'Plan {index + 1}'
-        known = ('path', 'at', 'kind', 'from', 'to', 'frame', 'volume')
-        fields(item, known, tuple(key for key in known if key != 'at'), label=label)
+        known = ('path', 'at', 'kind', 'from', 'to', 'frame', 'volume', 'watermarked')
+        fields(item, known, tuple(key for key in known if key not in ('at', 'watermarked')), label=label)
         if item['kind'] not in ('video', 'image') or item['frame'] not in ('fit', 'fill'):
             raise ValueError(label + ': invalid kind or frame')
+        # (0.6.193) A film exported before, its watermark in it: said by true, nothing else.
+        if 'watermarked' in item and item['watermarked'] is not True:
+            raise ValueError(label + ': invalid watermarked')
         start, end = _seconds(item['from'], label), _seconds(item['to'], label)
         if not LIMITS['shortest'] <= end - start <= LIMITS['longest'] or (item['kind'] == 'image' and start):
             raise ValueError(label + ': invalid length')
@@ -178,6 +186,8 @@ def validated(params, root):
                 'volume': _volume(item['volume'], label),
             }
         )
+        if 'watermarked' in item:
+            result['plans'][-1]['watermarked'] = True
     for index, item in enumerate(sounds):
         label = f'Son {index + 1}'
         fields(item, ('path', 'at', 'from', 'to', 'volume'), label=label)
@@ -209,6 +219,21 @@ def holes(plan):
         if item['at'] - end > 0.0005:
             found.append((index, round(item['at'] - end, 3)))
         end = round(item['at'] + item['to'] - item['from'], 3)
+    return found
+
+
+def frames_of(plan):
+    """(0.6.193) [(its first frame, its frames)] of each plan in the film as ffmpeg makes it: of whole frames,
+    not cut at `at` × fps. A plan has the number nearest to its length (`trim`: from half a frame, one more), a
+    hole every frame that starts in it (`color`: a frame begun is a frame). After five holes of 0.21 s, a plan
+    starts five frames later than its instant says."""
+    fps, hole, found, first = plan['fps'], dict(holes(plan)), [], 0
+    for index, item in enumerate(plan['plans']):
+        if index in hole:
+            first += -(-round(hole[index] * 1000) * fps // 1000)
+        count = (round((item['to'] - item['from']) * 1000) * fps + 500) // 1000
+        found.append((first, count))
+        first += count
     return found
 
 
@@ -272,7 +297,15 @@ def graph(plan, audible):
         number = first + len(mixed) - 1
         inputs += ['-i', path]
         filters.append(f'[{number}:v]scale={wide}:{high}:flags=area,format=rgba[mark]')
-        filters.append(f'[plain][mark]overlay=x={x}:y={y}:format=auto,format=yuv420p[film]')
+        # (0.6.193) Never over a plan that carries one already: not from its first frame to its last, the
+        # frames of the film as the overlay counts them (`n`, from 0) and as ffmpeg makes them (frames_of).
+        spans = [
+            f'between(n,{start},{start + count - 1})'
+            for item, (start, count) in zip(plan['plans'], frames_of(plan))
+            if item.get('watermarked')
+        ]
+        unless = f":enable='not({'+'.join(spans)})'" if spans else ''
+        filters.append(f'[plain][mark]overlay=x={x}:y={y}:format=auto{unless},format=yuv420p[film]')
     if len(mixed) == 1:
         return inputs, ';'.join(filters), '[clips]', total
     # (normalize=0: each keeps the volume it was given, the mix does not lower them all.)
