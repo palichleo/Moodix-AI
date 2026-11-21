@@ -278,6 +278,13 @@ test('a take that is a film exported with a watermark is said to carry one, alon
   assert.equal(told.watermark, 'eclipse-nom');
   assert.deepEqual(told.plans.map(plan => plan.watermarked), [undefined, true, undefined, undefined]);
   assert.deepEqual(told.plans.map(plan => 'watermarked' in plan), [false, true, false, false]);
+  // (0.6.197) « Un fichier par prise »: each take alone in its file, with the watermark; but the film that
+  // carries one already, asked without (it received a second one, as the film did before 0.6.193).
+  const before = asked.length,
+    takes = await call('montages/export-takes', { project: 'inbox', id: again.id });
+  assert.deepEqual([takes.status, takes.body.files], [200, ['01.mp4', '02.mp4', '03.mp4', '04.mp4']]);
+  assert.deepEqual(asked.slice(before).map(file => file.watermark), ['eclipse-nom', undefined, 'eclipse-nom', 'eclipse-nom']);
+  assert.deepEqual(asked.slice(before).map(file => 'watermark' in file || 'watermarked' in file.plans[0]), [true, false, true, true]);
   // No watermark asked: nothing of it.
   assert.equal((await call('preferences', { watermark: 'aucun' })).status, 200);
   const none = await exportAgain();
