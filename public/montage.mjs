@@ -298,6 +298,8 @@ export function setupMontage({
   const failed = new Map();
   // (0.6.181) The takes made that this page laid in a bobine, by their id: never laid twice (layMissed).
   const laidHere = new Set();
+  // (0.6.195) The bobine this page opened, and when it had last been kept then (layMissed).
+  let openedAs = { id: '', at: '' };
   // The take followed from outside (goingOn) the page last drew as « En cours »: drawn again when it changes.
   let shownGoing = null;
   // (0.6.148) The model of each kind of take to create, as the server would choose it: { name, missing }.
@@ -366,10 +368,13 @@ export function setupMontage({
    * (`bobine`: this bobine, that take to create, from which second it is shown), and it is laid there as
    * makePlan lays it, one step of « Annuler ». Only a take made since the bobine was last kept: one laid
    * then put back to create (Ctrl+Z) left a bobine kept after it, and stays where the user put it.
+   * (0.6.195) Last kept when this page opened it, not since: what is typed in the bobine is kept a moment
+   * after each change, and a bobine kept between the end of its take and the moment the page learns of it
+   * held that take for one laid then put back. It stayed in « Prises », its take « à créer ».
    */
   function layMissed() {
     if (making || !stored || !montage?.updatedAt) return false;
-    const since = Date.parse(montage.updatedAt),
+    const since = Date.parse(openedAs.id === montage.id && openedAs.at ? openedAs.at : montage.updatedAt),
       made = record => Date.parse(record.createdAt),
       missed = (runs() ?? [])
         .filter(record => record.bobine?.id === montage.id && !laidHere.has(record.id) && made(record) > since)
@@ -471,6 +476,7 @@ export function setupMontage({
     // (0.6.154) Its version in the Archives is said by its key only: never sent back.
     const { archived = null, ...opened } = found;
     montage = placed(opened);
+    openedAs = { id: montage.id, at: montage.updatedAt };
     archivedKey = archived ? contentKey(placed(archived)) : null;
     stored = true;
     forget();

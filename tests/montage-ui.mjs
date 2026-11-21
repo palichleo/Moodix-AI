@@ -3484,6 +3484,29 @@ test('a take made for it while another page was shown is laid when the Bobine is
   assert.deepEqual([f.names(), f.lines(), f.saves().at(-1).body.montage.plans[0].source.runId], [['Prise 50'], [], id(50)]);
 });
 
+test('a take made for it is laid though the bobine was kept between its end and the moment the page learns of it (0.6.195)', async () => {
+  // (A page reloaded follows its take. What is typed in the bobine is kept a moment after each change: kept
+  // just after the take was made, the bobine held that take for one already laid then put back to create,
+  // and it stayed in « Prises », its take « à créer ».)
+  let going = { id: id(700), plan: id(701), fraction: 0.9 };
+  const f = await setup({ stored: [waiting()], followed: () => going }).open();
+  f.ui.busyChanged();
+  f.write(0, 'Il lève les yeux vers le phare.');
+  await f.later();
+  assert.deepEqual([f.saves().length, f.ui.state().montage.updatedAt], [1, '2026-11-20T03:00:01.000Z']);
+  // Made half a second before that: after the bobine was opened, before it was kept.
+  going = null;
+  f.runs.push(madeFor(50, { at: '2026-11-20T03:00:00.500Z' }));
+  f.ui.refreshed();
+  await settle();
+  assert.deepEqual([f.names(), f.lines(), f.saves().at(-1).body.montage.plans[0].source?.runId], [['Prise 50'], [], id(50)]);
+  // Put back to create (« Annuler »): it stays so, the takes read again, as any take this page laid.
+  f.ui.undo();
+  f.ui.refreshed();
+  await f.later();
+  assert.deepEqual([f.names(), f.lines().length], [[''], 1]);
+});
+
 test('a work going on outside the Bobine greys « Créer », the wand, the Éclipse and the request, and says why (0.6.175)', async () => {
   // (Audit of 21/11, A4 and B6. During a creation of the Chat or of the Studio, or while Moodix answered,
   // « Créer » stayed lit: its click was refused there without a word, and the take was noted « Échec · La
