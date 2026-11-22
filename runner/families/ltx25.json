@@ -236,6 +236,13 @@
       "media": "video",
       "max": 1,
       "label": "Vidéo à prolonger"
+    },
+    "reference_video": {
+      "as": "guide",
+      "media": "video",
+      "max": 2,
+      "label": "Vidéo de référence",
+      "note": "Lue par un IC-LoRA (CrossView-Warp : le rendu déformé, puis la vidéo filmée), dans cet ordre. Aucun verbe ne la propose encore."
     }
   },
   "loras": {
@@ -384,6 +391,18 @@
         "role": "msr_image",
         "required": false,
         "name": "Sujet 2"
+      },
+      {
+        "id": "guide-1",
+        "role": "reference_video",
+        "required": false,
+        "name": "Vidéo de référence 1"
+      },
+      {
+        "id": "guide-2",
+        "role": "reference_video",
+        "required": false,
+        "name": "Vidéo de référence 2"
       }
     ]
   },

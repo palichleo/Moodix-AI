@@ -11,7 +11,9 @@ each phase cost, what stayed on the GPU and what was kept in RAM.
         --vae V.safetensors --audio-vae A.safetensors --tokenizer TOKENIZER_FOLDER --out FOLDER \\
         [--steps 20: MiniMax's own checkpoints] [--reference-model REF2VA --reference reference_image=FILE]
     python -s -m runner.bench ltx25 --model M.safetensors --text-encoder T.safetensors \\
-        --vae V.safetensors --audio-vae A.safetensors [--upscaler U.safetensors] --out FOLDER
+        --vae V.safetensors --audio-vae A.safetensors [--upscaler U.safetensors] --out FOLDER \\
+        [--reference start_image=FILE] [--silent] \\
+        [--lora IC_LORA:1 --reference reference_video=GUIDE --reference reference_video=VIDEO]
     python -s -m runner.bench moss --model M.safetensors --text-encoder T.safetensors \\
         --vae V.safetensors --tokenizer TOKENIZER_FOLDER --out FOLDER [--cfg 3] [--negative "..."]
     python -s -m runner.bench wan22 --model HIGH.safetensors --model-low LOW.safetensors \\
@@ -170,7 +172,7 @@ def ltx25_job(args, run):
             stage='draft',
             frames=args.frames,
             fps=24,
-            audio=True,
+            audio=not args.silent,
             start_strength=0.7,
             end_strength=0.7,
             image_compression=18,
@@ -180,7 +182,11 @@ def ltx25_job(args, run):
         ),
         components=components,
         loras=_loras(args),
-        references=[],
+        # An image to start or end on, or the reference videos of an IC-LoRA, in its order.
+        references=[
+            dict(input=f'{role}-{index}', role=role, path=path)
+            for index, (role, _, path) in enumerate(item.partition('=') for item in args.reference)
+        ],
     )
 
 
@@ -311,6 +317,7 @@ def main(argv=None):
     parser.add_argument('--same-prompt', action='store_true', help='one prompt for every run')
     parser.add_argument('--lora', action='append', default=[], metavar='FILE:STRENGTH')
     parser.add_argument('--reference', action='append', default=[], metavar='ROLE=FILE')
+    parser.add_argument('--silent', action='store_true', help='LTX 2.5: a video without sound')
     parser.add_argument('--segmenter-tokenizer', help='SCAIL-2: folder of the CLIP tokenizer SAM 3.1 reads')
     parser.add_argument('--subject', help='SCAIL-2: who to follow in the video ("girl, handkerchief")')
     parser.add_argument('--reference-subject', help='SCAIL-2: who to draw from the reference image')

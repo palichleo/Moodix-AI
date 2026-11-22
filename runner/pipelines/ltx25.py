@@ -31,9 +31,10 @@ TEXT_MARGIN_GIB = 1.0
 DECODE_GIB = 6
 
 
-def working_gib(parameters, width, height, subjects):
+def working_gib(parameters, width, height, subjects, guides=0, factor=1):
     """Video memory the steps need beside the weights kept on the GPU while sampling at this
-    size, in GiB. Each subject reference adds its own short clip of tokens to the sequence.
+    size, in GiB. Each subject reference adds its own short clip of tokens to the sequence, each
+    reference video (`guides`) as many as the video, at its size `factor` times smaller.
 
     Measured on a 12 GiB card (peak allocated beyond the kept weights and the copies ahead):
     0.76 GiB for 2 304 tokens (288 x 512), 1.13 for 5 600 (448 x 800), 2.61 for 22 400
@@ -44,20 +45,23 @@ def working_gib(parameters, width, height, subjects):
     after them (see `fill`)."""
     area = (height // 32) * (width // 32)
     clip = (parameters.get('msr_frames', 33) - 1) // 8 + 1
-    tokens = area * ((parameters['frames'] - 1) // 8 + 1 + subjects * clip)
+    frames = (parameters['frames'] - 1) // 8 + 1
+    tokens = area * (frames + subjects * clip)
+    tokens += guides * (height // factor // 32) * (width // factor // 32) * frames
     return 2.6 + 0.1 * tokens / 1000
 
 
-def first_pass_size(parameters, components):
+def first_pass_size(parameters, components, guided=False):
     """The half size a large video is first sampled at, or None for a single pass.
 
     Sampling costs grow faster than the picture: at 896 × 1600 each step takes many times a
     step at 448 × 800. With the latent upscaler, the eight steps run at half the size, the
     result is doubled in latent space and three steps at the full size restore the detail:
     the model's own two-pass recipe. Odd latent sizes round the half up; the doubled result
-    is cropped back.
+    is cropped back. A video `guided` by reference videos is made in one pass, at its size:
+    they are read at that size (runner.video.ic_reference).
     """
-    if 'upscaler' not in components:
+    if guided or 'upscaler' not in components:
         return None
     width, height = parameters['width'] // 32, parameters['height'] // 32
     if min(width, height) * 32 < TWO_PASS_SIDE:
@@ -71,6 +75,8 @@ def check(job, family):
     roles = {ref['role'] for ref in job['references']}
     if {'start_image', 'source_video'} <= roles:
         raise ValueError('Choose a start image or source video, not both')
+    if 'reference_video' in roles and roles & {'source_video', 'msr_image'}:
+        raise ValueError('Reference videos go with a start or end image only: not with a video to continue or subjects')
     if 'source_video' in roles:
         if parameters.get('overlap_frames', 9) >= parameters['frames']:
             raise ValueError('Invalid continuation overlap')
@@ -90,6 +96,7 @@ def preflight(job, config):
     from runner.models import conditioning
     from runner.models.headers import header
     from runner.models.ltx25 import validate_layout, video_encoder
+    from runner.video.ic_reference import validate as validate_guides
     from runner.video.msr import validate_loras
 
     stamps = [(role, conditioning.stamp(path)) for role, path in sorted(job['components'].items())]
@@ -106,6 +113,7 @@ def preflight(job, config):
 
             vocoder_layout(headers)
         validate_loras(job, headers)
+        validate_guides(job)
         if 'upscaler' in headers:
             from runner.models.ltx25 import latent_upscaler
 
@@ -229,9 +237,15 @@ def _generate(job, config, progress, key, holder):
     # this video. Its weights follow the card (see `share` below).
     p = job['parameters']
     subjects = sum(ref['role'] == 'msr_image' for ref in job['references'])
+    from runner.video import ic_reference
+
+    # The reference videos of an IC-LoRA, in their order, and how much smaller it reads them.
+    guides = ic_reference.guides(job)
+    factor = ic_reference.validate(job) or 1
+    first = first_pass_size(p, job['components'], bool(guides))
     require(
         'LTX 2.5',
-        working_gib(p, *(first_pass_size(p, job['components']) or (p['width'], p['height'])), subjects),
+        working_gib(p, *(first or (p['width'], p['height'])), subjects, len(guides), factor),
         'la taille ou la durée de la vidéo',
     )
     start = time.perf_counter()
@@ -333,14 +347,15 @@ def _generate(job, config, progress, key, holder):
         # The share of the DiT kept on the GPU; the rest is copied from RAM at every step, at
         # about 12 GiB/s. What the model computes with comes first (working_gib). Video memory
         # that runs out halves the speed, a smaller share costs a second per step at most.
-        first = first_pass_size(p, job['components'])
+        # (`first`, the size of a first pass, is above.)
         # What stays on the GPU beside the model while it runs, in GiB: known once the encoders
         # are built (below).
         beside = 0.0
 
         def share(width, height):
             """GiB of the DiT kept on the GPU while sampling at this size."""
-            kept = max(0, free - beside - working_gib(p, width, height, subjects) - AHEAD_GIB)
+            working = working_gib(p, width, height, subjects, len(guides), factor)
+            kept = max(0, free - beside - working - AHEAD_GIB)
             return min(config['cacheGiB'], kept) if 'cacheGiB' in config else kept
 
         if not again:
@@ -487,6 +502,8 @@ def _generate(job, config, progress, key, holder):
                 from runner.video.msr import pipeline_class
 
                 pipeline = pipeline_class()
+            elif guides:
+                pipeline = ic_reference.pipeline_class()
             pipe = pipeline(
                 scheduler=FlowMatchEulerDiscreteScheduler(use_dynamic_shifting=False, shift_terminal=None),
                 vae=vae,
@@ -535,6 +552,11 @@ def _generate(job, config, progress, key, holder):
                 pipe.msr_store = stores['lora-' + str(msr_index(job))]
                 pipe.msr_frames = p.get('msr_frames', 33)
                 pipe.msr_strength = p.get('msr_strength', 1)
+            # How each reference video was encoded (whole, or in tiles), for the metadata.
+            encoded = []
+            if guides:
+                pipe.ic_references, pipe.ic_factor, pipe.ic_strength = guides, factor, 1.0
+                pipe.ic_encoded, pipe.ic_progress = encoded, progress
             images = {}
             if job['references']:
                 from PIL import Image
@@ -552,7 +574,7 @@ def _generate(job, config, progress, key, holder):
                     return {}
                 found = []
                 for ref in job['references']:
-                    if ref['role'] == 'msr_image':
+                    if ref['role'] in ('msr_image', 'reference_video'):
                         continue
                     if ref['role'] == 'source_video':
                         found.append(LTX2VideoCondition(frames=source_frames, index=0, strength=1.0, crf=0))
@@ -726,6 +748,8 @@ def _generate(job, config, progress, key, holder):
             strength=p.get('msr_strength', 1),
             timeOffsets=list(range(-len(msr_refs), 0)),
         )
+    if guides:
+        metadata['referenceVideos'] = dict(count=len(guides), downscaleFactor=factor, strength=1.0, encoded=encoded)
     result = save_video(pixels, config, job, metadata, audio=generated_audio)
     del pixels, generated_audio
     gc.collect()
