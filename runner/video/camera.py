@@ -24,7 +24,10 @@ Two kinds of movement are told apart, by what is known of them:
   `crane_*`, `static`. Their poses are the published ones, number for number;
 - those written here for the same reading, the camera turning (`pan_*`, `tilt_*`) or going round a
   point in front of it while looking at it (`orbit_*`). Nothing published says how well the model
-  follows them: they are to be judged on the videos.
+  follows them: they are to be judged on the videos. Judged so far, on the real videos of
+  22/11/2026: `orbit_left`, by the user (« Oui, elle tourne »: the camera goes round the subject,
+  where the same words in a prompt left it still); `pan_left` slides the picture as far as its 30
+  degrees say (282 px of 768), which he has not judged. The others were never drawn.
 
 Any other path is a list of poses given to `rays`: the adapter reads poses, not names.
 """
