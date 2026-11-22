@@ -1084,11 +1084,7 @@ export function setupStudio({
    */
   function saidOf(value) {
     const record = value.source?.output ? runs.find(item => item.id === value.source.output) : null;
-    if (!record) return value.name;
-    const take = record.outputs?.[value.source.index ?? 0]?.take,
-      media = mediaOf(record),
-      length = media === 'video' ? lengthOfRecord(record, false) : null;
-    return 'PRISE ' + (Number.isInteger(take) ? take : numberOf(record)) + ' · ' + (length ? figures(length) : { video: 'VIDÉO', image: 'IMAGE' }[media] ?? 'SON');
+    return record ? saidOfRecord(record) : value.name;
   }
   /**
    * (0.6.204) What is set with one piece alone, the lines of its window: who is who, for a character put in a
@@ -1122,22 +1118,34 @@ export function setupStudio({
    * « Retirer ». Under a proposal of Moodix AI its images are its own: « Changer… » greyed with that reason
    * (`held`), no « Retirer » (`takeBack` null), as its case has no ×.
    */
-  function pieceWindow(workflow, { role, index, label, media, value, takeBack, held }) {
+  function pieceWindow(workflow, { role, index, label, media, value, takeBack, held, said = saidOf(value), about = '', change = true, foot: last = null }) {
     const pane = node('div', 'glass-menu studio-piece-window'),
-      foot = node('div', 'studio-window-foot'),
-      change = button('studio-window-button', 'Changer…', () => {
-        closeWindow();
-        openPicker(role, index, media);
-      });
+      foot = node('div', 'studio-window-foot');
     pane.setAttribute('role', 'dialog');
     pane.setAttribute('aria-label', label);
     pane.hidden = true;
-    // (Its word says what it does: a tooltip only for why it cannot be pressed.)
-    if (held) change.title = held;
-    change.disabled = Boolean(held);
-    foot.append(node('span', 'studio-window-said', saidOf(value)), change);
-    if (takeBack) foot.append(button('studio-window-button', 'Retirer', takeBack));
-    pane.append(node('p', 'studio-window-title', label), ...windowLines(workflow, role), foot);
+    foot.append(node('span', 'studio-window-said', said));
+    // (0.6.207) Not for the clip of a continuation (`change` false): no file is chosen for it.
+    if (change) {
+      const other = button('studio-window-button', 'Changer…', () => {
+        closeWindow();
+        openPicker(role, index, media);
+      });
+      // (Its word says what it does: a tooltip only for why it cannot be pressed.)
+      if (held) other.title = held;
+      other.disabled = Boolean(held);
+      foot.append(other);
+    }
+    // (0.6.207) `foot`: the one way out of a continuation, « Retirer », or « Nouvelle vidéo » under a proposal.
+    if (last) {
+      const way = button('studio-window-button', last.text, last.run);
+      if (last.title) way.title = last.title;
+      foot.append(way);
+    } else if (takeBack) foot.append(button('studio-window-button', 'Retirer', takeBack));
+    pane.append(node('p', 'studio-window-title', label));
+    // (0.6.207) `about`: what a continuation continues, in the words of its banner of before.
+    if (about) pane.append(node('p', 'studio-window-about', about));
+    pane.append(...windowLines(workflow, role), foot);
     return pane;
   }
   /** Whether the workflow takes images in this role. */
@@ -1180,9 +1188,12 @@ export function setupStudio({
    * middle, with the button that swaps them, « ⇄ 05.17 s ». (0.6.201) A row of the one block, no title.
    */
   function framesRow(workflow, off = []) {
-    const start = takesImages(workflow, 'start_image'),
+    // (0.6.207, capture 98) A continuation: its clip in the place of the start of a new video, the length it
+    // adds on the line, no « ⇄ » (his answer 3 of 21/11).
+    const continued = mode === 'video' && extending ? extending : null,
+      start = !continued && takesImages(workflow, 'start_image'),
       end = takesImages(workflow, 'end_image');
-    if (!start && !end) return null;
+    if (!start && !end && !continued) return null;
     // (0.6.202, capture 96) The end (or the start) given that this model does not take keeps its end of the
     // line, greyed.
     const kept = role => off.find(piece => piece.role === role && piece.index === 0);
@@ -1191,7 +1202,10 @@ export function setupStudio({
       line = node('span', 'studio-span-line'),
       time = node('span', 'studio-span-time');
     row.setAttribute('role', 'group');
-    row.setAttribute('aria-label', start && end ? 'Début et fin' : start ? 'Image de début' : 'Image de fin');
+    row.setAttribute(
+      'aria-label',
+      continued ? (end ? 'Vidéo à prolonger et fin' : 'Vidéo à prolonger') : start && end ? 'Début et fin' : start ? 'Image de début' : 'Image de fin',
+    );
     line.setAttribute('aria-hidden', 'true');
     middle.append(line);
     if (start && end) {
@@ -1202,7 +1216,8 @@ export function setupStudio({
       swap.append(time);
       middle.append(swap);
     } else middle.append(time);
-    if (start)
+    if (continued) row.append(prolongPiece(workflow, continued));
+    else if (start)
       row.append(
         slot(workflow, 'start_image', 0, {
           label: ROLES.start_image,
@@ -1226,6 +1241,90 @@ export function setupStudio({
     span = { line, time, workflow };
     paintSpan();
     return row;
+  }
+  /** (0.6.207) What a creation is, in a few signs: a take by its number and its length, a file by its name. */
+  function saidOfRecord(record) {
+    const take = record.outputs?.[0]?.take,
+      media = mediaOf(record),
+      length = media === 'video' ? lengthOfRecord(record, false) : null;
+    if (!Number.isInteger(take) && !runs.some(item => item.id === record.id)) return record.name || { video: 'Vidéo', image: 'Image' }[media] || 'Son';
+    return 'PRISE ' + (Number.isInteger(take) ? take : numberOf(record)) + ' · ' + (length ? figures(length) : { video: 'VIDÉO', image: 'IMAGE' }[media] ?? 'SON');
+  }
+  /**
+   * (0.6.207, captures 98 and 98b; his answers 3 and 4 of 21/11) The clip a continuation goes on from, the first
+   * piece of its plateau, « À prolonger », in the place of the start of a new video: its picture, its word; a
+   * click opens its window (what it continues, what is read with it, « Retirer »), × leaves the continuation.
+   * A banner above the prompt before (« Suite de la prise 5 : … », « Annuler »). It is the `source` of its
+   * model: nothing is dropped on it, and no file is chosen for it (a continuation begins on a take).
+   */
+  function prolongPiece(workflow, record) {
+    const output = record.outputs?.[0] ?? {},
+      said = 'À prolonger · ' + saidOfRecord(record),
+      byAi = answering(),
+      opened = pieceOpen?.role === 'source' && pieceOpen.index === 0,
+      tile = node('div', 'studio-slot is-filled'),
+      pick = button('studio-slot-pick', '', () => toggleWindow('source', 0)),
+      preview = node('img'),
+      mark = node('span', 'studio-slot-badge'),
+      piece = node('div', 'studio-piece studio-prolong' + (opened ? ' is-open' : '')),
+      word = node('span', 'studio-piece-word', 'À prolonger'),
+      // Left by its × and by « Retirer »: a new video, as « Annuler » of the banner did.
+      leave = () => {
+        extending = null;
+        pieceOpen = null;
+        render();
+      };
+    tile.dataset.slot = 'source-0';
+    pick.title = said;
+    pick.setAttribute('aria-label', said);
+    pick.setAttribute('aria-haspopup', 'dialog');
+    pick.setAttribute('aria-expanded', String(opened));
+    pick.disabled = Boolean(working);
+    preview.src = output.thumbUrl || output.originalUrl || '';
+    preview.alt = '';
+    preview.draggable = false;
+    mark.setAttribute('aria-hidden', 'true');
+    mark.append(icon('forward'));
+    pick.append(preview.src ? preview : icon('video'), mark);
+    tile.append(pick);
+    if (!byAi) {
+      const remove = button('studio-slot-remove', '', leave, 'close');
+      remove.setAttribute('aria-label', 'Retirer la vidéo à prolonger');
+      remove.title = 'Retirer';
+      tile.append(remove);
+    }
+    word.setAttribute('aria-hidden', 'true');
+    piece.append(tile, word);
+    if (opened) {
+      // (0.6.198) The clip by the number of its take, as the Bobine says it; a clip of the disk, « la vidéo ».
+      const take = output.take,
+        what = (record.prompt || record.name || '').slice(0, 90),
+        pane = pieceWindow(workflow, {
+          role: 'source',
+          index: 0,
+          label: 'À prolonger',
+          media: 'video',
+          said: saidOfRecord(record),
+          about: 'Suite de ' + (Number.isInteger(take) ? 'la prise ' + take : 'la vidéo') + (what ? ' : ' + what : ''),
+          change: false,
+          // (0.6.113) A continuation Moodix AI proposes that the user did not ask for (« modifie cette prise, je
+          // veux un dézoom lent », 19/11): no way out of it but « Refuser », which said nothing of what it
+          // leaves. Refused from here, its prompt and its images stay for a new video, whose format and size
+          // are the user's to set again.
+          foot: byAi
+            ? { text: 'Nouvelle vidéo', title: 'Refuser cette suite et garder son prompt et ses images pour une nouvelle vidéo', run: () => decline() }
+            : { text: 'Retirer', run: leave },
+        }),
+        focus = pieceFocus;
+      pieceFocus = false;
+      piece.append(pane);
+      globalThis.queueMicrotask?.(() => {
+        if (!pane.isConnected || !pieceOpen) return;
+        openPopup(pane, pick, { align: 'start' });
+        if (focus) (pane.querySelector?.('input, select, textarea') ?? pane.querySelector?.('button:enabled'))?.focus?.();
+      });
+    }
+    return piece;
   }
   /**
    * (0.6.202, capture 96) What is given that the model in hand does not take (the end image and the subject
@@ -1571,7 +1670,7 @@ export function setupStudio({
     span = null;
     // (0.6.204) The window of a piece does not outlive it: closed once its piece is taken back or moved, while a
     // take is made (its case cannot be pressed then), under another model that does not take it.
-    if (pieceOpen && (working || !drafts[mode].inputs[pieceOpen.role]?.[pieceOpen.index] || pieceOpen.index >= (workflow.roles?.[pieceOpen.role]?.count ?? 0)))
+    if (pieceOpen && (working || !givenPiece(pieceOpen.role, pieceOpen.index) || pieceOpen.index >= (workflow.roles?.[pieceOpen.role]?.count ?? 0)))
       pieceOpen = null;
     const off = offPieces(workflow),
       frames = framesRow(workflow, off),
@@ -2173,14 +2272,14 @@ export function setupStudio({
    * of that piece (« Débruitage » with the image to modify of Krea 2, « Influence de l’image de fin » with the
    * end of LTX 2.5), no longer under « Plus de réglages », greyed there while its case was empty: a setting is
    * shown where it is read. null for any other setting (one read with two inputs stays under « Plus de
-   * réglages »), and for the clip of a continuation, which is no piece of the plateau.
+   * réglages »). (0.6.207) The clip of a continuation is a piece too, « À prolonger »: « Images de
+   * chevauchement » is set in its window.
    */
   function pieceOf(workflow, setting) {
     if (!setting?.onlyWith) return null;
     const inputs = [...new Set(onlyInputs(workflow, setting))],
       [role] = inputs;
-    if (inputs.length !== 1 || !workflow.roles?.[role]?.count) return null;
-    return mode === 'video' && extending && role === 'source' ? null : role;
+    return inputs.length !== 1 || !workflow.roles?.[role]?.count ? null : role;
   }
   /**
    * Why a setting the model only reads with an input changes nothing now, the case of that input
@@ -3510,7 +3609,15 @@ export function setupStudio({
     const name = String(key).replace(/^setting-/, ''),
       workflow = current(),
       role = WHO[name]?.piece ?? (workflow ? pieceOf(workflow, workflow.settings.find(setting => setting.key === name)) : null);
-    return role && drafts[mode].inputs[role]?.[0] ? { role, index: 0 } : null;
+    return role && givenPiece(role, 0) ? { role, index: 0 } : null;
+  }
+  /**
+   * (0.6.207) What is given in a place of the plateau: what its case holds, or for the `source` of a continuation
+   * the clip it goes on from (no case holds that one).
+   */
+  function givenPiece(role, index) {
+    if (mode === 'video' && extending && role === 'source') return index === 0 ? extending : null;
+    return drafts[mode].inputs[role]?.[index] ?? null;
   }
   /** The prompt written as it is typed: about 40 letters a second, 1 s at most whatever its length (16/11). */
   async function typePrompt(draft, text, { instant = false } = {}) {
@@ -5230,31 +5337,8 @@ export function setupStudio({
     const named = node('label', 'sr-only', 'Prompt');
     named.htmlFor = 'studio-prompt';
     write.append(named);
-    if (mode === 'video' && extending) {
-      const banner = node('div', 'studio-extending');
-      // (0.6.198) The clip by the number of its take, as the Bobine says it; a clip of the disk, « la vidéo » (« Suite du
-      // clip : » before).
-      const take = extending.outputs?.[0]?.take,
-        what = (extending.prompt || extending.name || '').slice(0, 90);
-      banner.append(icon('forward'), node('span', '', 'Suite de ' + (Number.isInteger(take) ? 'la prise ' + take : 'la vidéo') + (what ? ' : ' + what : '')));
-      if (!answering())
-        banner.append(
-          button('studio-link', 'Annuler', () => {
-            extending = null;
-            render();
-          }),
-        );
-      else {
-        // (0.6.113) A continuation Moodix AI proposes that the user did not ask for (« modifie cette
-        // prise, je veux un dézoom lent », 19/11): no way out of it but « Refuser », which said
-        // nothing of what it leaves. Refused from here, its prompt and its images stay for a new
-        // video, whose format and size are the user's to set again.
-        const fresh = button('studio-link', 'Nouvelle vidéo', () => decline());
-        fresh.title = 'Refuser cette suite et garder son prompt et ses images pour une nouvelle vidéo';
-        banner.append(fresh);
-      }
-      write.append(banner);
-    }
+    // (0.6.207) A continuation has no banner above the prompt any more (« Suite de la prise 5 : … », « Annuler »):
+    // its clip is the first piece of the plateau, « À prolonger » (prolongPiece).
     // What a proposal of Moodix AI says of itself, as on its card in the chat: an image the user
     // named that it does not transmit (the continuation of a video by LTX 2.5 takes none), a model
     // used in place of the one asked for. Nothing else showed it here. At the head of the column:

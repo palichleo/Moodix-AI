@@ -2535,7 +2535,7 @@ test('(0.6.203) no « Ajouter » in a continuation; under a proposal of Moodix A
     page.mode(1);
     assert.equal(page.body.find('studio-add').length, 1);
     prolonger(page.body).onclick();
-    assert.deepEqual([page.body.find('studio-extending').length, page.body.find('studio-add').length], [1, 0]);
+    assert.deepEqual([prolonged(page.body).length, page.body.find('studio-add').length], [1, 0]);
   } finally {
     page.restore();
   }
@@ -2583,8 +2583,8 @@ test('(0.6.202) nothing is greyed under a proposal of Moodix AI, whose notes say
     await new Promise(resolve => setTimeout(resolve, 5));
     assert.match(page.body.find('studio-slot')[0].className, /is-filled/);
     prolonger(page.body).onclick();
-    assert.equal(page.body.find('studio-extending').length, 1);
-    assert.deepEqual([...greyed(page.body), page.body.find('studio-slot').length], [0, 0, 0]);
+    // (0.6.207) Its one piece is the clip it goes on from.
+    assert.deepEqual([...greyed(page.body), page.body.find('studio-slot').map(tile => tile.dataset.slot)], [0, 0, ['source-0']]);
   } finally {
     page.restore();
   }
@@ -5531,8 +5531,10 @@ test('Moodix AI continues a clip of the disk (« #ref1 »): the Studio shows tha
     await until(() => said.includes('attend votre accord'));
     assert.equal(body.dataset.mode, 'video');
     // The clip continued is named, and on the screen: it is not a take of the Sortie. (0.6.198) A video
-    // without a number of take: « Suite de la vidéo » (« Suite du clip » before).
-    assert.equal(body.find('studio-extending')[0].children[1].textContent, 'Suite de la vidéo : view.mp4');
+    // without a number of take: « Suite de la vidéo » (« Suite du clip » before). (0.6.207) On its piece, the
+    // first of the plateau, and in the window of that piece.
+    assert.deepEqual(prolonged(body), ['À prolonger · view.mp4']);
+    assert.equal(prolongWindow(body).about, 'Suite de la vidéo : view.mp4');
     const shown = screenOf(body.find('studio-frame-result')[0]);
     assert.deepEqual([shown.tag, shown.src, shown.poster], ['video', '/media/view/original', '/media/view/preview']);
     assert.equal(body.find('studio-go-label')[0].textContent, 'Générer la suite');
@@ -5541,19 +5543,21 @@ test('Moodix AI continues a clip of the disk (« #ref1 »): the Studio shows tha
     const titles = body.find('studio-piece-word').map(title => title.textContent);
     assert.equal(titles.some(title => title === 'Début' || title === 'Fin'), false, titles.join(' | '));
     assert.equal(titles.some(title => title.startsWith('Sujet')), false, titles.join(' | '));
-    // Nor an empty case for « the video to follow »: the clip continued is named above, it is not asked again.
-    assert.deepEqual(body.find('studio-slot').map(tile => tile.dataset.slot), [], titles.join(' | '));
+    // Nor an empty case for « the video to follow »: the clip continued is its one piece, it is not asked again.
+    assert.deepEqual(body.find('studio-slot').map(tile => tile.dataset.slot), ['source-0'], titles.join(' | '));
+    assert.deepEqual(titles, ['À prolonger']);
     assert.equal(page.prompt().value, request.plan.prompt);
     // (0.6.113) A continuation the user did not want (« modifie cette prise », 19/11): no format to
-    // choose in it, and no way out but « Refuser ». « Nouvelle vidéo », beside the clip named,
-    // refuses it and leaves its prompt for a new video, whose format is the user's to set.
+    // choose in it, and no way out but « Refuser ». « Nouvelle vidéo », (0.6.207) at the foot of the window
+    // of the clip, refuses it and leaves its prompt for a new video, whose format is the user's to set.
+    // No « Retirer » nor × there: its clip is that of Moodix AI.
     assert.deepEqual(body.find('studio-formats'), [], 'a continuation has the format of its clip');
-    const way = body.find('studio-extending')[0].children[2];
-    assert.deepEqual([way.className, way.children[0].textContent], ['studio-link', 'Nouvelle vidéo']);
+    assert.deepEqual([prolongWindow(body).ways, body.find('studio-prolong')[0].find('studio-slot-remove').length], [['Nouvelle vidéo'], 0]);
+    const way = prolongWindow(body).way('Nouvelle vidéo');
     assert.match(way.title, /garder son prompt et ses images pour une nouvelle vidéo/);
     way.onclick();
     assert.equal(await answer, 'deny');
-    assert.deepEqual(body.find('studio-extending'), []);
+    assert.deepEqual(prolonged(body), []);
     assert.equal(body.find('studio-go-label')[0].textContent, 'Générer');
     assert.equal(page.prompt().value, request.plan.prompt, 'its prompt stays');
     assert.equal(body.find('studio-formats').length, 1, 'the format can be chosen again');
@@ -5623,7 +5627,8 @@ test('a clip of the disk is continued with the model chosen in the Studio, which
     const extendIt = body.find('output-action-extend')[0];
     assert.ok(extendIt, 'the action is offered for a clip of the disk');
     extendIt.onclick();
-    assert.equal(body.find('studio-extending')[0].children[1].textContent, 'Suite de la vidéo : view.mp4');
+    assert.deepEqual(prolonged(body), ['À prolonger · view.mp4']);
+    assert.equal(prolongWindow(body).about, 'Suite de la vidéo : view.mp4');
     assert.equal(body.find('studio-go-label')[0].textContent, 'Générer la suite');
     // No model made this clip: the list of the models that can continue one, to choose from.
     const [model] = body.find('studio-model-pick');
@@ -5650,7 +5655,7 @@ test('a clip of the disk is continued with the model chosen in the Studio, which
   );
   try {
     own.body.find('studio-item')[0].find('studio-item-main')[0].onclick();
-    assert.equal(own.body.find('studio-extending').length, 1);
+    assert.equal(prolonged(own.body).length, 1);
     assert.equal(own.body.find('studio-model-pick').length, 0);
     own.prompt().value = 'Il saute.';
     own.prompt().oninput();
@@ -6028,7 +6033,7 @@ test('(0.6.200) the empty screen says where the take comes only while nothing is
     assert.deepEqual(shown(page.body), ['Votre prochaine prise apparaîtra ici.']);
     prolonger(page.body).onclick();
     assert.deepEqual(
-      [page.body.dataset.mode, page.body.find('studio-frame')[0].className.includes('is-empty'), page.body.find('studio-extending').length, shown(page.body)],
+      [page.body.dataset.mode, page.body.find('studio-frame')[0].className.includes('is-empty'), prolonged(page.body).length, shown(page.body)],
       ['video', true, 1, []],
     );
   } finally {
@@ -6176,8 +6181,25 @@ function continuing({ more = true } = {}) {
   return { tools: { create_image: [image], create_video: [clip], ...(more ? { extend_video: [extend] } : {}) }, runs };
 }
 const prolonger = (body, id = 'film') => body.find('studio-item').find(tile => tile.dataset.id === id).find('studio-item-main')[0];
+/**
+ * (0.6.207, captures 98 and 98b) The clip a continuation goes on from, the first piece of its plateau: what its
+ * case says (« À prolonger · PRISE 1 · 05.04 S »), none out of a continuation. A banner above the prompt before.
+ */
+const prolonged = body => body.find('studio-prolong').map(piece => piece.find('studio-slot-pick')[0].title);
+/** Its window, opened by a click on its case when it is not: what it continues, the buttons of its foot. */
+const prolongWindow = body => {
+  const [piece] = body.find('studio-prolong');
+  if (!piece.find('studio-piece-window').length) piece.find('studio-slot-pick')[0].onclick();
+  const [pane] = body.find('studio-prolong')[0].find('studio-piece-window');
+  return {
+    pane,
+    about: pane.find('studio-window-about')[0]?.textContent ?? null,
+    way: name => pane.find('studio-window-button').find(way => way.children[0].textContent === name),
+    ways: pane.find('studio-window-button').map(way => way.children[0].textContent),
+  };
+};
 
-test('« Prolonger » on a clip of the Sortie opens Vidéo with its banner, from Image too; greyed with its reason when nothing continues a video', async () => {
+test('« Prolonger » on a clip of the Sortie opens Vidéo with its clip as the first piece, « À prolonger » (0.6.207), from Image too; greyed with its reason when nothing continues a video', async () => {
   const { tools, runs } = continuing();
   let page = await studioPage(
     tools,
@@ -6190,12 +6212,47 @@ test('« Prolonger » on a clip of the Sortie opens Vidéo with its banner, from
     assert.equal(body.dataset.mode, 'image');
     assert.equal(prolonger(body).attributes['aria-disabled'], undefined);
     prolonger(body).onclick();
-    // A continuation is made in Vidéo: its banner with « Annuler », no format to choose. (0.6.198) The clip
-    // by the number of its take, as the Bobine says it (« Suite du clip » before).
+    // A continuation is made in Vidéo, no format to choose. (0.6.207, captures 98 and 98b) No banner above the
+    // prompt any more: its clip is the first piece of the plateau, in the place of the start of a new video,
+    // the length it adds on its line of time, no « ⇄ ». (0.6.198) The clip by the number of its take.
     assert.equal(body.dataset.mode, 'video');
-    assert.equal(body.find('studio-extending')[0].children[1].textContent, 'Suite de la prise 1 : un renard court');
-    assert.equal(body.find('studio-extending')[0].find('studio-link').length, 1);
+    assert.deepEqual([body.find('studio-extending'), prolonged(body)], [[], ['À prolonger · PRISE 1 · 05.04 S']]);
+    const [frames] = body.find('studio-frames'),
+      [piece] = body.find('studio-prolong');
+    assert.deepEqual(
+      [frames.attributes['aria-label'], frames.children.map(part => part.className.split(' ').slice(0, 2).join(' ')), body.find('studio-swap').length],
+      ['Vidéo à prolonger', ['studio-piece studio-prolong', 'studio-span'], 0],
+    );
+    assert.equal(body.find('studio-span-time')[0].textContent, '04.67 S');
+    const [tile, word] = piece.children,
+      [pick] = piece.find('studio-slot-pick');
+    assert.deepEqual(
+      [tile.className, tile.dataset.slot, tile.dataset.media, tile.ondrop, word.textContent, word.attributes['aria-hidden']],
+      ['studio-slot is-filled', 'source-0', undefined, undefined, 'À prolonger', 'true'],
+    );
+    assert.deepEqual(
+      [pick.attributes['aria-label'], pick.attributes['aria-haspopup'], pick.attributes['aria-expanded'], pick.children[0].src, pick.find('studio-slot-badge')[0].children[0].glyph],
+      ['À prolonger · PRISE 1 · 05.04 S', 'dialog', 'false', '/film.jpg', 'forward'],
+    );
+    // Its window: what it continues, in the words of its banner of before; what it is; « Retirer », no
+    // « Changer… » (no file is chosen for the clip of a continuation).
+    const opened = prolongWindow(body);
+    assert.deepEqual(
+      [opened.pane.attributes['aria-label'], opened.pane.children.map(part => part.className), opened.about, opened.ways],
+      ['À prolonger', ['studio-window-title', 'studio-window-about', 'studio-window-foot'], 'Suite de la prise 1 : un renard court', ['Retirer']],
+    );
+    assert.equal(opened.pane.find('studio-window-said')[0].textContent, 'PRISE 1 · 05.04 S');
     assert.equal(body.find('studio-go-label')[0].textContent, 'Générer la suite');
+    // « Retirer » leaves the continuation, as « Annuler » of the banner did; so does the × of its case.
+    opened.way('Retirer').onclick();
+    assert.deepEqual([prolonged(body), body.find('studio-go-label')[0].textContent, body.find('studio-piece-window').length], [[], 'Générer', 0]);
+    page.mode(0);
+    prolonger(body).onclick();
+    assert.equal(prolonged(body).length, 1);
+    body.find('studio-prolong')[0].find('studio-slot-remove')[0].onclick();
+    assert.deepEqual([prolonged(body), body.find('studio-go-label')[0].textContent], [[], 'Générer']);
+    page.mode(0);
+    prolonger(body).onclick();
     page.prompt().value = 'il s’arrête';
     page.prompt().oninput();
     await body.find('studio-go')[0].onclick();
@@ -6207,7 +6264,7 @@ test('« Prolonger » on a clip of the Sortie opens Vidéo with its banner, from
     page.mode(0);
     assert.equal(body.find('studio-formats').length, 1);
     assert.equal(body.find('studio-go-label')[0].textContent, 'Générer');
-    assert.deepEqual(body.find('studio-extending'), []);
+    assert.deepEqual(prolonged(body), []);
   } finally {
     page.restore();
   }
@@ -6226,7 +6283,7 @@ test('« Prolonger » on a clip of the Sortie opens Vidéo with its banner, from
     assert.equal(notices.at(-1), 'Aucun modèle ne sait prolonger une vidéo.');
     assert.equal(body.find('studio-go').length, 1, 'the Studio is still there');
     assert.equal(body.find('studio-item').length, 2);
-    assert.deepEqual(body.find('studio-extending'), []);
+    assert.deepEqual(prolonged(body), []);
     // In its menu too.
     body.find('studio-item').find(tile => tile.dataset.id === 'film').oncontextmenu({ preventDefault() {} });
     const entry = body.find('studio-menu-item').find(item => item.children.at(-1).textContent === 'Prolonger');
@@ -6269,6 +6326,57 @@ function continuation() {
   };
 }
 
+test('(0.6.207) a continuation whose model takes an end image keeps that case at the end of its line; the pointer of Moodix AI sets what is read with its clip in the window of that clip', async () => {
+  const said = [],
+    { tools, runs } = continuing();
+  // (As LTX 2.5 continues a clip: an end image it may take, the images taken again from its clip. A start image
+  // named among its roles is none of a continuation: its clip is its start.)
+  Object.assign(tools.extend_video[0], {
+    inputs: { source_video: 'source' },
+    roles: { ...tools.extend_video[0].roles, start_image: { count: 1, media: ['image'] }, end_image: { count: 1, media: ['image'] } },
+    settings: [{ key: 'overlap_frames', type: 'integer', choices: [1, 9, 17], default: 9, onlyWith: { role: 'source_video' } }],
+  });
+  const page = await studioPage(tools, {}, { runs, cursor: said, targets: true });
+  const { body, studio, restore } = page;
+  try {
+    page.mode(1);
+    prolonger(body).onclick();
+    const [frames] = body.find('studio-frames');
+    assert.deepEqual(
+      [frames.attributes['aria-label'], frames.children.map(part => part.className.split(' ').slice(0, 2).join(' ')), body.find('studio-piece-word').map(word => word.textContent)],
+      ['Vidéo à prolonger et fin', ['studio-piece studio-prolong', 'studio-span', 'studio-piece is-empty'], ['À prolonger', 'Fin']],
+    );
+    assert.deepEqual(body.find('studio-swap'), []);
+    studio.render();
+    // A proposal that sets « Images de chevauchement »: the window of « À prolonger » is opened for it and left
+    // open, where the user sees the value.
+    const proposal = continuation();
+    proposal.plan.parameters.overlap_frames = 17;
+    proposal.plan.editable.parameters.push({ key: 'overlap_frames', type: 'integer', value: 17, choices: [1, 9, 17] });
+    const answer = studio.propose(proposal, new AbortController().signal);
+    await until(() => said.includes('attend votre accord'));
+    assert.ok(said.includes('règle images de chevauchement'), said.join(' | '));
+    const opened = body.find('studio-prolong')[0].find('studio-piece-window');
+    assert.deepEqual(
+      [opened.map(pane => pane.attributes['aria-label']), opened[0]?.find('studio-field')[0].children[1].value, body.find('studio-more-pill')[0]?.attributes['aria-expanded'] ?? 'false'],
+      [['À prolonger'], '17', 'false'],
+    );
+    studio.decline();
+    assert.equal(await answer, 'deny');
+    // In the page: what it continues in 13 px under the name of its window; the banner and its styles are gone.
+    const { readFile } = await import('node:fs/promises');
+    const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n'),
+      code = await readFile(new URL('../public/studio.mjs', import.meta.url), 'utf8');
+    const rule = selector => css.slice(css.lastIndexOf('\n' + selector + ' {'), css.indexOf('}', css.lastIndexOf('\n' + selector + ' {')));
+    assert.match(rule('.studio-window-about'), /font: 400 13px\/1\.4 var\(--font-ui\);/);
+    assert.match(rule("#studio-view .studio-piece-window :is(input[type='number'], button.glass-select)"), /height: 34px;/);
+    assert.doesNotMatch(css, /\.studio-extending/);
+    assert.doesNotMatch(code, /'studio-extending'/);
+  } finally {
+    restore();
+  }
+});
+
 test('a continuation proposed by Moodix AI stays one while it waits: another mode visited, « Prolonger » on another clip, « Revenir »', async () => {
   const { tools, runs } = continuing();
   runs.push({ id: 'other', conversationId: 'c1', mediaType: 'video', workflowId: 'v', prompt: 'une mouette', parameters: { width: 768, height: 448, frames: 121, fps: 24 }, outputs: [{ originalUrl: '/other.mp4', thumbUrl: '/other.jpg', take: 0 }] });
@@ -6276,7 +6384,7 @@ test('a continuation proposed by Moodix AI stays one while it waits: another mod
   const page = await studioPage(tools, { 'tools/revise': ({ edits }) => (sent.push(edits), { requestId: 'q2', approvalToken: 't2' }) }, { runs });
   const { body, studio, notices, restore } = page;
   const shown = () => ({
-    banner: body.find('studio-extending')[0]?.children[1].textContent ?? null,
+    banner: prolonged(body)[0] ?? null,
     go: body.find('studio-go-label')[0].textContent,
     formats: body.find('studio-formats').length,
     duration: body.find('studio-bar').find(bar => bar.dataset.ai === 'duration')?.attributes['aria-valuetext'],
@@ -6286,7 +6394,7 @@ test('a continuation proposed by Moodix AI stays one while it waits: another mod
     studio.show(runs[0]);
     assert.equal(body.find('studio-look-back').length, 1);
     const answer = studio.propose(continuation(), new AbortController().signal);
-    const proposed = { banner: 'Suite de la prise 1 : un renard court', go: 'Générer la suite', formats: 0, duration: '07.67 S' };
+    const proposed = { banner: 'À prolonger · PRISE 1 · 05.04 S', go: 'Générer la suite', formats: 0, duration: '07.67 S' };
     // (0.6.204: until the pointer has set it all and given the Studio back, not a fixed 15 ms: with the whole
     // suite running beside it, its length was not always set yet, once in three runs.)
     await until(() => shown().duration === proposed.duration && page.page['studio-view'].inert === false);
@@ -6294,7 +6402,7 @@ test('a continuation proposed by Moodix AI stays one while it waits: another mod
     assert.deepEqual(shown(), proposed);
     // The other modes still work by hand: the user looks at Image, then comes back.
     page.mode(0);
-    assert.deepEqual(body.find('studio-extending'), []);
+    assert.deepEqual(prolonged(body), []);
     // No way back to the settings of before while it waits: they would come under the proposal.
     assert.deepEqual(body.find('studio-look-back'), []);
     page.mode(1);
@@ -7141,8 +7249,8 @@ test('(0.6.205) a setting the engine reads with one piece alone is set in the wi
   } finally {
     restore();
   }
-  // In a continuation, what is read with its clip stays under « Plus de réglages »: the clip is no piece of the
-  // plateau there.
+  // (0.6.207) In a continuation, what is read with its clip is set in the window of that clip, « À prolonger »,
+  // no longer under « Plus de réglages ».
   const { tools, runs } = continuing();
   Object.assign(tools.extend_video[0], {
     inputs: { source_video: 'source' },
@@ -7152,10 +7260,10 @@ test('(0.6.205) a setting the engine reads with one piece alone is set in the wi
   try {
     suite.mode(1);
     prolonger(suite.body).onclick();
-    suite.body.find('studio-more-pill')[0].onclick();
+    assert.deepEqual(suite.body.find('studio-rare').flatMap(rare => rare.find('studio-field')), []);
     assert.deepEqual(
-      suite.body.find('studio-rare')[0].find('studio-field').map(line => [line.find('studio-label')[0].textContent, /is-idle/.test(line.className)]),
-      [['Images de chevauchement', false]],
+      prolongWindow(suite.body).pane.find('studio-field').map(line => [line.find('studio-label')[0].textContent, /is-idle/.test(line.className), line.children[1].value]),
+      [['Images de chevauchement', false, '9']],
     );
   } finally {
     suite.restore();

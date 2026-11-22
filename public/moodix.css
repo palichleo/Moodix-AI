@@ -5065,6 +5065,18 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   color: var(--text-1);
   font: 500 14px/1.2 var(--font-ui);
 }
+/* (0.6.207, capture 98b) What a continuation continues, under the name of its window: « Suite de la prise 5 :
+   … », on three lines at most. */
+.studio-window-about {
+  display: -webkit-box;
+  margin: -4px 0 0;
+  overflow: hidden;
+  color: var(--text-2);
+  font: 400 13px/1.4 var(--font-ui);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
 .studio-piece-window .studio-field > .studio-label {
   color: var(--text-2);
   font: 400 13px/1.2 var(--font-ui);
@@ -5080,6 +5092,11 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   background: rgba(0, 0, 0, 0.22);
   color: var(--text-1);
   font: 400 13px/1.2 var(--font-ui);
+}
+/* (0.6.207) A list or a number in it (« Images de chevauchement »): 34 px high too, 44 in the column. */
+#studio-view .studio-piece-window :is(input[type='number'], button.glass-select) {
+  height: 34px;
+  min-height: 0;
 }
 .studio-window-foot {
   display: flex;
@@ -5124,28 +5141,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
 }
 .studio-piece.is-open .studio-piece-word {
   color: var(--text-1);
-}
-.studio-extending {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: var(--surface-raised);
-  font-size: var(--size-2);
-  color: var(--soft);
-}
-.studio-extending > span {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.studio-extending svg {
-  width: 16px;
-  height: 16px;
-  color: var(--soft);
 }
 /* What a proposal of Moodix AI says of itself, under its inputs. */
 .studio-proposal-note {
