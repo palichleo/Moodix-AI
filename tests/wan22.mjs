@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { ToolCatalog, serves } from '../lib/tool-catalog.mjs';
 import { families } from '../lib/families.mjs';
+import { matches } from '../lib/generation-assets.mjs';
 import { fits, modelsOf, versionComponent } from '../lib/model-files.mjs';
 import { isCompanion, recipeOf, versionName } from '../lib/model-versions.mjs';
 import { ownSettings, validateNativeWorkflow } from '../lib/native-workflows.mjs';
@@ -148,4 +149,42 @@ test('a file of a shipped model has an identifier of its own family: none is sha
   const sharedIds = [...owners].filter(([, families]) => families.size > 1).map(([id, families]) => [id, [...families]]);
   assert.deepEqual(sharedIds, []);
   assert.equal(new Set(Object.values(wan.components).map(component => component.asset)).size, 6);
+});
+
+test('a file of Wan 2.2 Fun Camera is never taken for Wan 2.2, nor Wan 2.2 for it (0.6.213)', () => {
+  // The two files of Fun Camera have every tensor of Wan 2.2's and an adapter that reads the camera
+  // (`control_adapter`); converted, they sit in the same folder. Until 0.6.211 each was a version of
+  // Wan 2.2 for the page « Modèles », and the file its chooser could pick when Wan 2.2's own was
+  // not found (a file is found by its layout, whatever its name): the engine then refused the video.
+  const plain = families().wan22,
+    fun = families().wan22_camera,
+    header = shapes => Object.fromEntries(Object.entries(shapes).map(([name, shape]) => [name, { shape }])),
+    wan = { 'patch_embedding.weight': [5120, 36, 1, 2, 2], 'head.head.weight': [64, 5120], 'blocks.39.self_attn.q.weight': [5120, 5120] },
+    camera = { ...wan, 'control_adapter.conv.weight': [5120, 1536, 2, 2], 'control_adapter.conv.bias': [5120] };
+  for (const role of ['model', 'modelLow']) {
+    assert.equal(matches(header(wan), plain.components[role].signature), true, role);
+    assert.equal(matches(header(camera), plain.components[role].signature), false, role);
+    assert.equal(matches(header(camera), fun.components[role].signature), true, role);
+    assert.equal(matches(header(wan), fun.components[role].signature), false, role);
+  }
+  assert.deepEqual([modelsOf({ shapes: wan }), modelsOf({ shapes: camera })], [['wan22'], ['wan22_camera']]);
+  // (An entry marked absent is met by no tensor; without one, a signature reads as before.)
+  assert.equal(matches(header(wan), [{ key: '^img_emb\\.', absent: true }]), true);
+  assert.equal(matches(header({ ...wan, 'img_emb.proj.0.weight': [1280] }), [{ key: '^img_emb\\.', absent: true }]), false);
+  assert.equal(matches(header(wan), []), true);
+  // The same engine code runs both (`module`), with the same files beside the two models; the camera
+  // is two settings more, a movement the engine knows and a speed.
+  assert.equal(fun.module, 'wan22');
+  assert.deepEqual(Object.keys(fun.components), Object.keys(plain.components));
+  const { camera: move, camera_speed: speed, ...own } = fun.parameters;
+  assert.deepEqual(own, plain.parameters);
+  assert.equal(move.choices[0], 'none');
+  assert.ok(move.choices.includes('orbit_left') && move.choices.includes('crane_up') && move.choices.includes('pan_left'));
+  assert.deepEqual([speed.min, speed.max], [0.25, 4]);
+  const { role, spec } = versionComponent(fun);
+  assert.deepEqual([role, spec.reads], ['model', ['INT8', 'BF16', 'FP16', 'FP32']]);
+  assert.equal(recipeOf(spec, { shapes: camera }).companion.role, 'modelLow');
+  // Nothing of it is on a screen yet (a mock-up first): no model is shipped for the family, so the
+  // page « Modèles », the Studio and the chat model see no more than before.
+  assert.equal(shipped.some(workflow => workflow.pipeline === 'wan22_camera'), false);
 });

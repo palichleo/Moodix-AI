@@ -131,6 +131,61 @@ class ConvertTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'existe déjà'):
             convert.convert(str(source), str(target), device='cpu', report=said.append)
 
+    def test_what_an_fp8_scaled_file_of_comfyui_stores_besides_is_left_out_of_the_int8_file(self):
+        # (0.6.213) Wan 2.2 Fun Camera as ComfyUI repackages it (read on 22/11): beside each of its
+        # 406 matrices a scale for the weights (`.scale_weight`) and one for what the layer reads
+        # (`.scale_input`, 1 everywhere), and an empty tensor that says « fp8 scaled ». Copied, the
+        # two last were tensors no model of the engine has a place for: the file was refused.
+        source, target = self.folder / 'fun-fp8_scaled.safetensors', self.folder / 'fun-int8.safetensors'
+        stored = (torch.randn(4, 512) * 40).to(torch.float8_e4m3fn)
+        adapter = torch.randn(2, 3, 2, 2).to(torch.bfloat16)
+        tensors = {
+            'blocks.0.ffn.0.scale_input': torch.tensor(1.0),
+            'blocks.0.ffn.0.scale_weight': torch.tensor(0.02),
+            'blocks.0.ffn.0.weight': stored,
+            'blocks.0.ffn.0.bias': torch.randn(4).to(torch.bfloat16),
+            'control_adapter.conv.weight': adapter,
+            'scaled_fp8': torch.zeros(0).to(torch.float8_e4m3fn),
+            # Beside a matrix left as it is (not a multiple of 256 wide), everything stays.
+            'narrow.scale_input': torch.tensor(1.0),
+            'narrow.scale_weight': torch.tensor(0.5),
+            'narrow.weight': torch.randn(4, 100).to(torch.float8_e4m3fn),
+        }
+        _safetensors(source, tensors)
+        result = convert.convert(str(source), str(target), device='cpu', report=lambda _: None)
+        self.assertEqual(result['layers'], 1)
+        header, data = _read(target)
+        written = sorted(name for name in header if name != '__metadata__')
+        self.assertEqual(
+            written,
+            [
+                'blocks.0.ffn.0.bias',
+                'blocks.0.ffn.0.comfy_quant',
+                'blocks.0.ffn.0.weight',
+                'blocks.0.ffn.0.weight_scale',
+                'control_adapter.conv.weight',
+                'narrow.scale_input',
+                'narrow.scale_weight',
+                'narrow.weight',
+            ],
+        )
+        self.assertEqual(header['blocks.0.ffn.0.weight']['dtype'], 'I8')
+        # The adapter of the camera, plain 16-bit floats, to the byte.
+        self.assertEqual(data['control_adapter.conv.weight'], adapter.reshape(-1).view(torch.uint8).numpy().tobytes())
+        with safe_open(str(target), framework='pt') as store:
+            integers, scale = store.get_tensor('blocks.0.ffn.0.weight'), store.get_tensor('blocks.0.ffn.0.weight_scale')
+        plain = stored.float() * 0.02
+        self.assertLess(float((convert.rotate(integers.float() * scale) - plain).norm() / plain.norm()), 0.02)
+        # A layer whose input is really scaled would compute something else without its scale:
+        # such a file is refused, said for what it is, and nothing is left of the attempt.
+        other = self.folder / 'scaled-input.safetensors'
+        _safetensors(other, dict(tensors, **{'blocks.0.ffn.0.scale_input': torch.tensor(0.5)}))
+        said = 'met à l’échelle ce que lisent ses couches \\(blocks.0.ffn.0.scale_input\\)'
+        with self.assertRaisesRegex(ValueError, said):
+            convert.convert(str(other), str(self.folder / 'c.safetensors'), device='cpu', report=lambda _: None)
+        self.assertFalse((self.folder / 'c.safetensors').exists())
+        self.assertFalse((self.folder / 'c.safetensors.part').exists())
+
     def test_a_gguf_file_is_converted_from_its_blocks(self):
         source, target = self.folder / 'model-Q8_0.gguf', self.folder / 'model-int8.safetensors'
         packed, plain = _q8_0(torch.randn(2, 256) * 0.3)

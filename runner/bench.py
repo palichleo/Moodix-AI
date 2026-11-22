@@ -17,6 +17,9 @@ each phase cost, what stayed on the GPU and what was kept in RAM.
     python -s -m runner.bench wan22 --model HIGH.safetensors --model-low LOW.safetensors \\
         --text-encoder T.safetensors --vae V.safetensors --reference start_image=FILE --out FOLDER \\
         [--step-lora HIGH_LORA --step-lora-low LOW_LORA: four steps] [--frames 81] [--size 768x448]
+    python -s -m runner.bench wan22_camera (the two files of Fun Camera, the rest as wan22) \\
+        [--camera orbit_left: a movement of runner.video.camera, each run its own when several
+         are given, « none » for no camera read] [--camera-speed 1] [--same-seed]
     python -s -m runner.bench wan_scail2 --model M.safetensors --text-encoder T.safetensors \\
         --clip-vision C.safetensors --vae V.safetensors --lora STEP_LORA:0.8 --lora DPO_LORA:1 \\
         --segmenter SAM.safetensors --segmenter-tokenizer TOKENIZER_FOLDER \\
@@ -259,12 +262,26 @@ def wan22_job(args, run):
     )
 
 
+def wan22_camera_job(args, run):
+    """Wan 2.2 Fun Camera: the job of Wan 2.2 with a movement, one a run when several are named
+    (the last one again beyond them). With --same-seed every run draws from the same noise: the
+    videos then differ by the camera alone."""
+    job = wan22_job(args, run)
+    moves = args.camera or ['none']
+    job['pipeline'] = 'wan22_camera'
+    job['parameters'].update(camera=moves[min(run, len(moves)) - 1], camera_speed=args.camera_speed)
+    if args.same_seed:
+        job['parameters']['seed'] = args.seed
+    return job
+
+
 FAMILIES = {
     'krea2': ('runner.pipelines.krea2', krea2_job),
     'ltx25': ('runner.pipelines.ltx25', ltx25_job),
     'minimax_h3': ('runner.pipelines.minimax_h3', minimax_h3_job),
     'moss': ('runner.pipelines.moss', moss_job),
     'wan22': ('runner.pipelines.wan22', wan22_job),
+    'wan22_camera': ('runner.pipelines.wan22', wan22_camera_job),
     'wan_scail2': ('runner.pipelines.wan_scail2', wan_scail2_job),
 }
 
@@ -303,6 +320,9 @@ def main(argv=None):
     parser.add_argument('--ram-reserve-gib', type=float, help='RAM the resident files must leave free')
     parser.add_argument('--sparse-keep', type=float, help='MiniMax-H3: video sparse attention, percent of cubes kept')
     parser.add_argument('--sparse-start', type=float, default=0.2, help='MiniMax-H3: share of the steps kept dense')
+    parser.add_argument('--camera', action='append', default=[], help='Wan 2.2 Fun Camera: a movement, one a run')
+    parser.add_argument('--camera-speed', type=float, default=1.0, help='Wan 2.2 Fun Camera: 1 is the usual speed')
+    parser.add_argument('--same-seed', action='store_true', help='every run draws from the noise of --seed')
     parser.add_argument('--cfg', type=float, default=3.0, help='MOSS Image: guidance (1 follows the prompt alone)')
     parser.add_argument('--negative', default='', help='MOSS Image: negative prompt')
     args = parser.parse_args(argv)

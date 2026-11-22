@@ -19,6 +19,14 @@ out: the official recipe again, with its steps and its guidance.
 
 The start image fills the picture asked (what overflows is cut equally on both sides): the
 job's width and height are those of the video.
+
+The family `wan22_camera` runs here too: Wan 2.2 Fun Camera (alibaba-pai, Apache-2.0), the same
+two models trained again to follow a camera, each with an adapter that reads where the camera is
+at every frame (runner.models.wan22, runner.video.camera). A job of that family names a movement
+and a speed; what each model's adapter makes of them is computed once as the model opens, and
+added to the tokens at every pass. Everything else is as above, the step LoRAs included (they
+are the files ComfyUI's page for this model shows it with: the same bytes). Without a movement
+(`none`) the adapter is not read: the same video, the camera left to the model.
 """
 
 import gc
@@ -46,6 +54,14 @@ SAID = dict(high='bruit fort', low='bruit faible')
 # The step LoRA of each, and the strength both are applied at.
 LORAS = dict(high='stepLora', low='stepLoraLow')
 LORA_STRENGTH = 1.0
+# The family whose two models read a camera (runner/families/wan22_camera.json), the movement that
+# reads none, and the speed a job that names none is drawn at.
+CAMERA_FAMILY = 'wan22_camera'
+NO_CAMERA = 'none'
+CAMERA_SPEED = 1.0
+# (Twice the speed VideoX-Fun's movements were published at is the fastest tried; beyond four
+# times, a truck leaves the scene the start image shows.)
+CAMERA_FASTEST = 4.0
 # As runner.pipelines.wan_scail2: RAM the weights leave free, what is locked beyond what is
 # copied, what is copied to the GPU ahead of the layers that read it.
 RAM_RESERVE_GIB = 4
@@ -90,6 +106,21 @@ def _one(job, role):
     return found[0] if len(found) == 1 else None
 
 
+def reads_camera(job):
+    """Whether the two models of a job are Fun Camera's: said by its family."""
+    return job.get('pipeline') == CAMERA_FAMILY
+
+
+def camera_of(job):
+    """The camera a job asks for, dict(move, speed), or None: the family that reads none, or a
+    job of Fun Camera that names no movement."""
+    p = job['parameters']
+    move = p.get('camera', NO_CAMERA)
+    if not reads_camera(job) or move == NO_CAMERA:
+        return None
+    return dict(move=move, speed=float(p.get('camera_speed', CAMERA_SPEED)))
+
+
 def check(job, family):
     p = job['parameters']
     if p['width'] % 16 or p['height'] % 16:
@@ -98,6 +129,14 @@ def check(job, family):
         raise ValueError('Wan 2.2 draws 4n + 1 frames, 5 at least')
     if _one(job, 'start_image') is None:
         raise ValueError('Wan 2.2 needs one start image')
+    asked = camera_of(job)
+    if asked:
+        from runner.video import camera
+
+        if asked['move'] not in camera.MOVES:
+            raise ValueError('Unknown camera movement: ' + str(asked['move']))
+        if not 0 < asked['speed'] <= CAMERA_FASTEST:
+            raise ValueError(f'A camera speed is above 0, and {CAMERA_FASTEST} at most')
 
 
 def lora_of(job, kind):
@@ -116,7 +155,8 @@ def preflight(job, config):
     paths = job['components']
     for kind, component in COMPONENTS.items():
         found = header(paths[component])
-        wan22.validate_layout(found)
+        # (A file of Fun Camera for Wan 2.2, or the other way round, is said for what it is.)
+        wan22.validate_layout(found, camera=reads_camera(job))
         said = wan22.expert(found, paths[component])
         if said and said != kind:
             # The two files have the same shape: swapped, the clip is drawn all the same, badly.
@@ -235,8 +275,11 @@ class _Expert:
     """One of the two models streamed from its file, opened with a share of its weights on the
     GPU and closed whole."""
 
-    def __init__(self, kind, path, names, lora=None):
+    def __init__(self, kind, path, names, lora=None, camera=None):
         self.kind, self.path, self.names, self.lora = kind, path, names, lora
+        # dict(cameras, width, height) for a model of Fun Camera asked a movement, and what its
+        # adapter makes of it (`seen`), kept on the card while the model is open.
+        self.camera, self.seen = camera, None
         self.stack = self.pool = self.model = None
         self.facts = {}
 
@@ -249,6 +292,18 @@ class _Expert:
 
         self.stack = ExitStack()
         store = self.stack.enter_context(open_store(self.path))
+        camera_seconds = None
+        if self.camera:
+            # Before the weights take their share of the card: the adapter is a gigabyte, read for
+            # this once and let go (the share was counted without it, and with what it leaves).
+            import torch
+
+            began = time.perf_counter()
+            adapter = wan22.load_adapter(store.get_tensor)
+            self.seen = wan22.seen(adapter, **self.camera)
+            del adapter
+            torch.cuda.empty_cache()
+            camera_seconds = round(time.perf_counter() - began, 2)
         stores, adapters = {'model': store}, []
         if self.lora:
             stores['lora'] = self.stack.enter_context(open_store(self.lora['path']))
@@ -291,6 +346,8 @@ class _Expert:
             lora_layers=self.pool.applied(),
             lora_differences=differences,
         )
+        if camera_seconds is not None:
+            self.facts['camera_seconds'] = camera_seconds
         return self
 
     def close(self):
@@ -298,7 +355,7 @@ class _Expert:
 
         from runner.models.residency import RESIDENCY
 
-        self.model = None
+        self.model = self.seen = None
         if self.pool is not None:
             if self.pool.known:
                 # (Kept for the model opened next: see _ORDER.)
@@ -360,7 +417,16 @@ def generate(job, config, progress):
         gc.collect()
         torch.cuda.empty_cache()
 
-    names = {kind: wan22.validate_layout(header(paths[component])) for kind, component in COMPONENTS.items()}
+    fun, asked = reads_camera(job), camera_of(job)
+    names = {
+        kind: wan22.validate_layout(header(paths[component]), camera=fun) for kind, component in COMPONENTS.items()
+    }
+    # The camera of each frame, for the adapter of each of the two models to read as it opens.
+    sight = None
+    if asked:
+        from runner.video import camera
+
+        sight = dict(cameras=camera.poses(asked['move'], frames, asked['speed']), width=width, height=height)
     bf16 = dict(device='cuda', dtype=torch.bfloat16)
     with torch.inference_mode():
         # 1. The prompt and what to avoid (UMT5-XXL streamed from its file), kept on the disk.
@@ -395,7 +461,9 @@ def generate(job, config, progress):
         plan = experts(levels)
         # (A step LoRA is counted in the share of its model: the pool puts it on the card first.)
         loras = {kind: lora_of(job, kind) for kind in COMPONENTS}
-        room = max(0.0, hardware.free_bytes(torch) / GiB - working_gib(count) - AHEAD_GIB)
+        # (What a camera adds to the tokens stays on the card beside them: as many values, in bfloat16.)
+        beside = count * wan22.DIM * 2 / GiB if sight else 0.0
+        room = max(0.0, hardware.free_bytes(torch) / GiB - working_gib(count) - AHEAD_GIB - beside)
         state = dict(budget=min(config.get('cacheGiB', 16), room), open=None, rotary=None)
         noise = torch.randn(
             [1, wan22.LATENT_CHANNELS, condition.shape[2], height // 8, width // 8],
@@ -411,7 +479,7 @@ def generate(job, config, progress):
                 current = None
             if current is None:
                 kind = plan[index]
-                current = state['open'] = _Expert(kind, paths[COMPONENTS[kind]], names[kind], loras[kind])
+                current = state['open'] = _Expert(kind, paths[COMPONENTS[kind]], names[kind], loras[kind], sight)
             if current.model is None:
                 progress(stage='loading video model', expert=current.kind)
                 progress(stage='sampling video', **current.open(state['budget']).facts)
@@ -427,7 +495,7 @@ def generate(job, config, progress):
                     timestep = torch.tensor([levels[index] * 1000], device='cuda')
                     moved = guided(
                         lambda words: wan22.forward(
-                            current.model, latents, timestep, words, condition, state['rotary']
+                            current.model, latents, timestep, words, condition, state['rotary'], current.seen
                         ),
                         text,
                         avoided,
@@ -492,6 +560,7 @@ def generate(job, config, progress):
         fps=p['fps'],
         steps_by_expert={kind: plan.count(kind) for kind in COMPONENTS},
         step_loras=[kind for kind in COMPONENTS if loras[kind]],
+        camera=asked,
         audio=False,
         timeline=timeline,
         weight_cache=cache,

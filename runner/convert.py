@@ -16,7 +16,9 @@ matrices whose rows are a multiple of 256 wide. Each is turned back into plain w
 of a row before they are rounded; the kernel rotates what the layer reads the same way), rounded
 to 8-bit integers with one scale a row, and written with the note the engine reads beside an
 INT8 layer (`.comfy_quant`). Everything else is copied as it is; a quantised tensor of a GGUF
-file that is not such a matrix is written as 16-bit floats.
+file that is not such a matrix is written as 16-bit floats. What an « fp8 scaled » file of
+ComfyUI stores beside such a matrix for what it reads (`.scale_input`, when it is 1) and the
+mark that says the file is one (`scaled_fp8`) are left out: the result is neither.
 
 The result has the layout of the INT8 files published for these models, and is read by the same
 code. It is not their equal in fidelity: it is rounded twice, once by its source and once here.
@@ -34,6 +36,11 @@ NOTE = json.dumps({'format': 'int8_tensorwise', 'convrot': True, 'convrot_groups
 # 8-bit floats of a safetensors file, and the scale some files store beside them under two names.
 FLOAT8 = ('F8_E4M3', 'F8_E5M2')
 SCALES = ('.weight_scale', '.scale_weight')
+# What the « fp8 scaled » files of ComfyUI store besides: a scale for what each layer reads (1 in
+# every file seen: Wan 2.2 Fun Camera's, 406 layers each) and an empty tensor that says the file is
+# such a one. Neither belongs in an INT8 file, and the engine has no layer that would read them.
+INPUT_SCALE = '.scale_input'
+MARK = 'scaled_fp8'
 PLAIN = ('F32', 'F16', 'BF16')
 
 
@@ -94,6 +101,17 @@ class _Safetensors:
                 weight = key.removesuffix(suffix) + '.weight'
                 if key.endswith(suffix) and self.tensors.get(weight, {}).get('dtype') in FLOAT8:
                     self.scales[weight] = key
+        # The scale of what a matrix reads, by the matrix, and the marks of an « fp8 scaled » file.
+        self.inputs = {}
+        for key in self.tensors:
+            weight = key.removesuffix(INPUT_SCALE) + '.weight'
+            if key.endswith(INPUT_SCALE) and self.tensors.get(weight, {}).get('dtype') in FLOAT8:
+                self.inputs[weight] = key
+        self.marks = {
+            key
+            for key, entry in self.tensors.items()
+            if key.rpartition('.')[2] == MARK and not math.prod(entry['shape'])
+        }
         self.metadata.pop('_quantization_metadata', None)
 
     def names(self):
@@ -101,6 +119,10 @@ class _Safetensors:
 
     def quantised(self, key):
         return self.tensors[key]['dtype'] in FLOAT8
+
+    def number(self, key):
+        """The one value of a tensor that holds one."""
+        return float(self.store.get_tensor(key).float().reshape(-1)[0])
 
     def plain(self, key, device):
         import torch
@@ -125,6 +147,8 @@ class _Gguf:
     """A GGUF source: its tensors stored in blocks are what is quantised."""
 
     scales = {}
+    inputs = {}
+    marks = frozenset()
 
     def __init__(self, path):
         from runner.models import gguf
@@ -177,6 +201,19 @@ def convert(source_path, target_path, device=None, report=print):
         # The scale a source stores beside a matrix that is rewritten goes into the new integers:
         # it is not written again. Beside a matrix left as it is, it stays.
         folded = {source.scales[key] for key in source.names() if matrix(key) and key in source.scales}
+        # Nor is the scale of what a rewritten matrix reads, which is 1 (any other value is refused:
+        # left out, the layer would compute something else), nor the mark of an « fp8 scaled » file,
+        # which the result is not.
+        for key in source.names():
+            scale = source.inputs.get(key) if matrix(key) else None
+            if scale is None:
+                continue
+            if source.number(scale) != 1:
+                raise ValueError(
+                    f'Ce fichier met à l’échelle ce que lisent ses couches ({scale}) : il ne peut pas être converti.'
+                )
+            folded.add(scale)
+        folded |= set(source.marks)
         for key in source.names():
             if key in folded:
                 continue
