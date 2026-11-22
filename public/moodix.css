@@ -5687,6 +5687,329 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
     animation: none;
   }
 }
+/* (0.6.240, maquette du 22/11) « Changer la caméra » d'une vidéo faite : the window of its piece. « Fixe » or
+   « Du début à la fin », the sphere the camera is dragged on, then its three bars. The three colours say what
+   the model holds: sure, possible, never shown. */
+#studio-view .studio-orbit-window {
+  --orbit-safe: rgb(34, 160, 96);
+  --orbit-maybe: rgb(246, 195, 67);
+  --orbit-out: rgba(238, 232, 222, 0.22);
+  gap: 10px;
+  width: 318px;
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+}
+.studio-orbit-modes {
+  align-self: flex-start;
+}
+/* The sphere, seen from a little above (public/camera-orbit.mjs, GLOBE: 286 × 176, its centre at 143 × 86, a
+   radius of 68, tilted 20°). */
+.studio-orbit-globe {
+  position: relative;
+  align-self: center;
+  width: 286px;
+  max-width: 100%;
+  aspect-ratio: 286 / 176;
+  cursor: grab;
+  touch-action: none;
+}
+.studio-orbit-sphere,
+.studio-orbit-ring {
+  position: absolute;
+  top: calc(18 / 176 * 100%);
+  left: calc(75 / 286 * 100%);
+  width: calc(136 / 286 * 100%);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.studio-orbit-sphere {
+  border: 1px solid rgba(238, 232, 222, 0.2);
+}
+/* The ring of the zones: a circle seen from above, its colours set by the Studio, laid flat as the equator is
+   (sin 20°), a thin line of it kept. */
+.studio-orbit-ring {
+  transform: scaleY(0.342);
+  mask-image: radial-gradient(closest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+}
+.studio-orbit-clip {
+  position: absolute;
+  top: calc(86 / 176 * 100%);
+  left: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 16px;
+  border: 1px solid rgba(238, 232, 222, 0.55);
+  border-radius: 2px;
+  background: var(--room-menu, #15171c);
+  color: var(--text-2);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.studio-orbit-clip svg {
+  width: 10px;
+  height: 10px;
+}
+.studio-orbit-face {
+  position: absolute;
+  top: calc(158 / 176 * 100%);
+  left: 50%;
+  color: var(--text-3);
+  font: 400 12px/1 var(--font-ui);
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.studio-orbit-mark {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border: 2px solid var(--room-menu, #15171c);
+  border-radius: 50%;
+  box-sizing: border-box;
+  cursor: grab;
+}
+.studio-orbit-mark.is-fixed {
+  background: var(--text-1);
+}
+.studio-orbit-mark.is-start {
+  background: rgb(61, 107, 245);
+}
+.studio-orbit-mark.is-end {
+  background: rgb(34, 160, 96);
+}
+.studio-orbit-mark[data-active='true'] {
+  box-shadow: 0 0 0 1.5px var(--text-1);
+}
+.studio-orbit-mark[data-behind='true'] {
+  opacity: 0.45;
+}
+.studio-orbit-trail i {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  margin: -1.5px 0 0 -1.5px;
+  border-radius: 50%;
+  background: rgba(238, 232, 222, 0.7);
+  pointer-events: none;
+}
+.studio-orbit-trail i[data-behind='true'] {
+  opacity: 0.35;
+}
+.studio-orbit-legend {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin-top: -4px;
+  color: var(--text-3);
+  font: 400 12px/1 var(--font-ui);
+}
+.studio-orbit-zone {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.studio-orbit-zone::before {
+  content: '';
+  width: 10px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--orbit-out);
+}
+.studio-orbit-zone[data-zone='safe']::before {
+  background: var(--orbit-safe);
+}
+.studio-orbit-zone[data-zone='maybe']::before {
+  background: var(--orbit-maybe);
+}
+.studio-orbit-ends {
+  display: flex;
+  gap: 8px;
+}
+.studio-orbit-ends[hidden],
+#studio-view .studio-orbit-play[hidden] {
+  display: none;
+}
+#studio-view .studio-orbit-end {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  min-height: 0;
+  padding: 0 10px;
+  border: 1px solid rgba(238, 232, 222, 0.1);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font: 400 13px/1 var(--font-ui);
+}
+#studio-view .studio-orbit-end[aria-pressed='true'] {
+  border-color: rgba(238, 232, 222, 0.4);
+  color: var(--text-1);
+}
+.studio-orbit-end::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgb(61, 107, 245);
+}
+.studio-orbit-end[data-end='end']::before {
+  background: rgb(34, 160, 96);
+}
+.studio-orbit-pose {
+  margin-left: auto;
+  color: var(--text-3);
+  font: 400 12px/1 var(--font-mono);
+  white-space: nowrap;
+}
+.studio-orbit-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.studio-orbit-bar > .studio-label {
+  flex: 0 0 62px;
+  color: var(--text-2);
+  font: 400 13px/1.2 var(--font-ui);
+}
+.studio-orbit-bar > input.studio-bar {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.studio-orbit-value {
+  flex: 0 0 5ch;
+  color: var(--text-1);
+  font: 400 13px/1 var(--font-mono);
+  text-align: right;
+  white-space: nowrap;
+}
+.studio-orbit-scale {
+  display: flex;
+  justify-content: space-between;
+  margin: -6px calc(5ch + 10px) 0 72px;
+  color: var(--text-3);
+  font: 400 12px/1 var(--font-ui);
+}
+/* What the model does not hold (its distance, for now): the bar stays, greyed; under it, why in a few words
+   (the whole reason under the pointer). */
+.studio-orbit-bar.is-off > .studio-label,
+.studio-orbit-bar.is-off > .studio-orbit-value {
+  color: var(--text-3);
+}
+.studio-orbit-bar.is-off .studio-bar {
+  opacity: 0.45;
+}
+.studio-orbit-scale.is-off {
+  justify-content: flex-start;
+}
+#studio-view .studio-orbit-play {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.studio-orbit-play svg {
+  width: 12px;
+  height: 12px;
+}
+.studio-orbit-window .studio-window-said[data-zone='maybe'],
+.studio-guide-warn[data-zone='maybe'] {
+  color: var(--warning, #d6b77e);
+}
+.studio-orbit-window .studio-window-said[data-zone='out'],
+.studio-orbit-window .studio-window-said[data-zone='near'],
+.studio-guide-warn[data-zone='out'],
+.studio-guide-warn[data-zone='near'] {
+  color: var(--danger, #f0938d);
+}
+/* The simple guide, in the frame of the screen while a camera is set: the picture of the clip stood up on a
+   ground, seen from the pose in hand. Drawn in hundredths of its frame (cqw, cqh): the same in a small frame and
+   in a large one (GUIDE_LENS in public/camera-orbit.mjs is its perspective). */
+#studio-view .studio-frame:has(> .studio-guide) {
+  position: relative;
+}
+.studio-guide {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 8px;
+  background: linear-gradient(#171a20 0 54%, #0e1014 54%);
+  container-type: size;
+}
+.studio-guide-lens {
+  position: absolute;
+  inset: 0;
+  perspective: 82cqw;
+  perspective-origin: 50% 50%;
+}
+.studio-guide-world {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform-style: preserve-3d;
+}
+.studio-guide-world > * {
+  position: absolute;
+  display: block;
+}
+.studio-guide-ground {
+  top: -120cqw;
+  left: -120cqw;
+  width: 240cqw;
+  height: 240cqw;
+  background:
+    repeating-linear-gradient(0deg, rgba(238, 232, 222, 0.1) 0 1px, transparent 1px 8cqw),
+    repeating-linear-gradient(90deg, rgba(238, 232, 222, 0.1) 0 1px, transparent 1px 8cqw);
+  transform: translateY(35cqh) rotateX(90deg);
+}
+.studio-guide-card {
+  top: -35cqh;
+  left: -35cqw;
+  width: 70cqw;
+  height: 70cqh;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #22252c;
+  box-shadow: 0 0 0 1px rgba(238, 232, 222, 0.25);
+  backface-visibility: hidden;
+}
+.studio-guide-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* Its back: what the clip never showed. */
+.studio-guide-card.is-back {
+  background: repeating-linear-gradient(45deg, #1c1f26 0 10px, #171a20 10px 20px);
+  transform: rotateY(180deg);
+}
+.studio-guide-said,
+.studio-guide-warn {
+  position: absolute;
+  right: 12px;
+  max-width: calc(100% - 24px);
+  margin: 0;
+  padding: 5px 9px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text-2);
+  font: 400 12px/1.3 var(--font-ui);
+}
+.studio-guide-said {
+  top: 10px;
+}
+.studio-guide-warn {
+  bottom: 10px;
+}
+.studio-guide-warn[hidden] {
+  display: none;
+}
 /* What a proposal of Moodix AI says of itself, under its inputs. */
 .studio-proposal-note {
   flex: none;
@@ -7677,6 +8000,10 @@ html[data-switch='open']::view-transition-old(chat) {
 #studio-view .studio-item-main svg {
   width: 14px;
   height: 14px;
+}
+/* (0.6.240) « Changer la caméra », at the left of « Prolonger » on a clip. */
+#studio-view .studio-item-main.studio-item-second {
+  right: 40px;
 }
 #studio-view .studio-item-main.is-off {
   opacity: 0.45;
@@ -11503,6 +11830,19 @@ body #studio-view .studio-screen-head .kind-tab[aria-selected='true'] {
   flex: none;
   width: 46px;
 }
+/* (0.6.240) A clip has four actions under the screen with « Changer la caméra »: on one line beside
+   « Générer », narrower where the screen is (a window of 1280 px). */
+#studio-view .studio-actionbar > .output-actions {
+  flex-wrap: nowrap;
+}
+@media (max-width: 1399px) {
+  #studio-view .studio-actionbar > .output-actions:has(> .output-action:nth-child(4)) {
+    gap: 6px;
+  }
+  #studio-view .studio-actionbar > .output-actions:has(> .output-action:nth-child(4)) > .output-action {
+    width: 34px;
+  }
+}
 #studio-view .studio-set-format {
   flex-direction: row;
   align-items: center;
@@ -11946,6 +12286,19 @@ body[data-view='library'] .library-view {
 #library-view .library-tile .output-action {
   flex: none;
 }
+/* (0.6.240) A clip has six actions with « Changer la caméra »: its row is 220 px wide. In a tile too narrow for
+   it, the column as below, its buttons against one another (a row of the Archives is some 225 px tall). */
+@container library-tile (max-width: 242px) {
+  #library-view .library-tile .output-actions:has(> .output-action:nth-child(6)) {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 0;
+    padding: 2px;
+  }
+  #library-view .library-tile:has(.output-action:nth-child(6)) .library-veil {
+    padding-right: 54px;
+  }
+}
 @container library-tile (max-width: 184px) {
   #library-view .library-tile .output-actions {
     flex-direction: column;
@@ -12317,6 +12670,21 @@ body[data-view='library'] .library-view {
   border-radius: 10px;
   background: transparent;
   color: var(--text-1);
+}
+/* (0.6.240) A clip opened has five actions with « Changer la caméra »: on one line beside « Télécharger », closer
+   to one another, the button a little narrower. */
+.media-take-actions .output-actions {
+  flex-wrap: nowrap;
+}
+.media-take-actions .output-action {
+  flex: none;
+}
+.media-take-actions .output-actions:has(> .output-action:nth-child(5)) {
+  gap: 4px;
+}
+#original-dialog .media-actions:has(.output-action:nth-child(5)) #media-download {
+  gap: 7px;
+  padding: 0 12px;
 }
 .media-take-actions .output-action > span {
   display: none;

@@ -9029,3 +9029,257 @@ test('(0.6.211) the camera is a piece of a new video made by hand: none in a con
     page.restore();
   }
 });
+
+test('(0.6.240) « Changer la caméra » d’une vidéo faite : son bouton sur un clip, le clip et sa caméra sur le plateau, l’outil, ce qui est envoyé', async () => {
+  // (Maquette du 22/11, claude_design/maquettes-camera) A clip filmed again from a camera placed by hand, by a
+  // model made for it (verb refilm_video): one pose held, or two, the camera going from the first to the second.
+  const { tools, runs } = continuing(),
+    routes = { 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }), 'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }) },
+    // What the server says its model holds: how far its bars go, its two zones (ellipses), how near the camera of
+    // the clip nothing is made.
+    bounds = {
+      azimuth: { min: -90, max: 90 },
+      elevation: { min: -35, max: 45 },
+      distance: { min: 0.5, max: 2 },
+      zones: { safe: { azimuth: 45, up: 30, down: 20 }, maybe: { azimuth: 90, up: 45, down: 35 } },
+      near: 5,
+    },
+    second = body => body.find('studio-item').find(tile => tile.dataset.id === 'film').find('studio-item-second');
+  // Without a model that films a video again: no button of it on a clip.
+  let page = await studioPage(tools, routes, { runs });
+  try {
+    page.mode(1);
+    assert.equal(second(page.body).length, 0);
+  } finally {
+    page.restore();
+  }
+  // With one that lacks its files: the button greyed, with why; pressed, it says so and changes nothing.
+  const film = { id: 'r', name: 'LTX 2.5', verb: 'refilm_video', family: 'ltx25', roles: { source: { count: 1, media: ['video'], required: true } }, settings: [], refilm: bounds };
+  page = await studioPage({ ...tools, refilm_video: [{ ...film, unavailable: 'Fichier absent : crossview-warp.safetensors.' }] }, routes, { runs });
+  try {
+    page.mode(1);
+    const [held] = second(page.body);
+    assert.deepEqual(
+      [held.className, held.attributes['aria-disabled'], held.title],
+      ['studio-item-main studio-item-second is-off', 'true', 'Changer la caméra : la même vidéo, filmée d’un autre angle\nFichier absent : crossview-warp.safetensors.'],
+    );
+    held.onclick();
+    assert.deepEqual([page.notices.at(-1), page.body.find('studio-refilm').length], ['Fichier absent : crossview-warp.safetensors.', 0]);
+  } finally {
+    page.restore();
+  }
+
+  page = await studioPage({ ...tools, refilm_video: [film] }, routes, { runs });
+  try {
+    const { body, asked } = page,
+      sent = () => asked.filter(([route]) => route === 'tools/action').at(-1)[1],
+      generate = async () => {
+        page.page['studio-view'].onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
+        await settle();
+      },
+      pick = () => body.find('studio-orbit')[0].find('studio-slot-pick')[0],
+      // (Its window closes with each creation: opened again from its case when it is not there.)
+      pane = () => body.find('studio-orbit-window')[0] ?? (pick().onclick(), body.find('studio-orbit-window')[0]),
+      modes = () => pane().find('studio-orbit-modes')[0].children,
+      ends = () => pane().find('studio-orbit-ends')[0],
+      bar = name => pane().find('studio-orbit-bar').find(line => line.children[0].textContent === name).children[1],
+      told = () => [pane().find('studio-window-said')[0].textContent, pane().find('studio-window-said')[0].dataset.zone],
+      mark = name => pane().find('studio-orbit-mark').find(item => item.className.includes('is-' + name)),
+      guide = () => body.find('studio-guide')[0],
+      world = () => guide().find('studio-guide-world')[0],
+      warn = () => guide().find('studio-guide-warn')[0],
+      go = () => body.find('studio-go')[0];
+    page.mode(1);
+    // Its button on the clip, beside « Prolonger »: its sign, its name and the clip's, its words under the pointer.
+    const [button] = second(body);
+    assert.deepEqual([button.className, button.children[0].glyph, button.title], ['studio-item-main studio-item-second', 'camera', 'Changer la caméra : la même vidéo, filmée d’un autre angle']);
+    assert.match(button.attributes['aria-label'], /^Changer la caméra · /);
+    assert.equal(body.find('studio-item').find(tile => tile.dataset.id === 'fox').find('studio-item-second').length, 0, 'none on an image');
+    button.onclick();
+    // Its tool open at once: it is what the action is for.
+    assert.equal(body.find('studio-orbit-window').length, 1);
+    // The plateau: the clip « À refilmer », then its camera; no line of time, no other case.
+    const [row] = body.find('studio-refilm');
+    assert.deepEqual([row.className, row.attributes['aria-label'], row.children.map(piece => piece.find('studio-piece-word')[0].textContent)], [
+      'studio-plateau-row studio-frames studio-refilm', 'Vidéo à refilmer et caméra', ['À refilmer', 'Caméra'],
+    ]);
+    const clip = body.find('studio-prolong')[0];
+    assert.match(clip.find('studio-slot-pick')[0].title, /^À refilmer · /);
+    assert.deepEqual([clip.find('studio-slot-badge')[0].children[0].glyph, clip.find('studio-slot-remove')[0].attributes['aria-label']], ['camera', 'Retirer la vidéo à refilmer']);
+    assert.deepEqual([body.find('studio-span').length, body.find('studio-add').length], [0, 0]);
+    // The tool, open at once: one pose held, a little to the right and above; its three bars within what the
+    // model holds; on the sphere, that camera alone.
+    assert.deepEqual([pane().className, pane().attributes.role, pane().attributes['aria-label'], pick().title, pick().attributes['aria-expanded'], pick().children[0].glyph], [
+      'glass-menu studio-piece-window studio-orbit-window', 'dialog', 'Caméra', 'Caméra · fixe, 30° · 10°', 'true', 'camera',
+    ]);
+    assert.deepEqual(modes().map(choice => [choice.children[0].textContent, choice.dataset.mode, choice.attributes['aria-pressed']]), [
+      ['Fixe', 'fixed', 'true'],
+      ['Du début à la fin', 'move', 'false'],
+    ]);
+    assert.deepEqual(
+      pane().find('studio-orbit-bar').map(line => [line.children[0].textContent, line.children[1].type, line.children[1].min, line.children[1].max, line.children[1].step, line.children[1].value, line.children[2].textContent]),
+      [
+        ['Azimut', 'range', '-90', '90', '5', '30', '30°'],
+        ['Hauteur', 'range', '-35', '45', '1', '10', '10°'],
+        ['Distance', 'range', '0.5', '2', '0.05', '1', '× 1,0'],
+      ],
+    );
+    assert.deepEqual(pane().find('studio-orbit-scale').map(scale => scale.children.map(word => word.textContent).join(' ')), ['Gauche Face Droite', 'Bas Haut', 'Serré Large']);
+    assert.deepEqual(pane().find('studio-orbit-bar').map(line => [line.className, line.children[1].disabled]), Array(3).fill(['studio-orbit-bar', false]));
+    assert.deepEqual([ends().hidden, mark('fixed').hidden, mark('start').hidden, mark('end').hidden, pane().find('studio-orbit-trail')[0].hidden, pane().find('studio-orbit-play')[0].hidden], [true, false, true, true, true, true]);
+    assert.deepEqual(pane().find('studio-orbit-zone').map(zone => [zone.dataset.zone, zone.textContent]), [['safe', 'sûr'], ['maybe', 'possible'], ['out', 'hors du modèle']]);
+    assert.match(pane().find('studio-orbit-ring')[0].style.background, /^conic-gradient\(var\(--orbit-out\) 0deg 90deg, var\(--orbit-maybe\) 90deg 135deg, var\(--orbit-safe\) 135deg 225deg/);
+    assert.deepEqual(told(), ['Angle sûr', 'safe']);
+    // (Short words, read whole beside « Aperçu » and « Retirer »; what the angles are counted from is under the sphere.)
+    assert.equal(body.find('studio-orbit-face')[0].textContent, 'face : la caméra de la vidéo');
+    // The simple guide on the screen: the picture of the clip, seen from that pose; it says it is no preview.
+    assert.deepEqual([guide().find('studio-guide-said')[0].textContent, guide().find('studio-guide-card').at(-1).children[0]?.src, world().style.transform, warn().hidden], [
+      'Guide, pas le rendu : l’image de la vidéo, vue de la caméra réglée', runs[1].outputs[0].thumbUrl, 'translateZ(0cqw) rotateX(-10deg) rotateY(-30deg)', true,
+    ]);
+    // « Générer » is « Changer la caméra », lit without a prompt: the clip says what is filmed.
+    // Its field is empty and closed: the prompt of the video being written is neither shown nor sent.
+    assert.deepEqual(
+      [body.find('studio-go-label')[0].textContent, go().disabled, page.prompt().placeholder, page.prompt().value, page.prompt().disabled],
+      ['Changer la caméra', false, 'Rien à écrire : seule la caméra change.', '', true],
+    );
+    // A bar moved: its value, the name of the piece, the guide and what the tool says of that angle follow in place.
+    const window = pane(),
+      // (Its words when it is lit: those of « Générer », its keys with them.)
+      lit = 'Générer (Ctrl+Entrée)',
+      count = () => asked.filter(([route]) => route === 'tools/action').length;
+    assert.equal(go().title, lit);
+    // The camera of the clip itself, or hardly another: nothing is made of it. « Changer la caméra » is greyed and
+    // says why, in place; its keys make nothing either.
+    bar('Azimut').value = '0';
+    bar('Azimut').oninput();
+    bar('Hauteur').value = '3';
+    bar('Hauteur').oninput();
+    assert.deepEqual([told(), warn().hidden, warn().textContent, warn().dataset.zone], [['Trop près de l’origine', 'near'], false, 'Trop près de la caméra de la vidéo : à si peu d’écart, le modèle se comporte mal.', 'near']);
+    assert.deepEqual([go().disabled, go().title, pane()], [true, 'Trop près de la caméra de la vidéo : à si peu d’écart, le modèle se comporte mal.', window]);
+    const before = count();
+    await generate();
+    // (Its window stays open, and the screen says the same.)
+    assert.deepEqual([count(), body.find('studio-orbit-window').length, body.find('studio-error')[0].textContent], [before, 1, 'Trop près de la caméra de la vidéo : à si peu d’écart, le modèle se comporte mal.']);
+    const again = pane();
+    bar('Hauteur').value = '10';
+    bar('Hauteur').oninput();
+    assert.deepEqual([told(), go().disabled, go().title], [['Angle sûr', 'safe'], false, lit]);
+    bar('Azimut').value = '50';
+    bar('Azimut').oninput();
+    assert.deepEqual([bar('Azimut').value, pick().title, pane(), world().style.transform], ['50', 'Caméra · fixe, 50° · 10°', again, 'translateZ(0cqw) rotateX(-10deg) rotateY(-50deg)']);
+    assert.deepEqual([told(), warn().hidden, warn().textContent, warn().dataset.zone], [['Angle moins sûr', 'maybe'], false, 'Angle possible, moins sûr : le modèle tourne souvent moins que demandé.', 'maybe']);
+    bar('Distance').value = '1.5';
+    bar('Distance').oninput();
+    assert.deepEqual([pane().find('studio-orbit-bar')[2].children[2].textContent, world().style.transform], ['× 1,5', 'translateZ(-41cqw) rotateX(-10deg) rotateY(-50deg)']);
+    // Sent: the verb, the clip, the pose held; no prompt, no length, no camera of a new video.
+    await generate();
+    assert.equal(sent().name, 'refilm_video');
+    assert.deepEqual(sent().arguments.camera, { azimuth: 50, elevation: 10, distance: 1.5 });
+    assert.deepEqual(
+      [sent().arguments.intention, JSON.stringify(sent().arguments.source).includes('film'), 'camera_start' in sent().arguments, 'prompt' in sent().arguments, 'duration' in sent().arguments, 'camera_speed' in sent().arguments],
+      ['Caméra changée, demandée dans le Studio.', true, false, false, false, false],
+    );
+    // « Du début à la fin »: its two ends, the one of the end in hand; on the sphere both, and the path between.
+    modes()[1].onclick();
+    assert.deepEqual([modes().map(choice => choice.attributes['aria-pressed']), ends().hidden, mark('fixed').hidden, mark('start').hidden, mark('end').hidden], [['false', 'true'], false, true, false, false]);
+    assert.deepEqual(ends().children.map(end => [end.children[0].textContent, end.dataset.end, end.attributes['aria-pressed'], end.children[1].textContent]), [
+      ['Début', 'start', 'false', '0° · 0°'],
+      ['Fin', 'end', 'true', '30° · 10°'],
+    ]);
+    assert.deepEqual([pane().find('studio-orbit-trail')[0].hidden, pane().find('studio-orbit-trail')[0].children.length, pane().find('studio-orbit-play')[0].hidden, pick().title], [false, 13, false, 'Caméra · 0° · 0° → 30° · 10°']);
+    assert.deepEqual([mark('end').dataset.active, mark('start').dataset.active, bar('Azimut').value], ['true', 'false', '30']);
+    // The start in hand: the bars set it.
+    ends().children[0].onclick();
+    bar('Azimut').value = '-20';
+    bar('Azimut').oninput();
+    assert.deepEqual([ends().children.map(end => end.attributes['aria-pressed']), pick().title, mark('start').dataset.active], [['true', 'false'], 'Caméra · -20° · 0° → 30° · 10°', 'true']);
+    // The guide says what the camera comes to as a whole, as the foot of the window does: its start less sure
+    // here, while the end in hand, the one it shows, is sure.
+    bar('Azimut').value = '60';
+    bar('Azimut').oninput();
+    ends().children[1].onclick();
+    assert.deepEqual([told(), warn().dataset.zone, warn().hidden, world().style.transform], [['Angle moins sûr', 'maybe'], 'maybe', false, 'translateZ(0cqw) rotateX(-10deg) rotateY(-30deg)']);
+    ends().children[0].onclick();
+    bar('Azimut').value = '-20';
+    bar('Azimut').oninput();
+    assert.deepEqual([told(), warn().hidden], [['Angle sûr', 'safe'], true]);
+    // The pointer on the sphere drags the camera in hand: to the right of the clip here, by steps of five degrees.
+    const globe = pane().find('studio-orbit-globe')[0];
+    globe.getBoundingClientRect = () => ({ left: 100, top: 50, width: 286, height: 176 });
+    globe.onpointerdown({ clientX: 100 + 143 + 30, clientY: 50 + 86, pointerId: 1, target: mark('end') });
+    const dragged = Number(bar('Azimut').value);
+    assert.ok(dragged > 0 && dragged % 5 === 0, String(dragged));
+    assert.deepEqual([ends().children.map(end => end.attributes['aria-pressed']), typeof globe.onpointermove], [['false', 'true'], 'function']);
+    globe.onpointerup();
+    assert.equal(globe.onpointermove, null);
+    bar('Azimut').value = '70';
+    bar('Azimut').oninput();
+    assert.deepEqual([told(), go().disabled], [['Angle moins sûr', 'maybe'], false]);
+    // Far to the side and high at once: out of what the model learnt (its zones are ellipses). Not made either.
+    bar('Hauteur').value = '40';
+    bar('Hauteur').oninput();
+    assert.deepEqual([told(), warn().textContent, go().disabled, go().title], [['Hors du modèle', 'out'], 'Hors de ce que le modèle sait faire : il n’a pas appris cet angle.', true, 'Hors de ce que le modèle sait faire : il n’a pas appris cet angle.']);
+    const held = count();
+    await generate();
+    assert.equal(count(), held);
+    bar('Hauteur').value = '8';
+    bar('Hauteur').oninput();
+    assert.deepEqual([told(), go().disabled], [['Angle moins sûr', 'maybe'], false]);
+    // « Aperçu »: the guide goes from the start to the end, once.
+    pane().find('studio-orbit-play')[0].onclick();
+    assert.deepEqual([world().style.transform, world().style.transition], ['translateZ(0cqw) rotateX(-8deg) rotateY(-70deg)', 'transform 3s cubic-bezier(0.45, 0, 0.3, 1)']);
+    // Sent: the pose of the end, and the one of the start.
+    await generate();
+    assert.deepEqual([sent().name, sent().arguments.camera_start, sent().arguments.camera.azimuth, 'prompt' in sent().arguments], ['refilm_video', { azimuth: -20, elevation: 0, distance: 1 }, 70, false]);
+    // « Retirer », at the foot of the tool: a new video again; « Prolonger » of the same clip is a continuation.
+    pane().find('studio-window-foot')[0].children.at(-1).onclick();
+    // (The prompt of the video being written is back in its field, as it was.)
+    assert.deepEqual(
+      [body.find('studio-refilm').length, body.find('studio-guide').length, body.find('studio-go-label')[0].textContent, page.prompt().value, page.prompt().disabled ?? false],
+      [0, 0, 'Générer', 'un renard court', false],
+    );
+    prolonger(body).onclick();
+    assert.deepEqual([prolonged(body).length, body.find('studio-orbit').length, body.find('studio-go-label')[0].textContent], [1, 0, 'Générer la suite']);
+    assert.match(prolonged(body)[0], /^À prolonger · /);
+    await generate();
+    assert.equal(sent().name, 'extend_video');
+    // And the camera of the clip changed again keeps what was set.
+    second(body)[0].onclick();
+    assert.equal(pick().title, 'Caméra · -20° · 0° → 70° · 8°');
+    // Nothing written at all: it is made all the same (the clip says what is filmed).
+    pane().find('studio-window-foot')[0].children.at(-1).onclick();
+    page.prompt().value = '';
+    page.prompt().oninput();
+    second(body)[0].onclick();
+    const last = count();
+    await generate();
+    assert.deepEqual([count(), sent().name, 'prompt' in sent().arguments], [last + 1, 'refilm_video', false]);
+  } finally {
+    page.restore();
+  }
+
+  // A model that does not hold the distance yet, and a clip too long for its size (1344 × 768, 121 frames at 24 a
+  // second, where it changes the camera of 3 s): the bar of the distance stays, greyed, and says why; « Changer la
+  // caméra » is greyed whatever the camera, and says why.
+  const reason = 'La distance ne marche pas encore avec ce modèle : son auteur le dit.',
+    less = { ...film, refilm: { ...bounds, distance: { min: 1, max: 1, unavailable: reason }, limits: [{ pixels: 1344 * 768, seconds: 3 }] } };
+  page = await studioPage({ ...tools, refilm_video: [less] }, routes, { runs });
+  try {
+    const { body } = page;
+    page.mode(1);
+    second(body)[0].onclick();
+    const pane = body.find('studio-orbit-window')[0],
+      [, , distance] = pane.find('studio-orbit-bar'),
+      [, , scale] = pane.find('studio-orbit-scale'),
+      go = () => body.find('studio-go')[0];
+    assert.deepEqual([distance.className, distance.title, distance.children[1].disabled, distance.children[1].min, distance.children[1].max, distance.children[2].textContent], ['studio-orbit-bar is-off', reason, true, '1', '1', '× 1,0']);
+    assert.deepEqual([scale.className, scale.title, scale.children.map(word => word.textContent)], ['studio-orbit-scale is-off', reason, ['Pas encore avec ce modèle']]);
+    assert.deepEqual(pane.find('studio-orbit-bar').slice(0, 2).map(line => line.children[1].disabled), [false, false]);
+    assert.deepEqual([go().disabled, go().title], [true, 'Vidéo trop longue : à cette taille, la caméra se change jusqu’à 3 s.']);
+    pane.find('studio-orbit-bar')[0].children[1].value = '40';
+    pane.find('studio-orbit-bar')[0].children[1].oninput();
+    assert.deepEqual([go().disabled, go().title], [true, 'Vidéo trop longue : à cette taille, la caméra se change jusqu’à 3 s.']);
+  } finally {
+    page.restore();
+  }
+});

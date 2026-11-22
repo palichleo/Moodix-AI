@@ -30,7 +30,7 @@ test('the same actions on a take everywhere: icons only, their name and help und
   const actions = outputActions({
     api: async route => {
       assert.equal(route, 'tools/actions');
-      return Response.json({ upscale: ['video'], interpolate: ['video'], extend_video: [], animate: ['image'] });
+      return Response.json({ upscale: ['video'], interpolate: ['video'], extend_video: [], refilm_video: ['video'], animate: ['image'] });
     },
     node,
     onDetails: (...args) => calls.push(['details', ...args]),
@@ -42,8 +42,8 @@ test('the same actions on a take everywhere: icons only, their name and help und
     sound = { id: 'sound', mediaType: 'audio' };
   const videoRow = actions(video, 0),
     imageRow = actions(image, 0);
-  // Video: Ouvrir · Prolonger · Interpoler · Agrandir et affiner · Afficher dans le Studio.
-  assert.deepEqual(videoRow.children.map(label), ['Ouvrir', 'Prolonger', 'Interpoler', 'Agrandir et affiner', 'Afficher dans le Studio']);
+  // Video: Ouvrir · Prolonger · Changer la caméra (0.6.240) · Interpoler · Agrandir et affiner · Afficher dans le Studio.
+  assert.deepEqual(videoRow.children.map(label), ['Ouvrir', 'Prolonger', 'Changer la caméra', 'Interpoler', 'Agrandir et affiner', 'Afficher dans le Studio']);
   // Image: Ouvrir · Agrandir et affiner · Animer · Afficher dans le Studio; a sound: Ouvrir and the Studio.
   assert.deepEqual(imageRow.children.map(label), ['Ouvrir', 'Agrandir et affiner', 'Animer', 'Afficher dans le Studio']);
   assert.deepEqual(actions(sound, 0).children.map(label), ['Ouvrir', 'Afficher dans le Studio']);
@@ -51,17 +51,20 @@ test('the same actions on a take everywhere: icons only, their name and help und
   assert.deepEqual(videoRow.children.map(button => button.attributes['aria-label']), [
     'Ouvrir : l’original, ses paramètres, Télécharger',
     'Prolonger : la suite de cette vidéo',
+    'Changer la caméra : la même vidéo, filmée d’un autre angle',
     'Interpoler : des images en plus, un mouvement plus fluide',
     'Agrandir et affiner ce résultat',
     'Afficher dans le Studio : votre prompt et vos réglages ne changent pas',
   ]);
   assert.equal(imageRow.children[3].title, 'Afficher dans le Studio : votre prompt et vos réglages ne changent pas');
   assert.ok(
-    videoRow.children.slice(1, 4).every(button => button.disabled),
+    videoRow.children.slice(1, 5).every(button => button.disabled),
     'disabled until the server answers',
   );
   await new Promise(setImmediate);
-  const [details, extend, interpolate, upscale, studio] = videoRow.children;
+  const [details, extend, refilm, interpolate, upscale, studio] = videoRow.children;
+  // (0.6.240) « Changer la caméra »: lit when a model can film a video again, and it tells its own name.
+  assert.deepEqual([refilm.disabled, refilm.title], [false, 'Changer la caméra : la même vidéo, filmée d’un autre angle']);
   assert.equal(upscale.disabled, false);
   assert.equal(interpolate.disabled, false);
   assert.equal(extend.disabled, true);
@@ -72,11 +75,13 @@ test('the same actions on a take everywhere: icons only, their name and help und
   details.onclick();
   interpolate.onclick();
   studio.onclick();
+  refilm.onclick();
   imageRow.children[2].onclick();
   assert.deepEqual(calls, [
     ['details', video, 0],
     [0, 'interpolate'],
     ['studio', video, 0],
+    [0, 'refilm'],
     [0, 'animate'],
   ]);
   // Without a way to show it in the Studio (in the Studio itself), that action is not offered.
@@ -93,6 +98,7 @@ test('(0.6.198) a greyed action says why in the words of the application: « mod
   const reasons = row => row.children.filter(button => button.disabled).map(button => [label(button), button.title.split('\n')[1]]);
   assert.deepEqual(reasons(video), [
     ['Prolonger', 'Aucun modèle ne sait prolonger une vidéo.'],
+    ['Changer la caméra', 'Aucun modèle ne sait changer la caméra d’une vidéo.'],
     ['Interpoler', 'Aucun modèle d’interpolation actif.'],
     ['Agrandir et affiner', 'Aucun modèle ne sait agrandir une vidéo.'],
   ]);

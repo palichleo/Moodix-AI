@@ -28,6 +28,28 @@ import {
   cameraShort,
   cameraSpeedValue,
 } from './camera.mjs';
+import {
+  GLOBE,
+  ORBIT_SAID,
+  ORBIT_WARNS,
+  clipRefusal,
+  distanceText,
+  globeDots,
+  globePoint,
+  globePose,
+  guideTransform,
+  orbitArgs,
+  orbitBounds,
+  orbitCurrent,
+  orbitDraft,
+  orbitLabel,
+  orbitPose,
+  orbitRefusal,
+  orbitWorst,
+  poseText,
+  ringGradient,
+} from './camera-orbit.mjs';
+import { clipSeconds } from './take-length.mjs';
 import { setupMontage } from './montage.mjs';
 
 /**
@@ -433,6 +455,9 @@ export function setupStudio({
     released = false,
     enriching = false,
     extending = null, // the clip being continued
+    refilmId = null, // (0.6.240) the id of that clip when its camera is changed in place of being continued
+    refilmGate = null, // (0.6.240) « Changer la caméra » lit or greyed in place, set with its button
+    guide = null, // (0.6.240) the simple guide on the screen while a camera is set: { world, warn, bounds }
     failure = '',
     advanced = false, // « Plus de réglages » is open
     formatsOpen = false, // « ··· » is open
@@ -530,6 +555,7 @@ export function setupStudio({
     seed: '',
     length: null,
     extension: null,
+    orbit: null, // (0.6.240) the camera of a clip to film again (public/camera-orbit.mjs)
     inputs: {},
     settings: {},
     lyrics: false, // the lyrics are shown (« + Paroles »)
@@ -550,13 +576,16 @@ export function setupStudio({
    * those that put a character in an existing one (chosen in the same list, they bring their
    * own inputs).
    */
+  /** (0.6.240) The clip in hand has its camera changed (« Changer la caméra »), it is not continued. */
+  const refilming = () => mode === 'video' && Boolean(extending) && refilmId !== null && extending.id === refilmId;
   const offered = verb => {
     if (verb) return info?.tools?.[verb] ?? [];
-    if (mode === 'video' && extending) return info?.tools?.extend_video ?? [];
+    if (mode === 'video' && extending) return info?.tools?.[refilming() ? 'refilm_video' : 'extend_video'] ?? [];
     const list = info?.tools?.[modeOf(mode).verb] ?? [];
     return mode === 'video' ? [...list, ...(info?.tools?.replace_character ?? [])] : list;
   };
-  const verbOf = () => (mode === 'video' && extending ? 'extend_video' : (current()?.verb ?? modeOf(mode).verb));
+  const verbOf = () =>
+    mode === 'video' && extending ? (refilming() ? 'refilm_video' : 'extend_video') : (current()?.verb ?? modeOf(mode).verb);
   const place = () => (legacy ? (info?.legacyId ?? null) : conversation());
   function current() {
     const draft = drafts[mode],
@@ -567,6 +596,8 @@ export function setupStudio({
       first = usable[0] ?? list[0] ?? null;
     // A continuation stays with the workflow that made the clip when it can. A clip of the disk was
     // made by none of them: the one chosen here (in the list, or by the proposal just answered).
+    // (0.6.240) A clip filmed again is filmed by the model made for it, whatever made the clip.
+    if (refilming()) return first;
     if (mode === 'video' && extending && !proposal)
       return usable.find(item => item.id === (extending.workflowId ?? draft.workflow)) ?? first;
     return usable.find(item => item.id === draft.workflow) ?? first;
@@ -1201,6 +1232,14 @@ export function setupStudio({
       start = !continued && takesImages(workflow, 'start_image'),
       end = takesImages(workflow, 'end_image');
     if (!start && !end && !continued) return null;
+    // (0.6.240) A clip whose camera is changed: the clip, then its camera; no line of time (its length stays).
+    if (continued && refilming()) {
+      const pair = node('div', 'studio-plateau-row studio-frames studio-refilm');
+      pair.setAttribute('role', 'group');
+      pair.setAttribute('aria-label', 'Vidéo à refilmer et caméra');
+      pair.append(prolongPiece(workflow, continued), orbitPiece(workflow));
+      return pair;
+    }
     // (0.6.202, capture 96) The end (or the start) given that this model does not take keeps its end of the
     // line, greyed.
     const kept = role => off.find(piece => piece.role === role && piece.index === 0);
@@ -1266,7 +1305,9 @@ export function setupStudio({
    */
   function prolongPiece(workflow, record) {
     const output = record.outputs?.[0] ?? {},
-      said = 'À prolonger · ' + saidOfRecord(record),
+      // (0.6.240) The same piece for a clip whose camera is changed: « À refilmer ».
+      refilmed = refilming(),
+      said = (refilmed ? WORDS.refilm : WORDS.prolong) + ' · ' + saidOfRecord(record),
       byAi = answering(),
       opened = pieceOpen?.role === 'source' && pieceOpen.index === 0,
       tile = node('div', 'studio-slot is-filled'),
@@ -1274,7 +1315,7 @@ export function setupStudio({
       preview = node('img'),
       mark = node('span', 'studio-slot-badge'),
       piece = node('div', 'studio-piece studio-prolong' + (opened ? ' is-open' : '')),
-      word = node('span', 'studio-piece-word', WORDS.prolong),
+      word = node('span', 'studio-piece-word', refilmed ? WORDS.refilm : WORDS.prolong),
       // Left by its × and by « Retirer »: a new video, as « Annuler » of the banner did.
       leave = () => {
         extending = null;
@@ -1291,12 +1332,12 @@ export function setupStudio({
     preview.alt = '';
     preview.draggable = false;
     mark.setAttribute('aria-hidden', 'true');
-    mark.append(icon('forward'));
+    mark.append(icon(refilmed ? 'camera' : 'forward'));
     pick.append(preview.src ? preview : icon('video'), mark);
     tile.append(pick);
     if (!byAi) {
       const remove = button('studio-slot-remove', '', leave, 'close');
-      remove.setAttribute('aria-label', 'Retirer la vidéo à prolonger');
+      remove.setAttribute('aria-label', refilmed ? 'Retirer la vidéo à refilmer' : 'Retirer la vidéo à prolonger');
       remove.title = 'Retirer';
       tile.append(remove);
     }
@@ -1309,10 +1350,10 @@ export function setupStudio({
         pane = pieceWindow(workflow, {
           role: 'source',
           index: 0,
-          label: 'À prolonger',
+          label: refilmed ? WORDS.refilm : 'À prolonger',
           media: 'video',
           said: saidOfRecord(record),
-          about: 'Suite de ' + (Number.isInteger(take) ? 'la prise ' + take : 'la vidéo') + (what ? ' : ' + what : ''),
+          about: (refilmed ? 'Caméra changée de ' : 'Suite de ') + (Number.isInteger(take) ? 'la prise ' + take : 'la vidéo') + (what ? ' : ' + what : ''),
           change: false,
           // (0.6.113) A continuation Moodix AI proposes that the user did not ask for (« modifie cette prise, je
           // veux un dézoom lent », 19/11): no way out of it but « Refuser », which said nothing of what it
@@ -1343,6 +1384,286 @@ export function setupStudio({
    * `off`: kept from a model that takes it (LTX 2.5, Wan 2.2) under one that does not: greyed, why on a
    * click, its × to take it away.
    */
+  // ------------------------------------------------------------------ « Changer la caméra » d'une vidéo faite
+  // (0.6.240, maquette du 22/11) The camera of a clip placed again by hand, then the clip filmed again from
+  // there by a model made for it (verb `refilm_video`). The clip is the one of `extending`, whose camera is
+  // changed in place of being continued (refilming); the rules of the poses are in public/camera-orbit.mjs.
+  /** What the tool of the model in hand holds, and its draft, made at the first look and kept within it. */
+  function orbitState(workflow) {
+    const bounds = orbitBounds(workflow?.refilm),
+      draft = drafts.video;
+    // (The same object from one drawing to the next: its window and its guide set and read it in place.)
+    draft.orbit = draft.orbit ? Object.assign(draft.orbit, orbitDraft(draft.orbit, bounds)) : orbitDraft(null, bounds);
+    return { bounds, state: draft.orbit };
+  }
+  /**
+   * Why the camera in hand is not made, '' when it is: out of what the model learnt, too near the one of the
+   * clip, or a clip too large or too long for it (public/camera-orbit.mjs). « Changer la caméra » is greyed
+   * meanwhile and says it; the server refuses the same.
+   */
+  function refilmRefusal(workflow) {
+    const { bounds, state } = orbitState(workflow),
+      output = extending?.outputs?.[0] ?? {},
+      made = extending?.parameters ?? {};
+    return (
+      orbitRefusal(state, bounds) ||
+      clipRefusal({ width: output.width ?? made.width, height: output.height ?? made.height, seconds: clipSeconds(made) }, bounds)
+    );
+  }
+  /** The camera is changed no more: a new video, as a continuation left. */
+  function leaveRefilm() {
+    extending = null;
+    refilmId = null;
+    pieceOpen = null;
+    render();
+  }
+  /**
+   * The simple guide, in the frame of the screen while the camera is set: the picture of the clip stood up in
+   * space, seen from the pose in hand. It asks no model and no graphics card, and says so: it is no preview of
+   * what will be made (the sides the clip never showed are the model's to invent).
+   */
+  function orbitGuide(workflow) {
+    const { bounds, state } = orbitState(workflow),
+      output = extending?.outputs?.[0] ?? {},
+      box = node('div', 'studio-guide'),
+      lens = node('div', 'studio-guide-lens'),
+      world = node('div', 'studio-guide-world'),
+      card = node('span', 'studio-guide-card'),
+      warn = node('p', 'studio-guide-warn');
+    if (output.thumbUrl) {
+      const picture = node('img');
+      picture.src = output.thumbUrl;
+      picture.alt = '';
+      picture.draggable = false;
+      card.append(picture);
+    }
+    world.append(node('span', 'studio-guide-ground'), node('span', 'studio-guide-card is-back'), card);
+    lens.append(world);
+    box.append(lens, node('p', 'studio-guide-said', 'Guide, pas le rendu : l’image de la vidéo, vue de la caméra réglée'), warn);
+    guide = { world, warn, bounds };
+    paintGuide(state);
+    return box;
+  }
+  /** The guide drawn for a pose (the one in hand unless given), with what the tool says of where it stands. */
+  function paintGuide(state, pose = orbitCurrent(state)) {
+    if (!guide) return;
+    // (What the camera comes to as a whole, as the foot of its window says it.)
+    const zone = orbitWorst(state, guide.bounds);
+    guide.world.style.transition = 'none';
+    guide.world.style.transform = guideTransform(pose);
+    guide.warn.textContent = ORBIT_WARNS[zone];
+    guide.warn.hidden = zone === 'safe';
+    guide.warn.dataset.zone = zone;
+  }
+  /** « Aperçu »: the guide goes from the camera of the start to the one of the end, once, in three seconds. */
+  function playGuide(state) {
+    if (!guide || state.mode !== 'move') return;
+    const { world } = guide;
+    world.style.transition = 'none';
+    world.style.transform = guideTransform(state.start);
+    // (Read once: the start is drawn before it moves.)
+    void world.offsetWidth;
+    world.style.transition = 'transform 3s cubic-bezier(0.45, 0, 0.3, 1)';
+    world.style.transform = guideTransform(state.end);
+  }
+  /**
+   * The piece « Caméra » of a clip to film again, and its window: « Fixe » or « Du début à la fin », the sphere
+   * (the camera is dragged on it), then Azimut, Hauteur and Distance. What it says follows in place as it is set.
+   */
+  function orbitPiece(workflow) {
+    const { bounds, state } = orbitState(workflow),
+      opened = pieceOpen?.role === 'orbit',
+      tile = node('div', 'studio-slot is-filled'),
+      piece = node('div', 'studio-piece studio-camera studio-orbit' + (opened ? ' is-open' : '')),
+      word = node('span', 'studio-piece-word', WORDS.camera),
+      said = () => WORDS.camera + ' · ' + orbitLabel(state),
+      pick = button('studio-slot-pick', '', () => toggleWindow('orbit', 0), 'camera');
+    tile.dataset.piece = 'orbit';
+    pick.title = said();
+    pick.setAttribute('aria-label', said());
+    pick.setAttribute('aria-haspopup', 'dialog');
+    pick.setAttribute('aria-expanded', String(opened));
+    pick.disabled = Boolean(working);
+    tile.append(pick);
+    word.setAttribute('aria-hidden', 'true');
+    piece.append(tile, word);
+    if (!opened) return piece;
+    const pane = node('div', 'glass-menu studio-piece-window studio-orbit-window'),
+      modes = node('div', 'studio-camera-speeds studio-orbit-modes'),
+      globe = node('div', 'studio-orbit-globe'),
+      ring = node('span', 'studio-orbit-ring'),
+      trail = node('span', 'studio-orbit-trail'),
+      marks = {
+        fixed: node('span', 'studio-orbit-mark is-fixed'),
+        start: node('span', 'studio-orbit-mark is-start'),
+        end: node('span', 'studio-orbit-mark is-end'),
+      },
+      legend = node('div', 'studio-orbit-legend'),
+      ends = node('div', 'studio-orbit-ends'),
+      poses = {},
+      bars = {},
+      told = node('span', 'studio-window-said', ''),
+      play = button('studio-window-button studio-orbit-play', 'Aperçu', () => playGuide(state), 'play'),
+      foot = node('div', 'studio-window-foot'),
+      place = (mark, point) => {
+        mark.style.left = (point.x / GLOBE.width) * 100 + '%';
+        mark.style.top = (point.y / GLOBE.height) * 100 + '%';
+        mark.dataset.behind = String(point.behind);
+      },
+      show = () => {
+        const moving = state.mode === 'move',
+          now = orbitCurrent(state),
+          zone = orbitWorst(state, bounds);
+        for (const choice of modes.children) choice.setAttribute('aria-pressed', String(choice.dataset.mode === state.mode));
+        // Its two ends, when the camera moves: the one in hand is the one the bars and the pointer set.
+        ends.hidden = !moving;
+        for (const end of ends.children) end.setAttribute('aria-pressed', String(end.dataset.end === state.active));
+        for (const key of ['start', 'end']) poses[key].textContent = poseText(state[key]);
+        for (const [key, bar] of Object.entries(bars)) {
+          const text = key === 'distance' ? distanceText(now[key]) : Math.round(now[key]) + '°';
+          bar.input.value = String(now[key]);
+          bar.input.style.setProperty?.('--fill', String((now[key] - bar.min) / (bar.max - bar.min || 1)));
+          bar.input.setAttribute('aria-valuetext', text);
+          bar.value.textContent = text;
+        }
+        // On the sphere: the camera held, or its start, its end and the path between them.
+        marks.fixed.hidden = moving;
+        marks.start.hidden = marks.end.hidden = trail.hidden = !moving;
+        for (const key of ['fixed', 'start', 'end']) {
+          place(marks[key], globePoint(state[key], bounds));
+          marks[key].dataset.active = String(key === 'fixed' || state.active === key);
+        }
+        globeDots(state, bounds).forEach((point, at) => place(trail.children[at], point));
+        play.hidden = !moving;
+        // Where it stands in what the model holds: counted from the camera of the clip, less sure, or never shown.
+        told.textContent = ORBIT_SAID[zone];
+        told.dataset.zone = zone;
+        pick.title = said();
+        pick.setAttribute('aria-label', said());
+        paintGuide(state);
+        // « Changer la caméra » lit or greyed with it, in place.
+        refilmGate?.();
+      },
+      // A bar moved, a camera dragged: the window stays under the hand, what it says follows in place.
+      set = pose => {
+        Object.assign(orbitCurrent(state), orbitPose({ ...orbitCurrent(state), ...pose }, bounds));
+        show();
+      },
+      bar = (key, label, step, words) => {
+        const line = node('div', 'studio-orbit-bar'),
+          input = node('input', 'studio-bar'),
+          value = node('output', 'studio-orbit-value'),
+          scale = node('div', 'studio-orbit-scale');
+        input.type = 'range';
+        input.min = String(bounds[key].min);
+        input.max = String(bounds[key].max);
+        input.step = String(step);
+        // What the model does not hold (its distance, for now): the bar stays, greyed, and says why.
+        const off = bounds[key].unavailable || (bounds[key].min === bounds[key].max ? 'Ce modèle ne change pas ce réglage.' : '');
+        input.disabled = Boolean(working) || Boolean(off);
+        input.setAttribute('aria-label', label);
+        input.oninput = () => set({ [key]: Number(input.value) });
+        if (off) {
+          line.className += ' is-off';
+          line.title = scale.title = off;
+          scale.className += ' is-off';
+        }
+        for (const mark of off ? ['Pas encore avec ce modèle'] : words) scale.append(node('span', '', mark));
+        line.append(node('span', 'studio-label', label), input, value);
+        bars[key] = { input, value, min: bounds[key].min, max: bounds[key].max };
+        return [line, scale];
+      },
+      // The pointer on the sphere: the camera in hand follows it (in front of the clip; its back is set by the bar).
+      drag = event => {
+        const box = globe.getBoundingClientRect?.();
+        if (!box?.width || !box.height) return;
+        set(globePose(((event.clientX - box.left) / box.width) * GLOBE.width, ((event.clientY - box.top) / box.height) * GLOBE.height, orbitCurrent(state), bounds));
+      },
+      focus = pieceFocus;
+    pieceFocus = false;
+    pane.setAttribute('role', 'dialog');
+    pane.setAttribute('aria-label', WORDS.camera);
+    pane.hidden = true;
+    modes.setAttribute('role', 'group');
+    modes.setAttribute('aria-label', 'Caméra fixe ou en mouvement');
+    for (const [id, name] of [
+      ['fixed', 'Fixe'],
+      ['move', 'Du début à la fin'],
+    ]) {
+      const choice = button('studio-camera-speed', name, () => {
+        state.mode = id;
+        show();
+        // (Its two ends make it taller: placed again, whole in the page.)
+        openPopup(pane, pick, { beside: tile });
+      });
+      choice.dataset.mode = id;
+      choice.disabled = Boolean(working);
+      modes.append(choice);
+    }
+    globe.setAttribute('role', 'img');
+    globe.setAttribute('aria-label', 'La caméra autour de la vidéo');
+    // (Its colours are those of the legend under it: moodix.css names them.)
+    ring.style.background = ringGradient(bounds);
+    for (let at = 0; at < 13; at++) trail.append(node('i'));
+    const clip = node('span', 'studio-orbit-clip');
+    clip.append(icon('video'));
+    marks.start.dataset.end = 'start';
+    marks.end.dataset.end = 'end';
+    globe.append(node('span', 'studio-orbit-sphere'), ring, clip, node('span', 'studio-orbit-face', 'face : la caméra de la vidéo'), trail, marks.start, marks.end, marks.fixed);
+    globe.onpointerdown = event => {
+      if (working) return;
+      const end = event.target?.dataset?.end;
+      if (end && state.mode === 'move') state.active = end;
+      globe.setPointerCapture?.(event.pointerId);
+      drag(event);
+      globe.onpointermove = drag;
+    };
+    globe.onpointerup = globe.onpointercancel = () => (globe.onpointermove = null);
+    for (const [zone, name] of [
+      ['safe', 'sûr'],
+      ['maybe', 'possible'],
+      ['out', 'hors du modèle'],
+    ]) {
+      const item = node('span', 'studio-orbit-zone', name);
+      item.dataset.zone = zone;
+      legend.append(item);
+    }
+    for (const [key, name] of [
+      // (Their words are those of the start and the end of a new video: the table of the pieces.)
+      ['start', WORDS.start_image],
+      ['end', WORDS.end_image],
+    ]) {
+      const end = button('studio-orbit-end', name, () => {
+        state.active = key;
+        show();
+      });
+      end.dataset.end = key;
+      poses[key] = node('output', 'studio-orbit-pose');
+      end.append(poses[key]);
+      ends.append(end);
+    }
+    foot.append(told, play, button('studio-window-button', 'Retirer', leaveRefilm));
+    pane.append(
+      node('p', 'studio-window-title', WORDS.camera),
+      modes,
+      globe,
+      legend,
+      ends,
+      // (Their words stand at the ends and the middle of what the model holds: a quarter turn to each side.)
+      ...bar('azimuth', 'Azimut', 5, ['Gauche', 'Face', 'Droite']),
+      ...bar('elevation', 'Hauteur', 1, ['Bas', 'Haut']),
+      ...bar('distance', 'Distance', 0.05, ['Serré', 'Large']),
+      foot,
+    );
+    show();
+    piece.append(pane);
+    globalThis.queueMicrotask?.(() => {
+      if (!pane.isConnected || !pieceOpen) return;
+      openPopup(pane, pick, { beside: tile });
+      if (focus) modes.children[0]?.focus?.();
+    });
+    return piece;
+  }
   /**
    * (0.6.222) Why the model in hand does not make a movement of the camera, '' when it does. A model that reads
    * the camera itself makes those of its own list; for the others the camera is a sentence of the prompt, and
@@ -1874,7 +2195,7 @@ export function setupStudio({
     // (0.6.211) The camera is a piece of a model that takes it, for a new video made by hand: not under a
     // proposal of Moodix AI (its pieces are its own) nor in a continuation (its clip is all it starts from).
     const filmed = Boolean(workflow.camera && drafts[mode].camera) && !answering() && !(mode === 'video' && extending),
-      taken = pieceOpen && (pieceOpen.role === 'camera' ? filmed : pieceOpen.index < (workflow.roles?.[pieceOpen.role]?.count ?? 0));
+      taken = pieceOpen && (pieceOpen.role === 'camera' ? filmed : pieceOpen.role === 'orbit' ? refilming() : pieceOpen.index < (workflow.roles?.[pieceOpen.role]?.count ?? 0));
     if (pieceOpen && (working || !givenPiece(pieceOpen.role, pieceOpen.index) || !taken)) pieceOpen = null;
     const off = offPieces(workflow),
       frames = framesRow(workflow, off),
@@ -2827,6 +3148,9 @@ export function setupStudio({
       );
       veil.append(node('p', 'studio-held-kicker', 'Arrêtée'), said);
       frame.append(node('span', 'studio-failed-chip', 'Échec'), veil);
+    } else if (!working && refilming()) {
+      // (0.6.240) While the camera of a clip is set: its simple guide, in the place of the take on the screen.
+      frame.append(orbitGuide(current()));
     } else if (last) {
       frame.append(result(last));
     } else if (!working) {
@@ -3142,7 +3466,7 @@ export function setupStudio({
     // again and its tooltip said « Générer » (its click was refused all the same).
     if (!go || working || enriching || answering() || checking || current()?.unavailable || gpuBlocked() || elsewhere())
       return;
-    const blank = !drafts[mode].prompt.trim(),
+    const blank = !drafts[mode].prompt.trim() && !refilming(),
       // (0.6.188) Nor lit by the prompt alone while an input its model cannot do without is missing.
       missing = blank ? '' : inputMissing(current(), drafts[mode].inputs, extending);
     go.disabled = blank || Boolean(missing);
@@ -3317,7 +3641,8 @@ export function setupStudio({
       verb = verbOf(),
       prompt = draft.prompt.trim();
     if (!workflow) throw Error('Aucun modèle prêt pour cette création.');
-    if (!prompt)
+    // (0.6.240) A clip filmed again needs no prompt: the clip says what is filmed.
+    if (!prompt && !refilming())
       throw Error(
         workflow?.follows
           ? 'Écrivez un prompt, ou cliquez sur la baguette : il sera écrit d’après la vidéo et le personnage.'
@@ -3337,6 +3662,15 @@ export function setupStudio({
           : 'Création demandée dans le Studio.';
     // A continuation starts from its clip; the inputs it also takes (subject references) follow.
     if (extending) args.source = outputSource(extending);
+    // (0.6.240) « Changer la caméra »: the pose held, or the one of the end with the one of the start. No
+    // prompt: the one in the draft is of another video, and the server knows the one of the clip.
+    if (refilming()) {
+      // (A camera the model does not make: « Changer la caméra » is greyed and says it; its keys still come here.)
+      const held = refilmRefusal(workflow);
+      if (held) throw Error(held);
+      Object.assign(args, orbitArgs(orbitState(workflow).state), { intention: 'Caméra changée, demandée dans le Studio.' });
+      delete args.prompt;
+    }
     // What the model cannot do without is asked for here, in the user's words (0.6.102: by its
     // role; an image to modify was asked for as « l’image du personnage »). (0.6.188) « Générer » is
     // greyed meanwhile and says the same (inputMissing): its keys still come here.
@@ -3433,6 +3767,7 @@ export function setupStudio({
     if (proposal) return notice('Moodix AI est en train de proposer');
     if (id === 'animate') return animateImage(record);
     if (id === 'extend') return actionsOf(record).find(action => action.id === 'extend')?.run();
+    if (id === 'refilm') return actionsOf(record).find(action => action.id === 'refilm')?.run();
     const clip = mediaOf(record) === 'video';
     void generate({
       verb: id,
@@ -3839,6 +4174,8 @@ export function setupStudio({
   function givenPiece(role, index) {
     if (mode === 'video' && extending && role === 'source') return index === 0 ? extending : null;
     // (0.6.211) The camera has no case of an input: its choice is the piece.
+    // (0.6.240) The camera of a clip to film again is there as long as that clip is.
+    if (role === 'orbit') return index === 0 && refilming() ? orbitState(current()).state : null;
     if (role === 'camera') return index === 0 ? (drafts[mode].camera ?? null) : null;
     return drafts[mode].inputs[role]?.[index] ?? null;
   }
@@ -4947,6 +5284,34 @@ export function setupStudio({
         },
       });
     }
+    // (0.6.240) « Changer la caméra »: the same clip filmed again from a camera placed by hand, with a model
+    // made for it. Greyed with its reason while that model lacks its files.
+    if (media === 'video' && (info?.tools?.refilm_video ?? []).length) {
+      const able = info.tools.refilm_video.find(item => !item.unavailable),
+        held = proposal ? 'Moodix AI est en train de proposer' : able ? '' : info.tools.refilm_video[0].unavailable || 'Indisponible.';
+      list.push({
+        id: 'refilm',
+        label: 'Changer la caméra',
+        glyph: 'camera',
+        title: held ? ACTION_TIPS.refilm + '\n' + held : ACTION_TIPS.refilm,
+        off: Boolean(held),
+        run: () => {
+          if (working) return;
+          if (held) return notice(held);
+          // Made in Vidéo, as a continuation is: the clip takes the place of the start of a new video.
+          if (mode !== 'video') setMode('video');
+          extending = record;
+          refilmId = record.id;
+          failure = '';
+          menuFor = confirmFor = null;
+          // Its tool open at once: it is what the action is for.
+          pieceOpen = { role: 'orbit', index: 0 };
+          pieceFocus = true;
+          render();
+          $('studio-view')?.scrollTo?.({ top: 0, behavior: 'smooth' });
+        },
+      });
+    }
     if (media === 'image' && animation())
       list.push({
         id: 'animate',
@@ -5149,6 +5514,9 @@ export function setupStudio({
     tile.append(pick, caption);
     const main = actions.find(action => action.id === 'extend' || action.id === 'animate');
     if (main) tile.append(onPicture(main, 'studio-item-main', name));
+    // (0.6.240) « Changer la caméra », beside it on a clip, when a model can film a video again.
+    const second = actions.find(action => action.id === 'refilm');
+    if (second) tile.append(onPicture(second, 'studio-item-main studio-item-second', name));
     // No « i » on the picture: a click on it shows its details.
     tile.append(
       onPicture(
@@ -5569,10 +5937,14 @@ export function setupStudio({
     if (answering())
       for (const note of proposal.request.notes ?? []) write.append(node('p', 'studio-proposal-note', String(note)));
     const prompt = textarea(
-      draft.prompt,
+      // (0.6.240) A clip filmed again: the clip says what is filmed. Its field is empty and closed meanwhile; the
+      // prompt of the video being written stays in its draft, neither shown nor sent.
+      refilming() ? '' : draft.prompt,
       8,
-      extending
-        ? 'Ce qui se passe ensuite…'
+      refilming()
+        ? 'Rien à écrire : seule la caméra change.'
+        : extending
+          ? 'Ce qui se passe ensuite…'
         : mode === 'image'
           ? 'Décrivez votre image…'
           : mode === 'video'
@@ -5590,6 +5962,7 @@ export function setupStudio({
       },
     );
     prompt.id = 'studio-prompt';
+    if (refilming()) prompt.disabled = true;
     prompt.maxLength = 4000;
     prompt.title = MODIFIER + ' + Entrée pour générer';
     aiTarget(prompt, 'prompt');
@@ -5767,7 +6140,7 @@ export function setupStudio({
       bar.append(row);
     } else bar.append(node('div', 'output-actions is-empty'));
     const go = aiTarget(button('primary studio-go', '', generate, 'play'), 'generate'),
-      label = node('span', 'studio-go-label', working ? 'En cours…' : extending ? 'Générer la suite' : 'Générer'),
+      label = node('span', 'studio-go-label', working ? 'En cours…' : refilming() ? 'Changer la caméra' : extending ? 'Générer la suite' : 'Générer'),
       fill = node('span', 'studio-go-bar');
     fill.setAttribute('aria-hidden', 'true');
     // The triangle and its word, centred (moodix-design.md 7 bis 22); the keys are in its tooltip.
@@ -5775,7 +6148,7 @@ export function setupStudio({
     go.append(label, fill);
     go.title = (answering() ? 'Générer la proposition de Moodix AI' : 'Générer') + ` (${MODIFIER}+Entrée)`;
     // Nothing to make without a prompt (55): greyed, said in its tooltip; the half Agent stays.
-    const blank = !draft.prompt.trim() && !answering() && !checking;
+    const blank = !draft.prompt.trim() && !answering() && !checking && !refilming();
     go.disabled = enriching || Boolean(working) || Boolean(workflow.unavailable) || blank || Boolean(busyElsewhere);
     if (blank && !working) {
       go.title = 'Écrivez un prompt pour générer';
@@ -5789,6 +6162,19 @@ export function setupStudio({
     if (missing) {
       go.disabled = true;
       go.title = missing;
+    }
+    // (0.6.240) Nor a camera its model does not make, nor the one of a clip too long for it: greyed, its tooltip
+    // says which, and it follows the bars of the tool in place (refilmGate, called by its window).
+    refilmGate = null;
+    if (refilming() && !working && !go.disabled) {
+      const lit = go.title;
+      refilmGate = () => {
+        const held = refilmRefusal(workflow);
+        go.disabled = Boolean(held);
+        go.title = held || lit;
+        go.classList.toggle('is-unavailable', Boolean(held));
+      };
+      refilmGate();
     }
     // The only model of this mode cannot run here: « Générer » is greyed and says why.
     if (workflow.unavailable) {
@@ -6797,6 +7183,8 @@ export function setupStudio({
     settled,
     watch,
     show,
+    // (0.6.240) « Changer la caméra » of a take, asked from the Chat or the Archives.
+    refilm: record => actionsOf(record).find(action => action.id === 'refilm')?.run(),
     takeOver,
     conversationChanged,
     invalidate,

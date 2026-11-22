@@ -2998,6 +2998,11 @@ async function runOutputAction(record, index, action) {
   // The take by its number when it has one (the model finds it by it: « la prise 12 »).
   const take = record.outputs?.[index]?.take,
     reference = Number.isInteger(take) ? `la prise ${take}` : `la sortie ${record.id}` + (index ? ` (sortie ${index + 1})` : '');
+  // (0.6.240) « Changer la caméra » is set by hand in the Studio: the take goes there, its tool open.
+  if (action === 'refilm')
+    return void closeChat()
+      .then(() => revealStudio())
+      .then(() => studioUI.refilm(record));
   // Prolonger and Animer write the start of a request, for the user to finish.
   if (action === 'extend' || action === 'animate') {
     const line =

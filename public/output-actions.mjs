@@ -2,7 +2,8 @@
  * The actions on a take, the same everywhere, the same icons and the same help (chat, Studio,
  * Pellicule; claude_design/maquettes/reference-maquettes.md):
  * - image: Ouvrir · Agrandir et affiner · Animer · Afficher dans le Studio;
- * - video: Ouvrir · Prolonger · Interpoler · Agrandir et affiner · Afficher dans le Studio;
+ * - video: Ouvrir · Prolonger · Changer la caméra (0.6.240) · Interpoler · Agrandir et affiner · Afficher dans le
+ *   Studio;
  * - sound: Ouvrir · Afficher dans le Studio.
  * Icons only (claude_design/icones-actions: their drawing and the words under the pointer, which are
  * their name for screen readers too). One that no active workflow can do is greyed, with the reason
@@ -26,6 +27,15 @@ const ACTIONS = [
     icon: 'act-extend',
     media: ['video'],
     missing: () => 'Aucun modèle ne sait prolonger une vidéo.',
+  },
+  {
+    id: 'refilm',
+    verb: 'refilm_video',
+    label: 'Changer la caméra',
+    tip: 'Changer la caméra : la même vidéo, filmée d’un autre angle',
+    icon: 'camera',
+    media: ['video'],
+    missing: () => 'Aucun modèle ne sait changer la caméra d’une vidéo.',
   },
   {
     id: 'interpolate',

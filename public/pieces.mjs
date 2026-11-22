@@ -15,6 +15,7 @@ export const PIECE_WORDS = {
   source: 'À modifier',
   // The clip a continuation goes on from; the video a character is put in, and that character (capture 97).
   prolong: 'À prolonger',
+  refilm: 'À refilmer',
   follow: 'À suivre',
   character: 'Personnage',
   // (0.6.211) How the camera moves (public/camera.mjs): no image, a movement of a closed list.
