@@ -50,6 +50,10 @@
         {
           "key": "^img_emb\\.",
           "absent": true
+        },
+        {
+          "key": "^control_adapter\\.",
+          "absent": true
         }
       ],
       "recipes": [
@@ -67,6 +71,10 @@
         {
           "key": "^head\\.head\\.weight$",
           "shape": [64, 5120]
+        },
+        {
+          "key": "^control_adapter\\.",
+          "absent": true
         }
       ]
     },
@@ -83,6 +91,10 @@
         {
           "key": "^head\\.head\\.weight$",
           "shape": [64, 5120]
+        },
+        {
+          "key": "^control_adapter\\.",
+          "absent": true
         }
       ]
     },

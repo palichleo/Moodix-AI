@@ -255,19 +255,23 @@ const SEEDVR = { 'vid_in.proj.weight': [3072, 132], 'blocks.35.attn.proj_qkv.vid
 const SCAIL = { 'patch_embedding_pose.weight': [5120, 20, 1, 2, 2], 'patch_embedding_mask.weight': [5120, 28, 1, 2, 2] };
 // (0.6.134) One of the two files of Wan 2.2 image to video: 36 channels in, forty blocks, no image encoder.
 const WAN22 = { 'patch_embedding.weight': [5120, 36, 1, 2, 2], 'blocks.39.self_attn.q.weight': [5120, 5120] };
-const OWN = { ltx25: LTX, minimax_h3: MINIMAX, krea2: KREA, seedvr2: SEEDVR, wan_scail2: SCAIL, wan22: WAN22 };
+// (0.6.213) Wan 2.2 Fun Camera: every tensor of Wan 2.2's, and the adapter that reads the camera
+// (the headers of its two files, read on Hugging Face on 22/11).
+const WAN22_CAMERA = { ...WAN22, 'control_adapter.conv.weight': [5120, 1536, 2, 2], 'control_adapter.residual_blocks.0.conv1.weight': [5120, 5120, 3, 3] };
+const OWN = { ltx25: LTX, minimax_h3: MINIMAX, krea2: KREA, seedvr2: SEEDVR, wan_scail2: SCAIL, wan22: WAN22, wan22_camera: WAN22_CAMERA };
 const prefixed = (shapes, prefix) => Object.fromEntries(Object.entries(shapes).map(([name, shape]) => [prefix + name, shape]));
 const which = shapes => modelsOf({ shapes });
 
 test('a file is a version of one model, told by what it holds and not by its name (0.6.116)', () => {
   // The families whose versions are files, and the component those files are.
   const versioned = Object.values(families()).filter(versionComponent);
-  assert.deepEqual(versioned.map(manifest => manifest.family), ['krea2', 'ltx25', 'minimax_h3', 'seedvr2', 'wan22', 'wan_scail2']);
+  assert.deepEqual(versioned.map(manifest => manifest.family), ['krea2', 'ltx25', 'minimax_h3', 'seedvr2', 'wan22', 'wan22_camera', 'wan_scail2']);
   for (const manifest of versioned) {
     const { role, spec } = versionComponent(manifest);
     assert.equal(role, 'model', manifest.family);
-    // (0.6.134) No FP8 file of Wan 2.2 was tried: none is promised (tests/wan22.mjs).
-    const formats = ['INT8', 'FP8', 'BF16', 'FP16', 'FP32'].filter(format => format !== 'FP8' || manifest.family !== 'wan22');
+    // (0.6.134) No FP8 file of Wan 2.2 was tried: none is promised (tests/wan22.mjs). (0.6.213) Nor of
+    // Fun Camera: its « fp8 scaled » files are written again as INT8 first (runner/convert.py).
+    const formats = ['INT8', 'FP8', 'BF16', 'FP16', 'FP32'].filter(format => format !== 'FP8' || !manifest.family.startsWith('wan22'));
     assert.deepEqual(spec.reads, formats, manifest.family);
     assert.equal(spec.folder, 'diffusion_models');
   }
@@ -277,6 +281,11 @@ test('a file is a version of one model, told by what it holds and not by its nam
   assert.equal(versionComponent(undefined), null);
   // Each to its own model, and to no other.
   for (const [family, shapes] of Object.entries(OWN)) assert.deepEqual(which(shapes), [family], family);
+  // (0.6.213) The adapter alone tells Fun Camera from Wan 2.2: with it a file is no version of Wan 2.2
+  // (it was one until 0.6.211, then refused by the engine at the first video), without it none of Fun
+  // Camera; an adapter of another width is neither.
+  assert.deepEqual(which({ ...WAN22, 'control_adapter.conv.bias': [5120] }), []);
+  assert.deepEqual(which({ ...WAN22, 'control_adapter.conv.weight': [5120, 384, 2, 2] }), []);
   // The file Moodix ships for LTX 2.5 names its tensors under « model.diffusion_model. ».
   assert.deepEqual(which(prefixed(LTX, 'model.diffusion_model.')), ['ltx25']);
   assert.deepEqual(which(prefixed(LTX, 'diffusion_model.')), ['ltx25']);

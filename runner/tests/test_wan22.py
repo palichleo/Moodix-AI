@@ -649,5 +649,430 @@ class SamplingTests(unittest.TestCase):
         self.assertGreater(pipeline.working_gib(pipeline.tokens(81, 720, 1280)), 9)
 
 
+# (0.6.213) Wan 2.2 Fun Camera: the two models of Wan 2.2 trained again to follow a camera, each with an
+# adapter. Its six tensors as the two files hold them (their headers read on Hugging Face, 22/11:
+# Comfy-Org/Wan_2.2_ComfyUI_Repackaged, wan2.2_fun_camera_{high,low}_noise_14B_fp8_scaled.safetensors).
+ADAPTER = {
+    'control_adapter.conv.weight': [5120, 1536, 2, 2],
+    'control_adapter.conv.bias': [5120],
+    'control_adapter.residual_blocks.0.conv1.weight': [5120, 5120, 3, 3],
+    'control_adapter.residual_blocks.0.conv1.bias': [5120],
+    'control_adapter.residual_blocks.0.conv2.weight': [5120, 5120, 3, 3],
+    'control_adapter.residual_blocks.0.conv2.bias': [5120],
+}
+
+
+def camera_header(kind='HIGH'):
+    """The header of one of the two files of Fun Camera: Wan 2.2's, and the adapter in 16-bit floats."""
+    found = header(kind)
+    found.update({key: dict(dtype='BF16', shape=list(shape)) for key, shape in ADAPTER.items()})
+    return found
+
+
+class CameraAdapterTests(unittest.TestCase):
+    def test_the_adapter_has_the_six_tensors_of_the_files_under_their_names(self):
+        self.assertEqual(wan22.adapter_shapes(), {key: tuple(shape) for key, shape in ADAPTER.items()})
+        # 24 channels: the six numbers of a line of sight for each of the four frames of a latent
+        # frame; 1536: each 8 x 8 pixels of them folded into channels.
+        self.assertEqual(wan22.CAMERA_CHANNELS * wan22.CAMERA_SHRINK**2, ADAPTER['control_adapter.conv.weight'][1])
+        self.assertEqual(sum(torch.tensor(shape).prod().item() for shape in ADAPTER.values()) * 2, 1006663680)
+
+    def test_a_file_of_fun_camera_is_not_taken_for_wan_22_nor_wan_22_for_it(self):
+        fun, plain = camera_header(), header()
+        with self.assertRaisesRegex(ValueError, 'Fun Camera \\(il a un adaptateur de caméra\\), pas Wan 2.2 image'):
+            wan22.validate_layout(fun)
+        with self.assertRaisesRegex(ValueError, 'sans adaptateur de caméra : Wan 2.2 Caméra'):
+            wan22.validate_layout(plain, camera=True)
+        # Asked for what it is, it is Wan 2.2's layout: the adapter is no tensor of the model the
+        # steps run, it is read beside it by its own names.
+        names = wan22.validate_layout(fun, camera=True)
+        self.assertEqual(names, wan22.validate_layout(plain))
+        self.assertFalse(any(key.startswith('control_adapter.') for _, key, _ in names.values()))
+        # One of its tensors gone, one more, another size (an adapter for six channels): said.
+        lacking = {key: value for key, value in fun.items() if key != 'control_adapter.residual_blocks.0.conv2.bias'}
+        with self.assertRaisesRegex(ValueError, 'missing control_adapter.residual_blocks.0.conv2.bias'):
+            wan22.validate_layout(lacking, camera=True)
+        more = dict(fun, **{'control_adapter.residual_blocks.1.conv1.weight': dict(dtype='BF16', shape=[1])})
+        said = 'Unsupported Wan 2.2 Fun Camera tensor: control_adapter.residual_blocks.1'
+        with self.assertRaisesRegex(ValueError, said):
+            wan22.validate_layout(more, camera=True)
+        other = dict(fun, **{'control_adapter.conv.weight': dict(dtype='BF16', shape=[5120, 384, 2, 2])})
+        said = 'Unexpected Wan 2.2 Fun Camera tensor size: control_adapter.conv.weight'
+        with self.assertRaisesRegex(ValueError, said):
+            wan22.validate_layout(other, camera=True)
+        # A file that says nothing of itself is still told high from low by its name.
+        self.assertEqual(wan22.expert({}, 'D:\\m\\wan2.2_fun_camera_high_noise_14B_int8_convrot.safetensors'), 'high')
+        self.assertEqual(wan22.expert({}, 'D:\\m\\wan2.2_fun_camera_low_noise_14B_int8_convrot.safetensors'), 'low')
+
+    def little(self, width=8):
+        """The adapter with 8 channels where the files have 5120, weights drawn at random."""
+        torch.manual_seed(5)
+        return wan22.camera_adapter(width=width).eval()
+
+    def test_the_adapter_makes_tokens_of_the_lines_of_sight_as_videox_fun_computes_them(self):
+        import torch.nn.functional as F
+
+        from runner.video import camera
+
+        adapter = self.little()
+        weights = adapter.state_dict()
+        self.assertEqual(sorted('control_adapter.' + name for name in weights), sorted(ADAPTER))
+        cameras = camera.poses('orbit_left', 9, 2.0)
+        with torch.no_grad():
+            found = wan22.seen(adapter, cameras, 32, 16)
+            # 9 frames are 3 latent frames; 32 x 16 pixels are 4 x 2 of latents, 2 x 1 tokens.
+            self.assertEqual((tuple(found.shape), found.dtype), ((1, 8, 3, 1, 2), torch.float32))
+            # Folded 8 x 8 into channels, cut into tokens, then conv2(relu(conv1(x))) + x.
+            sight = camera.grouped(cameras, 32, 16)
+            entered = F.conv2d(F.pixel_unshuffle(sight, 8), weights['conv.weight'], weights['conv.bias'], stride=2)
+            inner = 'residual_blocks.0.conv{}.{}'
+            first = F.conv2d(entered, weights[inner.format(1, 'weight')], weights[inner.format(1, 'bias')], padding=1)
+            weight, bias = weights[inner.format(2, 'weight')], weights[inner.format(2, 'bias')]
+            second = F.conv2d(first.relu(), weight, bias, padding=1)
+            wanted = (second + entered).transpose(0, 1)[None]
+            self.assertLess((found - wanted).abs().max().item(), 1e-5)
+            # However many latent frames are read at a time.
+            for chunk in (1, 2, 50):
+                self.assertLess((wan22.seen(adapter, cameras, 32, 16, chunk) - found).abs().max().item(), 1e-5)
+            # A camera that stands still gives other tokens, the same for every latent frame.
+            still = wan22.seen(adapter, camera.poses('static', 9), 32, 16)
+            self.assertGreater((found - still).abs().max().item(), 1e-3)
+            self.assertLess((still[:, :, 1:] - still[:, :, :1]).abs().max().item(), 1e-6)
+
+    def test_the_adapter_of_a_file_is_read_by_the_names_of_the_file(self):
+        little, read, build = self.little(), [], wan22.camera_adapter
+        stored = {'control_adapter.' + name: value.to(torch.bfloat16) for name, value in little.state_dict().items()}
+
+        def get(key):
+            read.append(key)
+            return stored[key]
+
+        with mock.patch.object(wan22, 'camera_adapter', lambda: build(width=8)):
+            loaded = wan22.load_adapter(get, device='cpu', dtype=torch.float32)
+        self.assertEqual(sorted(read), sorted(ADAPTER))
+        self.assertEqual({parameter.dtype for parameter in loaded.parameters()}, {torch.float32})
+        self.assertFalse(loaded.training)
+        for name, value in loaded.state_dict().items():
+            self.assertTrue(torch.equal(value, stored['control_adapter.' + name].float()), name)
+
+    def test_what_the_camera_gives_is_added_to_the_tokens_as_they_enter_the_model(self):
+        model = small()
+        torch.manual_seed(1)
+        given = dict(
+            latents=torch.randn(1, 16, 3, 8, 8),
+            timestep=torch.tensor([500]),
+            text=torch.randn(1, wan22.TEXT_TOKENS, TEXT),
+            condition=torch.randn(1, 20, 3, 8, 8),
+        )
+        seen = torch.randn(1, 24, 3, 4, 4)
+        with torch.no_grad():
+            plain = wan22.forward(model, **given)
+            moved = wan22.forward(model, **given, camera=seen)
+            # Nothing to add: the video Wan 2.2 would draw.
+            still = wan22.forward(model, **given, camera=torch.zeros_like(seen))
+            self.assertEqual((still - plain).abs().max().item(), 0)
+            self.assertGreater((moved - plain).abs().max().item(), 1e-3)
+            # The same as a model whose first layer gave those tokens itself (VideoX-Fun adds the
+            # adapter's result to what `patch_embedding` returns, before the tokens are laid flat).
+            entry = model.patch_embedding
+
+            class Entered(torch.nn.Module):
+                weight = entry.weight
+
+                def forward(self, stream):
+                    return entry(stream) + seen
+
+            model.patch_embedding = Entered()
+            try:
+                self.assertLess((wan22.forward(model, **given) - moved).abs().max().item(), 1e-6)
+            finally:
+                model.patch_embedding = entry
+            # A camera read for another length or another size is refused, not stretched.
+            for wrong in (seen[:, :, :2], seen[..., :2], torch.randn(1, 24, 3, 4, 8)):
+                with self.assertRaisesRegex(ValueError, 'not read for a video of this size'):
+                    wan22.forward(model, **given, camera=wrong)
+
+
+def camera_job(**changes):
+    made = job(**changes)
+    made['pipeline'] = 'wan22_camera'
+    return made
+
+
+class CameraRuleTests(unittest.TestCase):
+    def test_the_family_of_fun_camera_runs_in_this_pipeline_with_wan_22s_own_settings(self):
+        from runner import registry
+        from runner.video import camera
+
+        plain, fun = registry.families()['wan22'], registry.families()['wan22_camera']
+        self.assertIs(registry.pipeline('wan22_camera'), pipeline)
+        self.assertEqual((fun['module'], pipeline.CAMERA_FAMILY), ('wan22', 'wan22_camera'))
+        # The same files beside the two models, the same settings within the same limits (what is
+        # said of the steps differs: see below), and the camera more.
+        self.assertEqual(list(fun['components']), list(plain['components']))
+
+        def limits(specs):
+            return {
+                name: {key: value for key, value in spec.items() if key != 'note'}
+                for name, spec in specs.items()
+                if not name.startswith('camera')
+            }
+
+        self.assertEqual(limits(fun['parameters']), limits(plain['parameters']))
+        self.assertEqual(fun['requiredParameters'], plain['requiredParameters'])
+        self.assertEqual(fun['roles'], plain['roles'])
+        # Every movement the engine knows, and none it does not; « none » reads no camera.
+        self.assertEqual(fun['parameters']['camera']['choices'], [pipeline.NO_CAMERA, *camera.MOVES])
+        self.assertEqual(fun['parameters']['camera_speed']['max'], pipeline.CAMERA_FASTEST)
+        self.assertEqual(fun['template']['parameters']['camera']['value'], pipeline.NO_CAMERA)
+        self.assertEqual(fun['template']['parameters']['camera_speed']['value'], pipeline.CAMERA_SPEED)
+        # What tells the files of each from the other's, for the application: the adapter, there or not.
+        for manifest, entry in (
+            (fun, {'key': '^control_adapter\\.conv\\.weight$', 'shape': [5120, 1536, 2, 2]}),
+            (plain, {'key': '^control_adapter\\.', 'absent': True}),
+        ):
+            model, low = manifest['components']['model'], manifest['components']['modelLow']
+            for told in (model['fingerprint'], model['signature'], low['signature']):
+                self.assertIn(entry, told, manifest['family'])
+
+    def test_fun_camera_is_shipped_at_eight_steps_and_takes_twenty_for_a_hard_video(self):
+        # (0.6.214) Measured on 22/11: at Wan 2.2's four steps a subject the camera moves away from is
+        # drawn twice, a pale copy left where it was (his words: « le mouvement du pêcheur est comme
+        # fondu »). At eight the copy is gone and the camera moves as far. His decision: « ok pas mal,
+        # mais on doit pouvoir switch à 20 étapes pour les vidéos difficiles ».
+        from runner.registry import families, validate_job
+
+        plain, fun = families()['wan22'], families()['wan22_camera']
+        self.assertEqual((pipeline.STEPS, pipeline.CAMERA_STEPS, pipeline.CAMERA_STEPS_HARD), (4, 8, 20))
+        self.assertEqual(plain['template']['parameters']['steps'], dict(policy='fixed', value=pipeline.STEPS))
+        self.assertEqual(fun['template']['parameters']['steps'], dict(policy='fixed', value=pipeline.CAMERA_STEPS))
+        # Still with the step LoRAs and no guidance: more passes of the same recipe, not another one
+        # (without them, 20 steps took 326 s and the camera hardly moved).
+        for name, value in (('cfg', 1), ('step_lora_strength', 1), ('shift', 5)):
+            self.assertEqual(fun['template']['parameters'][name]['value'], value, name)
+        # Which of the two models draws each step: three and five, eight and twelve.
+        for steps, high in ((pipeline.CAMERA_STEPS, 3), (pipeline.CAMERA_STEPS_HARD, 8)):
+            plan = pipeline.experts(scail.sigmas(steps, pipeline.SHIFT))
+            self.assertEqual(plan, ['high'] * high + ['low'] * (steps - high), steps)
+        # Both are steps a job may ask of the family, as the settings of a model say them.
+        limits = fun['parameters']['steps']
+        self.assertEqual((limits['type'], limits['min'], limits['max']), ('integer', 4, 50))
+        self.assertIn('8 avec les LoRA d’étapes', limits['note'])
+        self.assertIn('20 pour une vidéo difficile', limits['note'])
+        folder = Path.cwd()
+        sent = dict(
+            schemaVersion=1,
+            id='job',
+            pipeline='wan22_camera',
+            mediaType='video',
+            workflowId='camera',
+            workflowDigest='e' * 64,
+            parameters=dict(
+                prompt='a fox', seed=1, width=768, height=448, steps=8, cfg=1, shift=5, frames=81, fps=16,
+                camera='crane_up', camera_speed=1,
+            ),
+            components={name: str(folder / (name + '.safetensors')) for name in fun['components']},
+            loras=[],
+            references=[dict(input='start', role='start_image', path=str(folder / 'start.png'))],
+        )
+        for steps in (pipeline.CAMERA_STEPS, pipeline.CAMERA_STEPS_HARD):
+            validate_job(dict(sent, parameters=dict(sent['parameters'], steps=steps)))
+        # (The whole job runs on the card only: that a job of the family that names no steps is
+        # drawn at eight, and one of Wan 2.2 at four, is read in its text.)
+        source = Path(pipeline.__file__).read_text(encoding='utf-8')
+        self.assertIn("steps = p.get('steps', CAMERA_STEPS if reads_camera(job) else STEPS)", source)
+
+    def test_a_job_names_a_movement_and_a_speed_or_reads_no_camera(self):
+        from runner.registry import families, validate_job
+
+        self.assertIsNone(pipeline.camera_of(job()))
+        self.assertIsNone(pipeline.camera_of(camera_job()))
+        self.assertIsNone(pipeline.camera_of(camera_job(parameters=dict(camera='none', camera_speed=2))))
+        asked = pipeline.camera_of(camera_job(parameters=dict(camera='orbit_left')))
+        self.assertEqual(asked, dict(move='orbit_left', speed=1.0))
+        asked = pipeline.camera_of(camera_job(parameters=dict(camera='crane_up', camera_speed=0.5)))
+        self.assertEqual(asked, dict(move='crane_up', speed=0.5))
+        # (Wan 2.2 itself reads none, whatever a job says.)
+        self.assertIsNone(pipeline.camera_of(job(parameters=dict(camera='orbit_left'))))
+        pipeline.check(camera_job(parameters=dict(camera='pan_left', camera_speed=4)), None)
+        fast = dict(camera='pan_left', camera_speed=5)
+        for wrong in (dict(camera='spin'), dict(camera='pan_left', camera_speed=0), fast):
+            with self.assertRaises(ValueError, msg=wrong):
+                pipeline.check(camera_job(parameters=wrong), None)
+        # The job the application would send is one the engine takes; Wan 2.2 is sent no camera.
+        folder = Path.cwd()
+        manifest = families()['wan22_camera']
+        sent = dict(
+            schemaVersion=1,
+            id='job',
+            pipeline='wan22_camera',
+            mediaType='video',
+            workflowId='camera',
+            workflowDigest='c' * 64,
+            parameters=dict(
+                prompt='a fox', seed=1, width=768, height=448, steps=4, cfg=1, shift=5, frames=81, fps=16,
+                camera='orbit_left', camera_speed=1,
+            ),
+            components={name: str(folder / (name + '.safetensors')) for name in manifest['components']},
+            loras=[],
+            references=[dict(input='start', role='start_image', path=str(folder / 'start.png'))],
+        )
+        self.assertIs(validate_job(sent), sent)
+        for wrong in (dict(camera='spin'), dict(camera_speed=0.1), dict(camera_speed=8)):
+            with self.assertRaises(ValueError, msg=wrong):
+                validate_job(dict(sent, parameters=dict(sent['parameters'], **wrong)))
+        with self.assertRaisesRegex(ValueError, 'Invalid parameters fields'):
+            validate_job(dict(sent, pipeline='wan22'))
+
+    def test_the_files_of_the_other_model_are_refused_before_anything_is_loaded(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as folder:
+            image = str(Path(folder) / 'start.png')
+            Image.new('RGB', (8, 8)).save(image)
+            headers = {
+                'C:/high.safetensors': header('HIGH'),
+                'C:/low.safetensors': header('LOW'),
+                'C:/camera_high.safetensors': camera_header('HIGH'),
+                'C:/camera_low.safetensors': camera_header('LOW'),
+            }
+            plain = dict(model='C:/high.safetensors', modelLow='C:/low.safetensors')
+            fun = dict(model='C:/camera_high.safetensors', modelLow='C:/camera_low.safetensors')
+            with mock.patch('runner.models.headers.header', headers.get):
+                pipeline.preflight(camera_job(components=fun, image=image, parameters=dict(camera='orbit_left')), {})
+                pipeline.preflight(camera_job(components=fun, image=image), {})
+                with self.assertRaisesRegex(ValueError, 'sans adaptateur de caméra'):
+                    pipeline.preflight(camera_job(components=plain, image=image), {})
+                with self.assertRaisesRegex(ValueError, 'est un modèle Wan 2.2 Fun Camera'):
+                    pipeline.preflight(job(components=fun, image=image), {})
+                # One file of each: the one that is not the family's is named.
+                mixed = dict(model='C:/camera_high.safetensors', modelLow='C:/low.safetensors')
+                with self.assertRaisesRegex(ValueError, 'sans adaptateur de caméra'):
+                    pipeline.preflight(camera_job(components=mixed, image=image), {})
+                # The two swapped are said as for Wan 2.2.
+                swapped = dict(model='C:/camera_low.safetensors', modelLow='C:/camera_high.safetensors')
+                said = '« bruit fort » de Wan 2.2 est celui du modèle « bruit faible »'
+                with self.assertRaisesRegex(ValueError, said):
+                    pipeline.preflight(camera_job(components=swapped, image=image), {})
+
+    def test_a_model_reads_its_camera_once_as_it_opens_before_its_weights_take_the_card(self):
+        from contextlib import contextmanager
+
+        done = []
+
+        @contextmanager
+        def open_store(path):
+            store = mock.Mock(pinned=False, get_tensor='the tensors of ' + path)
+            store.gather.side_effect = lambda keys, reserve: done.append('gather') or 0
+            store.keep.side_effect = lambda keys, reserve, spare=(): done.append('keep') or 0
+            yield store
+
+        def pool(stores, budget, adapters=(), ahead_gib=0):
+            done.append('pool')
+            made = mock.Mock(stores=stores, adapters=list(adapters), bytes=0, known=False, sequence=[])
+            made.applied.return_value = {}
+            made.streamed.return_value = {}
+            made.staying.return_value = {}
+            made.prime.return_value = 0
+            return made
+
+        def load_adapter(read):
+            done.append(('adapter', read))
+            return 'adapter'
+
+        def seen(adapter, cameras, width, height):
+            done.append(('seen', adapter, cameras, width, height))
+            return 'tokens of the camera'
+
+        for patch in (
+            mock.patch('runner.models.residency.open_store', open_store),
+            mock.patch('runner.models.pool.WeightPool', pool),
+            mock.patch('runner.models.pool.load_streamed', lambda architecture, names, made: 'model'),
+            mock.patch('runner.models.wan22.architecture', lambda: None),
+            mock.patch('runner.models.wan22.load_adapter', load_adapter),
+            mock.patch('runner.models.wan22.seen', seen),
+            mock.patch('runner.models.wan_block.fuse', lambda model: (40, True)),
+            mock.patch('runner.models.residency.RESIDENCY.forget', lambda path: None),
+            mock.patch('torch.cuda.empty_cache', lambda: done.append('emptied')),
+            mock.patch.dict(pipeline._ORDER, {}, clear=True),
+        ):
+            patch.start()
+            self.addCleanup(patch.stop)
+        sight = dict(cameras='poses', width=768, height=448)
+        expert = pipeline._Expert('high', 'C:/camera_high.safetensors', {}, None, sight)
+        facts = expert.open(6.0).facts
+        # The adapter of this very file, its gigabyte gone before the pool lays anything on the card.
+        self.assertEqual(
+            done[:4],
+            [
+                ('adapter', 'the tensors of C:/camera_high.safetensors'),
+                ('seen', 'adapter', 'poses', 768, 448),
+                'emptied',
+                'pool',
+            ],
+        )
+        self.assertEqual(expert.seen, 'tokens of the camera')
+        self.assertIn('camera_seconds', facts)
+        expert.close()
+        self.assertIsNone(expert.seen)
+        # Without a camera asked, nothing of the adapter is read.
+        del done[:]
+        still = pipeline._Expert('low', 'C:/camera_low.safetensors', {})
+        facts = still.open(6.0).facts
+        self.assertEqual((done[0], still.seen), ('pool', None))
+        self.assertNotIn('camera_seconds', facts)
+        still.close()
+        # (The whole job runs on the card only: that each pass is given the camera of the model
+        # that draws it, and that its room is counted, is read in its text.)
+        source = Path(pipeline.__file__).read_text(encoding='utf-8')
+        self.assertIn("state['rotary'], current.seen", source)
+        self.assertIn('- AHEAD_GIB - beside)', source)
+
+    def test_the_bench_draws_one_video_a_movement_from_the_same_noise(self):
+        import argparse
+
+        from runner import bench
+        from runner.registry import validate_job
+
+        class Read(Exception):
+            pass
+
+        parse = argparse.ArgumentParser.parse_args
+
+        def stop(parser, *args, **kwargs):
+            raise Read(parse(parser, *args, **kwargs))
+
+        folder = Path.cwd()
+        given = ['wan22_camera', '--out', str(folder), '--seed', '7', '--same-seed', '--same-prompt']
+        for name in ('model', 'model-low', 'text-encoder', 'vae', 'step-lora', 'step-lora-low'):
+            given += ['--' + name, str(folder / (name + '.safetensors'))]
+        given += ['--reference', 'start_image=' + str(folder / 'start.png')]
+        given += ['--camera', 'none', '--camera', 'pan_left', '--camera', 'orbit_left', '--camera-speed', '2']
+        with mock.patch.object(argparse.ArgumentParser, 'parse_args', stop), self.assertRaises(Read) as read:
+            bench.main(given)
+        args = read.exception.args[0]
+        # (What `main` does of --same-prompt once the arguments are read.)
+        self.assertTrue(args.same_prompt)
+        args.new_prompts = 1
+        self.assertEqual(bench.FAMILIES['wan22_camera'][0], 'runner.pipelines.wan22')
+        jobs = [bench.wan22_camera_job(args, run) for run in (1, 2, 3, 4)]
+        moves = [made['parameters']['camera'] for made in jobs]
+        self.assertEqual(moves, ['none', 'pan_left', 'orbit_left', 'orbit_left'])
+        # Videos that differ by the camera alone: one prompt, one seed, the step LoRAs as shipped.
+        self.assertEqual({made['parameters']['seed'] for made in jobs}, {7})
+        self.assertEqual(len({made['parameters']['prompt'] for made in jobs}), 1)
+        for made in jobs:
+            self.assertEqual((made['pipeline'], made['parameters']['camera_speed']), ('wan22_camera', 2.0))
+            # (0.6.214) The steps the family ships, not Wan 2.2's four; --steps asks for others.
+            self.assertEqual((made['parameters']['steps'], made['parameters']['cfg']), (pipeline.CAMERA_STEPS, 1))
+            validate_job(dict(made, schemaVersion=1, workflowId='bench', workflowDigest='d' * 64))
+        args.steps = pipeline.CAMERA_STEPS_HARD
+        self.assertEqual(bench.wan22_camera_job(args, 1)['parameters']['steps'], 20)
+        # Wan 2.2 itself keeps its four steps.
+        args.steps = None
+        self.assertEqual(bench.wan22_job(args, 1)['parameters']['steps'], pipeline.STEPS)
+        self.assertEqual([pipeline.camera_of(made) for made in jobs[:2]], [None, dict(move='pan_left', speed=2.0)])
+
+
 if __name__ == '__main__':
     unittest.main()
