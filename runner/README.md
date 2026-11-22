@@ -16,7 +16,7 @@ A family (`runner/families/*.json`) describes a model: its components, its setti
 | MiniMax H3 | videos with sound, continuations | yes |
 | Wan 2.1 SCAIL-2 | a character replaced in a video; the character of an image animated by a video (`mode: animate`, 0.6.185: the engine only, not asked by the application yet) | yes |
 | Wan 2.2 | an image animated (image to video, two models) | yes |
-| Wan 2.2 Caméra (`wan22_camera`, 0.6.213: the engine only, no model shipped for it yet) | an image animated along a camera movement that is named: Wan 2.2 Fun Camera, the two models of Wan 2.2 with an adapter that reads where the camera is at each frame (`runner/video/camera.py`) | yes |
+| Wan 2.2 Caméra (`wan22_camera`; shipped since 0.6.223, its two files converted to INT8 on the user's computer once downloaded) | an image animated along a camera movement that is named: Wan 2.2 Fun Camera, the two models of Wan 2.2 with an adapter that reads where the camera is at each frame (`runner/video/camera.py`) | yes |
 | SeedVR2 | image upscaling and restoration | yes |
 | Real-ESRGAN (image, video) | upscaling | no |
 | RIFE | frame interpolation | no |
@@ -75,7 +75,7 @@ The distilled LTX 2.5 pipeline takes 8 steps, CFG 1, dimensions divisible by 32 
 
 The engine reads safetensors files, in the precision they store: INT8 ConvRot (the note `.comfy_quant` beside each layer), 8-bit floats (« fp8 scaled » or not), 16 and 32-bit floats. On an RTX 4070 Super the INT8 files are the fast ones: a layer computes three times faster from 8-bit integers than from floats, whatever the floats were stored as (LTX 2.5: 1.25 s a step against 2.74 s from an « fp8 scaled » file), and INT8 ConvRot rounds less than 8-bit floats do. The measures are in `MEMORY-STUDY.md`.
 
-`python -s -m runner.convert SOURCE TARGET.safetensors` writes any 8-bit file again as INT8 ConvRot: an « fp8 scaled » safetensors file, or a GGUF file (Q8_0, Q4_0, Q4_1, Q5_0, Q5_1, Q4_K, Q5_K, Q6_K; `runner/models/gguf.py` reads them without llama.cpp). 20 GiB of LTX 2.5 take 40 s. GGUF files are not read in place: they are converted first.
+`python -s -m runner.convert SOURCE TARGET.safetensors` writes any 8-bit file again as INT8 ConvRot: an « fp8 scaled » safetensors file, or a GGUF file (Q8_0, Q4_0, Q4_1, Q5_0, Q5_1, Q4_K, Q5_K, Q6_K; `runner/models/gguf.py` reads them without llama.cpp). 20 GiB of LTX 2.5 take 40 s. GGUF files are not read in place: they are converted first. With `--device cpu` it runs on the processor (86 s for 14 GiB of Wan 2.2 Fun Camera, 30 s on the card): what the application does of a file it downloaded in a format the engine does not read (`convert` in `downloads.json`, `lib/model-downloads.mjs`), so that the card stays with whatever holds it.
 
 ## Checks
 

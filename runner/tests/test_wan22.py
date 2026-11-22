@@ -846,6 +846,21 @@ class CameraRuleTests(unittest.TestCase):
         self.assertEqual((pipeline.STEPS, pipeline.CAMERA_STEPS, pipeline.CAMERA_STEPS_HARD), (4, 8, 20))
         self.assertEqual(plain['template']['parameters']['steps'], dict(policy='fixed', value=pipeline.STEPS))
         self.assertEqual(fun['template']['parameters']['steps'], dict(policy='fixed', value=pipeline.CAMERA_STEPS))
+        # (0.6.223) The model Moodix ships for the family: those two steps and no other to choose, and
+        # no camera read until the Studio names one.
+        import json
+
+        root = Path(__file__).resolve().parents[1]
+        shipped = [json.loads(path.read_text(encoding='utf-8')) for path in sorted((root / 'workflows').glob('*.json'))]
+        (camera,) = [item for item in shipped if item['pipeline'] == 'wan22_camera']
+        made = camera['parameters']
+        hard = [pipeline.CAMERA_STEPS, pipeline.CAMERA_STEPS_HARD]
+        self.assertEqual(made['steps'], dict(policy='fixed', value=pipeline.CAMERA_STEPS, choices=hard))
+        self.assertEqual(made['camera'], dict(policy='fixed', value=pipeline.NO_CAMERA))
+        self.assertEqual(made['camera_speed'], dict(policy='fixed', value=pipeline.CAMERA_SPEED))
+        self.assertEqual(made['negative_prompt']['value'], pipeline.AVOIDED)
+        for kind, name in pipeline.COMPONENTS.items():
+            self.assertEqual(wan22.expert({}, camera['components'][name]['file']), kind)
         # Still with the step LoRAs and no guidance: more passes of the same recipe, not another one
         # (without them, 20 steps took 326 s and the camera hardly moved).
         for name, value in (('cfg', 1), ('step_lora_strength', 1), ('shift', 5)):

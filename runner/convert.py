@@ -1,6 +1,6 @@
 """A model's file written again as INT8 ConvRot, the format this engine computes fastest with.
 
-    python -s -m runner.convert SOURCE TARGET.safetensors
+    python -s -m runner.convert SOURCE TARGET.safetensors [--device cpu]
 
 On an RTX 4070 SUPER a linear layer of LTX 2.5 computes three times faster from INT8 weights
 (comfy-kitchen's kernel: a product of 8-bit integers) than from weights that are turned back
@@ -297,11 +297,21 @@ def convert(source_path, target_path, device=None, report=print):
 
 
 def main(arguments=None):
-    arguments = sys.argv[1:] if arguments is None else arguments
-    if len(arguments) != 2:
-        raise SystemExit('usage: python -s -m runner.convert SOURCE TARGET.safetensors')
+    arguments = list(sys.argv[1:] if arguments is None else arguments)
+    # --device cpu: on the processor, for the application to convert a file it downloaded without
+    # asking the card of whatever holds it (86 s for 14 GiB of Wan 2.2 Fun Camera where the card takes
+    # 30, 22/11). The integers are not the card's to the last one: the two round a few sums apart.
+    device = None
+    if '--device' in arguments:
+        at = arguments.index('--device')
+        if at + 1 >= len(arguments):
+            raise SystemExit('usage: python -s -m runner.convert SOURCE TARGET.safetensors [--device cpu]')
+        device = arguments[at + 1]
+        del arguments[at : at + 2]
+    if len(arguments) != 2 or device not in (None, 'cpu', 'cuda'):
+        raise SystemExit('usage: python -s -m runner.convert SOURCE TARGET.safetensors [--device cpu]')
     try:
-        convert(*arguments)
+        convert(*arguments, device=device)
     except ValueError as error:
         raise SystemExit(str(error)) from None
 

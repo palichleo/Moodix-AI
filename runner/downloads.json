@@ -599,6 +599,32 @@
       "restricted": true
     }
   },
+  "wan2.2_fun_camera_high_noise_14B_int8_convrot.safetensors": {
+    "repo": "Comfy-Org/Wan-2.2",
+    "revision": "5df3a4a3ed0628002308022198249dbbbd045d09",
+    "path": "split_files/diffusion_models/wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors",
+    "size": 15301408048,
+    "sha256": "89a99cb5ab29e388f2e24fddac48eab4d88ca339d236c7a8d96aabacd0f525ae",
+    "convert": "int8",
+    "license": {
+      "name": "Apache-2.0",
+      "url": "https://spdx.org/licenses/Apache-2.0.html",
+      "limits": "Fichier de Comfy-Org (Apache-2.0), repaquetage de Wan 2.2 Fun Camera (alibaba-pai/Wan2.2-Fun-A14B-Control-Camera, Apache-2.0) ; il est converti sur cet ordinateur dans le format du moteur de Moodix."
+    }
+  },
+  "wan2.2_fun_camera_low_noise_14B_int8_convrot.safetensors": {
+    "repo": "Comfy-Org/Wan-2.2",
+    "revision": "5df3a4a3ed0628002308022198249dbbbd045d09",
+    "path": "split_files/diffusion_models/wan2.2_fun_camera_low_noise_14B_fp8_scaled.safetensors",
+    "size": 15301408048,
+    "sha256": "a2b7b361e3fad907958aa6ad662a3673bad5ffdce14706cffde4baabb98f9020",
+    "convert": "int8",
+    "license": {
+      "name": "Apache-2.0",
+      "url": "https://spdx.org/licenses/Apache-2.0.html",
+      "limits": "Fichier de Comfy-Org (Apache-2.0), repaquetage de Wan 2.2 Fun Camera (alibaba-pai/Wan2.2-Fun-A14B-Control-Camera, Apache-2.0) ; il est converti sur cet ordinateur dans le format du moteur de Moodix."
+    }
+  },
   "wan2.2_i2v_high_int8_convrot.safetensors": {
     "repo": "obsxrver/ComfyUI-Native-INT8_ConvRot",
     "revision": "4377928f97cc0efe49089f234a4bb69c310d1e77",

@@ -102,10 +102,11 @@ test('a chat model reads Wan 2.2 after the models that make a video from words, 
   for (const setting of ['steps', 'cfg', 'shift', 'negative_prompt', 'fps', 'width', 'height'])
     assert.equal(Object.hasOwn(tool.parameters.properties, setting), false, setting);
   // The Studio: after the two others, an image to start from it cannot do without, its lengths.
+  // (0.6.223) Wan 2.2 Caméra comes after it, for the user's own hand (see the last test).
   const studio = (await catalog.studio()).create_video;
-  assert.deepEqual(studio.map(item => item.family).sort(), ['ltx25', 'minimax_h3', 'wan22']);
-  assert.equal(studio.at(-1).family, 'wan22');
-  const own = studio.at(-1);
+  assert.deepEqual(studio.map(item => item.family).sort(), ['ltx25', 'minimax_h3', 'wan22', 'wan22_camera']);
+  assert.deepEqual(studio.slice(-2).map(item => item.family), ['wan22', 'wan22_camera']);
+  const own = studio.at(-2);
   assert.equal(own.roles.start_image.required, true);
   assert.deepEqual([own.roles.end_image.count, own.roles.reference.count], [0, 0]);
   assert.deepEqual(own.size, { width: 768, height: 448 });
@@ -192,7 +193,58 @@ test('a file of Wan 2.2 Fun Camera is never taken for Wan 2.2, nor Wan 2.2 for i
   const { role, spec } = versionComponent(fun);
   assert.deepEqual([role, spec.reads], ['model', ['INT8', 'BF16', 'FP16', 'FP32']]);
   assert.equal(recipeOf(spec, { shapes: camera }).companion.role, 'modelLow');
-  // Nothing of it is on a screen yet (a mock-up first): no model is shipped for the family, so the
-  // page « Modèles », the Studio and the chat model see no more than before.
-  assert.equal(shipped.some(workflow => workflow.pipeline === 'wan22_camera'), false);
+});
+
+test('Wan 2.2 Caméra is shipped for the Studio: eight steps or twenty, its camera a fixed setting the Studio changes (0.6.223)', async () => {
+  // His words of 22/11, on the real videos: « Oui, branche » (the window of the camera on this model),
+  // after « ok pas mal, mais on doit pouvoir switch à 20 étapes pour les vidéos difficiles ».
+  const made = shipped.filter(workflow => workflow.pipeline === 'wan22_camera');
+  assert.equal(made.length, 1);
+  const camera = made[0],
+    { ready, builtin, ...plain } = camera,
+    { digest, ...valid } = validateNativeWorkflow(plain);
+  assert.deepEqual(valid, plain);
+  assert.equal(camera.name, 'Wan 2.2 Caméra');
+  assert.equal(serves(camera, 'create_video'), true);
+  assert.deepEqual(camera.references, wan.references);
+  // The files of Wan 2.2 beside its two models, each under an identifier of its own (see above).
+  assert.deepEqual(Object.keys(camera.components), Object.keys(wan.components));
+  for (const role of ['textEncoder', 'vae', 'stepLora', 'stepLoraLow']) {
+    assert.equal(camera.components[role].file, wan.components[role].file, role);
+    assert.notEqual(camera.components[role].asset, wan.components[role].asset, role);
+  }
+  assert.deepEqual(
+    [camera.components.model.file, camera.components.modelLow.file],
+    ['wan2.2_fun_camera_high_noise_14B_int8_convrot.safetensors', 'wan2.2_fun_camera_low_noise_14B_int8_convrot.safetensors'],
+  );
+  // Every setting has a value of Moodix (the rule of 19/11); the steps are 8, and 20 the only other
+  // choice; the camera reads none until the Studio says one, at the speed of the published movements.
+  const p = camera.parameters;
+  for (const name of Object.keys(p)) if (isSetting(name)) assert.equal(p[name].policy, 'fixed', name);
+  assert.deepEqual(p.steps, { policy: 'fixed', value: 8, choices: [8, 20] });
+  assert.deepEqual([p.camera, p.camera_speed], [{ policy: 'fixed', value: 'none' }, { policy: 'fixed', value: 1 }]);
+  assert.deepEqual([p.cfg.value, p.step_lora_strength.value, p.shift.value, p.fps.value], [1, 1, 5, 16]);
+  assert.deepEqual(p.frames, wan.parameters.frames);
+  assert.equal(p.negative_prompt.value, wan.parameters.negative_prompt.value);
+  // Not offered to Moodix AI as shipped (« Proposé à Moodix AI » off): in the chat its camera would
+  // stay at « none », a Wan 2.2 that takes longer. The Studio has it all the same.
+  assert.equal(camera.enabled, false);
+  const tool = (await catalog.definitions()).find(item => item.function.name === 'create_video').function;
+  assert.equal(tool.description.includes('Wan 2.2 Caméra'), false);
+  const studio = (await catalog.studio()).create_video.find(item => item.family === 'wan22_camera');
+  assert.equal(studio.roles.start_image.required, true);
+  assert.deepEqual(studio.size, { width: 768, height: 448 });
+  assert.equal(studio.lengths.standard, 81 / 16);
+  // Its two models are the files a download converts on this computer (lib/model-downloads.mjs).
+  const sources = JSON.parse(readFileSync(new URL('../runner/downloads.json', import.meta.url), 'utf8'));
+  for (const [role, kind] of [['model', 'high'], ['modelLow', 'low']]) {
+    const source = sources[camera.components[role].file];
+    assert.equal(source.convert, 'int8', role);
+    assert.equal(source.path, `split_files/diffusion_models/wan2.2_fun_camera_${kind}_noise_14B_fp8_scaled.safetensors`);
+    assert.deepEqual([source.repo, source.size, source.license.name], ['Comfy-Org/Wan-2.2', 15301408048, 'Apache-2.0']);
+    assert.match(source.sha256, /^[0-9a-f]{64}$/);
+    assert.match(source.revision, /^[0-9a-f]{40}$/);
+  }
+  // No other source of the shipped models is one to convert.
+  assert.deepEqual(Object.keys(sources).filter(file => sources[file].convert), Object.values(made[0].components).slice(0, 2).map(item => item.file));
 });

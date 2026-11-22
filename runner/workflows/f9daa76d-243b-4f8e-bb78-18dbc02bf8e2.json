@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "id": "f9daa76d-243b-4f8e-bb78-18dbc02bf8e2",
+  "enabled": false,
+  "pipeline": "wan22_camera",
+  "mediaType": "video",
+  "name": "Wan 2.2 Caméra",
+  "description": "Animer une image avec un mouvement de caméra choisi (travelling, grue, panoramique, orbite) : une vidéo de 2 à 5 secondes qui commence sur cette image, sans le son. Il lui faut une image de début. Le mouvement se choisit dans le Studio, avec la pièce « Caméra ».",
+  "components": {
+    "model": {
+      "policy": "fixed",
+      "asset": "e8cdf722-2d80-4859-bca0-b435a145c1c8",
+      "file": "wan2.2_fun_camera_high_noise_14B_int8_convrot.safetensors"
+    },
+    "modelLow": {
+      "policy": "fixed",
+      "asset": "f29684b6-537d-43a0-93f7-8b24eebdfb78",
+      "file": "wan2.2_fun_camera_low_noise_14B_int8_convrot.safetensors"
+    },
+    "textEncoder": {
+      "policy": "fixed",
+      "asset": "cb139973-f4fb-4609-a74a-3d21348f4384",
+      "file": "umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+    },
+    "vae": {
+      "policy": "fixed",
+      "asset": "5a3add9a-9ad8-4523-9f9d-0a834cf63048",
+      "file": "Wan2_1_VAE_bf16.safetensors"
+    },
+    "stepLora": {
+      "policy": "fixed",
+      "asset": "30e6dc85-1bb6-4759-be57-211b2e04f954",
+      "file": "wan2.2_i2v_lightning_4steps_rank64_high_noise.safetensors"
+    },
+    "stepLoraLow": {
+      "policy": "fixed",
+      "asset": "04fb6684-8ab7-4149-a103-cf0099686781",
+      "file": "wan2.2_i2v_lightning_4steps_rank64_low_noise.safetensors"
+    }
+  },
+  "parameters": {
+    "prompt": {
+      "policy": "model",
+      "type": "string",
+      "maxLength": 8000
+    },
+    "negative_prompt": {
+      "policy": "fixed",
+      "value": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走"
+    },
+    "seed": {
+      "policy": "random",
+      "type": "integer"
+    },
+    "width": {
+      "policy": "fixed",
+      "value": 768
+    },
+    "height": {
+      "policy": "fixed",
+      "value": 448
+    },
+    "steps": {
+      "policy": "fixed",
+      "value": 8,
+      "choices": [8, 20]
+    },
+    "cfg": {
+      "policy": "fixed",
+      "value": 1
+    },
+    "shift": {
+      "policy": "fixed",
+      "value": 5
+    },
+    "step_lora_strength": {
+      "policy": "fixed",
+      "value": 1
+    },
+    "camera": {
+      "policy": "fixed",
+      "value": "none"
+    },
+    "camera_speed": {
+      "policy": "fixed",
+      "value": 1
+    },
+    "frames": {
+      "policy": "model",
+      "type": "integer",
+      "choices": [33, 49, 65, 81],
+      "default": 81,
+      "description": "Longueur du clip (16 i/s) : de 33 (2 s) à 81 images (5 s)."
+    },
+    "fps": {
+      "policy": "fixed",
+      "value": 16
+    }
+  },
+  "loras": [],
+  "references": [
+    {
+      "id": "start",
+      "role": "start_image",
+      "required": true,
+      "name": "Image de début"
+    }
+  ]
+}

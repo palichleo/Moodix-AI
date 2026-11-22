@@ -186,6 +186,26 @@ class ConvertTests(unittest.TestCase):
         self.assertFalse((self.folder / 'c.safetensors').exists())
         self.assertFalse((self.folder / 'c.safetensors.part').exists())
 
+    def test_the_command_converts_on_the_processor_when_it_is_asked(self):
+        # (0.6.223) The application converts a file it downloaded without asking the card of
+        # whatever holds it: `--device cpu`. Without it, the card where there is one, as before.
+        from unittest import mock
+
+        asked = []
+
+        def noted(source, target, device=None):
+            asked.append((source, target, device))
+
+        with mock.patch.object(convert, 'convert', noted):
+            convert.main(['a.safetensors', 'b.safetensors'])
+            convert.main(['a.safetensors', 'b.safetensors', '--device', 'cpu'])
+            convert.main(['--device', 'cuda', 'a.safetensors', 'b.safetensors'])
+            for wrong in (['a', 'b', '--device'], ['a', 'b', '--device', 'tpu'], ['a'], ['a', 'b', 'c']):
+                with self.assertRaises(SystemExit, msg=wrong):
+                    convert.main(wrong)
+        self.assertEqual([device for _, _, device in asked], [None, 'cpu', 'cuda'])
+        self.assertEqual({(source, target) for source, target, _ in asked}, {('a.safetensors', 'b.safetensors')})
+
     def test_a_gguf_file_is_converted_from_its_blocks(self):
         source, target = self.folder / 'model-Q8_0.gguf', self.folder / 'model-int8.safetensors'
         packed, plain = _q8_0(torch.randn(2, 256) * 0.3)

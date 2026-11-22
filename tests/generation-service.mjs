@@ -614,3 +614,34 @@ test('the folder of each kind of file when none is set apart for it: what « Dé
   // The page is told them with the rest.
   assert.deepEqual((await service.snapshot()).defaultFolders, service.defaultFolders());
 });
+
+test('a downloaded file the engine does not read is converted by the engine’s own Python, on the processor (0.6.223)', async t => {
+  // The two files of Wan 2.2 Fun Camera are published as 8-bit floats: lib/model-downloads.mjs has them
+  // written again as INT8 by runner/convert.py. In a command of its own: neither the worker nor the
+  // card is asked (86 s a file of 14 GiB on the processor, measured on 22/11).
+  const root = await mkdtemp(join(tmpdir(), 'moodix-convert-command-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const calls = [],
+    options = { root, dataDir: join(root, 'data'), workflowDir: join(root, 'workflow'), outputDir: join(root, 'output'), worker: {} },
+    environment = { exists: async () => true, interpreter: () => 'C:/moodix/python.exe', run: async (...given) => void calls.push(given) },
+    service = new GenerationService({ ...options, environment });
+  const signal = new AbortController().signal;
+  await service.convertModel('D:/models/camera_fp8.safetensors', 'D:/models/camera_int8.safetensors', { signal });
+  assert.equal(calls.length, 1);
+  const [python, args, context] = calls[0];
+  assert.equal(python, 'C:/moodix/python.exe');
+  assert.deepEqual(args, ['-s', '-m', 'runner.convert', 'D:/models/camera_fp8.safetensors', 'D:/models/camera_int8.safetensors', '--device', 'cpu']);
+  // From the folder of the application (where `runner` is), with the environment of the engine,
+  // and stopped with the download.
+  assert.equal(context.cwd, root);
+  assert.equal(context.signal, signal);
+  assert.equal(context.env.PYTHONNOUSERSITE, '1');
+  // The downloads of the service convert with it.
+  assert.equal(typeof service.downloads.convert, 'function');
+  await service.downloads.convert('a', 'b', {});
+  assert.deepEqual(calls[1][1].slice(3, 5), ['a', 'b']);
+  // Without the engine's Python, the file cannot be converted here: said, nothing is run.
+  const bare = new GenerationService({ ...options, environment: { exists: async () => false } });
+  await assert.rejects(bare.convertModel('a', 'b'), /moteur de génération, qui n’est pas encore installé/);
+  assert.equal(calls.length, 2);
+});

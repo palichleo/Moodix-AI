@@ -80,8 +80,11 @@ test('a setting the editor leaves open changes the job of every shipped workflow
       // The prompt has its own line (no setting), a drawn seed is drawn; `unused`: the next test.
       if (name === 'prompt' || policy.policy === 'random' || spec.unused) continue;
       if (policy.policy === 'model' && !Object.hasOwn(policy, 'default')) continue;
+      // (0.6.223) A fixed setting that names its choices takes another of them (the steps of Wan 2.2
+      // Caméra: 8 or 20); else any other value its family allows.
       const key = policy.policy === 'fixed' ? 'value' : 'default',
-        alternative = otherValue(policy.policy === 'fixed' ? spec : effective(policy, spec), policy[key]),
+        narrowed = policy.policy !== 'fixed' || Boolean(policy.choices),
+        alternative = otherValue(narrowed ? effective(policy, spec) : spec, policy[key]),
         where = `${file} (${workflow.name}) · ${name}`;
       if (alternative === undefined) {
         assert.ok(inertSetting(manifest, workflow, name, 'parameter'), `${where}: one value only, yet not greyed`);

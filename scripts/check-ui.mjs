@@ -193,8 +193,14 @@ const STUDIO_LAYOUT = `(async () => {
             if (cards.some(card => !moving(card).length)) found.push(name + ' : un mouvement de la Caméra n’a pas de scène animée (' + cards.filter(card => !moving(card).length).map(card => card.dataset.move).join(', ') + ')');
             if (chosen.length !== 1 || !moving(chosen[0]).some(style => style.animationPlayState === 'running')) found.push(name + ' : la scène du mouvement choisi ne joue pas');
             if (cards.some(card => !card.classList.contains('is-chosen') && moving(card).some(style => style.animationPlayState === 'running'))) found.push(name + ' : une scène joue sans être choisie ni survolée');
-            if (greyed.length !== 4 || greyed.some(card => card.getAttribute('aria-disabled') !== 'true' || card.querySelector('.studio-camera-move-note')?.textContent !== 'pas fiable'))
-              found.push(name + ' : la fenêtre de la Caméra ne grise pas l’orbite et la grue (' + greyed.length + ' grisées)');
+            // (0.6.223) Four greyed either way: the orbits and the cranes, « pas fiable », where the sentence
+            // goes into the prompt; the zooms, « À l’épaule » and « Suivi du sujet », « indisponible », for a
+            // model that reads the camera itself (Wan 2.2 Caméra, shipped since this version).
+            const notes = [...new Set(greyed.map(card => card.querySelector('.studio-camera-move-note')?.textContent))],
+              offs = greyed.map(card => card.dataset.move).sort().join(' '),
+              wanted = { 'pas fiable': 'crane_down crane_up orbit_left orbit_right', indisponible: 'follow handheld zoom_in zoom_out' };
+            if (greyed.length !== 4 || greyed.some(card => card.getAttribute('aria-disabled') !== 'true') || notes.length !== 1 || wanted[notes[0]] !== offs)
+              found.push(name + ' : la fenêtre de la Caméra ne grise pas ce qu’elle doit (' + greyed.length + ' grisées : ' + offs + ' ; ' + notes.join(', ') + ')');
             if (pane.querySelectorAll('.studio-camera-speed').length !== 3) found.push(name + ' : la fenêtre de la Caméra n’a pas ses trois vitesses');
             if (cards.some(card => card.scrollWidth > card.clientWidth + 1)) found.push(name + ' : un nom de mouvement déborde de sa case');
             [...pane.querySelectorAll('.studio-window-button')].find(item => item.textContent === 'Retirer')?.click();
@@ -956,6 +962,7 @@ try {
   // before, at most) instead of waiting that time every run: some seven seconds less.
   // (0.6.119) The page « Modèles » (maquette du 19/11): one line a model in four groups, with the
   // workflows Moodix ships (this copy has none of their files: every model is to be downloaded).
+  // (0.6.223) Twelve lines since Wan 2.2 Caméra is shipped.
   const lines = `[...document.querySelectorAll('#workflow-list .model-line')]`,
     ltx = `document.querySelector('#workflow-list .model-line[data-model="LTX 2.5"]')`;
   // (0.6.131) « Dossiers à part » : a folder a line of 46 px (its name, the folder, « Parcourir »,
@@ -963,11 +970,11 @@ try {
   await run('onglet Génération : un dossier par ligne', () => click('#settings-tab-generation'), () =>
     js(`(() => { const rows = [...document.querySelectorAll('#settings-panel-generation .set-folder')], panel = document.getElementById('settings-panel-generation'); return rows.length === 7 && rows.every(row => Math.round(row.getBoundingClientRect().height) === 46 && row.querySelectorAll('button.set-act').length === 2 && row.querySelector('.help-tip').dataset.help) && !panel.querySelector('details') && panel.scrollWidth <= panel.clientWidth + 1; })()`), { within: 2500 });
   await run('onglet Modèles', () => click('#settings-tab-workflows'), () =>
-    js(`${lines}.length === 11 && document.querySelectorAll('#workflow-list .model-group').length === 4 && document.querySelector('#settings-tab-workflows .settings-tab-label').textContent === 'Modèles' && document.querySelectorAll('#workflow-list .model-row > .model-ai input').length === 11 && document.querySelectorAll('#workflow-list .model-ai-head').length === 1`), { within: 2500 });
+    js(`${lines}.length === 12 && document.querySelectorAll('#workflow-list .model-group').length === 4 && document.querySelector('#settings-tab-workflows .settings-tab-label').textContent === 'Modèles' && document.querySelectorAll('#workflow-list .model-row > .model-ai input').length === 12 && document.querySelectorAll('#workflow-list .model-ai-head').length === 1`), { within: 2500 });
   // Every line is 46 px tall, « Télécharger » in the place of the version as any other (capture 65);
   // nothing scrolls sideways, nothing of before is shown (no button to import or create, no dot).
   await run('Modèles : lignes de 46 px', async () => {}, () =>
-    js(`(() => { const rows = [...document.querySelectorAll('#workflow-list .model-row')], panel = document.getElementById('settings-panel-workflows'), gone = id => !document.getElementById(id); return rows.length === 11 && rows.every(row => Math.round(row.getBoundingClientRect().height) === 46) && panel.scrollWidth <= panel.clientWidth + 1 && gone('workflow-add') && gone('native-workflow-import') && !document.querySelector('#workflow-list .workflow-state') && document.querySelectorAll('#workflow-list .model-download').length >= 5; })()`), { within: 700 });
+    js(`(() => { const rows = [...document.querySelectorAll('#workflow-list .model-row')], panel = document.getElementById('settings-panel-workflows'), gone = id => !document.getElementById(id); return rows.length === 12 && rows.every(row => Math.round(row.getBoundingClientRect().height) === 46) && panel.scrollWidth <= panel.clientWidth + 1 && gone('workflow-add') && gone('native-workflow-import') && !document.querySelector('#workflow-list .workflow-state') && document.querySelectorAll('#workflow-list .model-download').length >= 5; })()`), { within: 700 });
   // The chevron unfolds the versions under the line, which stays as tall; « Réglages » is then in sight.
   await run('Modèles : versions dépliées', () => click('#workflow-list .model-line[data-model="LTX 2.5"] .model-chevron'), () =>
     js(`(() => { const line = ${ltx}; return line?.dataset.open === 'true' && Boolean(line.querySelector('.model-versions')) && Math.round(line.querySelector('.model-row').getBoundingClientRect().height) === 46 && line.querySelector('.model-chevron').getAttribute('aria-expanded') === 'true' && getComputedStyle(line.querySelector('.model-settings')).opacity === '1'; })()`), { within: 700 });

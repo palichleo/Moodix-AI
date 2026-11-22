@@ -338,3 +338,134 @@ test('nothing starts without room on the disk, for a workflow of the user, or tw
   assert.equal(formatBytes(43.7 * 1024 ** 3), '43,7 Go');
   assert.equal(formatBytes(67061725), '64 Mo');
 });
+
+// (0.6.223) Wan 2.2 Fun Camera is published as 8-bit floats only, which the engine does not read: its
+// two files are downloaded, then written again in the engine's format on this computer.
+async function converting(t, { free = 1024 ** 4, convert } = {}) {
+  const root = await mkdtemp(join(tmpdir(), 'moodix-convert-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const folder = join(root, 'models', 'diffusion_models'),
+    catalogPath = join(root, 'downloads.json');
+  await writeFile(
+    catalogPath,
+    JSON.stringify({
+      'camera_high_int8_convrot.safetensors': {
+        repo: 'Org/Camera',
+        revision: 'abc',
+        path: 'split_files/diffusion_models/camera_high_fp8_scaled.safetensors',
+        size: MODEL.length,
+        sha256: sha(MODEL),
+        convert: 'int8',
+        license: { name: 'Apache-2.0', url: 'https://spdx.org/licenses/Apache-2.0.html' },
+      },
+    }),
+  );
+  const registered = new Map(),
+    converted = [],
+    requests = [];
+  const downloads = new ModelDownloads({
+    catalogPath,
+    dataDir: root,
+    assets: {
+      resolve: async id => (registered.has(id) ? { path: registered.get(id).path } : Promise.reject(new Error(`Asset ${id} not found`))),
+      register: async asset => void registered.set(asset.id, asset),
+    },
+    folderOf: () => folder,
+    fetchImpl: async (url, options = {}) => {
+      requests.push(url);
+      const range = options.headers?.Range?.match(/^bytes=(\d+)-$/);
+      return new Response(range ? MODEL.subarray(Number(range[1])) : MODEL, { status: range ? 206 : 200 });
+    },
+    statfs: async () => ({ bavail: free, bsize: 1 }),
+    ...(convert === null
+      ? {}
+      : {
+          convert:
+            convert ??
+            (async (from, to) => {
+              converted.push([from, to, downloads.job.current]);
+              await writeFile(to, 'int8 ' + (await readFile(from)).length);
+            }),
+        }),
+  });
+  const workflow = {
+    id: 'camera',
+    name: 'Wan 2.2 Caméra',
+    pipeline: 'wan22_camera',
+    builtin: true,
+    ready: false,
+    components: { model: { policy: 'fixed', asset: 'camera-high', file: 'camera_high_int8_convrot.safetensors' } },
+  };
+  return { folder, downloads, workflow, registered, converted, requests, source: join(folder, 'camera_high_fp8_scaled.safetensors'), target: join(folder, 'camera_high_int8_convrot.safetensors') };
+}
+
+test('a file the engine does not read as published is downloaded, converted here, and registered under the name the model asks (0.6.223)', async t => {
+  const f = await converting(t);
+  const offer = (await f.downloads.offers([f.workflow])).camera;
+  // What is downloaded is the published file; that it is then converted is said.
+  assert.deepEqual([offer.bytes, offer.left, offer.complete, offer.convert], [MODEL.length, MODEL.length, true, true]);
+  await f.downloads.start(f.workflow);
+  await f.downloads.task;
+  assert.equal(f.downloads.status().state, 'done', f.downloads.status().error);
+  assert.deepEqual(f.requests, ['https://huggingface.co/Org/Camera/resolve/abc/split_files/diffusion_models/camera_high_fp8_scaled.safetensors']);
+  // Converted once the download is whole and checked, from the published file to the model's own;
+  // said while it lasts (the bar is at its end, and minutes pass).
+  assert.deepEqual(f.converted, [[f.source, f.target, 'camera_high_int8_convrot.safetensors : conversion pour le moteur de Moodix']]);
+  assert.equal(await readFile(f.target, 'utf8'), 'int8 ' + MODEL.length);
+  // The published file served only for that: it does not stay (15 Go the engine never reads).
+  await assert.rejects(stat(f.source));
+  assert.deepEqual(f.registered.get('camera-high'), { id: 'camera-high', path: f.target, kind: 'model', family: 'wan22_camera' });
+  assert.deepEqual(await f.downloads.offers([f.workflow]), {}, 'nothing left to offer');
+});
+
+test('a conversion that fails leaves the downloaded file for the next try, and registers nothing (0.6.223)', async t => {
+  let fails = true;
+  const calls = [];
+  const f = await converting(t, {
+    convert: async (from, to) => {
+      calls.push(from);
+      if (fails) throw new Error('le moteur de génération n’est pas encore installé');
+      await writeFile(to, 'int8');
+    },
+  });
+  await f.downloads.start(f.workflow);
+  await f.downloads.task;
+  assert.deepEqual([f.downloads.status().state, f.downloads.status().error], ['error', 'le moteur de génération n’est pas encore installé']);
+  assert.deepEqual(await readFile(f.source), MODEL, 'the download is kept');
+  assert.equal(f.registered.size, 0);
+  // Tried again: nothing is fetched a second time, the conversion alone runs.
+  fails = false;
+  const offer = (await f.downloads.offers([f.workflow])).camera;
+  assert.deepEqual([offer.bytes, offer.left], [MODEL.length, 0]);
+  await f.downloads.start(f.workflow);
+  await f.downloads.task;
+  assert.equal(f.downloads.status().state, 'done', f.downloads.status().error);
+  assert.equal(f.requests.length, 1);
+  assert.equal(calls.length, 2);
+  assert.equal(f.registered.get('camera-high').path, f.target);
+  await assert.rejects(stat(f.source));
+});
+
+test('a file to convert asks for the room of both files, is never written over another, and needs the engine (0.6.223)', async t => {
+  // The converted file is written beside the published one before that one leaves.
+  const tight = await converting(t, { free: MODEL.length + 2 * 1024 ** 3 + 10 });
+  await assert.rejects(tight.downloads.start(tight.workflow), /Pas assez de place/);
+  const wide = await converting(t, { free: 2 * MODEL.length + 2 * 1024 ** 3 + 10 });
+  await wide.downloads.start(wide.workflow);
+  await wide.downloads.task;
+  assert.equal(wide.downloads.status().state, 'done', wide.downloads.status().error);
+  // A file that has the name of the converted one, or of the published one, without being it.
+  const taken = await converting(t);
+  await mkdir(taken.folder, { recursive: true });
+  await writeFile(taken.target, 'another file');
+  await assert.rejects(taken.downloads.start(taken.workflow), /camera_high_int8_convrot\.safetensors existe déjà .* sans convenir à ce modèle/);
+  const other = await converting(t);
+  await mkdir(other.folder, { recursive: true });
+  await writeFile(other.source, 'not the published file');
+  await assert.rejects(other.downloads.start(other.workflow), /camera_high_fp8_scaled\.safetensors existe déjà .* sans être le fichier attendu/);
+  assert.equal(await readFile(other.source, 'utf8'), 'not the published file');
+  // Without what converts (the engine is not there), nothing is downloaded for nothing.
+  const bare = await converting(t, { convert: null });
+  await assert.rejects(bare.downloads.start(bare.workflow), /se convertissent après le téléchargement/);
+  assert.equal(bare.requests.length, 0);
+});
