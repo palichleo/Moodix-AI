@@ -102,7 +102,8 @@ test('a model this computer cannot run is shown greyed with its reason, others n
   // Not ready for another reason: left out, as before.
   assert.deepEqual(
     tools.create_video.map(item => item.family),
-    ['ltx25', 'wan22'],
+    // (0.6.223) Wan 2.2 Caméra with them, shipped since.
+    ['ltx25', 'wan22', 'wan22_camera'],
   );
   // The chat model is not offered what cannot run, and a request for it finds no workflow.
   const offered = (await catalog.definitions()).find(tool => tool.function.name === 'create_image');

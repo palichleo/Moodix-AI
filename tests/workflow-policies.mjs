@@ -1578,15 +1578,11 @@ test('(0.6.211) Studio · the camera, from its piece to the engine: the sentence
 
 test('(0.6.222) Studio · a model that reads the camera itself (Wan 2.2 Caméra): its piece sets its two settings, nothing is added to the prompt', async () => {
   // The family wan22_camera has the settings `camera` (the ids of the list, « none » for no camera) and
-  // `camera_speed` (a number). A model of it as it will be shipped: both fixed, as its eight steps. (Its start
-  // image left free here: this page gives none.)
+  // `camera_speed` (a number). The model as it is shipped (0.6.223): both fixed, as its eight steps, which may
+  // be twenty. (Its start image left free here: this page gives none.)
   const { ToolCatalog } = await import('../lib/tool-catalog.mjs');
-  const base = stored('wan22'),
-    fun = variant(
-      'wan22',
-      { camera: FIXED('none'), camera_speed: FIXED(1), steps: FIXED(8) },
-      { pipeline: 'wan22_camera', id: '7a3c1e9b-4d2f-4b6a-9c1e-2f5d8a7b3c41', name: 'Wan 2.2 Caméra', references: base.references.map(slot => ({ ...slot, required: false })) },
-    ),
+  const base = stored('wan22_camera'),
+    fun = variant('wan22_camera', {}, { references: base.references.map(slot => ({ ...slot, required: false })) }),
     w = world([variant('ltx25'), fun]),
     page = await studioPage(w);
   // What the Studio is told of it: the movements of its own list, a speed; its two settings are no ordinary line.
@@ -1596,7 +1592,9 @@ test('(0.6.222) Studio · a model that reads the camera itself (Wan 2.2 Caméra)
     speed: true,
   });
   assert.deepEqual(told.settings.map(setting => setting.key).filter(key => /camera/.test(key)), []);
-  assert.ok(told.settings.some(setting => setting.key === 'steps' && setting.fixed && setting.default === 8), JSON.stringify(told.settings.map(setting => setting.key)));
+  assert.deepEqual([base.name, base.parameters.camera, base.parameters.camera_speed], ['Wan 2.2 Caméra', FIXED('none'), FIXED(1)]);
+  const steps = told.settings.find(setting => setting.key === 'steps');
+  assert.deepEqual([steps.fixed, steps.default, steps.choices], [true, 8, [8, 20]], JSON.stringify(told.settings.map(setting => setting.key)));
   try {
     page.mode(1);
     const { body } = page,

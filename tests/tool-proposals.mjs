@@ -1611,12 +1611,22 @@ test('(0.6.211) the camera chosen in the Studio: its sentence after the prompt o
   // Passed by a chat model, which is not offered it yet: refused as any argument its tool does not have.
   await assert.rejects(next(asked, { byHand: false }), /create_video n’accepte pas l’argument camera/);
 
-  // What the Studio is told of each model: the camera for a new video of LTX 2.5, MiniMax H3 and Wan 2.2,
-  // nowhere else.
+  // What the Studio is told of each model: the camera for a new video of LTX 2.5, MiniMax H3 and Wan 2.2, a
+  // sentence of their prompt (`true`); and of Wan 2.2 Caméra (0.6.223), which reads it itself: its own movements
+  // and a speed. Nowhere else.
   const tools = await new ToolCatalog({ list: async () => list }).studio();
   assert.deepEqual(
     Object.fromEntries(Object.entries(tools).map(([verb, items]) => [verb, (Array.isArray(items) ? items : []).filter(item => item.camera).map(item => item.name).sort()])),
-    { create_image: [], create_video: ['LTX 2.5', 'MiniMax H3 Omni', 'Wan 2.2'], extend_video: [], replace_character: [], create_audio: [] },
+    { create_image: [], create_video: ['LTX 2.5', 'MiniMax H3 Omni', 'Wan 2.2', 'Wan 2.2 Caméra'], extend_video: [], replace_character: [], create_audio: [] },
+  );
+  assert.deepEqual(
+    tools.create_video.map(item => [item.name, item.camera === true ? 'par les mots' : `${item.camera.moves.length} mouvements, vitesse ${item.camera.speed}`]).sort(),
+    [
+      ['LTX 2.5', 'par les mots'],
+      ['MiniMax H3 Omni', 'par les mots'],
+      ['Wan 2.2 Caméra', '13 mouvements, vitesse true'],
+      ['Wan 2.2', 'par les mots'],
+    ],
   );
   // (A workflow whose prompt is fixed has none to add a sentence to: no camera.)
   const { ready: _ready, digest: _digest, ...stored } = ltx,
