@@ -402,8 +402,10 @@ async function converting(t, { free = 1024 ** 4, convert } = {}) {
 test('a file the engine does not read as published is downloaded, converted here, and registered under the name the model asks (0.6.223)', async t => {
   const f = await converting(t);
   const offer = (await f.downloads.offers([f.workflow])).camera;
-  // What is downloaded is the published file; that it is then converted is said.
+  // What is downloaded is the published file; that it is then converted is said, with the room the
+  // disk needs meanwhile: both files, the published one and the converted one beside it (0.6.224).
   assert.deepEqual([offer.bytes, offer.left, offer.complete, offer.convert], [MODEL.length, MODEL.length, true, true]);
+  assert.equal(offer.room, 2 * MODEL.length);
   await f.downloads.start(f.workflow);
   await f.downloads.task;
   assert.equal(f.downloads.status().state, 'done', f.downloads.status().error);
@@ -436,7 +438,8 @@ test('a conversion that fails leaves the downloaded file for the next try, and r
   // Tried again: nothing is fetched a second time, the conversion alone runs.
   fails = false;
   const offer = (await f.downloads.offers([f.workflow])).camera;
-  assert.deepEqual([offer.bytes, offer.left], [MODEL.length, 0]);
+  // (Nothing left to fetch: the room is the converted file's alone.)
+  assert.deepEqual([offer.bytes, offer.left, offer.room], [MODEL.length, 0, MODEL.length]);
   await f.downloads.start(f.workflow);
   await f.downloads.task;
   assert.equal(f.downloads.status().state, 'done', f.downloads.status().error);
