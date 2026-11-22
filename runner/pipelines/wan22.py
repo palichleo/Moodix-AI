@@ -37,8 +37,11 @@ the same image, prompt and seed for every video; the adapter costs 1.2 s as each
 - 8 steps with them, 91 s (three passes of the « high noise » model, five of the other): the
   camera moves as far, and the copy is gone from the frames looked at. What the family ships;
 - 20 steps with them, for a video the user finds hard (his words: « on doit pouvoir switch à 20
-  étapes pour les vidéos difficiles »): eight passes and twelve, about 3 min by the time of a
-  pass. Not made yet: whether it draws better than 8 is not known;
+  étapes pour les vidéos difficiles »): eight passes and twelve, 186 s (204 the first video of a
+  session), 6.7 GiB at most. The crane goes further (231 px) and, on the frames looked at, the
+  subject keeps its size as it leaves by the bottom of the picture, where at 8 steps it shrinks
+  and stays whole; the orbit is the one of 8 steps with more of the foreground sliding (146 px
+  against 103). Whether that is better in motion is the user's to say;
 - 20 steps without them, at a guidance of 6 (VideoX-Fun's own recipe takes 50 steps): 326 s, no
   copy, and the camera hardly moves (21 px where the others slide the picture 150 to 175): not
   the way to more steps.
