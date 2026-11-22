@@ -57,8 +57,9 @@ const ROLES = {
   // #ref and « Références du projet » are files, and keep their name.
   reference: 'Sujet',
 };
-// Each input image says what it is with a picto, never a word (moodix-design.md 13): its name is
-// in its tooltip and for screen readers. A reference shows « @ », and « @1 » once given.
+// Each input image says what it is with a picto (moodix-design.md 13), and (0.6.201, his decision of 21/11:
+// « des mots sous les pièces, en 12 px ») with a word under it (WORDS). Its whole name is in its tooltip
+// and for screen readers. A subject shows « @ », and « @1 » once given.
 const PICTO = { source: 'edit', start_image: 'start', end_image: 'end' };
 const ADD = {
   source: 'Ajouter l’image à modifier',
@@ -206,6 +207,9 @@ const seconds = value => twoFigures(value) + ' S';
 // The name a slot shows while something that it takes is carried (studio-maquette.md, « Glisser »).
 // (0.6.190) « Sujet 2 », no longer « Réf. 2 ».
 const SHORT = { start_image: 'Début', end_image: 'Fin', reference: 'Sujet', source: 'Image', source_video: 'Vidéo' };
+// (0.6.201) The word under a piece of the plateau (capture 93), by its role: what it is for, in a word or two.
+// The video a character is put in says « À suivre », its character « Personnage » (capture 97).
+const WORDS = { start_image: 'Début', end_image: 'Fin', reference: 'Sujet', source: 'À modifier' };
 const figures = value => twoFigures(value) + ' S';
 /** The length of a sound in the Sortie (capture 23): « 08.00 S », « 1:45 » from a minute. */
 const soundFigures = value => {
@@ -857,12 +861,12 @@ export function setupStudio({
     render();
   }
   /**
-   * One image of the inputs (moodix-design.md 13): dashed while empty, with its picto (« @ » for
-   * a reference); given, its picture, the picto kept small in a badge (« @1 »). No word: the name
-   * is in its tooltip and for screen readers. A click picks a file; a file dropped on it, or the
-   * image of another slot (that changes its role); × takes it back.
+   * One piece of the plateau (moodix-design.md 13; 0.6.201, capture 93): its case, dashed while empty, with
+   * its picto (« @ » for a subject); given, its picture, the picto kept small in a badge (« @1 »); and under
+   * it its word (`word`: « Début », « Sujet »), the whole name in its tooltip and for screen readers. A click
+   * picks a file; a file dropped on it, or the image of another case (that changes its role); × takes it back.
    */
-  function slot(workflow, role, index, { label, add, tip, picto = null, badge = '', onRemove = null, media = 'image' }) {
+  function slot(workflow, role, index, { label, add, tip, word = WORDS[role] ?? label, picto = null, badge = '', onRemove = null, media = 'image' }) {
     const draft = drafts[mode],
       value = draft.inputs[role]?.[index],
       clash = exclusiveWith(workflow, role),
@@ -988,7 +992,13 @@ export function setupStudio({
       remove.title = 'Retirer';
       tile.append(remove);
     }
-    return tile;
+    // (0.6.201) Its word under it, for the eye: its button says its whole name aloud. While something it takes
+    // is carried, the name of its case (`data-name`, « CHANGER ») stands in its place (moodix.css).
+    const piece = node('div', 'studio-piece' + (value ? '' : ' is-empty')),
+      said = node('span', 'studio-piece-word', word);
+    said.setAttribute('aria-hidden', 'true');
+    piece.append(tile, said);
+    return piece;
   }
   /** Whether the workflow takes images in this role. */
   const takesImages = (workflow, role) =>
@@ -1025,21 +1035,20 @@ export function setupStudio({
     else if (drafts[mode].inputs.end_image?.[0]) move(workflow, end, start);
   }
   /**
-   * Bloc Début et fin: the start image at the start of a fine line of time, the end image at its
-   * other end (when the model takes one), the length set in Réglages on the line: in its middle,
-   * with the button that swaps them, « ⇄ 05.17 s ».
+   * Début et fin, the first row of the plateau: the start image at the start of a fine line of time, the
+   * end image at its other end (when the model takes one), the length set in Réglages on the line: in its
+   * middle, with the button that swaps them, « ⇄ 05.17 s ». (0.6.201) A row of the one block, no title.
    */
-  function framesBlock(workflow) {
+  function framesRow(workflow) {
     const start = takesImages(workflow, 'start_image'),
       end = takesImages(workflow, 'end_image');
     if (!start && !end) return null;
-    const block = node('div', 'studio-input-block studio-frames'),
-      row = node('div', 'studio-frames-row'),
+    const row = node('div', 'studio-plateau-row studio-frames'),
       middle = node('div', 'studio-span' + (start && end ? ' is-both' : '')),
       line = node('span', 'studio-span-line'),
       time = node('span', 'studio-span-time');
-    block.setAttribute('role', 'group');
-    block.setAttribute('aria-label', start && end ? 'Début et fin' : start ? 'Image de début' : 'Image de fin');
+    row.setAttribute('role', 'group');
+    row.setAttribute('aria-label', start && end ? 'Début et fin' : start ? 'Image de début' : 'Image de fin');
     line.setAttribute('aria-hidden', 'true');
     middle.append(line);
     if (start && end) {
@@ -1071,15 +1080,15 @@ export function setupStudio({
       );
     span = { line, time, workflow };
     paintSpan();
-    block.append(node('p', 'studio-input-title', start && end ? 'Début et fin' : start ? 'Image de début' : 'Image de fin'), row);
-    return block;
+    return row;
   }
   /**
-   * Bloc Sujets (« Références » until 0.6.190): a tray, no time; each image with its number (« @1 »), one empty slot at a
-   * time, and « n/3 » at the end of the line (the model's own most).
+   * The Sujets (« Références » until 0.6.190), after the other pieces: no time; each image with its number
+   * (« @1 »), one empty case at a time. (0.6.201) No « n/3 » any more: the empty case shows there is room
+   * left, and says which one it is of how many in its tooltip (« Sujet 2 sur 3 »).
    */
-  function referencesBlock(workflow) {
-    // The character of a video that follows another sits beside that video (sourcesBlock).
+  function referencesRow(workflow) {
+    // The character of a video that follows another sits beside that video (sourcesRow).
     if (!takesImages(workflow, 'reference') || workflow.follows) return null;
     const draft = drafts[mode],
       most = workflow.roles.reference.count,
@@ -1088,11 +1097,10 @@ export function setupStudio({
     draft.inputs.reference = given;
     // Those past the model's most stay kept, for a model that takes them.
     const shown = given.slice(0, most),
-      block = node('div', 'studio-input-block studio-references'),
-      row = node('div', 'studio-references-row'),
+      row = node('div', 'studio-pieces studio-references'),
       name = place => (most > 1 ? ROLES.reference + ' ' + (place + 1) : ROLES.reference);
-    block.setAttribute('role', 'group');
-    block.setAttribute('aria-label', most > 1 ? 'Sujets' : 'Sujet');
+    row.setAttribute('role', 'group');
+    row.setAttribute('aria-label', most > 1 ? 'Sujets' : 'Sujet');
     shown.forEach((item, place) =>
       row.append(
         slot(workflow, 'reference', place, {
@@ -1110,22 +1118,16 @@ export function setupStudio({
         slot(workflow, 'reference', shown.length, {
           label: name(shown.length),
           add: most > 1 ? 'Ajouter le sujet ' + (shown.length + 1) : 'Ajouter le sujet',
-          tip: 'Sujet : personnage, objet ou décor · glisser, coller ou cliquer',
+          tip:
+            (most > 1 ? `Sujet ${shown.length + 1} sur ${most}` : 'Sujet') +
+            ' : personnage, objet ou décor · glisser, coller ou cliquer',
         }),
       );
-    const head = node('p', 'studio-input-title', most > 1 ? 'Sujets' : 'Sujet');
-    if (most > 1) {
-      const count = node('span', 'studio-references-count', shown.length + '/' + most);
-      count.title = shown.length + ' sujet' + (shown.length > 1 ? 's' : '') + ' sur ' + most;
-      head.append(count);
-    }
-    block.append(head, row);
-    return block;
+    return row;
   }
-  /** The image to modify (and any other input image): a slot each, with its picto. */
-  function sourcesBlock(workflow) {
-    const block = node('div', 'studio-input-block studio-sources'),
-      row = node('div', 'studio-sources-row'),
+  /** The image to modify (and any other input image): a case each, with its picto. */
+  function sourcesRow(workflow) {
+    const row = node('div', 'studio-pieces studio-sources'),
       labels = [];
     for (const [role, spec] of Object.entries(workflow.roles ?? {})) {
       if (['start_image', 'end_image', 'reference'].includes(role)) continue;
@@ -1141,6 +1143,7 @@ export function setupStudio({
         row.append(
           slot(workflow, role, index, {
             label,
+            word: (video ? 'À suivre' : (WORDS[role] ?? 'Image')) + (spec.count > 1 ? ' ' + (index + 1) : ''),
             add: video ? 'Ajouter la vidéo à suivre' : spec.count === 1 && ADD[role] ? ADD[role] : 'Ajouter : ' + label,
             tip: label + (video ? ' · glisser ou cliquer' : ' · glisser, coller ou cliquer'),
             picto: video ? 'video' : (PICTO[role] ?? 'image'),
@@ -1157,6 +1160,7 @@ export function setupStudio({
       row.append(
         slot(workflow, 'reference', 0, {
           label: 'Personnage',
+          word: 'Personnage',
           add: 'Ajouter l’image du personnage',
           tip: 'Personnage à mettre dans la vidéo · glisser, coller ou cliquer',
           badge: '@',
@@ -1168,16 +1172,14 @@ export function setupStudio({
       );
     }
     if (!labels.length) return null;
-    // An empty slot says how it is given on hover only (« … · glisser, coller ou cliquer »), as
+    // An empty case says how it is given on hover only (« … · glisser, coller ou cliquer »), as
     // Début, Fin and Sujets (16/11).
-    block.append(node('p', 'studio-input-title', workflow.follows ? 'Vidéo et personnage' : labels.length > 1 ? 'Images' : labels[0]));
-    block.setAttribute('role', 'group');
-    block.setAttribute(
+    row.setAttribute('role', 'group');
+    row.setAttribute(
       'aria-label',
       workflow.follows ? labels.join(' et ') : labels.length > 1 ? 'Images' : labels[0],
     );
-    block.append(row);
-    return block;
+    return row;
   }
   /**
    * Who is who, for a character put in a video: two short fields in a block of the inputs, the
@@ -1208,17 +1210,24 @@ export function setupStudio({
     return block;
   }
   /**
-   * The input images, below the prompt: only what the model takes, each kind in its block in the
-   * style of the prompt's box (the image to modify; the start and the end; the references, below).
+   * The plateau, below the prompt (0.6.201, captures 93 and 108): what the model takes in one block without a
+   * title, in the style of the prompt's box, a word under each piece. The start and the end on their line of
+   * time, then the other pieces on a row (the image to modify, the video to follow and its character, the
+   * subjects). Four blocks with their titles before (« Début et fin », « Sujets »…); « Qui est qui » stays
+   * under it.
    */
   function inputs(workflow) {
     span = null;
-    const blocks = [
-      sourcesBlock(workflow),
-      framesBlock(workflow),
-      referencesBlock(workflow),
-      whoBlock(workflow),
-    ].filter(Boolean);
+    const frames = framesRow(workflow),
+      pieces = [sourcesRow(workflow), referencesRow(workflow)].filter(Boolean),
+      plateau = frames || pieces.length ? node('div', 'studio-input-block studio-plateau') : null;
+    if (frames) plateau.append(frames);
+    if (pieces.length) {
+      const row = node('div', 'studio-plateau-row');
+      row.append(...pieces);
+      plateau.append(row);
+    }
+    const blocks = [plateau, whoBlock(workflow)].filter(Boolean);
     if (!blocks.length) return null;
     // Another model: a light line around them for a moment, which fades (nothing blinks). Drawn
     // again meanwhile, they keep it until the moment is over.

@@ -4647,10 +4647,10 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   min-height: 40px;
   padding: 0 8px;
 }
-/* Images d'entrée (moodix-design.md 13, 21): below the prompt, a block for the image to modify,
-   one for the start and the end, one for the references, in the style of the prompt's box, 10 px
-   apart. No word: a picto in each empty slot (dashed), kept small in a badge once the image is
-   given; the input blue on hover; × on hover, on focus, and always on a screen without hover. */
+/* Images d'entrée (moodix-design.md 13, 21): below the prompt, in the style of the prompt's box (0.6.201: one
+   block, the plateau, where there were one for the image to modify, one for the start and the end, one for
+   the subjects). A picto in each empty case (dashed), kept small in a badge once the image is given, and its
+   word under it; the input blue on hover; × on hover, on focus, and always on a screen without hover. */
 .studio-inputs {
   display: flex;
   flex: none;
@@ -4685,13 +4685,44 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
     transition: none;
   }
 }
-.studio-frames-row,
-.studio-references-row,
-.studio-sources-row {
+/* (0.6.201, captures 93 and 108) The plateau: one block without a title for all that the model takes, a word in
+   12 px under each piece. The start and the end on their line of time (the line at the middle of the cases,
+   not of the words), then the other pieces on a row. */
+#studio-view .studio-plateau {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 14px;
+}
+.studio-plateau-row,
+.studio-pieces {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   min-width: 0;
+}
+.studio-plateau-row.studio-frames {
+  gap: 8px;
+}
+/* A piece: its case, its word under it. */
+.studio-piece {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 52px;
+}
+.studio-piece-word {
+  max-width: 76px;
+  overflow: hidden;
+  color: var(--text-2);
+  font: 400 12px/1.2 var(--font-ui);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-piece.is-empty .studio-piece-word {
+  color: var(--text-3);
 }
 .studio-slot {
   position: relative;
@@ -4889,12 +4920,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   flex: none;
   width: 13px;
   height: 13px;
-}
-.studio-references-count {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: var(--size-1);
-  color: var(--text-3);
 }
 /* A short window: the blocks of the images a little tighter, so that the prompt keeps its lines
    and the column does not scroll (MiniMax H3: start and end, and references, at 1024 × 640). */
@@ -10071,20 +10096,6 @@ body:not([data-view='chat']) .resume {
   background: rgba(var(--room-glass), 0.46);
   box-shadow: none;
 }
-.studio-input-title {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  margin: 0;
-  color: var(--text-2);
-  font: 400 14px/1.2 var(--font-ui);
-}
-#studio-view .studio-input-title .studio-references-count {
-  margin: 0;
-  color: var(--text-3);
-  font: 400 12px/1 var(--font-ui);
-}
 #studio-view .studio-slot-pick {
   border: 1px dashed rgba(238, 232, 222, 0.18);
   border-radius: 8px;
@@ -10839,6 +10850,11 @@ body[data-view='studio'][data-chat='open'] .chat-panel {
   text-transform: uppercase;
   white-space: nowrap;
   pointer-events: none;
+}
+/* (0.6.201) That name stands in the place of the word of its piece, never two words under a case. */
+#studio-view .studio-desk[data-carrying='image'] .studio-piece:has(> .studio-slot[data-media='image']:not(.is-blocked)) .studio-piece-word,
+#studio-view .studio-desk[data-carrying='video'] .studio-piece:has(> .studio-slot[data-media='video']:not(.is-blocked)) .studio-piece-word {
+  visibility: hidden;
 }
 #studio-view .studio-slot-pick {
   transition:
@@ -14450,10 +14466,6 @@ button.glass-select::after {
 }
 
 /* ------------------------------------------------------------------ after the try of 0.6.24 (16/11) */
-/* The name of an input block (« Image à modifier ») stands 12 px above its cases, not against them. */
-#studio-view .studio-input-block > .studio-input-title {
-  margin-bottom: 12px;
-}
 /* The left column never goes over the Sortie: as tall as its row at most. A long prompt is what
    gives way, it scrolls in its box; the inputs keep their height. In a window too short for them
    all, the column scrolls. */

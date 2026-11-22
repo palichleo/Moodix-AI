@@ -223,7 +223,8 @@ test('a character replaced in a video: its model among the videos, a video and a
     page.mode(1);
     const wand = () => body.find('studio-enrich-go')[0],
       enriched = () => asked.filter(([route]) => route === 'studio/enrich');
-    const blocks = () => body.find('studio-input-block').map(block => block.attributes['aria-label']),
+    // (0.6.201) The plateau is one block without a name: its rows are named, and « Qui est qui » under it.
+    const blocks = () => [...body.find('studio-frames'), ...body.find('studio-pieces'), ...body.find('studio-who')].map(group => group.attributes['aria-label']),
       slots = () => body.find('studio-slot'),
       event = files => ({ preventDefault() {}, stopPropagation() {}, dataTransfer: { files, setData() {} } }),
       drop = async (index, file) => {
@@ -247,6 +248,14 @@ test('a character replaced in a video: its model among the videos, a video and a
       body.find('studio-slot-pick').map(pick => pick.attributes['aria-label']),
       ['Ajouter la vidéo à suivre', 'Ajouter l’image du personnage'],
     );
+    // (0.6.201, capture 97) The two on one row of the plateau, their words under them; no title.
+    // (Its model just chosen: both say so for a moment, « is-flash ».)
+    assert.deepEqual(
+      body.find('studio-input-block').map(block => block.className.replace(' is-flash', '')),
+      ['studio-input-block studio-plateau', 'studio-input-block studio-who'],
+    );
+    assert.deepEqual(body.find('studio-piece-word').map(word => word.textContent), ['À suivre', 'Personnage']);
+    assert.deepEqual(body.find('studio-input-title'), []);
     assert.equal(page.prompt().placeholder, 'Décrivez la vidéo avec votre personnage…');
     const who = () => body.find('studio-who')[0].children;
     assert.deepEqual(
@@ -2010,7 +2019,7 @@ test('an image dragged to another slot changes role; a move that would not combi
   }
 });
 
-test('the input images: pictos and no word, start and end on a line of time, references numbered without holes', async () => {
+test('the plateau (0.6.201): one block without a title, a word under each piece, start and end on a line of time, subjects numbered without holes', async () => {
   const lengths = { seconds: [121 / 24, 193 / 24, 241 / 24], standard: 121 / 24 },
     video = {
       id: 'v',
@@ -2047,22 +2056,31 @@ test('the input images: pictos and no word, start and end on a line of time, ref
         pick.value = id;
         pick.onchange();
       };
-    // Two blocks: the start and the end, the references below; none says « is-flash » yet.
-    const [frames, references] = body.find('studio-input-block');
+    // (0.6.201, captures 93 and 108) One block, the plateau, where there were two with their titles (« Début et
+    // fin », « Sujets »): the start and the end on its first row, the subjects on the next; no « is-flash » yet.
+    const plateau = () => body.find('studio-input-block'),
+      [frames] = body.find('studio-frames'),
+      [references] = body.find('studio-references');
+    assert.deepEqual(plateau().map(block => block.className), ['studio-input-block studio-plateau']);
+    assert.deepEqual(plateau()[0].children.map(row => row.className), ['studio-plateau-row studio-frames', 'studio-plateau-row']);
+    assert.deepEqual(body.find('studio-input-title'), []);
     assert.equal(frames.attributes['aria-label'], 'Début et fin');
     // (0.6.190) « Sujets », no longer « Références »: the case receives a character, an object or a place
     // (#ref and « Références du projet » are files, and keep their name).
     assert.equal(references.attributes['aria-label'], 'Sujets');
-    assert.equal(references.find('studio-input-title')[0].textContent, 'Sujets');
-    assert.doesNotMatch(frames.className, /is-flash/);
-    // No word under the images: their names are for screen readers and in the tooltips.
-    assert.deepEqual(body.find('studio-slot-label'), []);
+    // (0.6.201, his decision of 21/11) A word under each piece, for the eye: its button says its whole name aloud.
+    const words = () => body.find('studio-piece').map(piece => piece.children.map(part => part.className.split(' ')[0] + ':' + part.textContent).at(-1));
+    assert.deepEqual(words(), ['studio-piece-word:Début', 'studio-piece-word:Fin', 'studio-piece-word:Sujet']);
+    assert.deepEqual(body.find('studio-piece-word').map(word => word.attributes['aria-hidden']), ['true', 'true', 'true']);
+    assert.deepEqual(body.find('studio-piece').map(piece => /is-empty/.test(piece.className)), [true, true, true]);
     assert.deepEqual(
       picks().map(pick => pick.attributes['aria-label']),
       ['Ajouter l’image de début', 'Ajouter l’image de fin', 'Ajouter le sujet 1'],
     );
     assert.equal(picks()[1].title, 'Image de fin (facultatif) · glisser, coller ou cliquer');
-    assert.equal(picks()[2].title, 'Sujet : personnage, objet ou décor · glisser, coller ou cliquer');
+    // (0.6.201) Which subject it is of how many, in the tooltip of the empty case: « n/3 » is gone from the block.
+    assert.equal(picks()[2].title, 'Sujet 1 sur 3 : personnage, objet ou décor · glisser, coller ou cliquer');
+    assert.deepEqual(body.find('studio-references-count'), []);
     // (0.6.187) What each case is named for the hand that carries a take over it: its short name; « Changer »
     // once it holds something (« Remplacer » was cut in 12 px, longer than its case).
     // (0.6.190) « Sujet 1 », no longer « Réf. 1 ».
@@ -2097,13 +2115,15 @@ test('the input images: pictos and no word, start and end on a line of time, ref
     body.find('studio-swap')[0].onclick();
     assert.deepEqual(shown(), ['/preview/a.png', '', '']);
 
-    // Taken back, then references one at a time, numbered, « n/3 » at the end of the line.
+    // A piece given is no longer « is-empty » (its word a little lighter then).
+    assert.deepEqual(body.find('studio-piece').map(piece => /is-empty/.test(piece.className)), [false, true, true]);
+    // Taken back, then subjects one at a time, numbered; the empty case says which one it is of the three.
     slots()[0].find('studio-slot-remove')[0].onclick();
     await drop(2, 'b.png');
     await drop(3, 'c.png');
     assert.deepEqual(badges(), ['@1', '@2']);
-    assert.equal(body.find('studio-references-count')[0].textContent, '2/3');
-    assert.equal(body.find('studio-references-count')[0].title, '2 sujets sur 3');
+    assert.equal(picks()[4].title, 'Sujet 3 sur 3 : personnage, objet ou décor · glisser, coller ou cliquer');
+    assert.deepEqual(words().slice(2), ['studio-piece-word:Sujet', 'studio-piece-word:Sujet', 'studio-piece-word:Sujet']);
     assert.match(picks()[2].attributes['aria-label'], /^Sujet 1 · /);
     // (0.6.190) « glissez-le » : the subject, no longer « la » of « la référence ».
     assert.equal(picks()[2].title, 'Sujet 1 · glissez-le vers un autre emplacement pour changer son rôle');
@@ -2116,16 +2136,28 @@ test('the input images: pictos and no word, start and end on a line of time, ref
       body.find('studio-references')[0].find('studio-slot')[0].children[0].children[0].src,
       '/preview/c.png',
     );
-    assert.equal(body.find('studio-references-count')[0].textContent, '1/3');
-    assert.equal(body.find('studio-references-count')[0].title, '1 sujet sur 3');
+    assert.equal(picks()[3].title, 'Sujet 2 sur 3 : personnage, objet ou décor · glisser, coller ou cliquer');
 
-    // Another model: its blocks say so for a moment (a light line); a start image only, the line
+    // Another model: its plateau says so for a moment (a light line); a start image only, the line
     // ends with the length, no « ⇄ ».
     model('w');
-    const [start] = body.find('studio-input-block');
-    assert.equal(body.find('studio-input-block').length, 1);
-    assert.equal(start.attributes['aria-label'], 'Image de début');
-    assert.match(start.className, /is-flash/);
+    assert.equal(plateau().length, 1);
+    assert.deepEqual(plateau()[0].children.map(row => [row.className, row.attributes['aria-label']]), [['studio-plateau-row studio-frames', 'Image de début']]);
+    assert.match(plateau()[0].className, /is-flash/);
+    assert.deepEqual(words(), ['studio-piece-word:Début']);
+    // (0.6.201) In the page: the word in 12 px under its case; while a take is carried over the cases that take
+    // it, the name of each case (« CHANGER », « FIN ») stands in the place of its word, never two words under one.
+    const { readFile } = await import('node:fs/promises');
+    const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+    // (A rule by the selector that begins its line: « .studio-piece-word » ends other selectors too.)
+    const rule = selector => css.slice(css.lastIndexOf('\n' + selector + ' {'), css.indexOf('}', css.lastIndexOf('\n' + selector + ' {')));
+    assert.match(rule('.studio-piece-word'), /font: 400 12px\/1\.2 var\(--font-ui\);/);
+    assert.match(rule('.studio-piece'), /flex-direction: column;\n  align-items: center;\n  gap: 6px;/);
+    assert.match(
+      rule("#studio-view .studio-desk[data-carrying='video'] .studio-piece:has(> .studio-slot[data-media='video']:not(.is-blocked)) .studio-piece-word"),
+      /visibility: hidden;/,
+    );
+    assert.doesNotMatch(css, /studio-input-title|studio-references-count/);
     assert.deepEqual(body.find('studio-swap'), []);
     assert.equal(body.find('studio-span-time')[0].textContent, '10.04 S');
     // Back: the reference kept comes back with it.
@@ -4399,6 +4431,9 @@ test('a click on a slot, empty or filled, opens the files of the computer: no «
     assert.equal(picker.accept, 'image/png,image/jpeg,image/webp');
     assert.equal(body.find('studio-shelf').length, 0);
     assert.equal(body.find('studio-input-block').length, 1, 'nothing opens under the inputs');
+    // (0.6.201, capture 99) The image to modify alone on the plateau, its word under it; its row named whole.
+    assert.deepEqual(body.find('studio-piece-word').map(word => word.textContent), ['À modifier']);
+    assert.deepEqual(body.find('studio-pieces').map(row => row.attributes['aria-label']), ['Image à modifier']);
     // The file chosen fills the case; a click on it again: another file.
     picker.files = [{ name: 'visage.png', type: 'image/png' }];
     await picker.onchange();
@@ -4811,9 +4846,10 @@ test('Moodix AI continues a clip of the disk (« #ref1 »): the Studio shows tha
     const shown = screenOf(body.find('studio-frame-result')[0]);
     assert.deepEqual([shown.tag, shown.src, shown.poster], ['video', '/media/view/original', '/media/view/preview']);
     assert.equal(body.find('studio-go-label')[0].textContent, 'Générer la suite');
-    // Not the cases of a new video (« Début et fin », « Sujets »), which have nothing to do with it.
-    const titles = body.find('studio-input-title').map(title => title.textContent);
-    assert.equal(titles.includes('Début et fin'), false, titles.join(' | '));
+    // Not the cases of a new video (« Début », « Fin », « Sujet »), which have nothing to do with it.
+    // (0.6.201) Read from the words under the pieces: the blocks have no title any more.
+    const titles = body.find('studio-piece-word').map(title => title.textContent);
+    assert.equal(titles.some(title => title === 'Début' || title === 'Fin'), false, titles.join(' | '));
     assert.equal(titles.some(title => title.startsWith('Sujet')), false, titles.join(' | '));
     // Nor an empty case for « the video to follow »: the clip continued is named above, it is not asked again.
     assert.deepEqual(body.find('studio-slot').map(tile => tile.dataset.slot), [], titles.join(' | '));
