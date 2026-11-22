@@ -35,7 +35,8 @@ the same image, prompt and seed for every video; the adapter costs 1.2 s as each
   subject is drawn twice, a pale copy left where it was while it appears where it goes: what the
   user called « un fondu », and refused;
 - 8 steps with them, 91 s (three passes of the « high noise » model, five of the other): the
-  camera moves as far, and the copy is gone from the frames looked at. What the family ships;
+  camera moves as far, and the copy is gone: from the frames looked at, and from the videos as
+  the user saw them (« Oui, disparu »). What the family ships;
 - 20 steps with them, for a video the user finds hard (his words: « on doit pouvoir switch à 20
   étapes pour les vidéos difficiles »): eight passes and twelve, 186 s (204 the first video of a
   session), 6.7 GiB at most. The crane goes further (231 px) and, on the frames looked at, the
