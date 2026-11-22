@@ -223,8 +223,8 @@ test('a character replaced in a video: its model among the videos, a video and a
     page.mode(1);
     const wand = () => body.find('studio-enrich-go')[0],
       enriched = () => asked.filter(([route]) => route === 'studio/enrich');
-    // (0.6.201) The plateau is one block without a name: its rows are named, and « Qui est qui » under it.
-    const blocks = () => [...body.find('studio-frames'), ...body.find('studio-pieces'), ...body.find('studio-who')].map(group => group.attributes['aria-label']),
+    // (0.6.201) The plateau is one block without a name: its rows are named.
+    const blocks = () => [...body.find('studio-frames'), ...body.find('studio-pieces')].map(group => group.attributes['aria-label']),
       slots = () => body.find('studio-slot'),
       event = files => ({ preventDefault() {}, stopPropagation() {}, dataTransfer: { files, setData() {} } }),
       drop = async (index, file) => {
@@ -242,43 +242,28 @@ test('a character replaced in a video: its model among the videos, a video and a
     assert.deepEqual(blocks(), ['Image de début']);
     pick.value = 's';
     pick.onchange();
-    // Its inputs: the video, the character, and who is who. No rare setting but the seed.
-    assert.deepEqual(blocks(), ['Vidéo à suivre et personnage', 'Qui est qui']);
+    // Its inputs: the video and the character. No rare setting but the seed.
+    assert.deepEqual(blocks(), ['Vidéo à suivre et personnage']);
     assert.deepEqual(
       body.find('studio-slot-pick').map(pick => pick.attributes['aria-label']),
       ['Ajouter la vidéo à suivre', 'Ajouter l’image du personnage'],
     );
-    // (0.6.201, capture 97) The two on one row of the plateau, their words under them; no title.
-    // (Its model just chosen: both say so for a moment, « is-flash ».)
+    // (0.6.201, capture 97) The two on one row of the plateau, their words under them; no title. (0.6.204) The
+    // plateau alone: « Qui est qui » left the column, each of its two fields is in the window of its piece.
+    // (Its model just chosen: it says so for a moment, « is-flash ».)
     assert.deepEqual(
       body.find('studio-input-block').map(block => block.className.replace(' is-flash', '')),
-      ['studio-input-block studio-plateau', 'studio-input-block studio-who'],
+      ['studio-input-block studio-plateau'],
     );
     assert.deepEqual(body.find('studio-piece-word').map(word => word.textContent), ['À suivre', 'Personnage']);
     assert.deepEqual(body.find('studio-input-title'), []);
     assert.equal(page.prompt().placeholder, 'Décrivez la vidéo avec votre personnage…');
-    const who = () => body.find('studio-who')[0].children;
-    assert.deepEqual(
-      who().map(field => [field.children[0].textContent, field.children[1].value, field.children[1].placeholder]),
-      [
-        ['Qui remplacer', 'person', 'girl, handkerchief'],
-        ['Qui dessiner', 'person', 'woman'],
-      ],
-    );
-    // Each says what it is for in its « ? », as the settings do: at once under the pointer.
-    const tips = who().map(field => field.children[0].children.find(child => /help-tip/.test(child.className)));
-    assert.deepEqual(
-      tips.map(tip => [tip.textContent, tip.tabIndex, tip.attributes.role]),
-      [
-        ['?', 0, 'img'],
-        ['?', 0, 'img'],
-      ],
-    );
-    assert.match(tips[0].dataset.help, /« penguin ».*\n.*« girl, handkerchief »/s);
-    assert.match(tips[1].dataset.help, /décor de l’image est laissé de côté/);
-    assert.equal(tips[0].attributes['aria-label'], 'Aide : ' + tips[0].dataset.help);
-    // The name and its « ? », nothing else (0.6.92: no mark « Moodix AI peut régler ce paramètre »).
-    assert.deepEqual(who().map(field => field.children[0].children.length), [1, 1]);
+    // (0.6.204) No window for a piece that is not given, and no block « Qui est qui » under the plateau.
+    const pane = () => body.find('studio-piece-window'),
+      who = () => pane()[0].find('studio-field'),
+      cases = () => body.find('studio-slot-pick');
+    assert.deepEqual([body.find('studio-who').length, pane().length], [0, 0]);
+    assert.deepEqual(cases().map(pick => [pick.attributes['aria-haspopup'], pick.attributes['aria-expanded']]), [[undefined, undefined], [undefined, undefined]]);
     assert.equal(body.find('studio-rare')[0].children.length, 1);
     // The wand writes the prompt from the video and the character: it waits for both, not for words.
     assert.equal(wand().disabled, true);
@@ -303,6 +288,41 @@ test('a character replaced in a video: its model among the videos, a video and a
     await drop(1, { name: 'clip.mp4', type: 'video/mp4' });
     assert.match(notices.at(-1), /attend une image/);
     await drop(1, { name: 'perso.png', type: 'image/png' });
+    // (0.6.204, capture 97) A click on the video given opens its small window, hung under it: its whole name,
+    // « Qui remplacer », what it is, « Changer… » and « Retirer ». One window at a time.
+    assert.deepEqual(cases().map(pick => [pick.attributes['aria-haspopup'], pick.attributes['aria-expanded']]), [['dialog', 'false'], ['dialog', 'false']]);
+    cases()[0].onclick();
+    assert.deepEqual(cases().map(pick => pick.attributes['aria-expanded']), ['true', 'false']);
+    assert.deepEqual(body.find('studio-piece').map(piece => /is-open/.test(piece.className)), [true, false]);
+    assert.deepEqual(
+      [pane().length, pane()[0].attributes.role, pane()[0].attributes['aria-label'], pane()[0].children[0].className, pane()[0].children[0].textContent],
+      [1, 'dialog', 'Vidéo à suivre', 'studio-window-title', 'Vidéo à suivre'],
+    );
+    const fields = () => who().map(field => [field.children[0].textContent, field.children[1].value, field.children[1].placeholder, field.children[1].dataset.ai]);
+    assert.deepEqual(fields(), [['Qui remplacer', 'person', 'girl, handkerchief', 'setting-subject']]);
+    const foot = () => pane()[0].find('studio-window-foot')[0].children.map(part => [part.className, part.textContent || part.children[0].textContent]);
+    assert.deepEqual(foot(), [
+      ['studio-window-said', '#ref1 · clip.mp4'],
+      ['studio-window-button', 'Changer…'],
+      ['studio-window-button', 'Retirer'],
+    ]);
+    // Each says what it is for in its « ? », as the settings do: at once under the pointer.
+    const tipOf = field => field.children[0].children.find(child => /help-tip/.test(child.className)),
+      first = tipOf(who()[0]);
+    assert.deepEqual([first.textContent, first.tabIndex, first.attributes.role], ['?', 0, 'img']);
+    assert.match(first.dataset.help, /« penguin ».*\n.*« girl, handkerchief »/s);
+    assert.equal(first.attributes['aria-label'], 'Aide : ' + first.dataset.help);
+    // The name and its « ? », nothing else (0.6.92: no mark « Moodix AI peut régler ce paramètre »).
+    assert.equal(who()[0].children[0].children.length, 1);
+    // The character: its own window, « Qui dessiner »; that of the video is closed.
+    cases()[1].onclick();
+    assert.deepEqual(cases().map(pick => pick.attributes['aria-expanded']), ['false', 'true']);
+    assert.deepEqual([pane().length, pane()[0].attributes['aria-label']], [1, 'Personnage']);
+    assert.deepEqual(fields(), [['Qui dessiner', 'person', 'woman', 'setting-reference_subject']]);
+    assert.match(tipOf(who()[0]).dataset.help, /décor de l’image est laissé de côté/);
+    // A click on its case again closes it.
+    cases()[1].onclick();
+    assert.deepEqual([pane().length, cases()[1].attributes['aria-expanded']], [0, 'false']);
     // Both given: the wand is ready, even with nothing typed, and hands the two over.
     page.prompt().value = '';
     page.prompt().oninput();
@@ -324,9 +344,14 @@ test('a character replaced in a video: its model among the videos, a video and a
       conversationId: 'c1',
     });
     assert.equal(page.prompt().value, 'A woman in a white top wipes an apple in an orchard.');
+    // Typed in the window of the video; the Studio drawn again meanwhile (a step of a work elsewhere, another
+    // format), the window is still open with what was typed.
+    cases()[0].onclick();
     const subject = who()[0].children[1];
     subject.value = 'girl, handkerchief';
     subject.oninput();
+    page.studio.render();
+    assert.deepEqual([pane().length, who()[0].children[1].value], [1, 'girl, handkerchief']);
     await generate();
     const [, action] = sent().at(-1);
     assert.equal(action.name, 'replace_character');
@@ -2365,6 +2390,143 @@ test('(0.6.203) « Ajouter », the last piece of the plateau: its list gives wha
   }
 });
 
+test('(0.6.204) the window of a piece closes at a press beside it, at Échap, with its piece, for the list « Ajouter »; under a proposal its images are those of Moodix AI', async () => {
+  const image = { count: 1, media: ['image'] },
+    shape = { limits: sizes, size: { width: 768, height: 448 }, settings: [], seeded: true, lengths: { seconds: [121 / 24], standard: 121 / 24 } },
+    ltx = { ...shape, id: 'l', name: 'LTX 2.5', roles: { start_image: image, end_image: image, reference: { count: 3, media: ['image'] } } },
+    wan = { ...shape, id: 'w', name: 'Wan 2.2', roles: { start_image: image } },
+    still = { id: 'i', name: 'Image', roles: { source: { ...image, many: false } }, limits: sizes, size: { width: 1024, height: 1024 }, settings: [] },
+    scail = { ...shape, id: 's', name: 'SCAIL-2', verb: 'replace_character', follows: true, roles: { source: { count: 1, media: ['video'], many: false }, reference: { ...image, many: false } } };
+  let page = await studioPage(
+    { create_image: [still], create_video: [ltx, wan], replace_character: [scail] },
+    { 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }), 'tools/execute': () => new Promise(() => {}) },
+  );
+  try {
+    const { body, studio, pagePointers, pageKeys } = page;
+    page.mode(1);
+    const pane = () => body.find('studio-piece-window').map(found => found.attributes['aria-label']),
+      open = index => body.find('studio-slot-pick')[index].onclick(),
+      model = id => {
+        const pick = body.find('studio-model-pick')[0];
+        pick.value = id;
+        pick.onchange();
+      },
+      press = target => {
+        pagePointers.forEach(listener => listener({ target }));
+        // (Closed without drawing the Studio again, a press being a click too: seen once it is drawn.)
+        studio.render();
+      };
+    for (const [index, name] of [[0, 'debut.png'], [1, 'fin.png']]) {
+      body.find('studio-slot')[index].ondrop({ preventDefault() {}, stopPropagation() {}, dataTransfer: { files: [{ name }], setData() {} } });
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    open(1);
+    assert.deepEqual(pane(), ['Image de fin']);
+    // A press on its piece (its case, its window) leaves it open; beside it, it closes.
+    press({ closest: selector => (selector === '.studio-piece.is-open' ? {} : null) });
+    assert.deepEqual(pane(), ['Image de fin']);
+    press({ closest: () => null });
+    assert.deepEqual(pane(), []);
+    // Échap closes it, and is taken: nothing else hears it.
+    open(0);
+    assert.deepEqual(pane(), ['Image de début']);
+    let taken = 0;
+    pageKeys.forEach(listener => listener({ key: 'Escape', target: {}, preventDefault: () => taken++ }));
+    studio.render();
+    assert.deepEqual([pane(), taken], [[], 1]);
+    // The list « Ajouter » and a window: one at a time, each closes for the other.
+    const add = () => body.find('studio-add')[0];
+    open(1);
+    add().children[0].onclick();
+    studio.render();
+    assert.deepEqual([pane(), add().children[2].hidden], [[], false]);
+    open(1);
+    assert.deepEqual([pane(), add().children[2].hidden], [['Image de fin'], true]);
+    // Another model, which does not take its piece: closed, and not open again back with the first.
+    model('w');
+    assert.deepEqual(pane(), []);
+    model('l');
+    assert.deepEqual(pane(), []);
+    // Another mode: closed.
+    open(0);
+    page.mode(0);
+    page.mode(1);
+    assert.deepEqual(pane(), []);
+    // « Retirer » on a subject: its window goes with it, it does not pass to the subject that takes its place.
+    const drop = async (index, name) => {
+      body.find('studio-slot')[index].ondrop({ preventDefault() {}, stopPropagation() {}, dataTransfer: { files: [{ name }], setData() {} } });
+      await new Promise(resolve => setTimeout(resolve, 5));
+    };
+    await drop(2, 'un.png');
+    await drop(3, 'deux.png');
+    open(2);
+    assert.deepEqual(pane(), ['Sujet 1']);
+    body.find('studio-window-foot')[0].children.find(part => part.children[0]?.textContent === 'Retirer').onclick();
+    assert.deepEqual([pane(), body.find('studio-references')[0].find('studio-slot')[0].children[0].children[0].src], [[], '/preview/deux.png']);
+    // A piece dragged to another case leaves no window behind: its case given again, none opens by itself.
+    body.find('studio-slot')[1].find('studio-slot-remove')[0].onclick();
+    open(0);
+    assert.deepEqual(pane(), ['Image de début']);
+    body.find('studio-slot')[0].children[0].ondragstart({ preventDefault() {}, stopPropagation() {}, dataTransfer: { files: [], setData() {} } });
+    body.find('studio-slot')[1].ondrop({ preventDefault() {}, stopPropagation() {}, dataTransfer: { files: [], setData() {} } });
+    assert.deepEqual([pane(), body.find('studio-slot').slice(0, 2).map(tile => /is-filled/.test(tile.className))], [[], [false, true]]);
+    await drop(0, 'debut.png');
+    assert.deepEqual(pane(), []);
+    // Another mode where the piece of the same place is given too (the image to modify of Image, the video to
+    // follow of Vidéo): the window does not pass from one to the other.
+    model('s');
+    body.find('studio-slot')[0].ondrop({ preventDefault() {}, stopPropagation() {}, dataTransfer: { files: [{ name: 'clip.mp4', type: 'video/mp4' }], setData() {} } });
+    await new Promise(resolve => setTimeout(resolve, 5));
+    assert.match(body.find('studio-slot')[0].className, /is-filled/);
+    page.mode(0);
+    await drop(0, 'photo.png');
+    open(0);
+    assert.deepEqual(pane(), ['Image à modifier']);
+    page.mode(1);
+    assert.deepEqual([body.find('studio-model-pick')[0].value, pane()], ['s', []]);
+    model('l');
+    // While a take is made, no window: its case cannot be pressed then.
+    open(0);
+    page.prompt().value = 'Un phare';
+    page.prompt().oninput();
+    void body.find('studio-go')[0].onclick();
+    await settle();
+    assert.deepEqual([pane(), body.find('studio-slot-pick')[0].disabled], [[], true]);
+    // In the page: 292 px wide, its fields 34 px high, a line of the accent around the case of its piece.
+    const { readFile } = await import('node:fs/promises');
+    const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+    const rule = selector => css.slice(css.lastIndexOf('\n' + selector + ' {'), css.indexOf('}', css.lastIndexOf('\n' + selector + ' {')));
+    assert.match(rule('.glass-menu.studio-piece-window'), /width: 292px;/);
+    assert.match(rule("#studio-view .studio-piece-window input[type='text']"), /height: 34px;/);
+    assert.match(rule('#studio-view .studio-piece.is-open .studio-slot-pick'), /box-shadow: 0 0 0 1\.5px var\(--accent\);/);
+    assert.doesNotMatch(css, /\.studio-who\b/);
+  } finally {
+    page.restore();
+  }
+  // Under a proposal of Moodix AI: the window of its image opens, « Changer… » greyed with why, no « Retirer ».
+  const { clip, request } = proposalOf();
+  request.plan.references = [{ role: 'start_image', roleLabel: 'Image de début', preview: '/debut.jpg' }];
+  page = await studioPage({ create_video: [clip] }, {});
+  try {
+    const answer = page.studio.propose(request, new AbortController().signal);
+    await settle();
+    assert.equal(page.studio.proposing(), true);
+    page.body.find('studio-slot-pick')[0].onclick();
+    const foot = page.body.find('studio-window-foot')[0].children;
+    assert.deepEqual(
+      foot.map(part => [part.className, part.textContent || part.children[0].textContent, part.disabled, part.title]),
+      [
+        ['studio-window-said', 'Image de début', undefined, undefined],
+        ['studio-window-button', 'Changer…', true, 'Les images de cette proposition sont celles de Moodix AI : demandez-lui dans le chat pour en changer.'],
+      ],
+    );
+    page.studio.decline();
+    assert.equal(await answer, 'deny');
+  } finally {
+    page.restore();
+  }
+});
+
 test('(0.6.203) no « Ajouter » in a continuation; under a proposal of Moodix AI it is greyed, the images are its own', async () => {
   const { tools, runs } = continuing();
   let page = await studioPage(tools, {}, { runs });
@@ -4245,13 +4407,28 @@ test('a replacement proposed in the chat is set by the pointer: the model, the v
       ],
     },
   };
-  const studio = await studioPage({ create_video: [clip], replace_character: [scail] }, {}, { runs });
+  // (0.6.204) What the pointer says at each step, and the window of a piece open at that moment.
+  const said = [],
+    seen = [];
+  let page = null;
+  said.push = words => (seen.push([words, page.find('studio-piece-window').map(pane => pane.attributes['aria-label'])]), Array.prototype.push.call(said, words));
+  const studio = await studioPage({ create_video: [clip], replace_character: [scail] }, {}, { runs, cursor: said, targets: true });
   const { body, restore } = studio;
+  page = body;
   try {
     assert.equal(studio.studio.accepts('replace_character'), true);
     const answer = studio.studio.propose(request, new AbortController().signal);
     // Allowed in the settings: the pointer sets it, then starts it.
     assert.equal(await answer, 'once');
+    // (0.6.204) Who is who lives in the window of its piece: the pointer opens that of the video for « qui
+    // remplacer », that of the character for « qui dessiner », one at a time, where it then sets the field.
+    assert.deepEqual(
+      seen.filter(([words]) => /^règle qui/.test(words)),
+      [
+        ['règle qui remplacer', ['Vidéo à suivre']],
+        ['règle qui dessiner', ['Personnage']],
+      ],
+    );
     assert.equal(body.dataset.mode, 'video');
     const pick = body.find('studio-model-pick')[0];
     assert.equal(pick.value, 's');
@@ -4261,15 +4438,44 @@ test('a replacement proposed in the chat is set by the pointer: the model, the v
       tiles.map(tile => tile.children[0].children[0]?.src),
       ['/penguin.jpg', '/player.jpg'],
     );
-    assert.deepEqual(
-      body.find('studio-who')[0].children.map(field => field.children[1].value),
-      ['penguin', 'man'],
-    );
+    // (0.6.204) Who is who, set by the proposal, read in the window of each piece: no window is left open by the
+    // pointer, and none opens while its take is made.
+    assert.deepEqual([body.find('studio-who').length, body.find('studio-piece-window').length], [0, 0]);
+    body.find('studio-slot-pick')[0].onclick();
+    assert.equal(body.find('studio-piece-window').length, 0, 'the take is being made');
+    await studio.studio.settled({ record: null, error: 'Arrêtée.' });
+    const set = index => {
+      body.find('studio-slot-pick')[index].onclick();
+      return body.find('studio-piece-window')[0].find('studio-field').map(field => [field.children[0].textContent, field.children[1].value]);
+    };
+    assert.deepEqual([set(0), set(1)], [[['Qui remplacer', 'penguin']], [['Qui dessiner', 'man']]]);
+    // What each is, at the foot of its window: a take by its number; a clip by its length once it is known.
+    const what = index => {
+      if (body.find('studio-slot-pick')[index].attributes['aria-expanded'] !== 'true') body.find('studio-slot-pick')[index].onclick();
+      return body.find('studio-window-said')[0].textContent;
+    };
+    assert.deepEqual([what(0), what(1)], ['PRISE 2 · VIDÉO', 'PRISE 1 · IMAGE']);
+    runs[0].parameters = { frames: 161, fps: 24 };
+    studio.studio.render();
+    assert.equal(what(0), 'PRISE 2 · 06.71 S');
     assert.equal(studio.prompt().value, prompt);
     // The screen has the shape of the video followed.
     assert.equal(body.find('studio-readout')[0]?.textContent ?? '1:1', '1:1');
   } finally {
     restore();
+  }
+  // (0.6.204) A proposal that waits for « Générer »: who is who set, the pointer leaves no window open over it.
+  const words = [],
+    waiting = await studioPage({ create_video: [clip], replace_character: [scail] }, {}, { runs, cursor: words, targets: true });
+  try {
+    const answer = waiting.studio.propose({ ...structuredClone(request), autoAllow: false }, new AbortController().signal);
+    await until(() => words.includes('attend votre accord'), 1500);
+    assert.ok(words.includes('règle qui dessiner') && words.includes('attend votre accord'), words.join(' | '));
+    assert.equal(waiting.body.find('studio-piece-window').length, 0);
+    waiting.studio.decline();
+    assert.equal(await answer, 'deny');
+  } finally {
+    waiting.restore();
   }
 });
 
@@ -4826,7 +5032,7 @@ test('the Sortie is the project’s: the creations of its other conversations dr
   }
 });
 
-test('a click on a slot, empty or filled, opens the files of the computer: no « Créations du projet » in the Studio', async () => {
+test('a click on an empty case opens the files of the computer, on a piece given its small window with « Changer… » and « Retirer » (0.6.204)', async () => {
   const image = {
       id: 'w',
       name: 'Image',
@@ -4850,13 +5056,55 @@ test('a click on a slot, empty or filled, opens the files of the computer: no «
     // (0.6.201, capture 99) The image to modify alone on the plateau, its word under it; its row named whole.
     assert.deepEqual(body.find('studio-piece-word').map(word => word.textContent), ['À modifier']);
     assert.deepEqual(body.find('studio-pieces').map(row => row.attributes['aria-label']), ['Image à modifier']);
-    // The file chosen fills the case; a click on it again: another file.
+    // The file chosen fills the case. (0.6.204, capture 99) A click on it opens its small window, no longer the
+    // files at once: its name, what it is, and at its foot « Changer… » and « Retirer ». Nothing to set with it.
     picker.files = [{ name: 'visage.png', type: 'image/png' }];
     await picker.onchange();
     await settle();
     assert.match(slot().className, /is-filled/);
+    const pane = () => body.find('studio-piece-window'),
+      foot = () => pane()[0].find('studio-window-foot')[0].children,
+      press = name => foot().find(part => part.children[0]?.textContent === name);
     slot().find('studio-slot-pick')[0].onclick();
-    assert.equal(picker.clicks, 2);
+    assert.deepEqual([picker.clicks, pane().length], [1, 1]);
+    assert.deepEqual(pane()[0].children.map(part => part.className), ['studio-window-title', 'studio-window-foot']);
+    assert.deepEqual([pane()[0].children[0].textContent, foot()[0].textContent], ['Image à modifier', '#ref1 · visage.png']);
+    assert.deepEqual(foot().slice(1).map(part => [part.children[0].textContent, part.disabled, part.title]), [
+      ['Changer…', false, undefined],
+      ['Retirer', undefined, undefined],
+    ]);
+    // « Changer… »: the files of the computer for this case, its window closed.
+    press('Changer…').onclick();
+    assert.deepEqual([picker.clicks, picker.accept], [2, 'image/png,image/jpeg,image/webp']);
+    page.studio.render();
+    assert.equal(pane().length, 0);
+    picker.files = [{ name: 'autre.png', type: 'image/png' }];
+    await picker.onchange();
+    await settle();
+    assert.equal(slot().children[0].children[0].src, '/preview/autre.png');
+    // A take of the project carried into the case says its number at the foot of its window.
+    const carried = { preventDefault() {}, stopPropagation() {}, dataTransfer: { files: [], setData() {} } };
+    body.find('studio-item')[0].find('studio-item-pick')[0].ondragstart(carried);
+    slot().ondrop(carried);
+    slot().find('studio-slot-pick')[0].onclick();
+    assert.equal(foot()[0].textContent, 'PRISE 1 · IMAGE');
+    // « Retirer »: the case empty again, its window gone with it.
+    press('Retirer').onclick();
+    assert.deepEqual([/is-filled/.test(slot().className), pane().length], [false, 0]);
+    // Its × takes it back the same way, its window open or not.
+    picker.files = [{ name: 'visage.png', type: 'image/png' }];
+    slot().find('studio-slot-pick')[0].onclick();
+    await picker.onchange();
+    await settle();
+    slot().find('studio-slot-pick')[0].onclick();
+    assert.equal(pane().length, 1);
+    slot().find('studio-slot-remove')[0].onclick();
+    assert.deepEqual([/is-filled/.test(slot().className), pane().length], [false, 0]);
+    // Given again: no window left open from before.
+    slot().find('studio-slot-pick')[0].onclick();
+    await picker.onchange();
+    await settle();
+    assert.deepEqual([/is-filled/.test(slot().className), pane().length], [true, 0]);
   } finally {
     restore();
   }
@@ -6012,8 +6260,11 @@ test('a continuation proposed by Moodix AI stays one while it waits: another mod
     studio.show(runs[0]);
     assert.equal(body.find('studio-look-back').length, 1);
     const answer = studio.propose(continuation(), new AbortController().signal);
-    await settle();
     const proposed = { banner: 'Suite de la prise 1 : un renard court', go: 'Générer la suite', formats: 0, duration: '07.67 S' };
+    // (0.6.204: until the pointer has set it all and given the Studio back, not a fixed 15 ms: with the whole
+    // suite running beside it, its length was not always set yet, once in three runs.)
+    await until(() => shown().duration === proposed.duration && page.page['studio-view'].inert === false);
+    await settle();
     assert.deepEqual(shown(), proposed);
     // The other modes still work by hand: the user looks at Image, then comes back.
     page.mode(0);

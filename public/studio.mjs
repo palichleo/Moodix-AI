@@ -132,10 +132,12 @@ const BAR_HELP = { denoise: '0,6 garde la composition et change l’ambiance ; 0
 const ONLY_WITH = { source: 'Sert seulement avec une image à modifier.' };
 // The settings on a bar that « Enregistrer » keeps for a model (lib/studio-presets.mjs checks each).
 const KEPT_SETTINGS = ['denoise'];
-// Who is who, for a character put in a video: said in a few words beside the inputs, not
-// among the rare settings. Read by a detector that knows English words.
+// Who is who, for a character put in a video: said in a few words, not among the rare settings. Read by a
+// detector that knows English words. (0.6.204) Each in the window of its piece (`piece`, the role of that
+// piece: the video to follow, the character), no longer in a block of their own beside the inputs.
 const WHO = {
   subject: {
+    piece: 'source',
     hint: 'girl, handkerchief',
     help:
       'La personne ou l’animal de la vidéo à remplacer, en quelques mots d’anglais : « girl », « penguin », ' +
@@ -144,6 +146,7 @@ const WHO = {
       '« person » suffit quand il n’y a qu’une personne.',
   },
   reference_subject: {
+    piece: 'reference',
     hint: 'woman',
     help:
       'Le personnage à prendre dans l’image, en un ou deux mots d’anglais : « woman », « robot », « cartoon cat ». ' +
@@ -420,6 +423,8 @@ export function setupStudio({
     revealRare = false, // it has just been opened: brought into sight once drawn (0.6.102)
     formatsOpen = false, // « ··· » is open
     addOpen = false, // (0.6.203) the list of « Ajouter » is open
+    pieceOpen = null, // (0.6.204) { role, index }: the piece given whose small window is open
+    pieceFocus = false, // (0.6.204) that window was just opened by a click: the focus goes into it
     drawn = null, // the size the frame was last drawn at, to ease from
     watching = null, // follows the size of the stage
     laidOut = false, // the stage was in sight at the last look: its screen eases to a new shape
@@ -914,11 +919,20 @@ export function setupStudio({
       // An input that does not combine with those given says why. It still takes the image of
       // one of them, dragged here: that is how a role is changed.
       if (refused) return notice(refused);
+      // (0.6.204, capture 97) A piece given opens its small window, hung under it: what is set with it, and at
+      // its foot « Changer… » (the files of the computer, which this click opened before) and « Retirer ».
+      if (value) return toggleWindow(role, index);
       if (chosenByAi) return notice(AI_INPUTS);
-      // A file of the computer, empty or filled (16/11: « Créations du projet » is gone from here; a
-      // take of the project is dragged to it from the Sortie).
+      // Empty: a file of the computer (16/11: « Créations du projet » is gone from here; a take of the
+      // project is dragged to it from the Sortie).
       openPicker(role, index, media);
     });
+    // (0.6.204) Whether its window is the one open (pieceOpen).
+    const opened = Boolean(value && !off && !refused && pieceOpen?.role === role && pieceOpen.index === index);
+    if (value && !off && !refused) {
+      pick.setAttribute('aria-haspopup', 'dialog');
+      pick.setAttribute('aria-expanded', String(opened));
+    }
     // Named for the hand that carries something here (moodix.css): « FIN », « SUJET 2 », « CHANGER ».
     // (0.6.187) « Changer », no longer « Remplacer »: in 12 px, as every word that names a piece now, the
     // longer word went past its case of 52 px, cut by the column under « Fin » (« REMPLACEI ») and over
@@ -1009,28 +1023,108 @@ export function setupStudio({
     // dropped beside the cases goes (the column: its first free case).
     if (off) tile.ondragover = tile.ondragleave = tile.ondrop = null;
     tile.append(pick);
+    // Taken back by its ×, and (0.6.204) by « Retirer » in its window: its window goes with it.
+    const takeBack = () => {
+      if (opened) pieceOpen = null;
+      if (onRemove) return onRemove();
+      draft.inputs[role][index] = null;
+      render();
+    };
     if (value && !chosenByAi) {
-      const remove = button(
-        'studio-slot-remove',
-        '',
-        onRemove ??
-          (() => {
-            draft.inputs[role][index] = null;
-            render();
-          }),
-        'close',
-      );
+      const remove = button('studio-slot-remove', '', takeBack, 'close');
       remove.setAttribute('aria-label', 'Retirer ' + label);
       remove.title = 'Retirer';
       tile.append(remove);
     }
     // (0.6.201) Its word under it, for the eye: its button says its whole name aloud. While something it takes
     // is carried, the name of its case (`data-name`, « CHANGER ») stands in its place (moodix.css).
-    const piece = node('div', 'studio-piece' + (value ? '' : ' is-empty') + (off ? ' is-off' : '')),
+    const piece = node('div', 'studio-piece' + (value ? '' : ' is-empty') + (off ? ' is-off' : '') + (opened ? ' is-open' : '')),
       said = node('span', 'studio-piece-word', word);
     said.setAttribute('aria-hidden', 'true');
     piece.append(tile, said);
+    if (opened) {
+      const pane = pieceWindow(workflow, { role, index, label, media, value, takeBack: chosenByAi ? null : takeBack, held: chosenByAi ? AI_INPUTS : '' }),
+        focus = pieceFocus;
+      pieceFocus = false;
+      piece.append(pane);
+      // Shown once it is on the page, above it (as « ··· »); opened by a click, the focus goes into it: its
+      // first field, else its first button.
+      globalThis.queueMicrotask?.(() => {
+        if (!pane.isConnected || !pieceOpen) return;
+        openPopup(pane, pick, { align: 'start' });
+        if (focus) (pane.querySelector?.('input, select, textarea') ?? pane.querySelector?.('button:enabled'))?.focus?.();
+      });
+    }
     return piece;
+  }
+  /** (0.6.204) A click on a piece given: its window opened, closed if it was the one open. One at a time. */
+  function toggleWindow(role, index) {
+    const same = pieceOpen?.role === role && pieceOpen.index === index;
+    pieceOpen = same ? null : { role, index };
+    pieceFocus = !same;
+    addOpen = false;
+    render();
+  }
+  /**
+   * (0.6.204) What a piece given is, in a few signs, at the foot of its window: a take by its number and its
+   * length (« PRISE 5 · 06.71 S », « PRISE 1 · IMAGE »; « VIDÉO » for a clip whose length is not known), a file
+   * by its name (« #ref2 · visage.png »).
+   */
+  function saidOf(value) {
+    const record = value.source?.output ? runs.find(item => item.id === value.source.output) : null;
+    if (!record) return value.name;
+    const take = record.outputs?.[value.source.index ?? 0]?.take,
+      media = mediaOf(record),
+      length = media === 'video' ? lengthOfRecord(record, false) : null;
+    return 'PRISE ' + (Number.isInteger(take) ? take : numberOf(record)) + ' · ' + (length ? figures(length) : { video: 'VIDÉO', image: 'IMAGE' }[media] ?? 'SON');
+  }
+  /**
+   * (0.6.204) What is set with one piece alone, the lines of its window: who is who, for a character put in a
+   * video (« Qui remplacer » with the video to follow, « Qui dessiner » with the character, WHO). In a block
+   * of their own under the plateau before, whatever was given; Moodix AI aims at them as before (`data-ai`).
+   */
+  function windowLines(workflow, role) {
+    const store = (drafts[mode].settings[workflow.id] ??= {});
+    return workflow.settings
+      .filter(setting => WHO[setting.key]?.piece === role && setting.type === 'string')
+      .map(setting => {
+        const control = node('input');
+        control.type = 'text';
+        control.value = String(store[setting.key] ?? setting.default ?? '');
+        control.placeholder = WHO[setting.key].hint;
+        control.spellcheck = false;
+        if (setting.maxLength) control.maxLength = setting.maxLength;
+        control.disabled = Boolean(working);
+        control.oninput = () => {
+          store[setting.key] = control.value;
+        };
+        aiTarget(control, 'setting-' + setting.key);
+        return field(settingName(setting.key), control, { tip: WHO[setting.key].help });
+      });
+  }
+  /**
+   * (0.6.204, capture 97) The small window of a piece given, one of our lists of glass hung under its case: its
+   * whole name, what is set with it (windowLines), and at its foot what it is (saidOf), « Changer… » and
+   * « Retirer ». Under a proposal of Moodix AI its images are its own: « Changer… » greyed with that reason
+   * (`held`), no « Retirer » (`takeBack` null), as its case has no ×.
+   */
+  function pieceWindow(workflow, { role, index, label, media, value, takeBack, held }) {
+    const pane = node('div', 'glass-menu studio-piece-window'),
+      foot = node('div', 'studio-window-foot'),
+      change = button('studio-window-button', 'Changer…', () => {
+        closeWindow();
+        openPicker(role, index, media);
+      });
+    pane.setAttribute('role', 'dialog');
+    pane.setAttribute('aria-label', label);
+    pane.hidden = true;
+    // (Its word says what it does: a tooltip only for why it cannot be pressed.)
+    if (held) change.title = held;
+    change.disabled = Boolean(held);
+    foot.append(node('span', 'studio-window-said', saidOf(value)), change);
+    if (takeBack) foot.append(button('studio-window-button', 'Retirer', takeBack));
+    pane.append(node('p', 'studio-window-title', label), ...windowLines(workflow, role), foot);
+    return pane;
   }
   /** Whether the workflow takes images in this role. */
   const takesImages = (workflow, role) =>
@@ -1285,34 +1379,6 @@ export function setupStudio({
     return row;
   }
   /**
-   * Who is who, for a character put in a video: two short fields in a block of the inputs, the
-   * person to replace and the character to draw (the settings `subject` and
-   * `reference_subject` of the workflow).
-   */
-  function whoBlock(workflow) {
-    const asked = workflow.settings.filter(setting => WHO[setting.key] && setting.type === 'string');
-    if (!asked.length) return null;
-    const store = (drafts[mode].settings[workflow.id] ??= {}),
-      block = node('div', 'studio-input-block studio-who');
-    block.setAttribute('role', 'group');
-    block.setAttribute('aria-label', 'Qui est qui');
-    for (const setting of asked) {
-      const control = node('input');
-      control.type = 'text';
-      control.value = String(store[setting.key] ?? setting.default ?? '');
-      control.placeholder = WHO[setting.key].hint;
-      control.spellcheck = false;
-      if (setting.maxLength) control.maxLength = setting.maxLength;
-      control.disabled = Boolean(working);
-      control.oninput = () => {
-        store[setting.key] = control.value;
-      };
-      aiTarget(control, 'setting-' + setting.key);
-      block.append(field(settingName(setting.key), control, { tip: WHO[setting.key].help }));
-    }
-    return block;
-  }
-  /**
    * (0.6.203) The kinds of pieces a model takes, in the order of the plateau: `[{ kind, role, media, count }]`
    * (PIECES). The reference of a model that follows a video is its character; the lyrics of a song are a
    * piece too, opened under the prompt.
@@ -1413,6 +1479,8 @@ export function setupStudio({
         'studio-add-pick',
         '',
         () => {
+          // (0.6.204) One thing open at a time: the window of a piece closes for this list.
+          if (pieceOpen) closeWindow();
           addOpen = !addOpen;
           piece.classList.toggle('is-open', addOpen);
           pick.setAttribute('aria-expanded', String(addOpen));
@@ -1485,6 +1553,10 @@ export function setupStudio({
    */
   function inputs(workflow) {
     span = null;
+    // (0.6.204) The window of a piece does not outlive it: closed once its piece is taken back or moved, while a
+    // take is made (its case cannot be pressed then), under another model that does not take it.
+    if (pieceOpen && (working || !drafts[mode].inputs[pieceOpen.role]?.[pieceOpen.index] || pieceOpen.index >= (workflow.roles?.[pieceOpen.role]?.count ?? 0)))
+      pieceOpen = null;
     const off = offPieces(workflow),
       frames = framesRow(workflow, off),
       // (0.6.202) What the model does not take: the start and the end at their end of the line of time when it
@@ -1508,7 +1580,8 @@ export function setupStudio({
       plateau.append(row);
     }
     if (off.length) plateau.append(offLine(workflow, off));
-    const blocks = [plateau, whoBlock(workflow)].filter(Boolean);
+    // (0.6.204) The plateau alone: « Qui est qui » left the column for the windows of its two pieces.
+    const blocks = [plateau].filter(Boolean);
     if (!blocks.length) return null;
     // Another model: a light line around them for a moment, which fades (nothing blinks). Drawn
     // again meanwhile, they keep it until the moment is over.
@@ -2169,7 +2242,7 @@ export function setupStudio({
     }
     for (const setting of workflow.settings) {
       if (setting.key === 'lyrics' && setting.type === 'string') continue;
-      // Who is who is said beside the inputs (whoBlock).
+      // Who is who is said in the windows of its two pieces (windowLines).
       if (WHO[setting.key] && setting.type === 'string') continue;
       // A sound's length is on the bar of Durée.
       if (setting.key === 'seconds' && setting.type === 'number') continue;
@@ -3363,21 +3436,40 @@ export function setupStudio({
     // `rare`: a setting under « Plus de réglages », opened for it: the pointer does not go to what
     // is folded, and the user sees the value it sets, theirs to change before « Générer ».
     if (rare) advanced = true;
+    // (0.6.204) A setting that lives in the window of a piece (who is who): its window opened for it, for the
+    // same reason, and closed once it is set (one window at a time, and none left over « Générer »).
+    const inWindow = windowOf(key);
+    if (inWindow) pieceOpen = inWindow;
     ai.active = marked ? key : null;
     render();
-    if (!(await glide(targetOf(key), label, anchor))) return false;
-    if (hold) await wait(hold / 2);
-    await apply();
-    if (hold) {
-      render();
-      await wait(hold / 2);
+    // (Its window is shown once on the page: the pointer goes to its field where it is then.)
+    if (inWindow) await null;
+    try {
+      if (!(await glide(targetOf(key), label, anchor))) return false;
+      if (hold) await wait(hold / 2);
+      await apply();
+      if (hold) {
+        render();
+        await wait(hold / 2);
+      }
+      if (!ai || ai.stopped) return false;
+      if (marked) ai.touched.add(key);
+      ai.active = null;
+    } finally {
+      if (inWindow) closeWindow();
     }
-    if (!ai || ai.stopped) return false;
-    if (marked) ai.touched.add(key);
-    ai.active = null;
     render();
-    pointer?.follow(targetOf(key), anchor);
+    // (Its window closed, the pointer stays on the case of its piece.)
+    pointer?.follow(targetOf(key) ?? (inWindow && document.querySelector?.(`#studio-view .studio-slot[data-slot="${inWindow.role}-${inWindow.index}"]`)), anchor);
     return Boolean(ai && !ai.stopped);
+  }
+  /**
+   * (0.6.204) The piece whose window holds the setting the pointer goes to (`key`: « setting-subject »), when
+   * that piece is given; null for a setting of the column.
+   */
+  function windowOf(key) {
+    const role = WHO[String(key).replace(/^setting-/, '')]?.piece;
+    return role && drafts[mode].inputs[role]?.[0] ? { role, index: 0 } : null;
   }
   /** The prompt written as it is typed: about 40 letters a second, 1 s at most whatever its length (16/11). */
   async function typePrompt(draft, text, { instant = false } = {}) {
@@ -5042,6 +5134,7 @@ export function setupStudio({
     mode = next;
     failure = '';
     formatsOpen = addOpen = false;
+    pieceOpen = null;
     if (next !== 'video') extending = null;
     // Back in Vidéo while a proposal of Moodix AI waits there: the clip it continues is its own, not
     // lost with a look at Image or Son (it was then shown, and its length sent, as a new video's).
@@ -6215,6 +6308,35 @@ export function setupStudio({
       // (Taken: the chat opened over the Studio folds at Échap when nothing else has it, app.js.)
       event.preventDefault();
       closeFormats({ refocus: true });
+    },
+    true,
+  );
+  // (0.6.204) The window of a piece closes the same way: a press beside it and its piece, Échap (the focus back on
+  // its case) before anything else hears it. Without drawing the Studio again: a press on another control is
+  // also its click, which a control replaced meanwhile would lose.
+  function closeWindow({ refocus = false } = {}) {
+    pieceOpen = null;
+    const piece = document.querySelector?.('#studio-view .studio-piece.is-open'),
+      pick = piece?.querySelector?.('.studio-slot-pick'),
+      pane = piece?.querySelector?.('.studio-piece-window');
+    if (pane) closePopup(pane);
+    piece?.classList?.remove?.('is-open');
+    pick?.setAttribute?.('aria-expanded', 'false');
+    if (refocus) pick?.focus?.();
+  }
+  document.addEventListener?.(
+    'pointerdown',
+    event => {
+      if (pieceOpen && !event.target?.closest?.('.studio-piece.is-open')) closeWindow();
+    },
+    true,
+  );
+  document.addEventListener?.(
+    'keydown',
+    event => {
+      if (event.key !== 'Escape' || !pieceOpen || document.querySelector?.('dialog[open]')) return;
+      event.preventDefault();
+      closeWindow({ refocus: true });
     },
     true,
   );

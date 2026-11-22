@@ -5052,19 +5052,78 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   font-size: var(--size-2);
   font-weight: 600;
 }
-/* Who is who, for a character put in a video: two short fields, one under the other (side by
-   side they were 94 px wide in a 1280 px window: « girl, handkerchief » was cut). */
-.studio-who {
-  display: grid;
-  gap: 8px;
+/* (0.6.204, capture 97) The small window of a piece given, one of our lists of glass hung under its case: its
+   whole name, what is set with it (who is who, for a character put in a video: in a block of their own in the
+   column before, which made it scroll at 1280 × 720), and at its foot what it is, « Changer… » and « Retirer ». */
+.glass-menu.studio-piece-window {
+  gap: 12px;
+  width: 292px;
+  padding: 14px 16px 12px;
 }
-#studio-view .studio-who input {
+.studio-window-title {
+  margin: 0;
+  color: var(--text-1);
+  font: 500 14px/1.2 var(--font-ui);
+}
+.studio-piece-window .studio-field > .studio-label {
+  color: var(--text-2);
+  font: 400 13px/1.2 var(--font-ui);
+}
+#studio-view .studio-piece-window input[type='text'] {
+  box-sizing: border-box;
   width: 100%;
-  height: 32px;
+  height: 34px;
   min-height: 0;
-  padding: 0 9px;
+  padding: 0 11px;
+  border: 1px solid rgba(238, 232, 222, 0.1);
   border-radius: 8px;
-  font-size: var(--size-2);
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--text-1);
+  font: 400 13px/1.2 var(--font-ui);
+}
+.studio-window-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 2px;
+}
+/* What the piece is (« PRISE 5 · 06.71 S », the name of a file): cut with « … » rather than pushing its buttons out. */
+.studio-window-said {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font: 400 12px/1.35 var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#studio-view .studio-window-button {
+  flex: none;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(238, 232, 222, 0.14);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font: 400 13px/1 var(--font-ui);
+}
+#studio-view .studio-window-button:is(:hover, :focus-visible):enabled {
+  border-color: rgba(238, 232, 222, 0.32);
+  color: var(--text-1);
+}
+#studio-view .studio-window-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* The piece whose window is open: a line of the accent around its case, its word lit. */
+#studio-view .studio-piece.is-open .studio-slot-pick {
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+#studio-view .studio-piece.is-open .studio-slot.is-filled .studio-slot-pick {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.studio-piece.is-open .studio-piece-word {
+  color: var(--text-1);
 }
 .studio-extending {
   display: flex;
