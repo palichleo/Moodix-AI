@@ -477,7 +477,11 @@ test(
         '#ref1 n’est pas transmise. Le générateur ne la verra pas, seul le prompt peut la décrire.',
       ]);
       // (0.6.208) With its number: a capable model is told of it by that number (« {"ref": 1} »).
-      assert.deepEqual(stands.cited, { left: [{ id: stairs.id, label: '#ref1', reference: 1 }], roles: ['source'] });
+      // (0.6.209) And a picture of it the card of the Chat shows, greyed: the preview of the reference.
+      const { preview: leftPicture, ...leftOut } = stands.cited.left[0];
+      assert.deepEqual({ left: [leftOut], roles: stands.cited.roles }, { left: [{ id: stairs.id, label: '#ref1', reference: 1 }], roles: ['source'] });
+      assert.match(leftPicture, new RegExp(`^/media/resources/${stairs.id}/preview\\?key=[0-9a-f]{64}$`));
+      assert.equal((await fetch(app.url + leftPicture)).status, 200, 'the picture of the image left out is served');
       // Its identifier written in the prompt is not the image passed: seen once the call is resolved,
       // the model is told then (its workflow has a place for it), and nothing is left to approve.
       const written = (await chat(`generate naming ${stairs.id} for ref1`)).find(e => e.local_tool_request).local_tool_request;

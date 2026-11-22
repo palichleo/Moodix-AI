@@ -9906,8 +9906,11 @@ body:not([data-view='chat']) .resume {
    « + » where the workflow takes one more. */
 .proposal-media {
   display: flex;
+  /* (0.6.209) More pieces than its column is wide (a start, an end, subjects, what is left out): they go on
+     a second row. They ran over the settings beside them. */
+  flex-wrap: wrap;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px 8px;
   min-width: 0;
   padding-top: 2px;
 }
@@ -9978,6 +9981,27 @@ body:not([data-view='chat']) .resume {
   font: 400 var(--size-1)/1 var(--font-mono);
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+/* (0.6.209, capture 106) A reference of the project named under its word, as it is typed in a message
+   (« #ref3 »): a name, not a word in capitals. Alone under an image left out, it is all it has. */
+.proposal-input .proposal-input-ref {
+  min-height: 12px;
+  color: var(--text-3);
+  font: 400 12px/1 var(--font-mono);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.proposal-input > span.proposal-input-ref {
+  margin-top: -4px;
+}
+/* (0.6.209, capture 105) An image the user named that the proposal leaves out stays on the card, greyed as
+   a piece the model does not take on the plateau of the Studio; its bubble says why. */
+.proposal-input.is-off .proposal-input-frame {
+  opacity: 0.38;
+  filter: grayscale(1);
+}
+.proposal-input.is-off figcaption {
+  color: var(--text-4);
 }
 .proposal-media-rule {
   flex: 0 0 1px;

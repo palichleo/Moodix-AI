@@ -1,5 +1,6 @@
 import { formatOf, formatsFor, nearestSize, sizesFor } from './formats.mjs';
 import { CHOICE_NAMES, settingName } from './setting-names.mjs';
+import { PIECES, PIECE_WORDS, refOf } from './pieces.mjs';
 
 // (0.6.198) The names of the settings on the card of a proposal are those of the Studio and of Paramètres ›
 // Modèles (public/setting-names.mjs, read by the server too): the card had a table of its own (« Force des
@@ -23,13 +24,19 @@ const SUBJECT_ROLE = 'msr_image';
 const subjectSetting = key => key.startsWith('msr_');
 const numeric = value => typeof value === 'number' && Number.isFinite(value);
 // The places of the inputs in a card: the frames of the clip, the video followed; the rest are references.
-const PLACES = { start_image: 'DÉBUT', end_image: 'FIN' };
+// (0.6.209) Their words are those of the plateau of the Studio (public/pieces.mjs: « Début », « Fin »,
+// « Sujet 1 », « À prolonger »…), written as a sentence writes them: the card shows them in capitals by its
+// style sheet (« DÉBUT »), as before.
+const PLACES = { start_image: PIECE_WORDS.start_image, end_image: PIECE_WORDS.end_image };
 const SOURCES = new Set(['source_video', 'driving_video', 'source_image', 'img2img']);
-// (0.6.190) What a source is for, said over it in a card instead of « SOURCE »: the end of the name the
-// server gives its role (« Image à modifier », « Vidéo à prolonger », « Vidéo à suivre »), in capitals;
-// by its role alone when the proposal names none.
-const DOING = { img2img: 'À MODIFIER', source_image: 'À AGRANDIR', source_video: 'À PROLONGER', driving_video: 'À SUIVRE' };
-const doing = (label, role) => /(?:^|\s)(à\s.+)$/i.exec(String(label ?? ''))?.[1].toUpperCase() ?? DOING[role] ?? 'ENTRÉE';
+// (0.6.190) What a source is for, said under it in a card instead of « SOURCE »: the end of the name the
+// server gives its role (« Image à modifier », « Vidéo à prolonger », « Vidéo à suivre »); by its role alone
+// when the proposal names none.
+const DOING = { img2img: PIECE_WORDS.source, source_image: 'À agrandir', source_video: PIECE_WORDS.prolong, driving_video: PIECE_WORDS.follow };
+const doing = (label, role) => {
+  const said = /(?:^|\s)à\s(.+)$/i.exec(String(label ?? ''))?.[1];
+  return said ? 'À ' + said.toLowerCase() : (DOING[role] ?? 'Entrée');
+};
 const seconds = value => value.toFixed(2).replace('.', ',') + ' s';
 // A limit as it is said to the user: « 0,6 ».
 const decimal = value => String(value).replace('.', ',');
@@ -490,6 +497,9 @@ export function renderProposal(container, request, { node, onStage, card = false
    * The inputs of a card as pictures (captures 11 and 12): the video followed, DÉBUT and FIN in the
    * shape of the format, a rule, then the subjects (SUJET 1…); « + » where the workflow takes one
    * more: « Créations du projet » opens in the card, and the image chosen goes in that case.
+   * (0.6.209, LOTS.md, lot 12; captures 105 and 106) They are the pieces of the plateau of the Studio:
+   * the same words (public/pieces.mjs), the name of a reference of the project under its word
+   * (« #ref3 »), and what the user named that the proposal leaves out, greyed, after a second rule.
    */
   function showMedia() {
     if (!media) return;
@@ -503,10 +513,13 @@ export function renderProposal(container, request, { node, onStage, card = false
       ratio = numeric(size.width) && numeric(size.height) && size.height > 0 ? size.width / size.height : 16 / 9;
     const referenceRole = slots.find(role => !SOURCES.has(role) && !PLACES[role]) ?? 'reference',
       empties = [];
-    const tile = (ref, label, { shape = ratio, add = '', role = '' } = {}) => {
+    const tile = (ref, label, { shape = ratio, add = '', role = '', off = '' } = {}) => {
       if (!ref && role) empties.push(role);
-      const box = node('figure', 'proposal-input' + (ref ? '' : ' is-empty') + (shape ? '' : ' is-reference')),
-        frame = node(ref ? 'span' : 'button', 'proposal-input-frame');
+      const box = node('figure', 'proposal-input' + (ref ? '' : ' is-empty') + (shape ? '' : ' is-reference') + (off ? ' is-off' : '')),
+        frame = node(ref ? 'span' : 'button', 'proposal-input-frame'),
+        // (0.6.209, capture 106) A reference of the project is named under its word as it is written in the
+        // message, « #ref3 »: the image named there is the one seen here, in that role.
+        named = ref && !off ? refOf(ref.label) : '';
       // An image dropped or pasted on the case goes there (proposal-card.mjs).
       if (role && !SOURCES.has(role)) box.setAttribute('data-role', role);
       if (shape) box.style?.setProperty('--ratio', shape.toFixed(3));
@@ -527,7 +540,10 @@ export function renderProposal(container, request, { node, onStage, card = false
         frame.disabled = !onAdd;
         frame.onclick = () => onAdd?.(role);
       }
-      box.append(frame, node('figcaption', '', label));
+      // Left out: why, in its bubble (help-tips.mjs); it has no role, its name is its word.
+      if (off) frame.setAttribute('data-tip', off);
+      box.append(frame, node('figcaption', off ? 'proposal-input-ref' : '', label));
+      if (named) box.append(node('span', 'proposal-input-ref', named));
       return box;
     };
     const frames = [];
@@ -539,12 +555,31 @@ export function renderProposal(container, request, { node, onStage, card = false
         frames.push(tile(null, label, { role, add: role === 'end_image' ? 'Ajouter une image de fin' : 'Ajouter une image de début' }));
     }
     const references = placed.filter(item => !SOURCES.has(item.role) && !PLACES[item.role]),
-      room = Math.min(3, slots.filter(role => !SOURCES.has(role) && !PLACES[role]).length);
-    const refs = references.map(({ ref, role }, index) => tile(ref, 'SUJET ' + (index + 1), { shape: 0, role }));
+      room = Math.min(3, slots.filter(role => !SOURCES.has(role) && !PLACES[role]).length),
+      subject = PIECE_WORDS.reference;
+    // (0.6.209, capture 97) Who is put in a video says « Personnage », as on the plateau of the Studio.
+    const refs = references.map(({ ref, role, name }, index) =>
+      tile(ref, name === PIECES.character.name ? PIECE_WORDS.character : subject + ' ' + (index + 1), { shape: 0, role }),
+    );
+    // (0.6.209, capture 106) The case of one more subject says what it takes (no word before): « Sujet »,
+    // « Sujet 2 » after one given.
     if (references.length < room)
-      refs.push(tile(null, '', { shape: 0, role: referenceRole, add: 'Ajouter un sujet' }));
-    media.replaceChildren(...frames, ...(frames.length && refs.length ? [node('span', 'proposal-media-rule')] : []), ...refs);
-    media.hidden = !frames.length && !refs.length;
+      refs.push(tile(null, subject + (references.length ? ' ' + (references.length + 1) : ''), { shape: 0, role: referenceRole, add: 'Ajouter un sujet' }));
+    // (0.6.209, capture 105) An image the user named that this proposal leaves out (`cited.left`, lib/tool-
+    // runtime.mjs) stays on the card, greyed, after what goes: it was only a sentence under the card, and the
+    // image named was nowhere to be seen. Why, in its bubble: its model has no place for it, or (a place is
+    // left: `cited.roles`) Moodix AI gave it no role. The sentence of the server stays under the card.
+    const left = (request.cited?.left ?? []).map(item =>
+      tile({ label: item.label, preview: item.preview }, refOf(item.label) || String(item.label ?? ''), {
+        shape: 0,
+        off: request.cited.roles?.length
+          ? 'Ne partira pas : Moodix AI ne lui a pas donné de rôle.'
+          : `Ne partira pas avec ${request.workflowName || 'ce modèle'}.`,
+      }),
+    );
+    const groups = [frames, refs, left].filter(group => group.length);
+    media.replaceChildren(...groups.flatMap((group, index) => (index ? [node('span', 'proposal-media-rule'), ...group] : group)));
+    media.hidden = !groups.length;
     emptyRoles = empties;
   }
   showMedia();

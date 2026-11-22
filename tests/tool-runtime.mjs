@@ -596,6 +596,40 @@ test('(0.6.208) an image named and left out keeps its number: a capable model is
   assert.deepEqual(revised.cited, left.cited);
 });
 
+test('(0.6.209) an image named and left out comes with a picture of it the card may show, as an input does', async () => {
+  // The card of the Chat keeps it in view, greyed (public/video-plan.mjs): it needs its picture, which the
+  // proposal gave for its inputs alone.
+  const stairs = { id: 'c3333333-3333-4333-8333-333333333333', label: '#ref2', reference: 2 },
+    chair = { id: 'd4444444-4444-4444-8444-444444444444', label: '#ref3', reference: 3 };
+  const { rt } = runtimeFixture();
+  rt.resources = { activeRecord: async () => ({ mime: 'image/png' }) };
+  rt.sourceMedia = async ref => ({ mime: 'image/png', name: ref.resource_id + '.png', handle: { close: async () => {} } });
+  const seen = [];
+  rt.previewOf = (ref, conversationId, media) => {
+    seen.push([ref.resource_id, conversationId, media]);
+    return '/media/resources/' + ref.resource_id + '/preview';
+  };
+  const taken = await rt.request(
+    [{ id: 'call_1', type: 'function', function: { name: 'create_image', arguments: JSON.stringify({ prompt: 'portrait', source: { resource: chair.id } }) } }],
+    { conversationId: id, turnId: id, messages: [], cited: [stairs, chair] },
+  );
+  assert.deepEqual(taken.cited, {
+    left: [{ id: stairs.id, label: '#ref2', reference: 2, preview: '/media/resources/' + stairs.id + '/preview' }],
+    roles: [],
+  });
+  assert.ok(seen.some(([resource, conversation, media]) => resource === stairs.id && conversation === id && media === 'image'));
+  // Revised, the proposal still shows it; what the model is told of it reads its label, its id and its number alone.
+  const revised = await rt.revise({ requestId: taken.requestId, approvalToken: taken.approvalToken, edits: { prompt: 'un autre portrait' } });
+  assert.deepEqual(revised.cited, taken.cited);
+  // A page that cannot be given a picture (no `previewOf`): the image as before, by its name.
+  rt.previewOf = () => null;
+  const plain = await rt.request(
+    [{ id: 'call_2', type: 'function', function: { name: 'create_image', arguments: '{"prompt":"portrait"}' } }],
+    { conversationId: id, turnId: id, messages: [], cited: [stairs] },
+  );
+  assert.deepEqual(plain.cited.left, [{ id: stairs.id, label: '#ref2', reference: 2 }]);
+});
+
 /**
  * A series of images asked in the Chat (one call of create_image with `series`) with the local chat
  * model: what the chat engine and the generator are asked, in their order (`order`: stop and start

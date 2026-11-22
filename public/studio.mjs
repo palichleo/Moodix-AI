@@ -12,6 +12,7 @@ import { explanation, foldPrompt } from './studio-explain.mjs';
 import { clipPlayer, stillClip } from './take-player.mjs';
 import { elapsedClock } from './generation-time.mjs';
 import { settingName } from './setting-names.mjs';
+import { PIECES, PIECE_WORDS as WORDS } from './pieces.mjs';
 import { setupMontage } from './montage.mjs';
 
 /**
@@ -218,10 +219,10 @@ const twoFigures = value => (Math.round(Number(value) * 100) / 100).toFixed(2).p
 const seconds = value => twoFigures(value) + ' S';
 // The name a slot shows while something that it takes is carried (studio-maquette.md, « Glisser »).
 // (0.6.190) « Sujet 2 », no longer « Réf. 2 ».
-const SHORT = { start_image: 'Début', end_image: 'Fin', reference: 'Sujet', source: 'Image', source_video: 'Vidéo' };
+const SHORT = { start_image: WORDS.start_image, end_image: WORDS.end_image, reference: WORDS.reference, source: 'Image', source_video: 'Vidéo' };
 // (0.6.201) The word under a piece of the plateau (capture 93), by its role: what it is for, in a word or two.
-// The video a character is put in says « À suivre », its character « Personnage » (capture 97).
-const WORDS = { start_image: 'Début', end_image: 'Fin', reference: 'Sujet', source: 'À modifier' };
+// The video a character is put in says « À suivre », its character « Personnage » (capture 97). (0.6.209)
+// `WORDS` is the table of public/pieces.mjs: the card of the Chat and the line of the Bobine read it too.
 // (0.6.202) A piece given that the model in hand does not take, as the line under the plateau names it
 // (capture 96): « L’image de fin et le sujet ne partiront pas avec Wan 2.2. ».
 const KEPT = { start_image: 'l’image de début', end_image: 'l’image de fin', source: 'l’image à modifier' };
@@ -230,17 +231,7 @@ const KEPT = { start_image: 'l’image de début', end_image: 'l’image de fin'
 const AI_INPUTS = 'Les images de cette proposition sont celles de Moodix AI : demandez-lui dans le chat pour en changer.';
 // (0.6.203, captures 94, 100 and 101) Each kind of piece in the list « Ajouter »: its name, what the list says of
 // it once given (`given`), and how a model that does not take it says which one does (`serves`: « Une vidéo à
-// suivre sert avec SCAIL-2 : choisissez-le dans Modèle. »).
-const PIECES = {
-  start_image: { name: 'Image de début', given: 'déjà donnée', serves: 'Une image de début sert' },
-  end_image: { name: 'Image de fin', given: 'déjà donnée', serves: 'Une image de fin sert' },
-  source: { name: 'Image à modifier', given: 'déjà donnée', serves: 'Une image à modifier sert' },
-  follow: { name: 'Vidéo à suivre', given: 'déjà donnée', serves: 'Une vidéo à suivre sert' },
-  character: { name: 'Personnage', given: 'déjà donné', serves: 'Un personnage sert' },
-  reference: { name: 'Sujet', given: 'déjà donné', serves: 'Un sujet sert' },
-  lyrics: { name: 'Paroles', given: 'déjà ouvertes', serves: 'Des paroles servent' },
-  image: { name: 'Image', given: 'déjà donnée', serves: 'Une image sert' },
-};
+// suivre sert avec SCAIL-2 : choisissez-le dans Modèle. »). (0.6.209) `PIECES`, in public/pieces.mjs.
 // (0.6.203, his answer 8 of 21/11: « avec SCAIL-2 ») A model said short in that list: the name its family has
 // here, else what its name says in brackets (« Musique (ACE-Step 1.5 XL) »), else its name.
 const SHORT_MODELS = { wan_scail2: 'SCAIL-2' };
@@ -1267,7 +1258,7 @@ export function setupStudio({
       preview = node('img'),
       mark = node('span', 'studio-slot-badge'),
       piece = node('div', 'studio-piece studio-prolong' + (opened ? ' is-open' : '')),
-      word = node('span', 'studio-piece-word', 'À prolonger'),
+      word = node('span', 'studio-piece-word', WORDS.prolong),
       // Left by its × and by « Retirer »: a new video, as « Annuler » of the banner did.
       leave = () => {
         extending = null;
@@ -1355,7 +1346,7 @@ export function setupStudio({
       label = video ? 'Vidéo à suivre' : subject ? ROLES.reference + ' ' + (index + 1) : (ROLES[role] ?? 'Image');
     return slot(workflow, role, index, {
       label,
-      word: video ? 'À suivre' : (WORDS[role] ?? 'Image'),
+      word: video ? WORDS.follow : (WORDS[role] ?? 'Image'),
       picto: video ? 'video' : (PICTO[role] ?? (subject ? null : 'image')),
       badge: subject ? '@' + (index + 1) : '',
       media: video ? 'video' : 'image',
@@ -1453,7 +1444,7 @@ export function setupStudio({
         row.append(
           slot(workflow, role, index, {
             label,
-            word: (video ? 'À suivre' : (WORDS[role] ?? 'Image')) + (spec.count > 1 ? ' ' + (index + 1) : ''),
+            word: (video ? WORDS.follow : (WORDS[role] ?? 'Image')) + (spec.count > 1 ? ' ' + (index + 1) : ''),
             add: video ? 'Ajouter la vidéo à suivre' : spec.count === 1 && ADD[role] ? ADD[role] : 'Ajouter : ' + label,
             tip: label + (video ? ' · glisser ou cliquer' : ' · glisser, coller ou cliquer'),
             picto: video ? 'video' : (PICTO[role] ?? 'image'),
@@ -1470,7 +1461,7 @@ export function setupStudio({
       row.append(
         slot(workflow, 'reference', 0, {
           label: 'Personnage',
-          word: 'Personnage',
+          word: WORDS.character,
           add: 'Ajouter l’image du personnage',
           tip: 'Personnage à mettre dans la vidéo · glisser, coller ou cliquer',
           badge: '@',
