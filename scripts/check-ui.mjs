@@ -182,17 +182,21 @@ const STUDIO_LAYOUT = `(async () => {
           else {
             if (box.left < 0 || box.top < 0 || box.right > innerWidth || box.bottom > innerHeight) found.push(name + ' : la fenêtre de la Caméra sort de la fenêtre');
             if (pane.scrollHeight > pane.clientHeight + 1) found.push(name + ' : la fenêtre de la Caméra défile');
-            if (pane.querySelectorAll('button.glass-select').length !== 2) found.push(name + ' : la fenêtre de la Caméra n’a pas ses deux listes de verre');
-            if (!/^« .+\\. »$/.test(pane.querySelector('.studio-camera-sentence')?.textContent ?? '')) found.push(name + ' : la phrase ajoutée au prompt n’est pas montrée');
-            // (0.6.212) Its list of movements, opened: an orbit and a crane greyed, « pas fiable » beside each name
-            // and why under the pointer (the words alone do not hold them); closed again before « Retirer ».
-            const face = pane.querySelector('button.glass-select');
-            face?.click();
-            const greyed = [...pane.querySelectorAll('[role="option"].is-off')];
-            if (greyed.length !== 4 || greyed.some(item => item.getAttribute('aria-disabled') !== 'true' || !/^Pas fiable par les mots seuls : /.test(item.dataset.tip ?? '') || item.querySelector('.glass-menu-note')?.textContent !== 'pas fiable'))
-              found.push(name + ' : la liste des mouvements ne grise pas l’orbite et la grue avec leur raison (' + greyed.length + ' grisées)');
-            face?.click();
-            if (pane.querySelector('[role="option"]')) found.push(name + ' : la liste des mouvements reste ouverte');
+            // (0.6.215) Its movements are small scenes, by family: seventeen cases, the one chosen playing in a
+            // loop; an orbit and a crane greyed, « pas fiable » under their name (the words alone do not hold
+            // them); three speeds.
+            const cards = [...pane.querySelectorAll('.studio-camera-move')],
+              greyed = cards.filter(card => card.classList.contains('is-off')),
+              chosen = cards.filter(card => card.classList.contains('is-chosen')),
+              moving = card => ['world', 'zoom', 'subject'].map(part => getComputedStyle(card.querySelector('.camera-scene-' + part))).filter(style => style.animationName !== 'none');
+            if (cards.length !== 17) found.push(name + ' : la fenêtre de la Caméra montre ' + cards.length + ' mouvements au lieu de 17');
+            if (cards.some(card => !moving(card).length)) found.push(name + ' : un mouvement de la Caméra n’a pas de scène animée (' + cards.filter(card => !moving(card).length).map(card => card.dataset.move).join(', ') + ')');
+            if (chosen.length !== 1 || !moving(chosen[0]).some(style => style.animationPlayState === 'running')) found.push(name + ' : la scène du mouvement choisi ne joue pas');
+            if (cards.some(card => !card.classList.contains('is-chosen') && moving(card).some(style => style.animationPlayState === 'running'))) found.push(name + ' : une scène joue sans être choisie ni survolée');
+            if (greyed.length !== 4 || greyed.some(card => card.getAttribute('aria-disabled') !== 'true' || card.querySelector('.studio-camera-move-note')?.textContent !== 'pas fiable'))
+              found.push(name + ' : la fenêtre de la Caméra ne grise pas l’orbite et la grue (' + greyed.length + ' grisées)');
+            if (pane.querySelectorAll('.studio-camera-speed').length !== 3) found.push(name + ' : la fenêtre de la Caméra n’a pas ses trois vitesses');
+            if (cards.some(card => card.scrollWidth > card.clientWidth + 1)) found.push(name + ' : un nom de mouvement déborde de sa case');
             [...pane.querySelectorAll('.studio-window-button')].find(item => item.textContent === 'Retirer')?.click();
           }
           if (document.querySelector('#studio-view .studio-camera')) found.push(name + ' : la Caméra n’est pas retirée');

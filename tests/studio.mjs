@@ -8646,13 +8646,14 @@ test('(0.6.211) the camera, a piece of the plateau: added by « Ajouter », set 
       tile = () => camera().children[0],
       pick = () => tile().children[0],
       pane = () => body.find('studio-camera-window')[0],
-      lists = () => pane().find('studio-field').map(field => field.children[1]),
+      cards = () => pane().find('studio-camera-move'),
+      card = move => cards().find(item => item.dataset.move === move),
+      speeds = () => pane().find('studio-camera-speed'),
+      pace = () => pane().find('studio-camera-speeds')[0],
       sentence = () => pane().find('studio-camera-sentence')[0].textContent,
-      set = (at, value) => {
-        const control = lists()[at];
-        control.value = value;
-        control.onchange();
-      },
+      told = () => pane().find('studio-window-said')[0].textContent,
+      // (0.6.215) A movement is a case pressed, a speed one of three choices: `set(0, move)`, `set(1, speed)`.
+      set = (at, value) => (at === 0 ? card(value) : speeds().find(item => item.dataset.speed === value)).onclick(),
       words = () => body.find('studio-plateau')[0].find('studio-piece-word').map(word => word.textContent),
       sent = () => asked.filter(([route]) => route === 'tools/action').at(-1)[1].arguments,
       generate = async () => {
@@ -8681,47 +8682,118 @@ test('(0.6.211) the camera, a piece of the plateau: added by « Ajouter », set 
     assert.deepEqual([pane().className, pane().attributes.role, pane().attributes['aria-label'], pane().find('studio-window-title')[0].textContent], [
       'glass-menu studio-piece-window studio-camera-window', 'dialog', 'Caméra', 'Caméra',
     ]);
-    assert.deepEqual(pane().find('studio-field').map(field => field.children[0].textContent), ['Mouvement', 'Vitesse']);
-    assert.deepEqual(lists().map(control => [control.tag, control.children.length, control.value, control.disabled]), [
-      ['select', 17, 'dolly_in', false],
-      ['select', 3, 'normal', false],
-    ]);
-    // (0.6.212) What the words alone do not hold (the real videos of 22/11: an orbit, a crane) stays in the list,
-    // greyed: « pas fiable » beside its name, why under the pointer. The thirteen others, and every speed, as before.
+    // (0.6.215, maquette du 22/11) Its movements: a small scene each, by family, a short name under it; the one
+    // chosen wears the ring. No list any more.
+    assert.equal(pane().find('studio-field').length, 0);
+    const groups = pane().find('studio-camera-groups')[0];
+    assert.deepEqual([groups.attributes.role, groups.attributes['aria-label'], groups.dataset.ai], ['radiogroup', 'Mouvement', 'camera-move']);
     assert.deepEqual(
-      lists()[0].children.filter(option => option.disabled).map(option => [option.value, option.textContent, option.dataset.note, option.title]),
+      groups.children.map(block => [
+        block.className,
+        block.children[0].textContent,
+        block.dataset.size,
+        block.children[1].children.map(item => item.dataset.move + ':' + item.find('studio-camera-move-name')[0].textContent).join(' '),
+      ]),
       [
-        ['crane_up', 'Grue montante', 'pas fiable', 'Pas fiable par les mots seuls : à l’essai, la caméra a fini en plongée.'],
-        ['crane_down', 'Grue descendante', 'pas fiable', 'Pas fiable par les mots seuls : à l’essai, la caméra a fini en plongée.'],
-        ['orbit_left', 'Orbite gauche', 'pas fiable', 'Pas fiable par les mots seuls : à l’essai, la caméra est restée fixe.'],
-        ['orbit_right', 'Orbite droite', 'pas fiable', 'Pas fiable par les mots seuls : à l’essai, la caméra est restée fixe.'],
+        ['studio-camera-group', 'Travelling', '4', 'dolly_in:Avant dolly_out:Arrière truck_left:Gauche truck_right:Droite'],
+        ['studio-camera-group', 'Zoom', '2', 'zoom_in:Avant zoom_out:Arrière'],
+        ['studio-camera-group', 'Panoramique', '4', 'pan_left:Gauche pan_right:Droite tilt_up:Haut tilt_down:Bas'],
+        ['studio-camera-group', 'Grue', '2', 'crane_up:Montante crane_down:Descendante'],
+        ['studio-camera-group', 'Orbite', '2', 'orbit_left:Gauche orbit_right:Droite'],
+        ['studio-camera-group', 'Sans déplacement', '3', 'static:Fixe handheld:À l’épaule follow:Suivi'],
       ],
     );
+    assert.equal(cards().length, 17);
+    assert.deepEqual(cards().filter(item => item.className.includes('is-chosen')).map(item => [item.dataset.move, item.attributes['aria-checked']]), [['dolly_in', 'true']]);
     assert.deepEqual(
-      [...lists()[0].children.filter(option => !option.disabled), ...lists()[1].children].map(option => [option.disabled ?? false, option.title ?? '', option.dataset.note ?? '']).filter(line => line.join('') !== 'false'),
-      [],
+      [card('pan_left').tag, card('pan_left').type, card('pan_left').className, card('pan_left').attributes.role, card('pan_left').attributes['aria-label'], card('pan_left').attributes['aria-checked']],
+      ['button', 'button', 'studio-camera-move', 'radio', 'Panoramique gauche', 'false'],
     );
-    assert.equal(lists()[0].children.filter(option => !option.disabled).length, 13);
-    // What goes to the model, read before « Générer »: the sentence added after the prompt.
+    // Each case holds its scene, which the styles move as that camera does; a screen reader is told its name only.
+    for (const item of cards()) {
+      const scene = item.children[0];
+      assert.deepEqual([scene.className, scene.dataset.move, scene.attributes['aria-hidden']], ['camera-scene', item.dataset.move, 'true']);
+      assert.deepEqual([scene.children[0].className, scene.children[0].children[0].className], ['camera-scene-zoom', 'camera-scene-lens']);
+      assert.deepEqual(
+        scene.find('camera-scene-world')[0].children.map(part => [part.className, part.children.length]),
+        [
+          ['camera-scene-ground', 0],
+          ['camera-scene-grid', 0],
+          ['camera-scene-sun', 0],
+          ['camera-scene-post is-1', 0],
+          ['camera-scene-post is-2', 0],
+          ['camera-scene-post is-3', 0],
+          ['camera-scene-post is-4', 0],
+          ['camera-scene-subject', 5],
+        ],
+      );
+    }
+    // (0.6.212) What the words alone do not hold (the real videos of 22/11: an orbit, a crane) stays there, greyed:
+    // « pas fiable » under its name, why said with its name; the thirteen others as they are.
+    assert.deepEqual(
+      cards()
+        .filter(item => item.className.includes('is-off'))
+        .map(item => [item.dataset.move, item.attributes['aria-disabled'], item.find('studio-camera-move-note')[0].textContent, item.attributes['aria-label']]),
+      [
+        ['crane_up', 'true', 'pas fiable', 'Grue montante, pas fiable. Pas fiable par les mots seuls : à l’essai, la caméra a fini en plongée.'],
+        ['crane_down', 'true', 'pas fiable', 'Grue descendante, pas fiable. Pas fiable par les mots seuls : à l’essai, la caméra a fini en plongée.'],
+        ['orbit_left', 'true', 'pas fiable', 'Orbite gauche, pas fiable. Pas fiable par les mots seuls : à l’essai, la caméra est restée fixe.'],
+        ['orbit_right', 'true', 'pas fiable', 'Orbite droite, pas fiable. Pas fiable par les mots seuls : à l’essai, la caméra est restée fixe.'],
+      ],
+    );
+    assert.deepEqual(cards().filter(item => !item.className.includes('is-off')).map(item => [item.attributes['aria-disabled'] ?? null, item.find('studio-camera-move-note').length]).filter(line => line[0] || line[1]), []);
+    assert.equal(cards().filter(item => !item.className.includes('is-off')).length, 13);
+    // Under the pointer or the focus, the foot of the window says the whole name, or why it is greyed; then the
+    // one chosen again. A greyed one pressed says why and is not chosen.
+    assert.equal(told(), 'Travelling avant');
+    card('orbit_left').onpointerenter();
+    assert.equal(told(), 'Pas fiable par les mots seuls : à l’essai, la caméra est restée fixe.');
+    card('orbit_left').onpointerleave();
+    assert.equal(told(), 'Travelling avant');
+    card('truck_left').onfocus();
+    assert.equal(told(), 'Travelling latéral gauche');
+    card('truck_left').onblur();
+    assert.equal(told(), 'Travelling avant');
+    card('orbit_left').onclick();
+    assert.deepEqual(
+      [notices.at(-1), pick().title, card('orbit_left').className, card('orbit_left').attributes['aria-checked'], card('dolly_in').className],
+      ['Pas fiable par les mots seuls : à l’essai, la caméra est restée fixe.', 'Caméra · Travelling avant', 'studio-camera-move is-off', 'false', 'studio-camera-move is-chosen'],
+    );
+    // Its speed: three choices, the normal one pressed; the scenes play at the speed chosen.
+    assert.deepEqual([pace().attributes.role, pace().attributes['aria-label'], pace().dataset.ai, pane().find('studio-camera-pace')[0].children[0].textContent], ['group', 'Vitesse', 'camera-speed', 'Vitesse']);
+    assert.deepEqual(
+      speeds().map(item => [item.dataset.speed, item.children[0].textContent, item.attributes['aria-pressed'], item.disabled]),
+      [
+        ['slow', 'Lente', 'false', false],
+        ['normal', 'Normale', 'true', false],
+        ['fast', 'Rapide', 'false', false],
+      ],
+    );
+    assert.equal(pane().dataset.speed, 'normal');    // What goes to the model, read before « Générer »: the sentence added after the prompt.
     const added = pane().find('studio-camera-added')[0];
     assert.deepEqual([added.children[0].textContent, added.attributes['aria-live'], sentence()], ['Ajouté au prompt :', 'polite', '« The camera dollies in. »']);
-    assert.deepEqual(pane().find('studio-window-foot')[0].children.map(part => part.children[0]?.textContent ?? part.textContent), ['', 'Retirer']);
+    assert.deepEqual(pane().find('studio-window-foot')[0].children.map(part => part.children[0]?.textContent ?? part.textContent), ['Travelling avant', 'Retirer']);
     // A speed, another movement: the sentence and the name of the piece follow in place, the window stays as it is.
     const window = pane();
     set(1, 'slow');
-    assert.deepEqual([sentence(), pick().title, pane()], ['« The camera slowly dollies in. »', 'Caméra · Travelling avant, lent', window]);
+    assert.deepEqual([sentence(), pick().title, pane(), pane().dataset.speed, told()], ['« The camera slowly dollies in. »', 'Caméra · Travelling avant, lent', window, 'slow', 'Travelling avant, lent']);
     set(0, 'tilt_up');
     assert.deepEqual([sentence(), pick().attributes['aria-label']], ['« The camera slowly tilts up. »', 'Caméra · Panoramique vers le haut, lent']);
-    // A movement without speed: its list greyed, with why; the speed chosen comes back with a movement that has one.
+    assert.deepEqual(cards().filter(item => item.className.includes('is-chosen')).map(item => item.dataset.move), ['tilt_up']);
+    // A movement without speed: its three choices greyed, none pressed, with why; the scenes at their own pace;
+    // the speed chosen comes back with a movement that has one.
+    const pressed = () => speeds().filter(item => item.attributes['aria-pressed'] === 'true').map(item => item.dataset.speed);
     set(0, 'static');
-    assert.deepEqual([sentence(), lists()[1].disabled, lists()[1].title, pick().title], [
-      '« The camera stays perfectly still, a locked-off static shot. »', true, 'Ce mouvement n’a pas de vitesse.', 'Caméra · Fixe',
+    assert.deepEqual([sentence(), speeds().map(item => item.disabled), pressed(), pace().title, pane().dataset.speed, pick().title], [
+      '« The camera stays perfectly still, a locked-off static shot. »', [true, true, true], [], 'Ce mouvement n’a pas de vitesse.', 'normal', 'Caméra · Fixe',
     ]);
     set(0, 'pan_left');
-    assert.deepEqual([sentence(), lists()[1].disabled, lists()[1].value, lists()[1].title], ['« The camera slowly pans to the left. »', false, 'slow', 'À quelle vitesse la caméra bouge.']);
+    assert.deepEqual([sentence(), speeds().map(item => item.disabled), pressed(), pace().title, pane().dataset.speed, told()], [
+      '« The camera slowly pans to the left. »', [false, false, false], ['slow'], 'À quelle vitesse la caméra bouge.', 'slow', 'Panoramique gauche, lent',
+    ]);
     // Drawn again, it is still open, on what was chosen.
     studio.render();
-    assert.deepEqual([lists().map(control => control.value), sentence()], [['pan_left', 'slow'], '« The camera slowly pans to the left. »']);
+    assert.deepEqual([cards().filter(item => item.className.includes('is-chosen')).map(item => item.dataset.move), pressed(), sentence()], [['pan_left'], ['slow'], '« The camera slowly pans to the left. »']);
     // Once added, « Ajouter » says so.
     assert.deepEqual(list()[3], [true, 'Caméra · déjà réglée', 'La caméra est déjà réglée : cliquez sur sa case pour en changer.']);
     // Its case closes its window, and opens it again; a press beside it closes it.
@@ -8763,7 +8835,7 @@ test('(0.6.211) the camera, a piece of the plateau: added by « Ajouter », set 
       },
       camera = () => body.find('studio-camera')[0],
       pick = () => camera().children[0].children[0],
-      lists = () => body.find('studio-camera-window')[0].find('studio-field').map(field => field.children[1]),
+      card = move => body.find('studio-camera-window')[0].find('studio-camera-move').find(item => item.dataset.move === move),
       sent = () => asked.filter(([route]) => route === 'tools/action').at(-1)[1].arguments,
       generate = async () => {
         next.page['studio-view'].onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
@@ -8785,9 +8857,7 @@ test('(0.6.211) the camera, a piece of the plateau: added by « Ajouter », set 
     // A movement without speed goes alone.
     add().children[0].onclick();
     choose('Caméra');
-    const [moves] = lists();
-    moves.value = 'handheld';
-    moves.onchange();
+    card('handheld').onclick();
     await generate();
     assert.deepEqual([sent().camera, 'camera_speed' in sent()], ['handheld', false]);
     // Wan 2.2 takes it too: the same piece, the same choice.
@@ -8847,7 +8917,7 @@ test('(0.6.211) the camera, a piece of the plateau: added by « Ajouter », set 
   }
 });
 
-test('(0.6.211) the styles of the camera: its case with a full line, its window with its lists beside their names and the sentence added', async () => {
+test('(0.6.211) the styles of the camera: its case with a full line, its window with its small scenes and the sentence added', async () => {
   const { readFile } = await import('node:fs/promises');
   const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n'),
     rule = selector => {
@@ -8856,10 +8926,43 @@ test('(0.6.211) the styles of the camera: its case with a full line, its window 
       return css.slice(at, css.indexOf('}', at));
     };
   assert.match(rule('#studio-view .studio-camera .studio-slot.is-filled .studio-slot-pick'), /border: 1px solid rgba\(238, 232, 222, 0\.24\);/);
-  assert.match(rule('.studio-camera-window .studio-field'), /flex-direction: row;\s+align-items: center;/);
-  assert.match(rule('.studio-camera-window .studio-field > .studio-label'), /width: 78px;/);
-  assert.match(rule('.studio-camera-window .studio-field > button.glass-select'), /flex: 1 1 auto;/);
-  // What is added to the prompt is read: 13 px, never under 12.
+  // (0.6.215) Its window: wide for six small scenes a row, whole (it never scrolls); the name under a scene and
+  // « pas fiable » are read: 12 px.
+  assert.match(rule('#studio-view .studio-camera-window'), /width: 566px;\s+max-width: none;\s+max-height: none;\s+overflow: visible;/);
+  assert.match(rule('.studio-camera-groups'), /grid-template-columns: repeat\(6, 82px\);/);
+  for (const size of [2, 3, 4]) assert.match(rule(`.studio-camera-group[data-size='${size}']`), new RegExp(`grid-column: span ${size};`));
+  assert.match(rule('#studio-view .studio-camera-move'), /width: 82px;[\s\S]*font: 400 12px\/1\.2 var\(--font-ui\);/);
+  assert.match(rule('.studio-camera-move-note'), /font: 400 12px\/1 var\(--font-ui\);/);
+  assert.match(rule('.studio-camera-move.is-off .camera-scene'), /opacity: 0\.42;/);
+  assert.match(rule('.studio-camera-move.is-chosen .camera-scene'), /outline: 1\.5px solid var\(--text-1\);/);
+  assert.match(rule("#studio-view .studio-camera-speed[aria-pressed='true']"), /color: var\(--text-1\);/);
+  // The scenes: still, then played under the pointer, under the focus, and in a loop for the one chosen; at the
+  // speed chosen in the window.
+  assert.match(rule('.camera-scene'), /width: 82px;\s+height: 46px;\s+overflow: hidden;/);
+  assert.match(rule('.camera-scene-world,\n.camera-scene-zoom,\n.camera-scene-subject'), /animation-duration: var\(--camera-time, 2\.6s\);[\s\S]*animation-iteration-count: infinite;\s+animation-play-state: paused;/);
+  assert.match(rule('.studio-camera-move:is(:hover, :focus-visible, .is-chosen) :is(.camera-scene-world, .camera-scene-zoom, .camera-scene-subject)'), /animation-play-state: running;/);
+  assert.match(rule(".studio-camera-window[data-speed='slow']"), /--camera-time: 4\.2s;/);
+  assert.match(rule(".studio-camera-window[data-speed='fast']"), /--camera-time: 1\.5s;/);
+  // Every movement of the list has a scene that moves: an animation of its own, which exists.
+  const { CAMERA_MOVES } = await import('../public/camera.mjs');
+  const names = new Set();
+  for (const move of CAMERA_MOVES) {
+    const moved = [...css.matchAll(new RegExp(`\\n\\.camera-scene\\[data-move='${move.id}'\\] \\.camera-scene-(?:world|zoom|subject) \\{([^}]*)\\}`, 'g'))];
+    assert.ok(moved.length >= 1, move.id);
+    const name = moved[0][1].match(/animation-name: ([a-z-]+);/)?.[1];
+    assert.ok(name && css.includes(`\n@keyframes ${name} {`), `${move.id} : ${name}`);
+    names.add(name);
+  }
+  assert.equal(names.size, CAMERA_MOVES.length, 'one animation each');
+  // What each shows: an orbit turns the world about the subject, a zoom grows the picture as one, a travelling
+  // brings the camera nearer, a panoramic turns it where it stands.
+  const frames = name => css.slice(css.indexOf(`\n@keyframes ${name} {`), css.indexOf('\n}\n', css.indexOf(`\n@keyframes ${name} {`)));
+  assert.match(frames('camera-orbit-left'), /translate3d\(0px, 8px, -30px\) rotateY\(-8deg\);[\s\S]*translate3d\(0px, 8px, -30px\) rotateY\(58deg\);/);
+  assert.match(frames('camera-zoom-in'), /transform: scale\(1\);[\s\S]*transform: scale\(1\.55\);/);
+  assert.match(frames('camera-dolly-in'), /translate3d\(0px, 8px, -34px\) rotateY\(0deg\);[\s\S]*translate3d\(0px, 8px, -2px\) rotateY\(0deg\);/);
+  assert.match(frames('camera-pan-left'), /rotateY\(6deg\) translateZ\(-90px\)[\s\S]*rotateY\(-9deg\) translateZ\(-90px\)/);
+  // Stopped for who asks for less motion.
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n  \.camera-scene-world,\n  \.camera-scene-zoom,\n  \.camera-scene-subject \{\n    animation: none;/);  // What is added to the prompt is read: 13 px, never under 12.
   assert.match(rule('.studio-camera-added'), /font: 400 12px\/1\.4 var\(--font-ui\);/);
   assert.match(rule('.studio-camera-sentence'), /font: 400 13px\/1\.45 var\(--font-ui\);/);
   // Its sign is one of the page's.

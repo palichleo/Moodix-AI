@@ -1528,11 +1528,12 @@ test('(0.6.211) Studio · the camera, from its piece to the engine: the sentence
         add().children[2].children.find(item => item.children?.[0]?.textContent === name).onclick();
       },
       pane = () => body.find('studio-camera-window')[0],
-      set = (at, value) => {
-        const control = pane().find('studio-field')[at].children[1];
-        control.value = value;
-        control.onchange();
-      },
+      // (0.6.215) A movement is a case pressed, a speed one of three choices.
+      set = (at, value) =>
+        pane()
+          .find(at === 0 ? 'studio-camera-move' : 'studio-camera-speed')
+          .find(item => (at === 0 ? item.dataset.move : item.dataset.speed) === value)
+          .onclick(),
       shown = () => pane().find('studio-camera-sentence')[0].textContent.replace(/^« | »$/g, '');
     model('LTX 2.5');
     write(page, 'Le pêcheur lève les yeux');

@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import {
   CAMERA_DEFAULT,
   CAMERA_FAMILIES,
+  CAMERA_GROUPS,
   CAMERA_MOVES,
   CAMERA_OFF_NOTE,
   CAMERA_SPEEDS,
@@ -14,6 +15,7 @@ import {
   cameraMade,
   cameraOff,
   cameraSentence,
+  cameraShort,
   takesCamera,
   withCamera,
 } from '../public/camera.mjs';
@@ -169,4 +171,26 @@ test('the camera is taken by LTX 2.5 and Wan 2.2 for a new video; the page is se
     // (In a string of its code: its comments speak of the camera too.)
     assert.doesNotMatch(text, /['"`](The camera |Handheld camera)/, name + ' writes a sentence of the camera itself');
   }
+});
+
+test('(0.6.215) the movements by family, each with its short name: every movement of the list once', () => {
+  // The window of the Studio shows them so: the family above, the short name under each small scene.
+  assert.deepEqual(
+    CAMERA_GROUPS.map(group => [group.name, group.moves.map(move => `${move}=${cameraShort(move)}`).join(' ')]),
+    [
+      ['Travelling', 'dolly_in=Avant dolly_out=Arrière truck_left=Gauche truck_right=Droite'],
+      ['Zoom', 'zoom_in=Avant zoom_out=Arrière'],
+      ['Panoramique', 'pan_left=Gauche pan_right=Droite tilt_up=Haut tilt_down=Bas'],
+      ['Grue', 'crane_up=Montante crane_down=Descendante'],
+      ['Orbite', 'orbit_left=Gauche orbit_right=Droite'],
+      ['Sans déplacement', 'static=Fixe handheld=À l’épaule follow=Suivi'],
+    ],
+  );
+  const shown = CAMERA_GROUPS.flatMap(group => group.moves);
+  assert.deepEqual([...shown].sort(), CAMERA_MOVES.map(move => move.id).sort());
+  assert.equal(new Set(shown).size, shown.length);
+  // Six scenes a row: no family is wider, and a short name is never empty for a movement of the list.
+  assert.ok(CAMERA_GROUPS.every(group => group.moves.length >= 2 && group.moves.length <= 4));
+  assert.ok(CAMERA_MOVES.every(move => cameraShort(move.id).length > 0 && cameraShort(move.id).length <= 11));
+  for (const none of [null, undefined, '', 'spin', 'toString', 'constructor']) assert.equal(cameraShort(none), '', String(none));
 });

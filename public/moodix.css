@@ -5153,32 +5153,539 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   width: 20px;
   height: 20px;
 }
-/* Its window: its two lists beside their names, then the sentence the application adds after the prompt for
-   that choice, which is what goes to the model: read before « Générer », not after. */
-.studio-camera-window .studio-field {
-  flex-direction: row;
-  align-items: center;
+/* (0.6.215, maquette du 22/11) The window of the camera: each movement is a small scene that shows what the
+   camera does, in place of the list. By family; the one chosen wears a ring and plays in a loop, the others play
+   under the pointer; one the words alone do not hold is greyed, « pas fiable » under its name. */
+#studio-view .studio-camera-window {
   gap: 12px;
+  width: 566px;
+  max-width: none;
+  max-height: none;
+  overflow: visible;
 }
-.studio-camera-window .studio-field > .studio-label {
-  flex: none;
-  width: 78px;
+.studio-camera-groups {
+  display: grid;
+  grid-template-columns: repeat(6, 82px);
+  gap: 12px 8px;
 }
-.studio-camera-window .studio-field > button.glass-select {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.studio-camera-added {
+.studio-camera-group {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+  min-width: 0;
+}
+.studio-camera-group[data-size='2'] {
+  grid-column: span 2;
+}
+.studio-camera-group[data-size='3'] {
+  grid-column: span 3;
+}
+.studio-camera-group[data-size='4'] {
+  grid-column: span 4;
+}
+.studio-camera-family {
+  color: var(--text-3);
+  font: 500 10.5px/1 var(--font-ui);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.studio-camera-tiles {
+  display: flex;
+  gap: 8px;
+}
+#studio-view .studio-camera-move {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  width: 82px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: 400 12px/1.2 var(--font-ui);
+  cursor: pointer;
+}
+#studio-view .studio-camera-move:is(:hover, :focus-visible, .is-chosen) {
+  outline: none;
+  color: var(--text-1);
+}
+.studio-camera-move.is-chosen .camera-scene {
+  outline: 1.5px solid var(--text-1);
+  outline-offset: 1px;
+}
+.studio-camera-move:is(:hover, :focus-visible):not(.is-chosen) .camera-scene {
+  outline: 1px solid rgba(238, 232, 222, 0.32);
+  outline-offset: 1px;
+}
+#studio-view .studio-camera-move.is-off {
+  color: var(--text-3);
+  cursor: default;
+}
+.studio-camera-move.is-off .camera-scene {
+  opacity: 0.42;
+}
+.studio-camera-move-note {
+  color: var(--text-3);
+  font: 400 12px/1 var(--font-ui);
+}
+.studio-camera-pace {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.studio-camera-pace > .studio-label {
+  width: 60px;
+  color: var(--text-2);
+  font: 400 13px/1.2 var(--font-ui);
+}
+.studio-camera-speeds {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.22);
+}
+#studio-view .studio-camera-speed {
+  height: 28px;
+  min-height: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-3);
+  font: 400 13px/1 var(--font-ui);
+}
+#studio-view .studio-camera-speed[aria-pressed='true'] {
+  background: rgb(42, 46, 55);
+  color: var(--text-1);
+}
+#studio-view .studio-camera-speed:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* The sentence the application adds after the prompt for that choice, which is what goes to the model: read
+   before « Générer », not after. */
+.studio-camera-added {
   margin: 0;
   color: var(--text-3);
   font: 400 12px/1.4 var(--font-ui);
 }
 .studio-camera-sentence {
+  margin-left: 4px;
   color: var(--text-2);
   font: 400 13px/1.45 var(--font-ui);
+}
+/* The small scene: a ground with its grid, a subject (a block whose front face is the light one), four marks
+   behind it, a sun far away, seen in true perspective. The camera that moves is the 3D transform of that world:
+   a zoom grows the picture as one, a travelling slides what is near faster than what is far, an orbit turns the
+   subject where it stands. */
+.camera-scene {
+  position: relative;
+  display: block;
+  width: 82px;
+  height: 46px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #1d2129;
+}
+.camera-scene-zoom,
+.camera-scene-lens {
+  position: absolute;
+  inset: 0;
+}
+.camera-scene-lens {
+  perspective: 90px;
+  perspective-origin: 50% 46%;
+}
+.camera-scene-world {
+  position: absolute;
+  top: 64%;
+  left: 50%;
+  transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(0deg);
+  transform-style: preserve-3d;
+}
+.camera-scene-world i {
+  position: absolute;
+  display: block;
+  transform-style: preserve-3d;
+}
+.camera-scene-ground,
+.camera-scene-grid {
+  top: -800px;
+  left: -800px;
+  width: 1600px;
+  height: 1600px;
+  transform: translateZ(-750px) rotateX(90deg);
+}
+.camera-scene-ground {
+  background: #111318;
+}
+.camera-scene-grid {
+  background:
+    repeating-linear-gradient(0deg, rgba(238, 232, 222, 0.2) 0 1px, transparent 1px 20px),
+    repeating-linear-gradient(90deg, rgba(238, 232, 222, 0.2) 0 1px, transparent 1px 20px);
+  mask-image: linear-gradient(to bottom, transparent 0 62%, #000 86%);
+}
+.camera-scene-subject {
+  top: 0;
+  left: 0;
+}
+.camera-scene-subject b {
+  position: absolute;
+  top: -24px;
+  left: -6px;
+  display: block;
+  width: 12px;
+  height: 24px;
+}
+.camera-scene-subject b:nth-child(1) {
+  background: #eee8de;
+  transform: translateZ(6px);
+}
+.camera-scene-subject b:nth-child(2) {
+  background: #5d6470;
+  transform: rotateY(180deg) translateZ(6px);
+}
+.camera-scene-subject b:nth-child(3) {
+  background: #9aa0aa;
+  transform: rotateY(90deg) translateZ(6px);
+}
+.camera-scene-subject b:nth-child(4) {
+  background: #7b828d;
+  transform: rotateY(-90deg) translateZ(6px);
+}
+.camera-scene-subject b:nth-child(5) {
+  height: 12px;
+  background: #c9c4ba;
+  transform: rotateX(90deg) translateZ(6px);
+}
+.camera-scene-post {
+  top: -34px;
+  left: -2px;
+  width: 4px;
+  height: 34px;
+  background: #4a4f59;
+}
+.camera-scene-post::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #3b4049;
+  transform: rotateY(90deg);
+}
+.camera-scene-post.is-1 {
+  transform: translate3d(-46px, 0, -70px);
+}
+.camera-scene-post.is-2 {
+  transform: translate3d(38px, 0, -110px);
+}
+.camera-scene-post.is-3 {
+  transform: translate3d(78px, 0, -40px);
+}
+.camera-scene-post.is-4 {
+  transform: translate3d(-90px, 0, -150px);
+}
+.camera-scene-sun {
+  top: -16px;
+  left: -16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(246, 195, 67, 0.75), rgba(246, 195, 67, 0) 70%);
+  transform: translate3d(70px, -70px, -330px);
+}
+/* Played under the pointer or the focus, and in a loop for the one chosen; at the speed chosen in the window
+   (data-speed, written by the Studio). From its start to its end, held a moment, then again. */
+.camera-scene-world,
+.camera-scene-zoom,
+.camera-scene-subject {
+  animation-duration: var(--camera-time, 2.6s);
+  animation-timing-function: cubic-bezier(0.45, 0, 0.3, 1);
+  animation-iteration-count: infinite;
+  animation-play-state: paused;
+}
+.studio-camera-window[data-speed='slow'] {
+  --camera-time: 4.2s;
+}
+.studio-camera-window[data-speed='fast'] {
+  --camera-time: 1.5s;
+}
+.studio-camera-move:is(:hover, :focus-visible, .is-chosen) :is(.camera-scene-world, .camera-scene-zoom, .camera-scene-subject) {
+  animation-play-state: running;
+}
+@keyframes camera-dolly-in {
+  0%,
+  8% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -34px) rotateY(0deg);
+  }
+  80%,
+  100% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -2px) rotateY(0deg);
+  }
+}
+.camera-scene[data-move='dolly_in'] .camera-scene-world {
+  transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -34px) rotateY(0deg);
+  animation-name: camera-dolly-in;
+}
+@keyframes camera-dolly-out {
+  0%,
+  8% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -2px) rotateY(0deg);
+  }
+  80%,
+  100% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -34px) rotateY(0deg);
+  }
+}
+.camera-scene[data-move='dolly_out'] .camera-scene-world {
+  transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -2px) rotateY(0deg);
+  animation-name: camera-dolly-out;
+}
+@keyframes camera-truck-left {
+  0%,
+  8% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(-12px, 8px, -30px) rotateY(0deg);
+  }
+  80%,
+  100% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(16px, 8px, -30px) rotateY(0deg);
+  }
+}
+.camera-scene[data-move='truck_left'] .camera-scene-world {
+  transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(-12px, 8px, -30px) rotateY(0deg);
+  animation-name: camera-truck-left;
+}
+@keyframes camera-truck-right {
+  0%,
+  8% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(12px, 8px, -30px) rotateY(0deg);
+  }
+  80%,
+  100% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(-16px, 8px, -30px) rotateY(0deg);
+  }
+}
+.camera-scene[data-move='truck_right'] .camera-scene-world {
+  transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(12px, 8px, -30px) rotateY(0deg);
+  animation-name: camera-truck-right;
+}
+@keyframes camera-pan-left {
+  0%,
+  8% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(6deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(0deg);
+  }
+  80%,
+  100% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(-9deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(0deg);
+  }
+}
+.camera-scene[data-move='pan_left'] .camera-scene-world {
+  transform: translateZ(90px) rotateX(0deg) rotateY(6deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(0deg);
+  animation-name: camera-pan-left;
+}
+@keyframes camera-pan-right {
+  0%,
+  8% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(-6deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(0deg);
+  }
+  80%,
+  100% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(9deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(0deg);
+  }
+}
+.camera-scene[data-move='pan_right'] .camera-scene-world {
+  transform: translateZ(90px) rotateX(0deg) rotateY(-6deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(0deg);
+  animation-name: camera-pan-right;
+}
+@keyframes camera-tilt-up {
+  0%,
+  8% {
+    transform: translateZ(90px) rotateX(-2deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(0deg);
+  }
+  80%,
+  100% {
+    transform: translateZ(90px) rotateX(6deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(0deg);
+  }
+}
+.camera-scene[data-move='tilt_up'] .camera-scene-world {
+  transform: translateZ(90px) rotateX(-2deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(0deg);
+  animation-name: camera-tilt-up;
+}
+@keyframes camera-tilt-down {
+  0%,
+  8% {
+    transform: translateZ(90px) rotateX(5deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(0deg);
+  }
+  80%,
+  100% {
+    transform: translateZ(90px) rotateX(-3deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(0deg);
+  }
+}
+.camera-scene[data-move='tilt_down'] .camera-scene-world {
+  transform: translateZ(90px) rotateX(5deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(0deg);
+  animation-name: camera-tilt-down;
+}
+@keyframes camera-crane-up {
+  0%,
+  8% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 3px, -30px) rotateY(0deg);
+  }
+  80%,
+  100% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 26px, -30px) rotateY(0deg);
+  }
+}
+.camera-scene[data-move='crane_up'] .camera-scene-world {
+  transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 3px, -30px) rotateY(0deg);
+  animation-name: camera-crane-up;
+}
+@keyframes camera-crane-down {
+  0%,
+  8% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 26px, -30px) rotateY(0deg);
+  }
+  80%,
+  100% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 3px, -30px) rotateY(0deg);
+  }
+}
+.camera-scene[data-move='crane_down'] .camera-scene-world {
+  transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 26px, -30px) rotateY(0deg);
+  animation-name: camera-crane-down;
+}
+@keyframes camera-orbit-left {
+  0%,
+  8% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(-8deg);
+  }
+  80%,
+  100% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(58deg);
+  }
+}
+.camera-scene[data-move='orbit_left'] .camera-scene-world {
+  transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(-8deg);
+  animation-name: camera-orbit-left;
+}
+@keyframes camera-orbit-right {
+  0%,
+  8% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(8deg);
+  }
+  80%,
+  100% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(-58deg);
+  }
+}
+.camera-scene[data-move='orbit_right'] .camera-scene-world {
+  transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(8deg);
+  animation-name: camera-orbit-right;
+}
+@keyframes camera-follow {
+  0%,
+  8% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(24px, 8px, -30px) rotateY(0deg);
+  }
+  80%,
+  100% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(-24px, 8px, -30px) rotateY(0deg);
+  }
+}
+.camera-scene[data-move='follow'] .camera-scene-world {
+  transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(24px, 8px, -30px) rotateY(0deg);
+  animation-name: camera-follow;
+}
+@keyframes camera-zoom-in {
+  0%,
+  8% {
+    transform: scale(1);
+  }
+  80%,
+  100% {
+    transform: scale(1.55);
+  }
+}
+@keyframes camera-zoom-out {
+  0%,
+  8% {
+    transform: scale(1.55);
+  }
+  80%,
+  100% {
+    transform: scale(1);
+  }
+}
+.camera-scene[data-move='zoom_in'] .camera-scene-zoom {
+  animation-name: camera-zoom-in;
+}
+.camera-scene[data-move='zoom_out'] .camera-scene-zoom {
+  transform: scale(1.55);
+  animation-name: camera-zoom-out;
+}
+/* In the hand: small shakes, no direction. */
+@keyframes camera-handheld {
+  0%,
+  100% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0deg) translateZ(-90px) translate3d(0px, 8px, -30px) rotateY(0deg);
+  }
+  17% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0.9deg) translateZ(-90px) translate3d(-1.6px, 9.4px, -30px) rotateY(0deg);
+  }
+  34% {
+    transform: translateZ(90px) rotateX(0.8deg) rotateY(0deg) translateZ(-90px) translate3d(1.2px, 7.1px, -30px) rotateY(0deg);
+  }
+  52% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(-0.8deg) translateZ(-90px) translate3d(-0.9px, 8.9px, -30px) rotateY(0deg);
+  }
+  70% {
+    transform: translateZ(90px) rotateX(-0.7deg) rotateY(0deg) translateZ(-90px) translate3d(1.5px, 7.6px, -30px) rotateY(0deg);
+  }
+  86% {
+    transform: translateZ(90px) rotateX(0deg) rotateY(0.5deg) translateZ(-90px) translate3d(-0.6px, 8.6px, -30px) rotateY(0deg);
+  }
+}
+.camera-scene[data-move='handheld'] .camera-scene-world {
+  animation-name: camera-handheld;
+  animation-duration: 1.7s;
+  animation-timing-function: linear;
+}
+/* « Suivi »: the subject walks and the camera goes with it. « Fixe »: the subject walks, the camera does not move. */
+@keyframes camera-walk {
+  0%,
+  8% {
+    transform: translateX(-24px);
+  }
+  80%,
+  100% {
+    transform: translateX(24px);
+  }
+}
+.camera-scene[data-move='follow'] .camera-scene-subject {
+  transform: translateX(-24px);
+  animation-name: camera-walk;
+}
+@keyframes camera-pace {
+  0%,
+  100% {
+    transform: translateX(-14px);
+  }
+  50% {
+    transform: translateX(14px);
+  }
+}
+.camera-scene[data-move='static'] .camera-scene-subject {
+  transform: translateX(-14px);
+  animation-name: camera-pace;
+  animation-timing-function: ease-in-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .camera-scene-world,
+  .camera-scene-zoom,
+  .camera-scene-subject {
+    animation: none;
+  }
 }
 /* What a proposal of Moodix AI says of itself, under its inputs. */
 .studio-proposal-note {

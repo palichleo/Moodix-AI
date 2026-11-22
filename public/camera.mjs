@@ -47,6 +47,38 @@ export const CAMERA_MOVES = [
   { id: 'handheld', name: 'À l’épaule', whole: 'Handheld camera, with a slight natural shake.' },
   { id: 'follow', name: 'Suivi du sujet', whole: 'The camera follows the subject, keeping it in frame.' },
 ];
+// (0.6.215) The window of the Studio shows the movements by family, each a small scene with a short name under
+// it (the family is said above: « Travelling » then « Avant », « Arrière », « Gauche », « Droite »). Every
+// movement of the list is in one family, once.
+export const CAMERA_GROUPS = [
+  { name: 'Travelling', moves: ['dolly_in', 'dolly_out', 'truck_left', 'truck_right'] },
+  { name: 'Zoom', moves: ['zoom_in', 'zoom_out'] },
+  { name: 'Panoramique', moves: ['pan_left', 'pan_right', 'tilt_up', 'tilt_down'] },
+  { name: 'Grue', moves: ['crane_up', 'crane_down'] },
+  { name: 'Orbite', moves: ['orbit_left', 'orbit_right'] },
+  { name: 'Sans déplacement', moves: ['static', 'handheld', 'follow'] },
+];
+const SHORT = {
+  static: 'Fixe',
+  dolly_in: 'Avant',
+  dolly_out: 'Arrière',
+  truck_left: 'Gauche',
+  truck_right: 'Droite',
+  pan_left: 'Gauche',
+  pan_right: 'Droite',
+  tilt_up: 'Haut',
+  tilt_down: 'Bas',
+  crane_up: 'Montante',
+  crane_down: 'Descendante',
+  zoom_in: 'Avant',
+  zoom_out: 'Arrière',
+  orbit_left: 'Gauche',
+  orbit_right: 'Droite',
+  handheld: 'À l’épaule',
+  follow: 'Suivi',
+};
+/** The short name of a movement under its small scene, its family said above it; '' for none of the list. */
+export const cameraShort = id => (Object.hasOwn(SHORT, id) ? SHORT[id] : '');
 // The speeds: the name of the list, the English adverb, how the page of a take says it after the movement.
 export const CAMERA_SPEEDS = [
   { id: 'slow', name: 'Lente', adverb: 'slowly', said: ['lent', 'lente'] },

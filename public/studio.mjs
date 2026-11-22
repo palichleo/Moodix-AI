@@ -13,7 +13,7 @@ import { clipPlayer, stillClip } from './take-player.mjs';
 import { elapsedClock } from './generation-time.mjs';
 import { settingName } from './setting-names.mjs';
 import { PIECES, PIECE_WORDS as WORDS, SHORT_MODELS } from './pieces.mjs';
-import { CAMERA_DEFAULT, CAMERA_MOVES, CAMERA_OFF_NOTE, CAMERA_SPEEDS, cameraChoice, cameraHasSpeed, cameraLabel, cameraOff, cameraSentence } from './camera.mjs';
+import { CAMERA_DEFAULT, CAMERA_GROUPS, CAMERA_OFF_NOTE, CAMERA_SPEEDS, cameraChoice, cameraHasSpeed, cameraLabel, cameraOff, cameraSentence, cameraShort } from './camera.mjs';
 import { setupMontage } from './montage.mjs';
 
 /**
@@ -719,17 +719,7 @@ export function setupStudio({
   }
   function select(choices, value, onchange) {
     const control = node('select');
-    // (0.6.212) `off`: a choice shown and not to be chosen, `{ why, note }`: greyed by the list of glass, its
-    // note beside its name and why under the pointer (glass-menu.mjs).
-    for (const [key, text, off] of choices) {
-      const option = new Option(text, String(key));
-      if (off) {
-        option.disabled = true;
-        option.title = off.why;
-        option.dataset.note = off.note;
-      }
-      control.add(option);
-    }
+    for (const [key, text] of choices) control.add(new Option(text, String(key)));
     control.value = String(value);
     control.onchange = () => onchange(control.value);
     return control;
@@ -1372,29 +1362,38 @@ export function setupStudio({
     if (!opened) return piece;
     const pane = node('div', 'glass-menu studio-piece-window studio-camera-window'),
       foot = node('div', 'studio-window-foot'),
+      told = node('span', 'studio-window-said', ''),
       added = node('p', 'studio-camera-added'),
       sentence = node('span', 'studio-camera-sentence'),
-      // A list changed: the window stays under the hand, what it says follows in place (drawn again, its list
-      // would lose the focus).
+      groups = node('div', 'studio-camera-groups'),
+      pace = node('div', 'studio-camera-pace'),
+      speeds = node('div', 'studio-camera-speeds'),
+      cards = new Map(),
+      // A movement or a speed chosen: the window stays under the hand, what it says follows in place (drawn
+      // again, the scene chosen would start over and lose the focus).
       set = change => {
         draft.camera = { ...draft.camera, ...change };
         show();
       },
-      // (0.6.212) What the words alone do not hold (an orbit, a crane: the real videos of 22/11) stays in the
-      // list, greyed, « pas fiable » beside its name and why under the pointer: seen, never chosen.
-      moves = select(
-        CAMERA_MOVES.map(item => [item.id, item.name, cameraOff(item.id) ? { why: cameraOff(item.id), note: CAMERA_OFF_NOTE } : null]),
-        draft.camera.move,
-        move => set({ move }),
-      ),
-      speeds = select(CAMERA_SPEEDS.map(item => [item.id, item.name]), draft.camera.speed, speed => set({ speed })),
       show = () => {
-        // A fixed shot, a camera in the hand, one that follows its subject have no speed: its list greyed,
-        // with why; the speed chosen before comes back with a movement that has one.
+        // The movement chosen wears the ring and plays in a loop; the others play under the pointer.
+        for (const [move, card] of cards) {
+          const chosen = move === draft.camera.move;
+          card.className = 'studio-camera-move' + (cameraOff(move) ? ' is-off' : '') + (chosen ? ' is-chosen' : '');
+          card.setAttribute('aria-checked', String(chosen));
+        }
+        // A fixed shot, a camera in the hand, one that follows its subject have no speed: its three choices
+        // greyed, with why; the speed chosen before comes back with a movement that has one.
         const still = !cameraHasSpeed(draft.camera.move);
-        speeds.disabled = still || Boolean(working);
         speeds.title = still ? 'Ce mouvement n’a pas de vitesse.' : 'À quelle vitesse la caméra bouge.';
+        for (const choice of speeds.children) {
+          choice.disabled = still || Boolean(working);
+          choice.setAttribute('aria-pressed', String(!still && choice.dataset.speed === draft.camera.speed));
+        }
+        // (The small scenes play at the speed chosen: moodix.css reads it here.)
+        pane.dataset.speed = still ? 'normal' : draft.camera.speed;
         sentence.textContent = '« ' + cameraSentence(draft.camera) + ' »';
+        told.textContent = cameraLabel(draft.camera);
         pick.title = said();
         pick.setAttribute('aria-label', said());
       },
@@ -1403,30 +1402,80 @@ export function setupStudio({
     pane.setAttribute('role', 'dialog');
     pane.setAttribute('aria-label', WORDS.camera);
     pane.hidden = true;
-    moves.disabled = Boolean(working);
-    aiTarget(moves, 'camera-move');
+    // (0.6.215, maquette du 22/11) In place of the list of movements, a small scene for each, by family: it
+    // shows what the camera does (moodix.css moves it), under the pointer and in a loop once chosen. What the
+    // words alone do not hold (an orbit, a crane: the real videos of 22/11) stays there, greyed, « pas fiable »
+    // under its name: seen, never chosen; the foot of the window says why.
+    groups.setAttribute('role', 'radiogroup');
+    groups.setAttribute('aria-label', 'Mouvement');
+    for (const family of CAMERA_GROUPS) {
+      const block = node('div', 'studio-camera-group'),
+        row = node('div', 'studio-camera-tiles');
+      block.dataset.size = String(family.moves.length);
+      block.append(node('span', 'studio-camera-family', family.name), row);
+      for (const move of family.moves) {
+        const why = cameraOff(move),
+          name = cameraLabel({ move }),
+          card = button('studio-camera-move', '', () => (why ? notice(why) : set({ move })));
+        card.dataset.move = move;
+        card.setAttribute('role', 'radio');
+        card.setAttribute('aria-label', why ? `${name}, ${CAMERA_OFF_NOTE}. ${why}` : name);
+        if (why) card.setAttribute('aria-disabled', 'true');
+        card.append(cameraScene(move), node('span', 'studio-camera-move-name', cameraShort(move)));
+        if (why) card.append(node('span', 'studio-camera-move-note', CAMERA_OFF_NOTE));
+        // Under the pointer or the focus, the foot says its whole name, or why it is greyed.
+        card.onpointerenter = card.onfocus = () => (told.textContent = why || name);
+        card.onpointerleave = card.onblur = () => (told.textContent = cameraLabel(draft.camera));
+        cards.set(move, card);
+        row.append(card);
+      }
+      groups.append(block);
+    }
+    speeds.setAttribute('role', 'group');
+    speeds.setAttribute('aria-label', 'Vitesse');
+    for (const speed of CAMERA_SPEEDS) {
+      const choice = button('studio-camera-speed', speed.name, () => set({ speed: speed.id }));
+      choice.dataset.speed = speed.id;
+      speeds.append(choice);
+    }
+    aiTarget(groups, 'camera-move');
     aiTarget(speeds, 'camera-speed');
+    pace.append(node('span', 'studio-label', 'Vitesse'), speeds);
     // (Said again as it changes, for a screen reader: it is what goes to the model.)
     added.setAttribute('aria-live', 'polite');
     added.append(node('span', 'studio-camera-adds', 'Ajouté au prompt :'), sentence);
-    foot.append(node('span', 'studio-window-said', ''), button('studio-window-button', 'Retirer', takeBack));
-    pane.append(node('p', 'studio-window-title', WORDS.camera), field('Mouvement', moves), field('Vitesse', speeds), added, foot);
+    foot.append(told, button('studio-window-button', 'Retirer', takeBack));
+    pane.append(node('p', 'studio-window-title', WORDS.camera), groups, pace, added, foot);
     show();
     piece.append(pane);
     globalThis.queueMicrotask?.(() => {
       if (!pane.isConnected || !pieceOpen) return;
-      openPopup(pane, pick, { align: 'start' });
-      // Once its lists are ours, which they become as they come on the page, a moment after this:
-      // - why the speed is greyed is said beside the window (seen in the page: above its list, the bubble
-      //   covered the movement chosen, on the line over it);
-      // - opened by a choice or a click, its first list in hand (the list of the system under it had the
-      //   focus, unseen, and took the keys without its menu).
-      globalThis.queueMicrotask?.(() => {
-        for (const face of pane.querySelectorAll?.('button.glass-select') ?? []) face.dataset.tipSide = 'right';
-        if (focus) (pane.querySelector?.('button.glass-select') ?? moves).focus?.();
-      });
+      // Beside its case, whole in the page: under it, a window of that height would cover the foot of the Studio.
+      openPopup(pane, pick, { beside: tile });
+      // Opened by a choice or a click, the movement chosen in hand.
+      if (focus) cards.get(draft.camera.move)?.focus?.();
     });
     return piece;
+  }
+  /**
+   * (0.6.215) The small scene of a movement of the camera: a ground, a subject, marks behind it, which moodix.css
+   * draws in perspective and moves as that camera does (`data-move`). Nothing a screen reader says: the case
+   * that holds it names the movement.
+   */
+  function cameraScene(move) {
+    const scene = node('span', 'camera-scene'),
+      zoom = node('span', 'camera-scene-zoom'),
+      lens = node('span', 'camera-scene-lens'),
+      world = node('span', 'camera-scene-world'),
+      subject = node('i', 'camera-scene-subject');
+    scene.dataset.move = move;
+    scene.setAttribute('aria-hidden', 'true');
+    for (let face = 0; face < 5; face++) subject.append(node('b'));
+    world.append(...['ground', 'grid', 'sun', 'post is-1', 'post is-2', 'post is-3', 'post is-4'].map(part => node('i', 'camera-scene-' + part)), subject);
+    lens.append(world);
+    zoom.append(lens);
+    scene.append(zoom);
+    return scene;
   }
   /**
    * (0.6.202, capture 96) What is given that the model in hand does not take (the end image and the subject
