@@ -238,7 +238,7 @@ class KeptModelTests(unittest.TestCase):
 
         given, dropped = [], []
 
-        def run(_job, _config, _progress, key, holder):
+        def run(_job, _config, _progress, key, holder, finish=None):
             given.append(holder[0])
             if holder[0] is None:
                 holder[0] = SimpleNamespace(

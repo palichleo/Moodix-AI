@@ -17,6 +17,7 @@ A family (`runner/families/*.json`) describes a model: its components, its setti
 | Wan 2.1 SCAIL-2 | a character replaced in a video; the character of an image animated by a video (`mode: animate`, 0.6.185: the engine only, not asked by the application yet) | yes |
 | Wan 2.2 | an image animated (image to video, two models) | yes |
 | Wan 2.2 Caméra (`wan22_camera`; shipped since 0.6.223, its two files converted to INT8 on the user's computer once downloaded) | an image animated along a camera movement that is named: Wan 2.2 Fun Camera, the two models of Wan 2.2 with an adapter that reads where the camera is at each frame (`runner/video/camera.py`) | yes |
+| Changer la caméra (`ltx25_refilm`; 0.6.242, asked by hand in the Studio only) | a video made filmed again from another camera, its scene, gestures and sound kept: the depth of each frame by MoGe-2 (`runner/models/moge2.py`), the clip drawn from the new camera (`runner/video/camera_warp.py`), then LTX 2.5 with the CrossView-Warp IC-LoRA and its two reference videos (`runner/video/refilm.py`) | yes |
 | SeedVR2 | image upscaling and restoration | yes |
 | Real-ESRGAN (image, video) | upscaling | no |
 | RIFE | frame interpolation | no |

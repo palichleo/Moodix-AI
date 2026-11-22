@@ -670,5 +670,29 @@
       "name": "Apache-2.0",
       "url": "https://spdx.org/licenses/Apache-2.0.html"
     }
+  },
+  "LTX2.3-22B_IC-LoRA-CrossView-Warp_v2_6000.safetensors": {
+    "repo": "Cseti/LTX2.3-22B_IC-LoRA-CrossView-Warp_v2",
+    "revision": "17a34a4664586131340d68f73c4aa3152ed27efc",
+    "path": "LTX2.3-22B_IC-LoRA-CrossView-Warp_v2_6000.safetensors",
+    "size": 327287384,
+    "sha256": "e9796a6e14a8f8fadf0eda6c0ccc6c300c02bd5457fe9a0d4b91ffec39badda3",
+    "license": {
+      "name": "Apache-2.0",
+      "url": "https://huggingface.co/Cseti/LTX2.3-22B_IC-LoRA-CrossView-Warp_v2/blob/17a34a4664586131340d68f73c4aa3152ed27efc/ATTRIBUTION.md",
+      "limits": "IC-LoRA de Cseti (Apache-2.0, son attribution est à garder avec lui). Il ne sert qu’avec le modèle LTX 2.5, sous sa propre licence."
+    }
+  },
+  "moge_2_vitl_normal_fp16.safetensors": {
+    "repo": "Comfy-Org/MoGe",
+    "revision": "1484985258ba7ef45c314144fcf0e90924ffbf44",
+    "path": "geometry_estimation/moge_2_vitl_normal_fp16.safetensors",
+    "size": 661859924,
+    "sha256": "cb1a692d03235671e959e81360d7b4d9f44aefadb1f852d6ca6aa17799d5e31f",
+    "license": {
+      "name": "MIT",
+      "url": "https://spdx.org/licenses/MIT.html",
+      "limits": "MoGe-2 de Microsoft (MIT), reconditionné par Comfy-Org ; son encodeur, DINOv2 de Meta, est sous Apache-2.0."
+    }
   }
 }

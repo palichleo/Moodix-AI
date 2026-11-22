@@ -262,26 +262,39 @@ class MoGe2(nn.Module):
         return torch.cat((xy * z, z), dim=-1), mask.squeeze(1).sigmoid(), scale
 
 
-def load(path, device='cuda', config=None):
-    """The model of a MoGe-2 file, its encoder in half precision on the GPU (single elsewhere)."""
-    from safetensors.torch import load_file
+def used(key):
+    """Whether a tensor of the file is one the depth reads: not its normals, nor the mask token of
+    DINOv2's training."""
+    return not key.startswith('normal_head.') and key != 'encoder.backbone.mask_token'
 
-    weights = load_file(str(path))
-    # Its normals and the mask token of DINOv2's training are not used.
-    weights = {
-        key: value
-        for key, value in weights.items()
-        if not key.startswith('normal_head.') and key != 'encoder.backbone.mask_token'
-    }
-    with torch.device('meta'):
-        model = MoGe2(**(config or {}))
+
+def check_layout(model, found):
+    """Refuses tensors (`found`: their shapes by name) that are not those of `model`, built empty."""
     expected = {key: list(value.shape) for key, value in model.state_dict().items()}
-    found = {key: list(value.shape) for key, value in weights.items()}
     missing = sorted(expected.keys() - found.keys())
     unexpected = sorted(found.keys() - expected.keys())
     wrong = sorted(key for key in expected.keys() & found.keys() if expected[key] != found[key])
     if missing or wrong or unexpected:
         raise ValueError('Not a MoGe-2 checkpoint of this layout: ' + (missing + wrong + unexpected)[0])
+
+
+def validate_layout(entries, config=None):
+    """Refuses a file that is not a MoGe-2 checkpoint of this layout, from its header alone
+    (`entries`, runner.models.headers): checked before a creation, its weights not read."""
+    with torch.device('meta'):
+        model = MoGe2(**(config or {}))
+    found = {key: list(entry['shape']) for key, entry in entries.items() if key != '__metadata__' and used(key)}
+    check_layout(model, found)
+
+
+def load(path, device='cuda', config=None):
+    """The model of a MoGe-2 file, its encoder in half precision on the GPU (single elsewhere)."""
+    from safetensors.torch import load_file
+
+    weights = {key: value for key, value in load_file(str(path)).items() if used(key)}
+    with torch.device('meta'):
+        model = MoGe2(**(config or {}))
+    check_layout(model, {key: list(value.shape) for key, value in weights.items()})
     model.load_state_dict(weights, strict=True, assign=True)
     encoder = torch.float16 if torch.device(device).type == 'cuda' else torch.float32
     model.float()

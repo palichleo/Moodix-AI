@@ -962,7 +962,7 @@ try {
   // before, at most) instead of waiting that time every run: some seven seconds less.
   // (0.6.119) The page « Modèles » (maquette du 19/11): one line a model in four groups, with the
   // workflows Moodix ships (this copy has none of their files: every model is to be downloaded).
-  // (0.6.223) Twelve lines since Wan 2.2 Caméra is shipped.
+  // (0.6.223) Twelve lines since Wan 2.2 Caméra is shipped; (0.6.242) thirteen with « Changer la caméra ».
   const lines = `[...document.querySelectorAll('#workflow-list .model-line')]`,
     ltx = `document.querySelector('#workflow-list .model-line[data-model="LTX 2.5"]')`;
   // (0.6.131) « Dossiers à part » : a folder a line of 46 px (its name, the folder, « Parcourir »,
@@ -970,11 +970,11 @@ try {
   await run('onglet Génération : un dossier par ligne', () => click('#settings-tab-generation'), () =>
     js(`(() => { const rows = [...document.querySelectorAll('#settings-panel-generation .set-folder')], panel = document.getElementById('settings-panel-generation'); return rows.length === 7 && rows.every(row => Math.round(row.getBoundingClientRect().height) === 46 && row.querySelectorAll('button.set-act').length === 2 && row.querySelector('.help-tip').dataset.help) && !panel.querySelector('details') && panel.scrollWidth <= panel.clientWidth + 1; })()`), { within: 2500 });
   await run('onglet Modèles', () => click('#settings-tab-workflows'), () =>
-    js(`${lines}.length === 12 && document.querySelectorAll('#workflow-list .model-group').length === 4 && document.querySelector('#settings-tab-workflows .settings-tab-label').textContent === 'Modèles' && document.querySelectorAll('#workflow-list .model-row > .model-ai input').length === 12 && document.querySelectorAll('#workflow-list .model-ai-head').length === 1`), { within: 2500 });
+    js(`${lines}.length === 13 && document.querySelectorAll('#workflow-list .model-group').length === 4 && document.querySelector('#settings-tab-workflows .settings-tab-label').textContent === 'Modèles' && document.querySelectorAll('#workflow-list .model-row > .model-ai input').length === 13 && document.querySelectorAll('#workflow-list .model-ai-head').length === 1`), { within: 2500 });
   // Every line is 46 px tall, « Télécharger » in the place of the version as any other (capture 65);
   // nothing scrolls sideways, nothing of before is shown (no button to import or create, no dot).
   await run('Modèles : lignes de 46 px', async () => {}, () =>
-    js(`(() => { const rows = [...document.querySelectorAll('#workflow-list .model-row')], panel = document.getElementById('settings-panel-workflows'), gone = id => !document.getElementById(id); return rows.length === 12 && rows.every(row => Math.round(row.getBoundingClientRect().height) === 46) && panel.scrollWidth <= panel.clientWidth + 1 && gone('workflow-add') && gone('native-workflow-import') && !document.querySelector('#workflow-list .workflow-state') && document.querySelectorAll('#workflow-list .model-download').length >= 5; })()`), { within: 700 });
+    js(`(() => { const rows = [...document.querySelectorAll('#workflow-list .model-row')], panel = document.getElementById('settings-panel-workflows'), gone = id => !document.getElementById(id); return rows.length === 13 && rows.every(row => Math.round(row.getBoundingClientRect().height) === 46) && panel.scrollWidth <= panel.clientWidth + 1 && gone('workflow-add') && gone('native-workflow-import') && !document.querySelector('#workflow-list .workflow-state') && document.querySelectorAll('#workflow-list .model-download').length >= 5; })()`), { within: 700 });
   // The chevron unfolds the versions under the line, which stays as tall; « Réglages » is then in sight.
   await run('Modèles : versions dépliées', () => click('#workflow-list .model-line[data-model="LTX 2.5"] .model-chevron'), () =>
     js(`(() => { const line = ${ltx}; return line?.dataset.open === 'true' && Boolean(line.querySelector('.model-versions')) && Math.round(line.querySelector('.model-row').getBoundingClientRect().height) === 46 && line.querySelector('.model-chevron').getAttribute('aria-expanded') === 'true' && getComputedStyle(line.querySelector('.model-settings')).opacity === '1'; })()`), { within: 700 });

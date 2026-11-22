@@ -48,6 +48,9 @@ export const SETTING_NAMES = {
   reference_subject: 'Qui est le personnage (en anglais)',
   step_lora_strength: 'Intensité du LoRA d’étapes',
   identity_lora_strength: 'Intensité du LoRA d’identité',
+  // (0.6.242) « Changer la caméra (LTX 2.5) »: the lens the clip is taken to have been filmed with, and the IC-LoRA.
+  hfov: 'Angle de champ supposé (degrés)',
+  lora_strength: 'Intensité du LoRA CrossView-Warp',
 };
 export const CHOICE_NAMES = { draft: 'Brouillon', final: 'Vidéo finale', smooth: 'Fluide', slow_motion: 'Ralenti' };
 /**

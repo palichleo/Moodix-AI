@@ -146,6 +146,25 @@ def pivot_of(depth, fx):
     return np.median(points(depth, fx)[valid], axis=0)
 
 
+def pivot_at(depth, fx, x, y, radius=0.1):
+    """The point the camera turns around when it is named on the first frame: `x` and `y` its place,
+    fractions of the frame's width and height from its top left. The median of the points within
+    `radius` of the frame around it (a tenth of its width and of its height each side), its farthest
+    5 % left out: a subject on the side of the frame, which the middle would miss."""
+    if not (0 <= x <= 1 and 0 <= y <= 1):
+        raise ValueError('The pivot is named by fractions of the frame, from 0 to 1')
+    height, width = depth.shape
+    rows = slice(max(0, round((y - radius) * height)), max(1, round((y + radius) * height)))
+    columns = slice(max(0, round((x - radius) * width)), max(1, round((x + radius) * width)))
+    near = np.zeros(depth.shape, dtype=bool)
+    near[rows, columns] = True
+    valid = np.isfinite(depth) & (depth > 0) & near
+    if not valid.any():
+        raise ValueError('The point named on the first frame has no depth')
+    valid &= depth <= np.percentile(depth[valid], 95.0)
+    return np.median(points(depth, fx)[valid], axis=0)
+
+
 def steady(depths, radius=STEADY):
     """Depths whose scale holds from frame to frame. MoGe gives each frame its own metric scale,
     and it flickers (the author measured 1.2 % on average, up to 6 %, on a still shot), which shakes
@@ -237,9 +256,10 @@ def lossless(path, width, height, fps):
     return writer
 
 
-def depths(frames, moge_path, progress=print):
+def depths(frames, moge_path, progress=None):
     """MoGe-2's metric depth of each frame (NaN where it sees none: the sky), its own estimate of
-    the lens (degrees) and its metric scale, frame by frame; on the GPU, one frame at a time."""
+    the lens (degrees) and its metric scale, frame by frame; on the GPU, one frame at a time.
+    `progress(done, total)` is told every fifteen frames and at the last."""
     import torch
 
     from runner.models import moge2
@@ -252,8 +272,8 @@ def depths(frames, moge_path, progress=print):
             found.append(result['depth'])
             lenses.append(result['hfov'])
             scales.append(result['scale'])
-            if index % 30 == 0:
-                progress(f'depth {index + 1}/{len(frames)}')
+            if progress and (index % 15 == 0 or index + 1 == len(frames)):
+                progress(index + 1, len(frames))
     finally:
         del model
         torch.cuda.empty_cache()
@@ -319,7 +339,7 @@ def main(argv=None):
 
         started = time.perf_counter()
         torch.cuda.reset_peak_memory_stats()
-        estimated, lenses, scales = depths(video, args.moge)
+        estimated, lenses, scales = depths(video, args.moge, lambda done, total: print(f'depth {done}/{total}'))
         depth_seconds = time.perf_counter() - started
         peak = torch.cuda.max_memory_allocated() / 1024**3
         if args.depths:

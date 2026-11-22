@@ -69,8 +69,17 @@ def first_pass_size(parameters, components, guided=False):
     return (width + 1) // 2 * 32, (height + 1) // 2 * 32
 
 
+# (0.6.242) « Changer la caméra »: a clip filmed again by this model and the CrossView-Warp IC-LoRA, a
+# family of its own that this module runs (runner.video.refilm).
+REFILM = 'ltx25_refilm'
+
+
 def check(job, family):
     """LTX2.5 rules beyond the manifest: conditioning combinations and continuation overlap."""
+    if job.get('pipeline') == REFILM:
+        from runner.video import refilm
+
+        return refilm.check(job, family)
     parameters = job['parameters']
     roles = {ref['role'] for ref in job['references']}
     if {'start_image', 'source_video'} <= roles:
@@ -92,7 +101,16 @@ def preflight(job, config):
 
     Checking the files builds every model empty to compare it with them: half a second, asked
     twice for each generation (by the application, then by the worker before it generates).
-    A set of files that passed is not checked again while none of them has changed."""
+    A set of files that passed is not checked again while none of them has changed. A clip whose
+    camera is changed is read first, then the job made of it is checked as any other."""
+    if job.get('pipeline') == REFILM:
+        from runner.video import refilm
+
+        return refilm.preflight(job, config, _preflight)
+    return _preflight(job, config)
+
+
+def _preflight(job, config):
     from runner.models import conditioning
     from runner.models.headers import header
     from runner.models.ltx25 import validate_layout, video_encoder
@@ -173,6 +191,18 @@ def generate(job, config, progress):
     one this job asks for (same file, same LoRAs) for a video of the same shape, and left there
     again at the end. Another size or another conditioning leaves the model another share of the
     card: it is then built anew."""
+    if job.get('pipeline') == REFILM:
+        from runner.video import refilm
+
+        return refilm.generate(job, config, progress, _run)
+    return _run(job, config, progress)
+
+
+def _run(job, config, progress, name='ltx25', finish=None):
+    """`name`: the family the model is kept for (runner.models.kept): a clip whose camera is changed is
+    made by a job of LTX 2.5 for a family of its own (runner.video.refilm), whose next creation finds
+    the model it left. `finish(pixels, metadata)`: what writes the video, when it is not this job's own
+    (see _generate)."""
     from runner.models import conditioning, kept
 
     p = job['parameters']
@@ -180,17 +210,17 @@ def generate(job, config, progress):
     shape = [p['width'], p['height'], p['frames'], sorted(ref['role'] for ref in job['references'])]
     shape.append('upscaler' in job['components'])
     key = [[conditioning.stamp(path) for path in files], [item['strength'] for item in job['loras']], shape]
-    holder = [kept.take('ltx25', key)]
+    holder = [kept.take(name, key)]
     try:
         try:
-            result = _generate(job, config, progress, key, holder)
+            result = _generate(job, config, progress, key, holder, finish=finish)
         except Refit:
             result = None
         if result is None:
             # Out of the handler: the error would keep what the first attempt held until here.
             stale, holder[0] = holder[0], None
             stale.drop()
-            result = _generate(job, config, progress, key, holder)
+            result = _generate(job, config, progress, key, holder, finish=finish)
     except BaseException:
         # Whatever state the failure left it in, it is not one to start the next video from.
         if holder[0] is not None:
@@ -204,11 +234,11 @@ def generate(job, config, progress):
         # one builds it anew, with the RAM this gives back.
         loaded.drop()
     else:
-        kept.put('ltx25', loaded)
+        kept.put(name, loaded)
     return result
 
 
-def _generate(job, config, progress, key, holder):
+def _generate(job, config, progress, key, holder, finish=None):
     import torch
     from runner.models import conditioning
     from runner.models.headers import header
@@ -750,7 +780,11 @@ def _generate(job, config, progress, key, holder):
         )
     if guides:
         metadata['referenceVideos'] = dict(count=len(guides), downscaleFactor=factor, strength=1.0, encoded=encoded)
-    result = save_video(pixels, config, job, metadata, audio=generated_audio)
+    # (0.6.242) A clip whose camera is changed is written as the job it was asked by, with its own sound.
+    if finish is not None:
+        result = finish(pixels, metadata)
+    else:
+        result = save_video(pixels, config, job, metadata, audio=generated_audio)
     del pixels, generated_audio
     gc.collect()
     torch.cuda.empty_cache()

@@ -482,6 +482,8 @@ test('the page « Modèles » is given one line a model, in its order, and a cho
       ['retouch', 'SeedVR2', 'Agrandir et affiner une image.'],
       ['retouch', 'Real-ESRGAN', 'Agrandir une image ou une vidéo.'],
       ['retouch', 'RIFE', 'Interpoler une vidéo.'],
+      // (0.6.242) Its files are those of LTX 2.5, a LoRA and the model of the depth: here to be fetched.
+      ['retouch', 'Changer la caméra (LTX 2.5)', 'Refilmer une vidéo faite depuis un autre angle : la même scène, les mêmes gestes, son son.'],
     ],
   );
   const line = name => lines.find(item => item.name === name),

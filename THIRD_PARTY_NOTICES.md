@@ -118,10 +118,9 @@ The licenses below were read at their source on 17 November 2026. A license can 
 | SeedVR2 7B — `Comfy-Org/SeedVR2` | Apache-2.0 | |
 | Real-ESRGAN x2plus, x4plus — releases of `xinntao/Real-ESRGAN` | BSD-3-Clause | |
 | RIFE 4.26 — `Comfy-Org/Frame-Interpolation` | MIT | |
+| Changer la caméra (LTX 2.5) — the CrossView-Warp v2 IC-LoRA of `Cseti/LTX2.3-22B_IC-LoRA-CrossView-Warp_v2` (trained on LTX 2.3) and the depth of MoGe-2 ViT-L of `Comfy-Org/MoGe` (`geometry_estimation/moge_2_vitl_normal_fp16.safetensors`, the weights of `Ruicheng/moge-2-vitl-normal`), with the files of LTX 2.5 above | Apache-2.0 for the IC-LoRA; MIT for MoGe-2 (Copyright (c) Microsoft Corporation), whose DINOv2 encoder is under Apache-2.0 | What it makes with LTX 2.5 stays under the LTX license above. The [attribution of the LoRA](https://huggingface.co/Cseti/LTX2.3-22B_IC-LoRA-CrossView-Warp_v2/blob/17a34a4664586131340d68f73c4aa3152ed27efc/ATTRIBUTION.md) lists the CC-BY assets its training scenes were rendered with; it stays with the weights, which Moodix does not distribute. Read at their source on 22 November 2026. |
 | Text encoders and VAE used by the models above: Gemma 4 12B (LTX 2.5), Qwen3-VL-4B and the Qwen-Image VAE (Krea 2), Qwen3-VL-32B (MiniMax H3) | Apache-2.0 | They come inside the repositories of their models. |
 | Tokenizers — `Qwen/Qwen2.5-7B-Instruct`, `openai/clip-vit-large-patch14` | Apache-2.0; MIT (license of `openai/CLIP`) | The model page of the CLIP tokenizer declares no license. |
-
-For an essay of 22 November 2026, used by no workflow and never downloaded by Moodix: the CrossView-Warp v2 IC-LoRA — `Cseti/LTX2.3-22B_IC-LoRA-CrossView-Warp_v2`, Apache-2.0, trained on LTX 2.3 (what it makes with LTX 2.5 stays under the LTX license above) — and the depth of MoGe-2 ViT-L — `Comfy-Org/MoGe` (`geometry_estimation/moge_2_vitl_normal_fp16.safetensors`, the weights of `Ruicheng/moge-2-vitl-normal`), MIT.
 
 The acceptable use policies that the LTX and Krea licenses refer to are part of them and are not summarised here. The chat model is the user's choice and keeps the license of its publisher.
 

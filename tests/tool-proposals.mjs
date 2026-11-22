@@ -1613,11 +1613,18 @@ test('(0.6.211) the camera chosen in the Studio: its sentence after the prompt o
 
   // What the Studio is told of each model: the camera for a new video of LTX 2.5, MiniMax H3 and Wan 2.2, a
   // sentence of their prompt (`true`); and of Wan 2.2 Caméra (0.6.223), which reads it itself: its own movements
-  // and a speed. Nowhere else.
+  // and a speed. Nowhere else: (0.6.242) the camera of a clip filmed again is placed with its own bounds (`refilm`).
   const tools = await new ToolCatalog({ list: async () => list }).studio();
   assert.deepEqual(
     Object.fromEntries(Object.entries(tools).map(([verb, items]) => [verb, (Array.isArray(items) ? items : []).filter(item => item.camera).map(item => item.name).sort()])),
-    { create_image: [], create_video: ['LTX 2.5', 'MiniMax H3 Omni', 'Wan 2.2', 'Wan 2.2 Caméra'], extend_video: [], replace_character: [], create_audio: [] },
+    {
+      create_image: [],
+      create_video: ['LTX 2.5', 'MiniMax H3 Omni', 'Wan 2.2', 'Wan 2.2 Caméra'],
+      extend_video: [],
+      replace_character: [],
+      create_audio: [],
+      refilm_video: [],
+    },
   );
   assert.deepEqual(
     tools.create_video.map(item => [item.name, item.camera === true ? 'par les mots' : `${item.camera.moves.length} mouvements, vitesse ${item.camera.speed}`]).sort(),

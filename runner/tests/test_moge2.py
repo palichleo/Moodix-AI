@@ -48,6 +48,25 @@ class LayoutTests(unittest.TestCase):
         self.assertNotIn('encoder.backbone.blocks.24.norm1.weight', found)
         self.assertEqual(sum(math.prod(shape) for shape in found.values()), 326_208_203)
 
+    def test_a_file_is_checked_from_its_header_alone(self):
+        with torch.device('meta'):
+            model = moge2.MoGe2()
+        entry = lambda shape: dict(dtype='F16', shape=shape, data_offsets=[0, 0])  # noqa: E731
+        entries = {key: entry(list(value.shape)) for key, value in model.state_dict().items()}
+        # What the depth does not read, which the file of Comfy-Org holds: the normals, the mask token of
+        # DINOv2's training.
+        entries.update({'normal_head.output_blocks.4.weight': entry([3, 32, 1, 1]), '__metadata__': {}})
+        entries['encoder.backbone.mask_token'] = entry([1, 1024])
+        moge2.validate_layout(entries)
+        missing, wrong, other = dict(entries), dict(entries), dict(entries)
+        del missing['scale_head.4.weight']
+        wrong['scale_head.4.weight'] = entry([1, 768])
+        other['encoder.backbone.blocks.24.attn.qkv.weight'] = entry([3072, 1024])
+        for name, broken in (('missing', missing), ('wrong', wrong), ('other', other)):
+            with self.subTest(name), self.assertRaises(ValueError) as refused:
+                moge2.validate_layout(broken)
+            self.assertIn('Not a MoGe-2 checkpoint', str(refused.exception))
+
     def test_the_learned_positions_follow_the_grid(self):
         backbone = moge2.Backbone(8, 1, 2)
         torch.nn.init.normal_(backbone.pos_embed)

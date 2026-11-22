@@ -1,0 +1,277 @@
+{
+  "family": "ltx25_refilm",
+  "module": "ltx25",
+  "label": "Changer la caméra (LTX 2.5)",
+  "mediaType": "video",
+  "model": {
+    "name": "Changer la caméra (LTX 2.5)",
+    "does": "Refilmer une vidéo faite depuis un autre angle : la même scène, les mêmes gestes, son son.",
+    "group": "retouch",
+    "order": 4,
+    "names": [
+      { "match": "distill", "name": "Distillé" }
+    ]
+  },
+  "tasks": ["refilm_video"],
+  "engine": "internal",
+  "hardware": { "cuda": true },
+  "requires": [
+    "torch",
+    "diffusers",
+    "transformers",
+    "accelerate",
+    "safetensors",
+    "PIL",
+    "triton",
+    "imageio",
+    "imageio_ffmpeg",
+    "av",
+    "comfy_kitchen"
+  ],
+  "components": {
+    "model": {
+      "label": "Modèle",
+      "folder": "diffusion_models",
+      "required": true,
+      "note": "Le modèle de LTX 2.5, le même fichier que celui de LTX 2.5 : ses versions sont celles de LTX 2.5, aucune n’est à choisir ici.",
+      "signature": [
+        {
+          "key": "(?:^|\\.)(?:transformer_blocks|diffusion_model\\.transformer_blocks)\\.\\d+\\."
+        }
+      ]
+    },
+    "textEncoder": {
+      "label": "Encodeur de texte",
+      "folder": "text_encoders",
+      "required": true,
+      "signature": [
+        {
+          "key": "(?:^|\\.)embed_tokens\\.weight$"
+        }
+      ]
+    },
+    "vae": {
+      "label": "VAE vidéo",
+      "folder": "vae",
+      "required": true,
+      "signature": [
+        {
+          "key": "(?:^|\\.)encoder\\."
+        },
+        {
+          "key": "(?:^|\\.)decoder\\."
+        }
+      ]
+    },
+    "audioVae": {
+      "label": "VAE audio",
+      "folder": "vae",
+      "required": true,
+      "note": "Requis par l'échantillonneur couplé même pour une vidéo muette.",
+      "signature": [
+        {
+          "key": "(?:^|\\.)encoder\\."
+        },
+        {
+          "key": "(?:^|\\.)decoder\\."
+        }
+      ]
+    },
+    "guideLora": {
+      "label": "LoRA CrossView-Warp",
+      "folder": "loras",
+      "required": true,
+      "note": "L’IC-LoRA CrossView-Warp v2 (Cseti, Apache-2.0) : il lit, à côté de la vidéo, la même vidéo dessinée depuis la nouvelle caméra, et la refilme de là.",
+      "signature": [
+        {
+          "key": "(?:^|\\.)transformer_blocks\\.47\\.attn1\\.to_q\\.lora_A\\.weight$",
+          "shape": [null, 4096]
+        },
+        {
+          "key": "(?:^|\\.)transformer_blocks\\.47\\.attn1\\.to_q\\.lora_B\\.weight$",
+          "shape": [4096, null]
+        }
+      ]
+    },
+    "depth": {
+      "label": "Profondeur (MoGe-2)",
+      "folder": "geometry_estimation",
+      "required": true,
+      "note": "MoGe-2 ViT-L (Microsoft, MIT) : la distance de chaque point de la vidéo, pour la dessiner depuis la nouvelle caméra.",
+      "signature": [
+        {
+          "key": "^encoder\\.backbone\\.blocks\\.23\\.attn\\.qkv\\.weight$",
+          "shape": [3072, 1024]
+        },
+        {
+          "key": "^scale_head\\.4\\.weight$",
+          "shape": [1, 1024]
+        },
+        {
+          "key": "^encoder\\.backbone\\.blocks\\.24\\.",
+          "absent": true
+        }
+      ]
+    }
+  },
+  "parameters": {
+    "prompt": {
+      "type": "string",
+      "maxLength": 8000,
+      "nonempty": true,
+      "note": "« crossview », le mot de l’auteur du LoRA : la vidéo dit ce qui est filmé."
+    },
+    "seed": {
+      "type": "integer",
+      "min": 0,
+      "max": 9007199254740991
+    },
+    "width": {
+      "type": "integer",
+      "min": 64,
+      "max": 4096,
+      "multipleOf": 32,
+      "note": "Celle de la vidéo, recadrée au multiple de 32 en dessous."
+    },
+    "height": {
+      "type": "integer",
+      "min": 64,
+      "max": 4096,
+      "multipleOf": 32,
+      "note": "Celle de la vidéo, recadrée au multiple de 32 en dessous."
+    },
+    "steps": {
+      "type": "integer",
+      "choices": [8],
+      "note": "Modèle distillé : 8 étapes."
+    },
+    "frames": {
+      "type": "integer",
+      "choices": [
+        9, 17, 25, 33, 41, 49, 57, 65, 73, 81, 89, 97, 105, 113, 121, 129, 137, 145, 153, 161, 169, 177, 185, 193, 201,
+        209, 217, 225, 233, 241, 249, 257, 265, 273, 281, 289, 297, 305, 313, 321, 329, 337, 345, 353, 361, 369, 377,
+        385, 393, 401, 409, 417, 425, 433, 441, 449, 457, 465, 473, 481
+      ],
+      "note": "Celles de la vidéo à 24 images par seconde, 8n+1."
+    },
+    "fps": {
+      "type": "number",
+      "choices": [24],
+      "note": "Une vidéo à une autre fréquence est remise à 24 images par seconde : l’image de chaque instant."
+    },
+    "azimuth": {
+      "type": "number",
+      "min": -90,
+      "max": 90,
+      "note": "Degrés vers la droite de la caméra de la vidéo, autour du sujet."
+    },
+    "elevation": {
+      "type": "number",
+      "min": -35,
+      "max": 45,
+      "note": "Degrés au-dessus de la caméra de la vidéo."
+    },
+    "distance": {
+      "type": "number",
+      "min": 1,
+      "max": 1,
+      "note": "La distance ne marche pas encore avec ce modèle : son auteur le dit."
+    },
+    "start_azimuth": {
+      "type": "number",
+      "min": -90,
+      "max": 90,
+      "note": "La caméra au début, quand elle bouge : elle va de là à la caméra de fin pendant la vidéo."
+    },
+    "start_elevation": {
+      "type": "number",
+      "min": -35,
+      "max": 45
+    },
+    "start_distance": {
+      "type": "number",
+      "min": 1,
+      "max": 1
+    },
+    "pivot_x": {
+      "type": "number",
+      "min": 0,
+      "max": 1,
+      "note": "Le point autour duquel la caméra tourne, sur la première image (de la gauche à la droite). Sans lui : le milieu de l’image."
+    },
+    "pivot_y": {
+      "type": "number",
+      "min": 0,
+      "max": 1
+    },
+    "hfov": {
+      "type": "number",
+      "min": 20,
+      "max": 120,
+      "note": "L’angle de champ supposé de la vidéo, en degrés : 50, celui que suppose l’auteur du LoRA."
+    },
+    "lora_strength": {
+      "type": "number",
+      "min": 0,
+      "max": 2,
+      "note": "1, comme l’auteur du LoRA. À 1,3 la caméra tournait moins (essai du 22/11)."
+    }
+  },
+  "requiredParameters": ["prompt", "seed", "width", "height", "steps", "frames", "fps", "hfov", "lora_strength"],
+  "roles": {
+    "refilm_source": {
+      "as": "source",
+      "media": "video",
+      "max": 1,
+      "label": "Vidéo à refilmer"
+    }
+  },
+  "refilm": {
+    "azimuth": { "min": -90, "max": 90 },
+    "elevation": { "min": -35, "max": 45 },
+    "distance": {
+      "min": 1,
+      "max": 1,
+      "unavailable": "La distance ne marche pas encore avec ce modèle : son auteur le dit."
+    },
+    "zones": {
+      "safe": { "azimuth": 45, "up": 30, "down": 20 },
+      "maybe": { "azimuth": 90, "up": 45, "down": 35 }
+    },
+    "near": 5,
+    "limits": [
+      { "pixels": 344064, "seconds": 5, "size": "768 × 448", "measured": "22/11 : 121 images en 86 à 107 s, 8,0 à 8,8 Gio de mémoire vidéo au plus haut" }
+    ],
+    "fps": [24],
+    "sourceFps": { "min": 12, "max": 120 },
+    "note": "Bornes de l’auteur (README de CrossView-Warp v2) : sûr à 45° d’azimut, 30° au-dessus et 20° en dessous ; possible à 90°, 45° et 35° ; chaque zone est une ellipse sur l’azimut et la hauteur. La caméra tourne souvent moins que demandé. Les durées : celles mesurées sur une carte de 12 Go."
+  },
+  "template": {
+    "name": "Change the camera of a video",
+    "description": "Films an existing video again from another camera: the same scene, motion and sound, seen from a chosen angle.",
+    "components": {
+      "model": { "policy": "fixed", "asset": "select-local-model" },
+      "textEncoder": { "policy": "fixed", "asset": "select-local-text-encoder" },
+      "vae": { "policy": "fixed", "asset": "select-local-video-vae" },
+      "audioVae": { "policy": "fixed", "asset": "select-local-audio-vae" },
+      "guideLora": { "policy": "fixed", "asset": "select-local-guide-lora" },
+      "depth": { "policy": "fixed", "asset": "select-local-depth-model" }
+    },
+    "parameters": {
+      "prompt": { "policy": "fixed", "value": "crossview" },
+      "seed": { "policy": "random", "type": "integer" },
+      "width": { "policy": "model", "type": "integer", "default": 768, "min": 64, "max": 4096 },
+      "height": { "policy": "model", "type": "integer", "default": 448, "min": 64, "max": 4096 },
+      "steps": { "policy": "fixed", "value": 8 },
+      "frames": { "policy": "model", "type": "integer", "default": 121 },
+      "fps": { "policy": "fixed", "value": 24 },
+      "hfov": { "policy": "fixed", "value": 50 },
+      "lora_strength": { "policy": "fixed", "value": 1 }
+    },
+    "loras": [],
+    "references": [
+      { "id": "source", "role": "refilm_source", "required": true, "name": "Vidéo à refilmer" }
+    ]
+  },
+  "preference": -1
+}

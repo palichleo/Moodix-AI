@@ -172,6 +172,44 @@ class PivotTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             cw.pivot_of(np.full((64, 64), np.nan), fx)
 
+    def test_a_pivot_named_on_the_first_frame_is_the_median_point_around_it(self):
+        fx = cw.focal(100)
+        depth = np.full((50, 100), 5.0)
+        # Someone near, on the right of the frame, whom the middle of the frame would miss.
+        depth[10:30, 70:90] = 2.0
+        self.assertGreater(cw.pivot_of(depth, fx)[2], 4.0)
+        # Named on them, a tenth of the frame each side: rows 15 to 24, columns 70 to 89.
+        np.testing.assert_allclose(
+            cw.pivot_at(depth, fx, 0.8, 0.4), [(79.5 - 50) / fx * 2, (19.5 - 25) / fx * 2, 2.0], atol=1e-12
+        )
+        # In a corner, what is within the frame.
+        np.testing.assert_allclose(cw.pivot_at(depth, fx, 0.0, 0.0)[2], 5.0)
+        for x, y in ((1.2, 0.5), (0.5, -0.1)):
+            with self.subTest(x=x, y=y), self.assertRaises(ValueError):
+                cw.pivot_at(depth, fx, x, y)
+        depth[:20, :20] = np.nan
+        with self.assertRaises(ValueError):
+            cw.pivot_at(depth, fx, 0.05, 0.1)
+
+    def test_the_depth_of_each_frame_is_told_every_fifteen_frames_and_at_the_last(self):
+        from unittest import mock
+
+        from runner.models import moge2
+
+        told = []
+        frames = [colours(4, 6, seed) for seed in range(31)]
+        result = dict(depth=np.ones((4, 6)), hfov=50.0, scale=1.0)
+        with (
+            mock.patch.object(moge2, 'load', return_value='model') as load,
+            mock.patch.object(moge2, 'estimate', return_value=result),
+            mock.patch('torch.cuda.empty_cache'),
+        ):
+            report = lambda done, total: told.append((done, total))  # noqa: E731
+            found, lenses, scales = cw.depths(frames, 'moge.safetensors', report)
+        load.assert_called_once_with('moge.safetensors', 'cuda')
+        self.assertEqual((len(found), lenses[0], scales[0]), (31, 50.0, 1.0))
+        self.assertEqual(told, [(1, 31), (16, 31), (31, 31)])
+
     def test_points_of_a_frame(self):
         fx = cw.focal(8)
         found = cw.points(np.full((4, 8), 2.0), fx)

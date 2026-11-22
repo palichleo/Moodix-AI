@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "id": "e33b1ff7-519a-4678-83ff-db6ae4b0459e",
+  "enabled": true,
+  "pipeline": "ltx25_refilm",
+  "mediaType": "video",
+  "name": "Changer la caméra (LTX 2.5)",
+  "description": "Refilmer une vidéo faite depuis un autre angle, choisi à la main dans le Studio : la même scène, les mêmes gestes, son son. Une vidéo d’un seul plan, de 5 secondes au plus à 768 × 448. La caméra tourne souvent un peu moins que demandé.",
+  "components": {
+    "model": {
+      "policy": "fixed",
+      "asset": "6fb0a853-cce8-40f5-b8dc-7ca6a7c2dcac",
+      "file": "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors"
+    },
+    "textEncoder": {
+      "policy": "fixed",
+      "asset": "7ecd36b5-e0d9-4cc6-86fe-a2f65080c12f",
+      "file": "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot-v2.safetensors"
+    },
+    "vae": {
+      "policy": "fixed",
+      "asset": "602b49a1-ecfd-43fd-b9dd-c11429984826",
+      "file": "ltx-2.5-video-vae-bf16.safetensors"
+    },
+    "audioVae": {
+      "policy": "fixed",
+      "asset": "3ee8312c-8667-4d5d-8eb9-4dc4f6f1a3b1",
+      "file": "ltx-2.5-audio-vae-bf16.safetensors"
+    },
+    "guideLora": {
+      "policy": "fixed",
+      "asset": "efb0e379-4269-4df9-a1c0-4ad55366f540",
+      "file": "LTX2.3-22B_IC-LoRA-CrossView-Warp_v2_6000.safetensors"
+    },
+    "depth": {
+      "policy": "fixed",
+      "asset": "e885b401-4144-49aa-a42e-15144814ff78",
+      "file": "moge_2_vitl_normal_fp16.safetensors"
+    }
+  },
+  "parameters": {
+    "prompt": {
+      "policy": "fixed",
+      "value": "crossview"
+    },
+    "seed": {
+      "policy": "random",
+      "type": "integer"
+    },
+    "width": {
+      "policy": "model",
+      "type": "integer",
+      "default": 768,
+      "min": 64,
+      "max": 4096,
+      "description": "Celle de la vidéo à refilmer, au multiple de 32 en dessous : elle n’est pas choisie."
+    },
+    "height": {
+      "policy": "model",
+      "type": "integer",
+      "default": 448,
+      "min": 64,
+      "max": 4096,
+      "description": "Celle de la vidéo à refilmer, au multiple de 32 en dessous : elle n’est pas choisie."
+    },
+    "steps": {
+      "policy": "fixed",
+      "value": 8
+    },
+    "frames": {
+      "policy": "model",
+      "type": "integer",
+      "default": 121,
+      "description": "Celle de la vidéo à refilmer, à 24 images par seconde : elle n’est pas choisie."
+    },
+    "fps": {
+      "policy": "fixed",
+      "value": 24
+    },
+    "hfov": {
+      "policy": "fixed",
+      "value": 50
+    },
+    "lora_strength": {
+      "policy": "fixed",
+      "value": 1
+    }
+  },
+  "loras": [],
+  "references": [
+    {
+      "id": "source",
+      "role": "refilm_source",
+      "required": true,
+      "name": "Vidéo à refilmer"
+    }
+  ]
+}

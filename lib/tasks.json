@@ -109,5 +109,28 @@
     "roles": {
       "source": { "media": ["video"], "required": true, "description": "Video to make smoother." }
     }
+  },
+  "refilm_video": {
+    "output": "video",
+    "hand": true,
+    "summary": "Film an existing video again from another camera, placed by hand: the same scene, motion and sound, seen from another angle.",
+    "guidance": "Asked by the user's own hand only, in the Studio, where the camera is placed (lib/refilm.mjs): never offered to the chat model. No prompt, no length and no size: the video says what is filmed, and keeps its length and its format.",
+    "arguments": {
+      "camera": {
+        "type": "object",
+        "description": "The camera held, or the one of the end when it moves: azimuth (degrees to the right of the camera of the video), elevation (degrees above it), distance (1: as far as it stood)."
+      },
+      "camera_start": {
+        "type": "object",
+        "description": "Only when the camera moves: the one of the start, as camera."
+      },
+      "pivot": {
+        "type": "object",
+        "description": "The point the camera turns around, x and y from 0 to 1 on the first frame. Without it: the middle of the frame."
+      }
+    },
+    "roles": {
+      "source": { "media": ["video"], "required": true, "description": "Video whose camera is changed." }
+    }
   }
 }
