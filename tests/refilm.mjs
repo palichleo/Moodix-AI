@@ -9,6 +9,7 @@ import { REFILM_SAID, clipOf, refilmBounds, refilmCamera, refilmFormat, refilmPa
 import { STUDIO_VERBS } from '../lib/studio.mjs';
 import { ToolCatalog } from '../lib/tool-catalog.mjs';
 import { ModelDownloads } from '../lib/model-downloads.mjs';
+import { clipSeconds } from '../public/take-length.mjs';
 import { ToolRuntime } from '../lib/tool-runtime.mjs';
 import { ORBIT_WARNS, orbitArgs, orbitBounds, orbitDraft, orbitOf } from '../public/camera-orbit.mjs';
 
@@ -248,10 +249,23 @@ test('what is not made is said in words before anything is proposed (0.6.242)', 
     ],
     [{ outputs: [{}], parameters: { frames: 121, fps: 24 } }, REFILM_SAID.unknown],
     [{ mediaType: 'image' }, null],
+    // (0.6.243) A continuation of 4 s after a clip of 4 s: its file plays 7 s, though its job made 3,4 s.
+    [{ parameters: { width: 768, height: 448, frames: 81, fps: 24, continuation: { overlapFrames: 9, sourceFrames: 97, newFrames: 72 } } }, LONG],
   ]) {
     const { ask: asking } = runtimeFor({ clip });
     await assert.rejects(asking(held(fine)), said ? { message: said } : Error, JSON.stringify(clip));
   }
+  // A continuation within the limits is filmed again whole: the clip it continues, then what it adds.
+  const jobs = [],
+    { runtime, ask: asking } = runtimeFor({
+      clip: { parameters: { width: 768, height: 448, frames: 33, fps: 24, continuation: { overlapFrames: 9, sourceFrames: 97, newFrames: 24 } } },
+      jobs,
+    });
+  const proposal = await asking(held(fine));
+  await runtime.execute({ requestId: proposal.requestId, permission: 'once', approvalToken: proposal.approvalToken });
+  await runtime.finished;
+  assert.equal(runtime.status().state, 'done', runtime.status().error);
+  assert.equal(jobs[0].parameters.frames, 121);
 });
 
 test('without its two files, a request offers to fetch them, with their sizes and licences (0.6.242)', async () => {
@@ -384,4 +398,12 @@ test('the camera, the format and the sheet of a clip, as the engine reads them (
     frames: 241,
     fps: 48,
   });
+  // (0.6.243) The length the Studio refuses with (clipSeconds): a continuation counts the clip it continues, as
+  // its file does (a record of 21/11: 241 frames made, 241 + 232 in the file).
+  const continued = { frames: 241, fps: 24, continuation: { overlapFrames: 9, sourceFrames: 241, newFrames: 232 } };
+  assert.equal(clipOf({ outputs: [{ width: 1024, height: 1024 }], parameters: continued }).frames, 473);
+  for (const parameters of [continued, record.parameters, { frames: 81, fps: 16 }, { ...continued, continuation: { overlapFrames: 9 } }]) {
+    const clip = clipOf({ parameters });
+    assert.equal(clip.frames / clip.fps, clipSeconds(parameters), JSON.stringify(parameters));
+  }
 });
