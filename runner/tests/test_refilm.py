@@ -201,13 +201,14 @@ class FormatTests(unittest.TestCase):
         self.assertEqual(rf.limit_refusal(768, 448, 121 / 24, limits), '')
         self.assertEqual(rf.limit_refusal(448, 768, 5.25, limits), '')
         self.assertEqual(rf.limit_refusal(768, 448, 5.3, limits), LONG.format(5))
-        # (0.6.246) Measured on 22/11 at larger sizes, 5 s each: 1024 × 576, 1280 × 704 (as many pixels standing
-        # are the same work). 1600 × 896 took 67 s a step, some eleven minutes in all: not given.
-        for width, height in ((832, 480), (1024, 576), (576, 1024), (1280, 704), (704, 1280)):
+        # (0.6.246) Measured on 22/11 at larger sizes, 5 s each (as many pixels standing are the same work). A size is
+        # given only when its 5 s are refilmed within 5 minutes (0.6.247, the user's choice): 1024 × 576 (223 s),
+        # not 1280 × 704 (354 s) nor 1600 × 896 (some eleven minutes).
+        for width, height in ((832, 480), (1024, 576), (576, 1024)):
             with self.subTest(width=width, height=height):
                 self.assertEqual(rf.limit_refusal(width, height, 121 / 24, limits), '')
-        self.assertEqual(rf.limit_refusal(1280, 704, 5.3, limits), LONG.format(5))
-        for width, height in ((1312, 704), (1600, 896), (896, 1600)):
+        self.assertEqual(rf.limit_refusal(1024, 576, 5.3, limits), LONG.format(5))
+        for width, height in ((1056, 576), (1280, 704), (704, 1280), (1600, 896), (896, 1600)):
             with self.subTest(width=width, height=height):
                 self.assertEqual(rf.limit_refusal(width, height, 2, limits), rf.SAID['large'])
         # The first line as large as the clip says how long it may be.

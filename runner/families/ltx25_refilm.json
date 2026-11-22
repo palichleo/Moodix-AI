@@ -241,12 +241,11 @@
     "near": 5,
     "limits": [
       { "pixels": 344064, "seconds": 5, "size": "768 × 448", "measured": "22/11 : 121 images en 86 à 107 s, 8,0 à 8,8 Gio de mémoire vidéo au plus haut" },
-      { "pixels": 589824, "seconds": 5, "size": "1024 × 576", "measured": "22/11 : 121 images en 223 s, 8,6 Gio de mémoire vidéo au plus haut (le moteur seul, démarré pour elle)" },
-      { "pixels": 901120, "seconds": 5, "size": "1280 × 704", "measured": "22/11 : 121 images en 354 s, 8,0 Gio de mémoire vidéo au plus haut (le moteur seul, démarré pour elle)" }
+      { "pixels": 589824, "seconds": 5, "size": "1024 × 576", "measured": "22/11 : 121 images en 223 s, 8,6 Gio de mémoire vidéo au plus haut (le moteur seul, démarré pour elle)" }
     ],
     "fps": [24],
     "sourceFps": { "min": 12, "max": 120 },
-    "note": "Bornes de l’auteur (README de CrossView-Warp v2) : sûr à 45° d’azimut, 30° au-dessus et 20° en dessous ; possible à 90°, 45° et 35° ; chaque zone est une ellipse sur l’azimut et la hauteur. La caméra tourne souvent moins que demandé. Les durées : celles mesurées sur une carte de 12 Go."
+    "note": "Bornes de l’auteur (README de CrossView-Warp v2) : sûr à 45° d’azimut, 30° au-dessus et 20° en dessous ; possible à 90°, 45° et 35° ; chaque zone est une ellipse sur l’azimut et la hauteur. La caméra tourne souvent moins que demandé. Les durées : celles mesurées sur une carte de 12 Go. Une taille n’est donnée que si 5 s s’y refilment en 5 minutes au plus, sans repli (le choix de l’utilisateur, 22/11) : 1280 × 704 en a pris 354, 1600 × 896 environ 11."
   },
   "template": {
     "name": "Change the camera of a video",
