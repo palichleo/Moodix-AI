@@ -254,7 +254,11 @@ async function studioPage(w, { runs = null } = {}) {
       body: {},
       addEventListener() {},
     },
-    Option: class {},
+    Option: class {
+      constructor(text, value) {
+        Object.assign(this, { textContent: text, value, dataset: {} });
+      }
+    },
     ResizeObserver: undefined,
   };
   const before = Object.fromEntries(Object.keys(globals).map(key => [key, globalThis[key]]));
@@ -519,7 +523,11 @@ function advancedControl(request, label) {
     addEventListener() {}
   }
   const previous = globalThis.Option;
-  globalThis.Option = class {};
+  globalThis.Option = class {
+    constructor(text, value) {
+      Object.assign(this, { textContent: text, value, dataset: {} });
+    }
+  };
   try {
     const form = renderProposal(new Node(), request, { node: (...args) => new Node(...args), card: true });
     const panel = form.folds.find(fold => fold.name === 'Paramètres avancés')?.panel;
@@ -1529,19 +1537,19 @@ test('(0.6.211) Studio · the camera, from its piece to the engine: the sentence
     model('LTX 2.5');
     write(page, 'Le pêcheur lève les yeux');
     choose('Caméra');
-    set(0, 'crane_up');
+    set(0, 'tilt_up');
     set(1, 'slow');
     const sentence = shown();
-    assert.equal(sentence, 'The camera slowly cranes up.');
+    assert.equal(sentence, 'The camera slowly tilts up.');
     // What the Studio sends: its prompt as it is written, the movement and its speed beside it.
     const job = await page.generate(),
       sent = page.lastAction().arguments;
-    assert.deepEqual([sent.prompt, sent.camera, sent.camera_speed], ['Le pêcheur lève les yeux', 'crane_up', 'slow']);
+    assert.deepEqual([sent.prompt, sent.camera, sent.camera_speed], ['Le pêcheur lève les yeux', 'tilt_up', 'slow']);
     // What the engine is given: that prompt, then the sentence the window showed, to the letter.
     assert.equal(job.parameters.prompt, 'Le pêcheur lève les yeux. ' + sentence);
     // What the take keeps: the prompt as written, the choice, the sentence beside them.
     const [record] = w.saved;
-    assert.deepEqual([record.prompt, record.parameters.camera, record.parameters.camera_prompt], ['Le pêcheur lève les yeux', { move: 'crane_up', speed: 'slow' }, sentence]);
+    assert.deepEqual([record.prompt, record.parameters.camera, record.parameters.camera_prompt], ['Le pêcheur lève les yeux', { move: 'tilt_up', speed: 'slow' }, sentence]);
     assert.equal(page.prompt().value, 'Le pêcheur lève les yeux', 'the prompt of the Studio is as it was written');
     // Made again as it is: the same prompt to the engine, the sentence once.
     assert.equal((await page.generate()).parameters.prompt, job.parameters.prompt);
@@ -1550,7 +1558,7 @@ test('(0.6.211) Studio · the camera, from its piece to the engine: the sentence
     body.find('studio-camera')[0].children[0].children[1].onclick();
     assert.equal((await page.generate()).parameters.prompt, 'Le pêcheur lève les yeux');
     page.studio.show(record);
-    assert.deepEqual([page.prompt().value, body.find('studio-camera')[0].children[0].children[0].title], ['Le pêcheur lève les yeux', 'Caméra · Grue montante, lente']);
+    assert.deepEqual([page.prompt().value, body.find('studio-camera')[0].children[0].children[0].title], ['Le pêcheur lève les yeux', 'Caméra · Panoramique vers le haut, lent']);
     assert.equal((await page.generate()).parameters.prompt, job.parameters.prompt);
     // Under a model that does not take it, it stays on the plateau, greyed, and nothing of it reaches the engine.
     model('MiniMax H3 Omni');

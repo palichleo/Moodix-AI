@@ -5,11 +5,14 @@ import {
   CAMERA_DEFAULT,
   CAMERA_FAMILIES,
   CAMERA_MOVES,
+  CAMERA_OFF_NOTE,
   CAMERA_SPEEDS,
   CAMERA_VERBS,
   cameraChoice,
   cameraHasSpeed,
   cameraLabel,
+  cameraMade,
+  cameraOff,
   cameraSentence,
   takesCamera,
   withCamera,
@@ -93,6 +96,39 @@ test('a choice of camera is of the list or is none; the page of a take names it 
     ].map(cameraLabel),
     ['Travelling avant, lent', 'Travelling avant', 'Travelling avant, rapide', 'Grue montante, lente', 'Orbite gauche, lente', 'Orbite droite, rapide', 'Panoramique vers le haut, lent', 'Fixe', 'À l’épaule'],
   );
+});
+
+test('(0.6.212) an orbit and a crane are greyed with why: no choice for a take to make, their name and sentence kept for a take made', () => {
+  // The user's verdict on the real videos of 22/11 (LTX 2.5): « Orbite gauche », the camera stayed still; « Grue
+  // montante », it ended looking down. Both, and their mirrors, stay in the list with why; nothing else is greyed.
+  assert.deepEqual(
+    CAMERA_MOVES.filter(move => cameraOff(move.id)).map(move => [move.id, cameraOff(move.id)]),
+    [
+      ['crane_up', 'Pas fiable par les mots seuls : à l’essai, la caméra a fini en plongée.'],
+      ['crane_down', 'Pas fiable par les mots seuls : à l’essai, la caméra a fini en plongée.'],
+      ['orbit_left', 'Pas fiable par les mots seuls : à l’essai, la caméra est restée fixe.'],
+      ['orbit_right', 'Pas fiable par les mots seuls : à l’essai, la caméra est restée fixe.'],
+    ],
+  );
+  assert.equal(CAMERA_OFF_NOTE, 'pas fiable');
+  for (const none of [null, undefined, '', 'spin', 'toString', 'dolly_in', 'pan_left', 'static']) assert.equal(cameraOff(none), '', String(none));
+  // What « Ajouter › Caméra » starts from is not one of them.
+  assert.equal(cameraOff(CAMERA_DEFAULT.move), '');
+  for (const move of ['crane_up', 'crane_down', 'orbit_left', 'orbit_right']) {
+    // No choice for a take to make, at any speed...
+    for (const speed of ['slow', 'normal', 'fast', undefined]) assert.equal(cameraChoice({ move, speed }), null, move);
+    // ...and what a take was made with is still read whole: its name on its page, the sentence it was given.
+    assert.deepEqual(cameraMade({ move, speed: 'fast', ends: 'x' }), { move, speed: 'fast' });
+    assert.notEqual(cameraLabel({ move, speed: 'slow' }), '');
+    assert.match(cameraSentence({ move, speed: 'slow' }), /^The camera slowly (cranes|orbits) /);
+    assert.match(withCamera('Le phare', { move, speed: 'slow' }), /^Le phare\. The camera slowly /);
+  }
+  // Every other movement is a choice as before, and what a take was made with is read the same way.
+  for (const move of CAMERA_MOVES.filter(item => !cameraOff(item.id))) {
+    assert.deepEqual(cameraChoice({ move: move.id, speed: 'slow' }), cameraMade({ move: move.id, speed: 'slow' }), move.id);
+    assert.notEqual(cameraChoice({ move: move.id }), null, move.id);
+  }
+  for (const none of [null, undefined, {}, 'dolly_in', { move: 'spin' }, { speed: 'slow' }]) assert.equal(cameraMade(none), null);
 });
 
 test('the sentence goes after the prompt, which ends its own sentence first; without a choice the prompt is untouched', () => {

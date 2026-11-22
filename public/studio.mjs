@@ -13,7 +13,7 @@ import { clipPlayer, stillClip } from './take-player.mjs';
 import { elapsedClock } from './generation-time.mjs';
 import { settingName } from './setting-names.mjs';
 import { PIECES, PIECE_WORDS as WORDS, SHORT_MODELS } from './pieces.mjs';
-import { CAMERA_DEFAULT, CAMERA_MOVES, CAMERA_SPEEDS, cameraChoice, cameraHasSpeed, cameraLabel, cameraSentence } from './camera.mjs';
+import { CAMERA_DEFAULT, CAMERA_MOVES, CAMERA_OFF_NOTE, CAMERA_SPEEDS, cameraChoice, cameraHasSpeed, cameraLabel, cameraOff, cameraSentence } from './camera.mjs';
 import { setupMontage } from './montage.mjs';
 
 /**
@@ -719,7 +719,17 @@ export function setupStudio({
   }
   function select(choices, value, onchange) {
     const control = node('select');
-    for (const [key, text] of choices) control.add(new Option(text, String(key)));
+    // (0.6.212) `off`: a choice shown and not to be chosen, `{ why, note }`: greyed by the list of glass, its
+    // note beside its name and why under the pointer (glass-menu.mjs).
+    for (const [key, text, off] of choices) {
+      const option = new Option(text, String(key));
+      if (off) {
+        option.disabled = true;
+        option.title = off.why;
+        option.dataset.note = off.note;
+      }
+      control.add(option);
+    }
     control.value = String(value);
     control.onchange = () => onchange(control.value);
     return control;
@@ -1370,7 +1380,13 @@ export function setupStudio({
         draft.camera = { ...draft.camera, ...change };
         show();
       },
-      moves = select(CAMERA_MOVES.map(item => [item.id, item.name]), draft.camera.move, move => set({ move })),
+      // (0.6.212) What the words alone do not hold (an orbit, a crane: the real videos of 22/11) stays in the
+      // list, greyed, « pas fiable » beside its name and why under the pointer: seen, never chosen.
+      moves = select(
+        CAMERA_MOVES.map(item => [item.id, item.name, cameraOff(item.id) ? { why: cameraOff(item.id), note: CAMERA_OFF_NOTE } : null]),
+        draft.camera.move,
+        move => set({ move }),
+      ),
       speeds = select(CAMERA_SPEEDS.map(item => [item.id, item.name]), draft.camera.speed, speed => set({ speed })),
       show = () => {
         // A fixed shot, a camera in the hand, one that follows its subject have no speed: its list greyed,

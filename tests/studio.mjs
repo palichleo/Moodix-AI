@@ -701,7 +701,11 @@ test('another mode stops following the size of the frame it leaves', async () =>
   const observers = [];
   const globals = {
     document: { getElementById: id => page[id] ?? null, querySelector: () => null },
-    Option: class {},
+    Option: class {
+      constructor(text, value) {
+        Object.assign(this, { textContent: text, value, dataset: {} });
+      }
+    },
     ResizeObserver: class {
       constructor(callback) {
         Object.assign(this, { callback, watched: null });
@@ -1063,7 +1067,11 @@ async function studioPage(tools, routes = {}, options = {}) {
       addEventListener: (type, listener) =>
         type === 'keydown' ? pageKeys.push(listener) : type === 'pointerdown' && pagePointers.push(listener),
     },
-    Option: class {},
+    Option: class {
+      constructor(text, value) {
+        Object.assign(this, { textContent: text, value, dataset: {} });
+      }
+    },
     ResizeObserver: undefined,
   };
   const before = Object.fromEntries(Object.keys(globals).map(key => [key, globalThis[key]]));
@@ -8613,7 +8621,7 @@ test('(0.6.211) the camera, a piece of the plateau: added by « Ajouter », set 
       workflowName: 'LTX 2.5',
       prompt: 'Le phare s’allume.',
       createdAt: '2026-11-22T10:00:00.000Z',
-      parameters: { width: 768, height: 448, frames: 121, fps: 24, seed: 7, camera: { move: 'crane_up', speed: 'fast' }, camera_prompt: 'The camera quickly cranes up.' },
+      parameters: { width: 768, height: 448, frames: 121, fps: 24, seed: 7, camera: { move: 'tilt_up', speed: 'fast' }, camera_prompt: 'The camera quickly tilts up.' },
       outputs: [{ take: 4, originalUrl: '/v/4.mp4', thumbUrl: '/t/4.webp' }],
     },
     plain = { ...made, id: 'r2', prompt: 'La mer.', parameters: { width: 768, height: 448, frames: 121, fps: 24, seed: 8 }, outputs: [{ take: 5, originalUrl: '/v/5.mp4', thumbUrl: '/t/5.webp' }] };
@@ -8678,6 +8686,22 @@ test('(0.6.211) the camera, a piece of the plateau: added by « Ajouter », set 
       ['select', 17, 'dolly_in', false],
       ['select', 3, 'normal', false],
     ]);
+    // (0.6.212) What the words alone do not hold (the real videos of 22/11: an orbit, a crane) stays in the list,
+    // greyed: « pas fiable » beside its name, why under the pointer. The thirteen others, and every speed, as before.
+    assert.deepEqual(
+      lists()[0].children.filter(option => option.disabled).map(option => [option.value, option.textContent, option.dataset.note, option.title]),
+      [
+        ['crane_up', 'Grue montante', 'pas fiable', 'Pas fiable par les mots seuls : à l’essai, la caméra a fini en plongée.'],
+        ['crane_down', 'Grue descendante', 'pas fiable', 'Pas fiable par les mots seuls : à l’essai, la caméra a fini en plongée.'],
+        ['orbit_left', 'Orbite gauche', 'pas fiable', 'Pas fiable par les mots seuls : à l’essai, la caméra est restée fixe.'],
+        ['orbit_right', 'Orbite droite', 'pas fiable', 'Pas fiable par les mots seuls : à l’essai, la caméra est restée fixe.'],
+      ],
+    );
+    assert.deepEqual(
+      [...lists()[0].children.filter(option => !option.disabled), ...lists()[1].children].map(option => [option.disabled ?? false, option.title ?? '', option.dataset.note ?? '']).filter(line => line.join('') !== 'false'),
+      [],
+    );
+    assert.equal(lists()[0].children.filter(option => !option.disabled).length, 13);
     // What goes to the model, read before « Générer »: the sentence added after the prompt.
     const added = pane().find('studio-camera-added')[0];
     assert.deepEqual([added.children[0].textContent, added.attributes['aria-live'], sentence()], ['Ajouté au prompt :', 'polite', '« The camera dollies in. »']);
@@ -8686,8 +8710,8 @@ test('(0.6.211) the camera, a piece of the plateau: added by « Ajouter », set 
     const window = pane();
     set(1, 'slow');
     assert.deepEqual([sentence(), pick().title, pane()], ['« The camera slowly dollies in. »', 'Caméra · Travelling avant, lent', window]);
-    set(0, 'crane_up');
-    assert.deepEqual([sentence(), pick().attributes['aria-label']], ['« The camera slowly cranes up. »', 'Caméra · Grue montante, lente']);
+    set(0, 'tilt_up');
+    assert.deepEqual([sentence(), pick().attributes['aria-label']], ['« The camera slowly tilts up. »', 'Caméra · Panoramique vers le haut, lent']);
     // A movement without speed: its list greyed, with why; the speed chosen comes back with a movement that has one.
     set(0, 'static');
     assert.deepEqual([sentence(), lists()[1].disabled, lists()[1].title, pick().title], [
@@ -8750,7 +8774,7 @@ test('(0.6.211) the camera, a piece of the plateau: added by « Ajouter », set 
         next.prompt().oninput();
       };
     // The Studio opens on the settings of the newest take of its conversation: its camera with them, as its prompt.
-    assert.deepEqual([body.find('studio-camera').length, pick().title, next.prompt().value], [1, 'Caméra · Grue montante, rapide', 'Le phare s’allume.']);
+    assert.deepEqual([body.find('studio-camera').length, pick().title, next.prompt().value], [1, 'Caméra · Panoramique vers le haut, rapide', 'Le phare s’allume.']);
     camera().children[0].children[1].onclick();
     assert.equal(body.find('studio-camera').length, 0);
     model('l');
@@ -8808,10 +8832,16 @@ test('(0.6.211) the camera, a piece of the plateau: added by « Ajouter », set 
     // A take made with a camera, looked at (« Afficher dans le Studio »): its prompt as it was written, its camera
     // back on the plateau; « Générer » sends them as they were, the sentence is never twice in the prompt.
     studio.show(made);
-    assert.deepEqual([body.dataset.mode, next.prompt().value, pick().title], ['video', 'Le phare s’allume.', 'Caméra · Grue montante, rapide']);
+    assert.deepEqual([body.dataset.mode, next.prompt().value, pick().title], ['video', 'Le phare s’allume.', 'Caméra · Panoramique vers le haut, rapide']);
     // One made without: none.
     studio.show(plain);
     assert.deepEqual([next.prompt().value, body.find('studio-camera').length], ['La mer.', 0]);
+    // (0.6.212) One made with a movement the list greys since then, looked at: its prompt, no camera on the plateau
+    // (none can be made with it any more), and « Générer » sends none.
+    studio.show({ ...made, id: 'r3', parameters: { ...made.parameters, camera: { move: 'orbit_left', speed: 'slow' }, camera_prompt: 'The camera slowly orbits around the subject to the left.' } });
+    assert.deepEqual([next.prompt().value, body.find('studio-camera').length], ['Le phare s’allume.', 0]);
+    await generate();
+    assert.deepEqual([sent().prompt, 'camera' in sent(), 'camera_speed' in sent()], ['Le phare s’allume.', false, false]);
   } finally {
     next.restore();
   }

@@ -19,6 +19,15 @@ export const takesCamera = (family, verb) => CAMERA_FAMILIES.includes(family) &&
 // Each movement: its name on screen, its English words after « The camera [slowly] », or a sentence of its own
 // (`whole`) for what has no speed: a fixed shot, a camera held in the hand, one that follows its subject.
 // `she`: its French name is feminine (« Grue montante, lente »).
+// (0.6.212) `off`: what the words alone do not hold, said by the user on the real videos of 22/11 (LTX 2.5,
+// from an image, « Normale »): for « Orbite gauche » the camera stayed still while the subject turned round, for
+// « Grue montante » it ended looking down on him. Those movements and their mirrors stay in the list, greyed,
+// with why (cameraOff): no take is made with them until a model made for the camera takes them. A take made
+// with one before keeps its name and its sentence (cameraMade).
+const ORBIT_FAILS = 'Pas fiable par les mots seuls : à l’essai, la caméra est restée fixe.';
+const CRANE_FAILS = 'Pas fiable par les mots seuls : à l’essai, la caméra a fini en plongée.';
+/** What the list says beside a movement it greys (its line of the list; the reason is under the pointer). */
+export const CAMERA_OFF_NOTE = 'pas fiable';
 export const CAMERA_MOVES = [
   { id: 'static', name: 'Fixe', whole: 'The camera stays perfectly still, a locked-off static shot.' },
   { id: 'dolly_in', name: 'Travelling avant', words: 'dollies in' },
@@ -29,12 +38,12 @@ export const CAMERA_MOVES = [
   { id: 'pan_right', name: 'Panoramique droit', words: 'pans to the right' },
   { id: 'tilt_up', name: 'Panoramique vers le haut', words: 'tilts up' },
   { id: 'tilt_down', name: 'Panoramique vers le bas', words: 'tilts down' },
-  { id: 'crane_up', name: 'Grue montante', words: 'cranes up', she: true },
-  { id: 'crane_down', name: 'Grue descendante', words: 'cranes down', she: true },
+  { id: 'crane_up', name: 'Grue montante', words: 'cranes up', she: true, off: CRANE_FAILS },
+  { id: 'crane_down', name: 'Grue descendante', words: 'cranes down', she: true, off: CRANE_FAILS },
   { id: 'zoom_in', name: 'Zoom avant', words: 'zooms in' },
   { id: 'zoom_out', name: 'Zoom arrière', words: 'zooms out' },
-  { id: 'orbit_left', name: 'Orbite gauche', words: 'orbits around the subject to the left', she: true },
-  { id: 'orbit_right', name: 'Orbite droite', words: 'orbits around the subject to the right', she: true },
+  { id: 'orbit_left', name: 'Orbite gauche', words: 'orbits around the subject to the left', she: true, off: ORBIT_FAILS },
+  { id: 'orbit_right', name: 'Orbite droite', words: 'orbits around the subject to the right', she: true, off: ORBIT_FAILS },
   { id: 'handheld', name: 'À l’épaule', whole: 'Handheld camera, with a slight natural shake.' },
   { id: 'follow', name: 'Suivi du sujet', whole: 'The camera follows the subject, keeping it in frame.' },
 ];
@@ -51,21 +60,33 @@ const moveOf = id => CAMERA_MOVES.find(move => move.id === id) ?? null;
 const speedOf = id => CAMERA_SPEEDS.find(speed => speed.id === id) ?? null;
 /** Whether a movement has a speed (a fixed shot has none). */
 export const cameraHasSpeed = id => Boolean(moveOf(id)?.words);
+/** (0.6.212) Why a movement of the list is greyed and not made; '' for one that is proposed, or none of the list. */
+export const cameraOff = id => moveOf(id)?.off ?? '';
 
 /**
- * A choice as it is kept and sent, `{ move, speed }`, from whatever names one (`{ move, speed }`, or the two
- * arguments of a verb): null when it names no movement of the list. A speed that is none of the list, or
- * given to a movement that has none, is the normal one.
+ * The camera a take was made with, `{ move, speed }`, from what its sheet keeps: any movement of the list,
+ * proposed today or not (a take keeps its name, a draft promoted stays the same shot); null when it names none.
+ * A speed that is none of the list, or given to a movement that has none, is the normal one.
  */
-export function cameraChoice(value) {
+export function cameraMade(value) {
   const move = moveOf(value?.move);
   if (!move) return null;
   return { move: move.id, speed: move.words && speedOf(value.speed) ? value.speed : 'normal' };
 }
 
+/**
+ * A choice for a take to make, as it is kept and sent, `{ move, speed }`, from whatever names one (`{ move,
+ * speed }`, or the two arguments of a verb): null when it names no movement of the list, or one the list greys
+ * (cameraOff).
+ */
+export function cameraChoice(value) {
+  const made = cameraMade(value);
+  return made && !cameraOff(made.move) ? made : null;
+}
+
 /** The English sentence added to the prompt for a choice: « The camera slowly dollies in. »; '' for none. */
 export function cameraSentence(value) {
-  const choice = cameraChoice(value);
+  const choice = cameraMade(value);
   if (!choice) return '';
   const move = moveOf(choice.move),
     adverb = speedOf(choice.speed).adverb;
@@ -74,7 +95,7 @@ export function cameraSentence(value) {
 
 /** A choice as the page of a take names it: « Travelling avant, lent », « Grue montante », « Fixe »; '' for none. */
 export function cameraLabel(value) {
-  const choice = cameraChoice(value);
+  const choice = cameraMade(value);
   if (!choice) return '';
   const move = moveOf(choice.move),
     said = speedOf(choice.speed).said[move.she ? 1 : 0];

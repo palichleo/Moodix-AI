@@ -1556,9 +1556,28 @@ test('(0.6.211) the camera chosen in the Studio: its sentence after the prompt o
   await assert.rejects(next({ ...asked, camera: 'spin' }), { message: 'Caméra : mouvement inconnu.' });
   await assert.rejects(next({ ...asked, camera: 3 }), { message: 'Caméra : mouvement inconnu.' });
   await assert.rejects(next({ ...asked, camera_speed: 'warp' }), { message: 'Caméra : vitesse inconnue.' });
+  // (0.6.212) A movement the list greys (an orbit, a crane: the words alone do not hold them, real videos of 22/11):
+  // refused with the reason the list gives, whatever its speed; nothing is given to the engine.
+  jobs.length = 0;
+  await assert.rejects(next({ ...asked, camera: 'orbit_left' }), {
+    message: 'Caméra : « Orbite gauche » n’est pas proposé. Pas fiable par les mots seuls : à l’essai, la caméra est restée fixe.',
+  });
+  await assert.rejects(next({ ...noSpeed, camera: 'crane_down' }), {
+    message: 'Caméra : « Grue descendante » n’est pas proposé. Pas fiable par les mots seuls : à l’essai, la caméra a fini en plongée.',
+  });
+  for (const move of ['crane_up', 'orbit_right']) await assert.rejects(next({ ...asked, camera: move }), /n’est pas proposé\. Pas fiable par les mots seuls : /, move);
+  assert.deepEqual(jobs, []);
+  // A draft made with one of them before, promoted: the same shot still, its camera and its sentence kept.
+  record.parameters.camera = { move: 'orbit_left', speed: 'slow' };
+  const old = await runtime.request(
+    [call('create_video', { reuse_output: record.id, stage: 'final', intention: 'Version finale', prompt: record.prompt, duration: null }, 'call-old')],
+    { ...place, byHand: false, turnId: randomUUID() },
+  );
+  assert.deepEqual(old.camera, { move: 'orbit_left', speed: 'slow', sentence: 'The camera slowly orbits around the subject to the left.' });
+  record.parameters.camera = { move: 'dolly_in', speed: 'slow' };
   // Wan 2.2 takes it too, from its start image.
-  const animated = await next({ ...asked, workflow: wan.id, start_image: { resource: uid(8) }, camera: 'crane_up' });
-  assert.deepEqual([animated.workflowName, animated.camera], ['Wan 2.2', { move: 'crane_up', speed: 'slow', sentence: 'The camera slowly cranes up.' }]);
+  const animated = await next({ ...asked, workflow: wan.id, start_image: { resource: uid(8) }, camera: 'tilt_up' });
+  assert.deepEqual([animated.workflowName, animated.camera], ['Wan 2.2', { move: 'tilt_up', speed: 'slow', sentence: 'The camera slowly tilts up.' }]);
   // A model of another family does not: left aside, and said as any setting it does not take.
   const other = await next({ ...asked, workflow: minimax.id });
   assert.deepEqual([other.workflowName, other.camera], ['MiniMax H3 Omni', undefined]);

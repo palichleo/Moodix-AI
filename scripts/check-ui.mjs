@@ -184,6 +184,15 @@ const STUDIO_LAYOUT = `(async () => {
             if (pane.scrollHeight > pane.clientHeight + 1) found.push(name + ' : la fenêtre de la Caméra défile');
             if (pane.querySelectorAll('button.glass-select').length !== 2) found.push(name + ' : la fenêtre de la Caméra n’a pas ses deux listes de verre');
             if (!/^« .+\\. »$/.test(pane.querySelector('.studio-camera-sentence')?.textContent ?? '')) found.push(name + ' : la phrase ajoutée au prompt n’est pas montrée');
+            // (0.6.212) Its list of movements, opened: an orbit and a crane greyed, « pas fiable » beside each name
+            // and why under the pointer (the words alone do not hold them); closed again before « Retirer ».
+            const face = pane.querySelector('button.glass-select');
+            face?.click();
+            const greyed = [...pane.querySelectorAll('[role="option"].is-off')];
+            if (greyed.length !== 4 || greyed.some(item => item.getAttribute('aria-disabled') !== 'true' || !/^Pas fiable par les mots seuls : /.test(item.dataset.tip ?? '') || item.querySelector('.glass-menu-note')?.textContent !== 'pas fiable'))
+              found.push(name + ' : la liste des mouvements ne grise pas l’orbite et la grue avec leur raison (' + greyed.length + ' grisées)');
+            face?.click();
+            if (pane.querySelector('[role="option"]')) found.push(name + ' : la liste des mouvements reste ouverte');
             [...pane.querySelectorAll('.studio-window-button')].find(item => item.textContent === 'Retirer')?.click();
           }
           if (document.querySelector('#studio-view .studio-camera')) found.push(name + ' : la Caméra n’est pas retirée');
