@@ -17,6 +17,8 @@ export const PIECE_WORDS = {
   prolong: 'À prolonger',
   follow: 'À suivre',
   character: 'Personnage',
+  // (0.6.211) How the camera moves (public/camera.mjs): no image, a movement of a closed list.
+  camera: 'Caméra',
 };
 
 // (Captures 94, 100, 101 and 104) Each kind of piece in a list « Ajouter »: its name, what the list says of it
@@ -29,6 +31,7 @@ export const PIECES = {
   follow: { name: 'Vidéo à suivre', given: 'déjà donnée', serves: 'Une vidéo à suivre sert' },
   character: { name: 'Personnage', given: 'déjà donné', serves: 'Un personnage sert' },
   reference: { name: 'Sujet', given: 'déjà donné', serves: 'Un sujet sert' },
+  camera: { name: 'Caméra', given: 'déjà réglée', serves: 'La caméra se règle' },
   lyrics: { name: 'Paroles', given: 'déjà ouvertes', serves: 'Des paroles servent' },
   image: { name: 'Image', given: 'déjà donnée', serves: 'Une image sert' },
 };

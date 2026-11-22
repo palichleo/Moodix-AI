@@ -588,3 +588,41 @@ test('the prompt of a take opened: cut, a round arrow shows it whole and folds i
   assert.match(css, /#original-dialog \.media-information > \.media-actions \{\r?\n  position: sticky;\r?\n  bottom: 0;/);
   assert.match(css, /#original-dialog \.media-information > \.media-prompt-row \{\r?\n  position: relative;\r?\n  flex: 0 1 auto;/);
 });
+
+test('(0.6.211) the window of a take names its camera after what it was made from, and says the sentence added to its prompt under « Plus de détails »', async t => {
+  // (LOTS.md, lot 14; capture 107) « Caméra : Travelling avant, lent ». Its prompt is shown as it was written: the
+  // sentence the application added after it for the camera is said apart, as the prompt enriched of an image is.
+  const { ui, $ } = await fixture(t);
+  const take = parameters => ({
+    id: 'run',
+    conversationId: 'conversation',
+    mediaType: 'video',
+    workflowName: 'LTX 2.5',
+    prompt: 'Le pêcheur lève les yeux',
+    createdAt: '2026-11-22T10:00:00Z',
+    parameters: { seed: 7, width: 1344, height: 768, frames: 121, fps: 24, ...parameters },
+    outputs: [{ source: { filename: 'clip.mp4', subfolder: 'video' }, originalUrl: '/clip.mp4', take: 4 }],
+  });
+  const lines = id => {
+    const texts = $(id).children.map(item => item.textContent);
+    return Object.fromEntries(texts.flatMap((text, at) => (at % 2 ? [] : [[text, texts[at + 1]]])));
+  };
+  const first = { id: 'take-1', conversationId: 'conversation', mediaType: 'image', workflowName: 'Krea 2', prompt: 'x', parameters: {}, outputs: [{ source: { filename: '1.png' }, take: 1 }] },
+    // (Its sentence as the take keeps it: what its model was given then, were the table to say it otherwise since.)
+    filmed = take({ camera: { move: 'dolly_in', speed: 'slow' }, camera_prompt: 'The camera slowly moves in.', references: [{ role: 'start_image', output_id: 'take-1' }] });
+  await ui.viewOutput(filmed, 0, undefined, { list: () => [filmed, first], at: () => 0 });
+  const shown = lines('media-metadata');
+  assert.deepEqual(Object.keys(shown), ['Modèle', 'Format', 'Résolution', 'Durée', 'Image de début', 'Caméra', 'Seed', 'Date', 'Temps de génération']);
+  assert.equal(shown['Caméra'], 'Travelling avant, lent');
+  assert.equal($('media-prompt').textContent, 'Le pêcheur lève les yeux');
+  assert.equal(lines('media-more-list')['Ajouté au prompt (caméra)'], 'The camera slowly moves in.');
+  // A sheet that keeps the choice alone (a file from elsewhere): the sentence of the table for that choice.
+  await ui.viewOutput(take({ camera: { move: 'crane_up', speed: 'fast' } }), 0);
+  assert.deepEqual([lines('media-metadata')['Caméra'], lines('media-more-list')['Ajouté au prompt (caméra)']], ['Grue montante, rapide', 'The camera quickly cranes up.']);
+  // No camera, or a choice that is none of the list: no line of it, above nor under « Plus de détails ».
+  for (const camera of [undefined, null, { move: 'spin' }, 'dolly_in']) {
+    await ui.viewOutput(take(camera === undefined ? {} : { camera, camera_prompt: 'x' }), 0);
+    assert.deepEqual(['Caméra' in lines('media-metadata'), 'Ajouté au prompt (caméra)' in lines('media-more-list')], [false, false], JSON.stringify(camera));
+  }
+  $('original-close').onclick();
+});

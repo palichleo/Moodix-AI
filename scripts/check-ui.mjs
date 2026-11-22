@@ -165,6 +165,30 @@ const STUDIO_LAYOUT = `(async () => {
         else add.click();
         if (document.querySelector('#studio-view .studio-add-menu:not([hidden])')) found.push(name + ' : la liste « Ajouter » reste ouverte');
       }
+      // (0.6.211) The camera, with a model that takes it (LTX 2.5, Wan 2.2): added from that list, its window
+      // shown once the Studio is drawn, whole in the page, with its two lists of glass and the sentence it adds
+      // to the prompt; taken back by « Retirer », so that what follows is read without it.
+      const again = document.querySelector('#studio-view .studio-add-pick');
+      if (again && !again.disabled) {
+        again.click();
+        const film = [...document.querySelectorAll('#studio-view .studio-add-menu .glass-menu-item:not(.is-off)')].find(item => item.firstElementChild?.textContent === 'Caméra');
+        if (!film) again.click();
+        else {
+          film.click();
+          await new Promise(resolve => setTimeout(resolve, 0));
+          const pane = document.querySelector('#studio-view .studio-camera-window:popover-open'),
+            box = pane?.getBoundingClientRect();
+          if (!pane) found.push(name + ' : la fenêtre de la Caméra ne s’ouvre pas');
+          else {
+            if (box.left < 0 || box.top < 0 || box.right > innerWidth || box.bottom > innerHeight) found.push(name + ' : la fenêtre de la Caméra sort de la fenêtre');
+            if (pane.scrollHeight > pane.clientHeight + 1) found.push(name + ' : la fenêtre de la Caméra défile');
+            if (pane.querySelectorAll('button.glass-select').length !== 2) found.push(name + ' : la fenêtre de la Caméra n’a pas ses deux listes de verre');
+            if (!/^« .+\\. »$/.test(pane.querySelector('.studio-camera-sentence')?.textContent ?? '')) found.push(name + ' : la phrase ajoutée au prompt n’est pas montrée');
+            [...pane.querySelectorAll('.studio-window-button')].find(item => item.textContent === 'Retirer')?.click();
+          }
+          if (document.querySelector('#studio-view .studio-camera')) found.push(name + ' : la Caméra n’est pas retirée');
+        }
+      }
       // (0.6.206) « Plus de réglages » is a window, shown once the Studio is drawn: read then, with its fields
       // (look), and closed again so that the next model is read as it opens.
       const pill = () => document.querySelector('#studio-view .studio-more-pill');

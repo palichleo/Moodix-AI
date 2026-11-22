@@ -8594,3 +8594,304 @@ test('the Éclipse of the bobine: the chat model is brought back, then asked wha
     studio.restore();
   }
 });
+
+test('(0.6.211) the camera, a piece of the plateau: added by « Ajouter », set in its window, sent with « Générer »; greyed under a model that does not take it', async () => {
+  // (LOTS.md, lot 14; captures 94 and 95) A movement of a closed list and its speed (public/camera.mjs); the window
+  // shows the English sentence the application will add after the prompt, which stays as it is written.
+  const image = { count: 1, media: ['image'] },
+    shape = { limits: sizes, size: { width: 768, height: 448 }, settings: [], seeded: true, lengths: { seconds: [121 / 24], standard: 121 / 24 } },
+    // (As the server describes them: `camera` for a new video of LTX 2.5 and of Wan 2.2.)
+    ltx = { ...shape, id: 'l', name: 'LTX 2.5', family: 'ltx25', camera: true, roles: { start_image: image, end_image: image, reference: { count: 3, media: ['image'] } } },
+    wan = { ...shape, id: 'w', name: 'Wan 2.2', family: 'wan22', camera: true, roles: { start_image: image } },
+    omni = { ...shape, id: 'o', name: 'MiniMax H3 Omni', family: 'minimax_h3', roles: { reference: { count: 2, media: ['image'] } } },
+    still = { id: 'i', name: 'Krea 2', family: 'krea2', roles: {}, limits: sizes, size: { width: 1024, height: 1024 }, settings: [] },
+    // A take made with a camera, as its record keeps it: its prompt as written, the choice and the sentence beside it.
+    made = {
+      id: 'r1',
+      mediaType: 'video',
+      workflowId: 'l',
+      workflowName: 'LTX 2.5',
+      prompt: 'Le phare s’allume.',
+      createdAt: '2026-11-22T10:00:00.000Z',
+      parameters: { width: 768, height: 448, frames: 121, fps: 24, seed: 7, camera: { move: 'crane_up', speed: 'fast' }, camera_prompt: 'The camera quickly cranes up.' },
+      outputs: [{ take: 4, originalUrl: '/v/4.mp4', thumbUrl: '/t/4.webp' }],
+    },
+    plain = { ...made, id: 'r2', prompt: 'La mer.', parameters: { width: 768, height: 448, frames: 121, fps: 24, seed: 8 }, outputs: [{ take: 5, originalUrl: '/v/5.mp4', thumbUrl: '/t/5.webp' }] };
+  const page = await studioPage(
+    { create_image: [still], create_video: [ltx, wan, omni] },
+    { 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }), 'tools/execute': () => new Promise(() => {}) },
+    { runs: [] },
+  );
+  const { body, studio, asked, notices, pagePointers, restore } = page;
+  try {
+    page.mode(1);
+    const add = () => body.find('studio-add')[0],
+      menu = () => add().children[2],
+      list = () => menu().children.map(item => (item.className === 'glass-menu-rule' ? '—' : [/is-off/.test(item.className), item.children.map(part => part.textContent).join(' · '), item.dataset.tip ?? ''])),
+      choose = name => menu().children.find(item => item.children?.[0]?.textContent === name).onclick(),
+      model = id => {
+        const chosen = body.find('studio-model-pick')[0];
+        chosen.value = id;
+        chosen.onchange();
+      },
+      camera = () => body.find('studio-camera')[0],
+      tile = () => camera().children[0],
+      pick = () => tile().children[0],
+      pane = () => body.find('studio-camera-window')[0],
+      lists = () => pane().find('studio-field').map(field => field.children[1]),
+      sentence = () => pane().find('studio-camera-sentence')[0].textContent,
+      set = (at, value) => {
+        const control = lists()[at];
+        control.value = value;
+        control.onchange();
+      },
+      words = () => body.find('studio-plateau')[0].find('studio-piece-word').map(word => word.textContent),
+      sent = () => asked.filter(([route]) => route === 'tools/action').at(-1)[1].arguments,
+      generate = async () => {
+        page.page['studio-view'].onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
+        await settle();
+      };
+    // LTX 2.5 (capture 94): « Caméra » after what it takes as images, before what only another model takes.
+    assert.deepEqual(list().slice(0, 4), [
+      [false, 'Image de début', ''],
+      [false, 'Image de fin', ''],
+      [false, 'Sujet', ''],
+      [false, 'Caméra', ''],
+    ]);
+    assert.equal(body.find('studio-camera').length, 0, 'no piece until it is added');
+    // Added: a piece of the row, after the subjects and before « Ajouter », its sign, its word; its window open on
+    // the movement the list starts from, at the normal speed.
+    add().children[0].onclick();
+    choose('Caméra');
+    assert.deepEqual(body.find('studio-plateau')[0].children.at(-1).children.map(part => part.className), ['studio-pieces studio-references', 'studio-piece studio-camera is-open', 'studio-add']);
+    assert.deepEqual(words().slice(-1), ['Caméra']);
+    assert.deepEqual(
+      [tile().className, tile().dataset.piece, pick().children[0].glyph, pick().attributes['aria-haspopup'], pick().attributes['aria-expanded'], pick().attributes['aria-label'], pick().title],
+      ['studio-slot is-filled', 'camera', 'camera', 'dialog', 'true', 'Caméra · Travelling avant', 'Caméra · Travelling avant'],
+    );
+    assert.equal(menu().hidden, true, 'the list « Ajouter » closed for its window');
+    assert.deepEqual([pane().className, pane().attributes.role, pane().attributes['aria-label'], pane().find('studio-window-title')[0].textContent], [
+      'glass-menu studio-piece-window studio-camera-window', 'dialog', 'Caméra', 'Caméra',
+    ]);
+    assert.deepEqual(pane().find('studio-field').map(field => field.children[0].textContent), ['Mouvement', 'Vitesse']);
+    assert.deepEqual(lists().map(control => [control.tag, control.children.length, control.value, control.disabled]), [
+      ['select', 17, 'dolly_in', false],
+      ['select', 3, 'normal', false],
+    ]);
+    // What goes to the model, read before « Générer »: the sentence added after the prompt.
+    const added = pane().find('studio-camera-added')[0];
+    assert.deepEqual([added.children[0].textContent, added.attributes['aria-live'], sentence()], ['Ajouté au prompt :', 'polite', '« The camera dollies in. »']);
+    assert.deepEqual(pane().find('studio-window-foot')[0].children.map(part => part.children[0]?.textContent ?? part.textContent), ['', 'Retirer']);
+    // A speed, another movement: the sentence and the name of the piece follow in place, the window stays as it is.
+    const window = pane();
+    set(1, 'slow');
+    assert.deepEqual([sentence(), pick().title, pane()], ['« The camera slowly dollies in. »', 'Caméra · Travelling avant, lent', window]);
+    set(0, 'crane_up');
+    assert.deepEqual([sentence(), pick().attributes['aria-label']], ['« The camera slowly cranes up. »', 'Caméra · Grue montante, lente']);
+    // A movement without speed: its list greyed, with why; the speed chosen comes back with a movement that has one.
+    set(0, 'static');
+    assert.deepEqual([sentence(), lists()[1].disabled, lists()[1].title, pick().title], [
+      '« The camera stays perfectly still, a locked-off static shot. »', true, 'Ce mouvement n’a pas de vitesse.', 'Caméra · Fixe',
+    ]);
+    set(0, 'pan_left');
+    assert.deepEqual([sentence(), lists()[1].disabled, lists()[1].value, lists()[1].title], ['« The camera slowly pans to the left. »', false, 'slow', 'À quelle vitesse la caméra bouge.']);
+    // Drawn again, it is still open, on what was chosen.
+    studio.render();
+    assert.deepEqual([lists().map(control => control.value), sentence()], [['pan_left', 'slow'], '« The camera slowly pans to the left. »']);
+    // Once added, « Ajouter » says so.
+    assert.deepEqual(list()[3], [true, 'Caméra · déjà réglée', 'La caméra est déjà réglée : cliquez sur sa case pour en changer.']);
+    // Its case closes its window, and opens it again; a press beside it closes it.
+    pick().onclick();
+    assert.deepEqual([body.find('studio-camera-window').length, camera().className, pick().attributes['aria-expanded']], [0, 'studio-piece studio-camera', 'false']);
+    pick().onclick();
+    assert.equal(body.find('studio-camera-window').length, 1);
+    pagePointers.forEach(listener => listener({ target: { closest: () => null } }));
+    studio.render();
+    assert.equal(body.find('studio-camera-window').length, 0);
+
+    // « Générer »: the prompt as it is written, the movement and its speed beside it. The server adds the sentence.
+    page.prompt().value = 'Le pêcheur lève les yeux';
+    page.prompt().oninput();
+    await generate();
+    assert.deepEqual([sent().prompt, sent().camera, sent().camera_speed], ['Le pêcheur lève les yeux', 'pan_left', 'slow']);
+    assert.equal(page.prompt().value, 'Le pêcheur lève les yeux', 'nothing is written in the prompt of the Studio');
+  } finally {
+    restore();
+  }
+
+  // Another Studio, nothing being made: what goes with each model, what is kept, a take looked at.
+  const next = await studioPage(
+    { create_image: [still], create_video: [ltx, wan, omni] },
+    { 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }), 'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }) },
+    { runs: [made, plain] },
+  );
+  try {
+    const { body, studio, asked, notices } = next;
+    next.mode(1);
+    const add = () => body.find('studio-add')[0],
+      menu = () => add().children[2],
+      list = () => menu().children.map(item => (item.className === 'glass-menu-rule' ? '—' : [/is-off/.test(item.className), item.children.map(part => part.textContent).join(' · '), item.dataset.tip ?? ''])),
+      choose = name => menu().children.find(item => item.children?.[0]?.textContent === name).onclick(),
+      model = id => {
+        const chosen = body.find('studio-model-pick')[0];
+        chosen.value = id;
+        chosen.onchange();
+      },
+      camera = () => body.find('studio-camera')[0],
+      pick = () => camera().children[0].children[0],
+      lists = () => body.find('studio-camera-window')[0].find('studio-field').map(field => field.children[1]),
+      sent = () => asked.filter(([route]) => route === 'tools/action').at(-1)[1].arguments,
+      generate = async () => {
+        next.page['studio-view'].onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
+        await settle();
+      },
+      write = text => {
+        next.prompt().value = text;
+        next.prompt().oninput();
+      };
+    // The Studio opens on the settings of the newest take of its conversation: its camera with them, as its prompt.
+    assert.deepEqual([body.find('studio-camera').length, pick().title, next.prompt().value], [1, 'Caméra · Grue montante, rapide', 'Le phare s’allume.']);
+    camera().children[0].children[1].onclick();
+    assert.equal(body.find('studio-camera').length, 0);
+    model('l');
+    write('Un phare');
+    // None added: nothing of it is sent.
+    await generate();
+    assert.deepEqual(['camera' in sent(), 'camera_speed' in sent()], [false, false]);
+    // A movement without speed goes alone.
+    add().children[0].onclick();
+    choose('Caméra');
+    const [moves] = lists();
+    moves.value = 'handheld';
+    moves.onchange();
+    await generate();
+    assert.deepEqual([sent().camera, 'camera_speed' in sent()], ['handheld', false]);
+    // Wan 2.2 takes it too: the same piece, the same choice.
+    model('w');
+    assert.deepEqual([body.find('studio-camera').length, camera().className.includes('is-off'), pick().title], [1, false, 'Caméra · À l’épaule']);
+    // A model that does not (capture 96): kept on the plateau, greyed, one line saying it will not go; its case
+    // says why on a click, opens no window; nothing of it is sent; « Ajouter » names a model that takes it.
+    model('o');
+    assert.deepEqual([camera().className, camera().children[0].className, pick().attributes['aria-disabled'], pick().attributes['aria-haspopup'] ?? null, pick().title], [
+      'studio-piece studio-camera is-off', 'studio-slot is-filled is-off', 'true', null, 'Caméra gardée : MiniMax H3 Omni ne la prend pas.',
+    ]);
+    assert.deepEqual(body.find('studio-plateau-note').map(line => line.children[1].textContent), ['La caméra ne partira pas avec MiniMax H3 Omni.']);
+    pick().onclick();
+    assert.deepEqual([notices.at(-1), body.find('studio-camera-window').length], ['Caméra gardée : MiniMax H3 Omni ne la prend pas.', 0]);
+    assert.ok(list().some(line => line !== '—' && line[1] === 'Caméra · avec LTX 2.5' && line[2] === 'La caméra se règle avec LTX 2.5 : choisissez-le dans Modèle.'), JSON.stringify(list()));
+    await generate();
+    assert.deepEqual(['camera' in sent(), 'camera_speed' in sent()], [false, false]);
+    // Back with LTX 2.5: the piece as it was. Its × takes it away, and its window with it.
+    model('l');
+    assert.deepEqual([camera().className, pick().title], ['studio-piece studio-camera', 'Caméra · À l’épaule']);
+    pick().onclick();
+    assert.equal(body.find('studio-camera-window').length, 1);
+    const remove = camera().children[0].children[1];
+    assert.deepEqual([remove.className, remove.attributes['aria-label']], ['studio-slot-remove', 'Retirer la caméra']);
+    remove.onclick();
+    assert.deepEqual([body.find('studio-camera').length, body.find('studio-camera-window').length, list()[3]], [0, 0, [false, 'Caméra', '']]);
+    // « Retirer », at the foot of its window: the same.
+    add().children[0].onclick();
+    choose('Caméra');
+    body.find('studio-camera-window')[0].find('studio-window-foot')[0].children.at(-1).onclick();
+    assert.deepEqual([body.find('studio-camera').length, body.find('studio-camera-window').length], [0, 0]);
+    // Kept under a model that does not take it, its × takes it away too, and the line with it.
+    add().children[0].onclick();
+    choose('Caméra');
+    model('o');
+    camera().children[0].children[1].onclick();
+    assert.deepEqual([body.find('studio-camera').length, body.find('studio-plateau-note').length], [0, 0]);
+    // Image: no camera anywhere; no model of images takes one, so no list offers it there (nothing to add at all).
+    next.mode(0);
+    assert.deepEqual([body.find('studio-camera').length, body.find('studio-add').length], [0, 0]);
+
+    // A take made with a camera, looked at (« Afficher dans le Studio »): its prompt as it was written, its camera
+    // back on the plateau; « Générer » sends them as they were, the sentence is never twice in the prompt.
+    studio.show(made);
+    assert.deepEqual([body.dataset.mode, next.prompt().value, pick().title], ['video', 'Le phare s’allume.', 'Caméra · Grue montante, rapide']);
+    // One made without: none.
+    studio.show(plain);
+    assert.deepEqual([next.prompt().value, body.find('studio-camera').length], ['La mer.', 0]);
+  } finally {
+    next.restore();
+  }
+});
+
+test('(0.6.211) the styles of the camera: its case with a full line, its window with its lists beside their names and the sentence added', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n'),
+    rule = selector => {
+      const at = css.indexOf('\n' + selector + ' {');
+      assert.ok(at >= 0, selector);
+      return css.slice(at, css.indexOf('}', at));
+    };
+  assert.match(rule('#studio-view .studio-camera .studio-slot.is-filled .studio-slot-pick'), /border: 1px solid rgba\(238, 232, 222, 0\.24\);/);
+  assert.match(rule('.studio-camera-window .studio-field'), /flex-direction: row;\s+align-items: center;/);
+  assert.match(rule('.studio-camera-window .studio-field > .studio-label'), /width: 78px;/);
+  assert.match(rule('.studio-camera-window .studio-field > button.glass-select'), /flex: 1 1 auto;/);
+  // What is added to the prompt is read: 13 px, never under 12.
+  assert.match(rule('.studio-camera-added'), /font: 400 12px\/1\.4 var\(--font-ui\);/);
+  assert.match(rule('.studio-camera-sentence'), /font: 400 13px\/1\.45 var\(--font-ui\);/);
+  // Its sign is one of the page's.
+  assert.match(await readFile(new URL('../public/index.html', import.meta.url), 'utf8'), /<symbol id="i-camera" viewBox="0 0 24 24">/);
+});
+
+test('(0.6.211) the camera is a piece of a new video made by hand: none in a continuation, none under a proposal of Moodix AI; it is back after them', async () => {
+  // A continuation starts from its clip alone, and a proposal has the pieces Moodix AI chose: the camera the user
+  // had set is neither shown nor sent there, and waits for the next video made by hand.
+  const { tools, runs } = continuing();
+  // (Its two tools with the camera, to see that the Studio itself leaves it out of a continuation: the server
+  // gives it to a new video only.)
+  for (const tool of [...tools.create_video, ...tools.extend_video]) tool.camera = true;
+  let page = await studioPage(
+    tools,
+    { 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }), 'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }) },
+    { runs },
+  );
+  const film = body => {
+    const add = body.find('studio-add')[0];
+    add.children[0].onclick();
+    add.children[2].children.find(item => item.children?.[0]?.textContent === 'Caméra').onclick();
+  };
+  try {
+    const { body, asked } = page,
+      sent = () => asked.filter(([route]) => route === 'tools/action').at(-1)[1],
+      generate = async () => {
+        page.page['studio-view'].onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
+        await settle();
+      };
+    page.mode(1);
+    film(body);
+    assert.equal(body.find('studio-camera').length, 1);
+    // « Prolonger »: its clip, no camera, its window gone with it; nothing of it is sent.
+    prolonger(body).onclick();
+    assert.deepEqual([prolonged(body).length, body.find('studio-camera').length, body.find('studio-camera-window').length, body.find('studio-plateau-note').length], [1, 0, 0, 0]);
+    page.prompt().value = 'Il se lève.';
+    page.prompt().oninput();
+    await generate();
+    assert.deepEqual([sent().name, 'camera' in sent().arguments, 'camera_speed' in sent().arguments], ['extend_video', false, false]);
+    // The continuation left: the camera is on the plateau again, as it was set, and goes with a new video.
+    prolongWindow(body).way('Retirer').onclick();
+    assert.deepEqual([prolonged(body).length, body.find('studio-camera')[0].children[0].children[0].title], [0, 'Caméra · Travelling avant']);
+    await generate();
+    assert.deepEqual([sent().name, sent().arguments.camera], ['create_video', 'dolly_in']);
+  } finally {
+    page.restore();
+  }
+  // Under a proposal of Moodix AI: no camera of the user among its pieces; refused, the camera is back.
+  const { clip, request } = proposalOf();
+  page = await studioPage({ create_video: [{ ...clip, camera: true }] }, {});
+  try {
+    page.mode(1);
+    film(page.body);
+    assert.equal(page.body.find('studio-camera').length, 1);
+    const answer = page.studio.propose(request, new AbortController().signal);
+    await settle();
+    assert.deepEqual([page.studio.proposing(), page.body.find('studio-camera').length, page.body.find('studio-camera-window').length, page.body.find('studio-plateau-note').length], [true, 0, 0, 0]);
+    page.studio.decline();
+    assert.equal(await answer, 'deny');
+    assert.equal(page.body.find('studio-camera').length, 1);
+  } finally {
+    page.restore();
+  }
+});

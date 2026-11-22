@@ -1499,3 +1499,66 @@ test('a plan of a montage is made at the size of its film, as a size chosen in t
   await history.save(timingKey(ltx.id, sized.plan.parameters, 0), [{ mark: 'loading', at: 3 }, { mark: 'done', at: 87 }]);
   assert.deepEqual((await w.runtime.foreseen(sized)).expected, { seconds: 87, exact: true });
 });
+
+test('(0.6.211) Studio · the camera, from its piece to the engine: the sentence its window shows is the one the job is given; the take keeps the prompt as written and gives the camera back', async () => {
+  // (LOTS.md, lot 14) The page of the Studio as it is, on the real router and runtime, the engine alone in memory:
+  // « Ajouter › Caméra », its two lists, « Générer »; then the take made, looked at and made again.
+  const w = world([variant('ltx25'), variant('wan22'), variant('minimax_h3')]),
+    page = await studioPage(w);
+  try {
+    page.mode(1);
+    const { body } = page,
+      model = name => {
+        const pick = body.find('studio-model-pick')[0],
+          tool = w.workflows.find(item => item.name === name);
+        pick.value = tool.id;
+        pick.onchange();
+      },
+      add = () => body.find('studio-add')[0],
+      choose = name => {
+        add().children[0].onclick();
+        add().children[2].children.find(item => item.children?.[0]?.textContent === name).onclick();
+      },
+      pane = () => body.find('studio-camera-window')[0],
+      set = (at, value) => {
+        const control = pane().find('studio-field')[at].children[1];
+        control.value = value;
+        control.onchange();
+      },
+      shown = () => pane().find('studio-camera-sentence')[0].textContent.replace(/^« | »$/g, '');
+    model('LTX 2.5');
+    write(page, 'Le pêcheur lève les yeux');
+    choose('Caméra');
+    set(0, 'crane_up');
+    set(1, 'slow');
+    const sentence = shown();
+    assert.equal(sentence, 'The camera slowly cranes up.');
+    // What the Studio sends: its prompt as it is written, the movement and its speed beside it.
+    const job = await page.generate(),
+      sent = page.lastAction().arguments;
+    assert.deepEqual([sent.prompt, sent.camera, sent.camera_speed], ['Le pêcheur lève les yeux', 'crane_up', 'slow']);
+    // What the engine is given: that prompt, then the sentence the window showed, to the letter.
+    assert.equal(job.parameters.prompt, 'Le pêcheur lève les yeux. ' + sentence);
+    // What the take keeps: the prompt as written, the choice, the sentence beside them.
+    const [record] = w.saved;
+    assert.deepEqual([record.prompt, record.parameters.camera, record.parameters.camera_prompt], ['Le pêcheur lève les yeux', { move: 'crane_up', speed: 'slow' }, sentence]);
+    assert.equal(page.prompt().value, 'Le pêcheur lève les yeux', 'the prompt of the Studio is as it was written');
+    // Made again as it is: the same prompt to the engine, the sentence once.
+    assert.equal((await page.generate()).parameters.prompt, job.parameters.prompt);
+    // The camera taken away, then the take looked at (« Afficher dans le Studio »): its prompt, its camera back on
+    // the plateau; made again from there, the engine is given what it was given the first time.
+    body.find('studio-camera')[0].children[0].children[1].onclick();
+    assert.equal((await page.generate()).parameters.prompt, 'Le pêcheur lève les yeux');
+    page.studio.show(record);
+    assert.deepEqual([page.prompt().value, body.find('studio-camera')[0].children[0].children[0].title], ['Le pêcheur lève les yeux', 'Caméra · Grue montante, lente']);
+    assert.equal((await page.generate()).parameters.prompt, job.parameters.prompt);
+    // Under a model that does not take it, it stays on the plateau, greyed, and nothing of it reaches the engine.
+    model('MiniMax H3 Omni');
+    assert.match(body.find('studio-camera')[0].className, /is-off/);
+    const other = await page.generate();
+    assert.deepEqual([other.parameters.prompt, 'camera' in page.lastAction().arguments, w.saved[0].parameters.camera], ['Le pêcheur lève les yeux', false, undefined]);
+    assert.equal(w.saved[0].workflowName, 'MiniMax H3 Omni');
+  } finally {
+    page.restore();
+  }
+});

@@ -1466,3 +1466,147 @@ test('a continuation nobody asked for is proposed as the new video it stands for
   await assert.rejects(runtime.request(suite(), said(changed)), /disque illisible/);
   runtime.catalog.prepare = prepare;
 });
+
+test('(0.6.211) the camera chosen in the Studio: its sentence after the prompt of the job, the prompt kept as written, the choice and the sentence beside it', async () => {
+  // (LOTS.md, lot 14) A movement of a closed list and its speed, by the user's own hand: no setting of a workflow.
+  const { describe } = await import('../lib/media-info.mjs');
+  const list = shipped(),
+    ltx = of(list, 'ltx25'),
+    wan = of(list, 'wan22'),
+    minimax = of(list, 'minimax_h3'),
+    jobs = [],
+    client = {
+      status: async () => ({ idle: true }),
+      stage: async () => ({ path: join(tmpdir(), 'staged') }),
+      upload: async () => ({ path: join(tmpdir(), 'uploaded.png') }),
+      preflight: async job => void jobs.push(['preflight', job.parameters.prompt]),
+      run: async job => {
+        jobs.push(['run', job.parameters.prompt]);
+        return { outputs: [{ filename: 'made.mp4', subfolder: '', type: 'output' }], metadata: { parameters: job.parameters } };
+      },
+      free: async () => ({}),
+    },
+    { runtime, saved } = world({
+      workflows: list,
+      client,
+      resources: { [uid(8)]: picture('départ', 1344, 768) },
+      records: { [`${A}/${uid(5)}`]: clip(A, uid(5), ltx, { frames: 121 }) },
+    });
+  const place = { conversationId: A, turnId: turn, messages: [], byHand: true },
+    asked = { prompt: 'Le pêcheur lève les yeux', intention: 'Création demandée dans le Studio.', duration: 5, workflow: ltx.id, camera: 'dolly_in', camera_speed: 'slow' },
+    made = async request => {
+      await runtime.execute({ requestId: request.requestId, permission: 'once', approvalToken: request.approvalToken });
+      await runtime.finished;
+      assert.equal(runtime.status().state, 'done', runtime.status().error);
+      return saved.at(-1);
+    };
+  // The proposal: the prompt as it was written, the camera and its sentence beside it; nothing to say of it,
+  // and it is no argument of the workflow.
+  const first = await runtime.request([call('create_video', asked)], place);
+  assert.equal(first.plan.prompt, 'Le pêcheur lève les yeux');
+  assert.equal(first.plan.parameters.prompt, 'Le pêcheur lève les yeux');
+  assert.deepEqual(first.camera, { move: 'dolly_in', speed: 'slow', sentence: 'The camera slowly dollies in.' });
+  assert.deepEqual([first.notes, first.args.camera, first.args.camera_speed], [undefined, undefined, undefined]);
+  // Revised (its prompt): the camera stays with it.
+  const reworded = await revise(runtime, first, { prompt: 'Le pêcheur lève lentement les yeux.' });
+  assert.deepEqual(reworded.camera, first.camera);
+  // The engine is given the prompt with the sentence after it, checked and run alike.
+  const record = await made(reworded),
+    given = 'Le pêcheur lève lentement les yeux. The camera slowly dollies in.';
+  assert.deepEqual(jobs, [['preflight', given], ['run', given]]);
+  // The take keeps the prompt as it was written, the choice and the sentence beside it: made again from its
+  // record, it never has the sentence twice.
+  assert.equal(record.prompt, 'Le pêcheur lève lentement les yeux.');
+  assert.deepEqual([record.parameters.camera, record.parameters.camera_prompt], [{ move: 'dolly_in', speed: 'slow' }, 'The camera slowly dollies in.']);
+  assert.deepEqual([record.parameters.replay_args.prompt, record.parameters.replay_args.camera, record.parameters.prompt], ['Le pêcheur lève lentement les yeux.', undefined, undefined]);
+  // Its file keeps both (the sheet written in it).
+  const sheet = describe(record);
+  assert.deepEqual([sheet.prompt, sheet.parameters.camera, sheet.parameters.camera_prompt], ['Le pêcheur lève lentement les yeux.', { move: 'dolly_in', speed: 'slow' }, 'The camera slowly dollies in.']);
+  // « Relancer »: proposed again with the same camera.
+  const again = await runtime.again({ requestId: reworded.requestId });
+  assert.deepEqual([again.camera, again.plan.prompt], [first.camera, 'Le pêcheur lève lentement les yeux.']);
+  // Its draft promoted to its final, by a call that names no camera: the same shot, the draft's camera.
+  const final = await runtime.request(
+    [call('create_video', { reuse_output: record.id, stage: 'final', intention: 'Version finale', prompt: record.prompt, duration: null }, 'call-2')],
+    { ...place, byHand: false, turnId: uid(3) },
+  );
+  assert.deepEqual([final.plan.stage, final.camera, final.plan.prompt], ['final', first.camera, 'Le pêcheur lève lentement les yeux.']);
+  jobs.length = 0;
+  const finished = await made(final);
+  assert.deepEqual([jobs.at(-1), finished.prompt, finished.parameters.camera], [['run', given], 'Le pêcheur lève lentement les yeux.', { move: 'dolly_in', speed: 'slow' }]);
+
+  // No speed named: the normal one. A movement without speed says its sentence whatever speed is named.
+  const next = (args, more = {}, id = 'call-' + (jobs.length + saved.length + Math.floor(Math.random() * 1e6))) =>
+    runtime.request([call('create_video', args, id)], { ...place, turnId: randomUUID(), ...more });
+  const { camera_speed: _slow, ...noSpeed } = asked;
+  assert.deepEqual((await next({ ...noSpeed, camera: 'pan_left' })).camera, { move: 'pan_left', speed: 'normal', sentence: 'The camera pans to the left.' });
+  assert.deepEqual((await next({ ...asked, camera: 'pan_left', camera_speed: null })).camera, { move: 'pan_left', speed: 'normal', sentence: 'The camera pans to the left.' });
+  assert.deepEqual((await next({ ...asked, camera: 'static', camera_speed: 'fast' })).camera, {
+    move: 'static',
+    speed: 'normal',
+    sentence: 'The camera stays perfectly still, a locked-off static shot.',
+  });
+  // None chosen: nothing of it, in the proposal, in the job nor in the take.
+  const { camera: _move, ...bare } = noSpeed;
+  for (const none of [bare, { ...bare, camera: null }, { ...bare, camera_speed: 'slow' }]) assert.equal((await next(none)).camera, undefined);
+  jobs.length = 0;
+  const plain = await made(await next(bare));
+  assert.deepEqual([jobs.at(-1), plain.prompt, plain.parameters.camera, plain.parameters.camera_prompt], [['run', 'Le pêcheur lève les yeux'], 'Le pêcheur lève les yeux', undefined, undefined]);
+  // A movement or a speed that is none of the list: refused in words, nothing made.
+  await assert.rejects(next({ ...asked, camera: 'spin' }), { message: 'Caméra : mouvement inconnu.' });
+  await assert.rejects(next({ ...asked, camera: 3 }), { message: 'Caméra : mouvement inconnu.' });
+  await assert.rejects(next({ ...asked, camera_speed: 'warp' }), { message: 'Caméra : vitesse inconnue.' });
+  // Wan 2.2 takes it too, from its start image.
+  const animated = await next({ ...asked, workflow: wan.id, start_image: { resource: uid(8) }, camera: 'crane_up' });
+  assert.deepEqual([animated.workflowName, animated.camera], ['Wan 2.2', { move: 'crane_up', speed: 'slow', sentence: 'The camera slowly cranes up.' }]);
+  // A model of another family does not: left aside, and said as any setting it does not take.
+  const other = await next({ ...asked, workflow: minimax.id });
+  assert.deepEqual([other.workflowName, other.camera], ['MiniMax H3 Omni', undefined]);
+  assert.ok(other.notes.includes('Caméra : valeur ignorée, MiniMax H3 Omni ne prend pas ce réglage.'), JSON.stringify(other.notes));
+  // (Left aside, its sentence is not given to that model either.)
+  jobs.length = 0;
+  const without = await made(other);
+  assert.deepEqual([jobs.at(-1), without.prompt, without.parameters.camera], [['run', 'Le pêcheur lève les yeux'], 'Le pêcheur lève les yeux', undefined]);
+  // Nor a continuation, for now: its clip is all it starts from.
+  const suite = await runtime.request(
+    [call('extend_video', { prompt: 'Il se lève.', intention: 'Suite demandée dans le Studio.', source: { output: uid(5) }, duration: 5, camera: 'dolly_in' }, 'call-suite')],
+    { ...place, turnId: randomUUID() },
+  );
+  assert.equal(suite.camera, undefined);
+  assert.ok(suite.notes.includes('Caméra : valeur ignorée, LTX 2.5 ne prend pas ce réglage.'), JSON.stringify(suite.notes));
+  // A prompt so long that the sentence would take it past what the engine reads (8000 characters): refused in
+  // words while it is proposed, and when it is made longer on the proposal; without the camera it goes.
+  const long = 'a'.repeat(7980),
+    sentence = 'The camera slowly dollies in.';
+  await assert.rejects(next({ ...asked, prompt: long }), {
+    message: `Le prompt est trop long pour la phrase de la caméra : raccourcissez-le de ${long.length + 2 + sentence.length - 8000} caractères, ou retirez la caméra.`,
+  });
+  await assert.rejects(next({ ...asked, prompt: 'a'.repeat(8000 - sentence.length - 1) }), /raccourcissez-le de 1 caractère, ou retirez la caméra\.$/);
+  const fits = await next({ ...asked, prompt: 'a'.repeat(8000 - sentence.length - 2) });
+  assert.equal(fits.camera.sentence, sentence);
+  await assert.rejects(revise(runtime, fits, { prompt: long }), /Le prompt est trop long pour la phrase de la caméra/);
+  assert.equal((await next({ ...bare, prompt: long })).plan.prompt, long);
+  // Passed by a chat model, which is not offered it yet: refused as any argument its tool does not have.
+  await assert.rejects(next(asked, { byHand: false }), /create_video n’accepte pas l’argument camera/);
+
+  // What the Studio is told of each model: the camera for a new video of LTX 2.5 and Wan 2.2, nowhere else.
+  const tools = await new ToolCatalog({ list: async () => list }).studio();
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(tools).map(([verb, items]) => [verb, (Array.isArray(items) ? items : []).filter(item => item.camera).map(item => item.name)])),
+    { create_image: [], create_video: ['LTX 2.5', 'Wan 2.2'], extend_video: [], replace_character: [], create_audio: [] },
+  );
+  // (A workflow whose prompt is fixed has none to add a sentence to: no camera.)
+  const { ready: _ready, digest: _digest, ...stored } = ltx,
+    fixed = { ...validateNativeWorkflow({ ...stored, id: 'ltx-fixe', name: 'LTX fixe', parameters: { ...stored.parameters, prompt: { policy: 'fixed', value: 'A boat.' } } }), ready: true };
+  const fixedTools = await new ToolCatalog({ list: async () => [fixed] }).studio();
+  assert.deepEqual(fixedTools.create_video.map(item => [item.name, item.camera ?? false]), [['LTX fixe', false]]);
+  // Passed by hand all the same: left aside and said, the prompt it fixes is what the engine is given.
+  const held = world({ workflows: [fixed], client }),
+    kept = await held.runtime.request([call('create_video', { intention: 'x', duration: 5, camera: 'dolly_in' }, 'call-fixe')], { ...place, turnId: randomUUID() });
+  assert.equal(kept.camera, undefined);
+  assert.ok(kept.notes.includes('Caméra : valeur ignorée, LTX fixe ne prend pas ce réglage.'), JSON.stringify(kept.notes));
+  jobs.length = 0;
+  await held.runtime.execute({ requestId: kept.requestId, permission: 'once', approvalToken: kept.approvalToken });
+  await held.runtime.finished;
+  assert.deepEqual([held.runtime.status().state, jobs.at(-1)], ['done', ['run', 'A boat.']]);
+});

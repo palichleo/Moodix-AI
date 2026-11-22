@@ -13,6 +13,7 @@ import { clipPlayer, stillClip } from './take-player.mjs';
 import { elapsedClock } from './generation-time.mjs';
 import { settingName } from './setting-names.mjs';
 import { PIECES, PIECE_WORDS as WORDS, SHORT_MODELS } from './pieces.mjs';
+import { CAMERA_DEFAULT, CAMERA_MOVES, CAMERA_SPEEDS, cameraChoice, cameraHasSpeed, cameraLabel, cameraSentence } from './camera.mjs';
 import { setupMontage } from './montage.mjs';
 
 /**
@@ -225,7 +226,7 @@ const SHORT = { start_image: WORDS.start_image, end_image: WORDS.end_image, refe
 // `WORDS` is the table of public/pieces.mjs: the card of the Chat and the line of the Bobine read it too.
 // (0.6.202) A piece given that the model in hand does not take, as the line under the plateau names it
 // (capture 96): « L’image de fin et le sujet ne partiront pas avec Wan 2.2. ».
-const KEPT = { start_image: 'l’image de début', end_image: 'l’image de fin', source: 'l’image à modifier' };
+const KEPT = { start_image: 'l’image de début', end_image: 'l’image de fin', source: 'l’image à modifier', camera: 'la caméra' };
 // The inputs of a proposal are those Moodix AI chose: said on a click on one of its cases, and (0.6.203) why
 // « Ajouter » is greyed under it.
 const AI_INPUTS = 'Les images de cette proposition sont celles de Moodix AI : demandez-lui dans le chat pour en changer.';
@@ -518,6 +519,7 @@ export function setupStudio({
     inputs: {},
     settings: {},
     lyrics: false, // the lyrics are shown (« + Paroles »)
+    camera: null, // (0.6.211) the camera of a video, once added: { move, speed } (public/camera.mjs)
   });
   const drafts = Object.fromEntries(MODES.map(item => [item.id, blank()]));
   const picker = node('input');
@@ -1318,6 +1320,99 @@ export function setupStudio({
     return piece;
   }
   /**
+   * (0.6.211, LOTS.md, lot 14; capture 95) The camera, a piece of the plateau once added by « Ajouter »: its
+   * case with its sign, its word, and under it its small window: « Mouvement » and « Vitesse », two closed
+   * lists (public/camera.mjs), the English sentence the application adds after the prompt for that choice
+   * (« Ajouté au prompt : »), and « Retirer ». It has no file: nothing is dropped on it nor carried from it.
+   * The prompt of the Studio stays as it is written: the sentence is added where the take is made (the
+   * server), and shown here so that nothing goes to the model unseen.
+   * `off`: kept from a model that takes it (LTX 2.5, Wan 2.2) under one that does not: greyed, why on a
+   * click, its × to take it away.
+   */
+  function cameraPiece(workflow, { off = '' } = {}) {
+    const draft = drafts[mode],
+      // (Never open while it is kept greyed: the plateau closes its window with the model that took it, inputs.)
+      opened = pieceOpen?.role === 'camera',
+      tile = node('div', 'studio-slot is-filled' + (off ? ' is-off' : '')),
+      piece = node('div', 'studio-piece studio-camera' + (off ? ' is-off' : '') + (opened ? ' is-open' : '')),
+      word = node('span', 'studio-piece-word', WORDS.camera),
+      said = () => WORDS.camera + ' · ' + cameraLabel(draft.camera),
+      pick = button('studio-slot-pick', '', () => (off ? notice(off) : toggleWindow('camera', 0)), 'camera'),
+      // Taken back by its ×, and by « Retirer » in its window, which goes with it.
+      takeBack = () => {
+        draft.camera = null;
+        if (pieceOpen?.role === 'camera') pieceOpen = null;
+        render();
+      },
+      remove = button('studio-slot-remove', '', takeBack, 'close');
+    tile.dataset.piece = 'camera';
+    pick.title = off || said();
+    pick.setAttribute('aria-label', off || said());
+    if (off) pick.setAttribute('aria-disabled', 'true');
+    else {
+      pick.setAttribute('aria-haspopup', 'dialog');
+      pick.setAttribute('aria-expanded', String(opened));
+    }
+    pick.disabled = Boolean(working);
+    remove.setAttribute('aria-label', 'Retirer la caméra');
+    remove.title = 'Retirer';
+    tile.append(pick, remove);
+    word.setAttribute('aria-hidden', 'true');
+    piece.append(tile, word);
+    if (!opened) return piece;
+    const pane = node('div', 'glass-menu studio-piece-window studio-camera-window'),
+      foot = node('div', 'studio-window-foot'),
+      added = node('p', 'studio-camera-added'),
+      sentence = node('span', 'studio-camera-sentence'),
+      // A list changed: the window stays under the hand, what it says follows in place (drawn again, its list
+      // would lose the focus).
+      set = change => {
+        draft.camera = { ...draft.camera, ...change };
+        show();
+      },
+      moves = select(CAMERA_MOVES.map(item => [item.id, item.name]), draft.camera.move, move => set({ move })),
+      speeds = select(CAMERA_SPEEDS.map(item => [item.id, item.name]), draft.camera.speed, speed => set({ speed })),
+      show = () => {
+        // A fixed shot, a camera in the hand, one that follows its subject have no speed: its list greyed,
+        // with why; the speed chosen before comes back with a movement that has one.
+        const still = !cameraHasSpeed(draft.camera.move);
+        speeds.disabled = still || Boolean(working);
+        speeds.title = still ? 'Ce mouvement n’a pas de vitesse.' : 'À quelle vitesse la caméra bouge.';
+        sentence.textContent = '« ' + cameraSentence(draft.camera) + ' »';
+        pick.title = said();
+        pick.setAttribute('aria-label', said());
+      },
+      focus = pieceFocus;
+    pieceFocus = false;
+    pane.setAttribute('role', 'dialog');
+    pane.setAttribute('aria-label', WORDS.camera);
+    pane.hidden = true;
+    moves.disabled = Boolean(working);
+    aiTarget(moves, 'camera-move');
+    aiTarget(speeds, 'camera-speed');
+    // (Said again as it changes, for a screen reader: it is what goes to the model.)
+    added.setAttribute('aria-live', 'polite');
+    added.append(node('span', 'studio-camera-adds', 'Ajouté au prompt :'), sentence);
+    foot.append(node('span', 'studio-window-said', ''), button('studio-window-button', 'Retirer', takeBack));
+    pane.append(node('p', 'studio-window-title', WORDS.camera), field('Mouvement', moves), field('Vitesse', speeds), added, foot);
+    show();
+    piece.append(pane);
+    globalThis.queueMicrotask?.(() => {
+      if (!pane.isConnected || !pieceOpen) return;
+      openPopup(pane, pick, { align: 'start' });
+      // Once its lists are ours, which they become as they come on the page, a moment after this:
+      // - why the speed is greyed is said beside the window (seen in the page: above its list, the bubble
+      //   covered the movement chosen, on the line over it);
+      // - opened by a choice or a click, its first list in hand (the list of the system under it had the
+      //   focus, unseen, and took the keys without its menu).
+      globalThis.queueMicrotask?.(() => {
+        for (const face of pane.querySelectorAll?.('button.glass-select') ?? []) face.dataset.tipSide = 'right';
+        if (focus) (pane.querySelector?.('button.glass-select') ?? moves).focus?.();
+      });
+    });
+    return piece;
+  }
+  /**
    * (0.6.202, capture 96) What is given that the model in hand does not take (the end image and the subject
    * of LTX 2.5 under Wan 2.2): kept in the draft for a model that takes it, as before, and shown now, greyed
    * on the plateau, one line under it saying that it will not go; it was gone without a word. `[{ role,
@@ -1335,12 +1430,15 @@ export function setupStudio({
       (given[role] ?? []).forEach((item, index) => {
         if (item && index >= (workflow.roles?.[role]?.count ?? 0)) found.push({ role, index });
       });
+    // (0.6.211) The camera set for a model that takes it, under one that does not: kept too, the last.
+    if (drafts[mode].camera && !workflow.camera) found.push({ role: 'camera', index: 0 });
     return found;
   }
   /** (0.6.202) What a role this model has not takes, from a model of the mode that has it: a video to follow, else an image. */
   const mediaOfRole = role => offered().find(item => item.roles?.[role]?.count)?.roles[role].media[0] ?? 'image';
   /** (0.6.202) A piece kept that the model does not take: its case greyed, its word, × to take it away. */
   function offPiece(workflow, { role, index }) {
+    if (role === 'camera') return cameraPiece(workflow, { off: `Caméra gardée : ${workflow.name} ne la prend pas.` });
     const video = mediaOfRole(role) === 'video',
       subject = role === 'reference',
       label = video ? 'Vidéo à suivre' : subject ? ROLES.reference + ' ' + (index + 1) : (ROLES[role] ?? 'Image');
@@ -1501,6 +1599,8 @@ export function setupStudio({
           };
         })
         .sort((a, b) => rank(a) - rank(b));
+    // (0.6.211, capture 94) The camera, after what the model takes as images: a piece too, with no file.
+    if (workflow.camera) kinds.push({ kind: 'camera' });
     if (workflow.settings?.some(setting => setting.key === 'lyrics' && setting.type === 'string')) kinds.push({ kind: 'lyrics' });
     return kinds;
   }
@@ -1530,6 +1630,25 @@ export function setupStudio({
                   draft.lyrics = true;
                   render();
                   document.querySelector?.('#studio-view [data-ai="setting-lyrics"]')?.focus?.();
+                },
+              },
+        );
+        continue;
+      }
+      // (0.6.211, capture 95) The camera: added with the movement the list starts from, its window open to
+      // choose another; once added, set from its case.
+      if (piece.kind === 'camera') {
+        choices.push(
+          draft.camera
+            ? { name, note: given, off: 'La caméra est déjà réglée : cliquez sur sa case pour en changer.' }
+            : {
+                name,
+                run: () => {
+                  draft.camera = { ...CAMERA_DEFAULT };
+                  pieceOpen = { role: 'camera', index: 0 };
+                  pieceFocus = true;
+                  advanced = false;
+                  render();
                 },
               },
         );
@@ -1661,14 +1780,17 @@ export function setupStudio({
     span = null;
     // (0.6.204) The window of a piece does not outlive it: closed once its piece is taken back or moved, while a
     // take is made (its case cannot be pressed then), under another model that does not take it.
-    if (pieceOpen && (working || !givenPiece(pieceOpen.role, pieceOpen.index) || pieceOpen.index >= (workflow.roles?.[pieceOpen.role]?.count ?? 0)))
-      pieceOpen = null;
+    // (0.6.211) The camera is a piece of a model that takes it, for a new video made by hand: not under a
+    // proposal of Moodix AI (its pieces are its own) nor in a continuation (its clip is all it starts from).
+    const filmed = Boolean(workflow.camera && drafts[mode].camera) && !answering() && !(mode === 'video' && extending),
+      taken = pieceOpen && (pieceOpen.role === 'camera' ? filmed : pieceOpen.index < (workflow.roles?.[pieceOpen.role]?.count ?? 0));
+    if (pieceOpen && (working || !givenPiece(pieceOpen.role, pieceOpen.index) || !taken)) pieceOpen = null;
     const off = offPieces(workflow),
       frames = framesRow(workflow, off),
       // (0.6.202) What the model does not take: the start and the end at their end of the line of time when it
       // has one, the others after its own pieces.
       rest = off.filter(piece => !(frames && piece.index === 0 && (piece.role === 'start_image' || piece.role === 'end_image'))),
-      pieces = [sourcesRow(workflow), referencesRow(workflow)].filter(Boolean);
+      pieces = [sourcesRow(workflow), referencesRow(workflow), filmed ? cameraPiece(workflow) : null].filter(Boolean);
     if (rest.length) {
       const kept = node('div', 'studio-pieces studio-kept');
       kept.setAttribute('role', 'group');
@@ -3138,6 +3260,13 @@ export function setupStudio({
       args[role] = (spec.many ?? role === 'reference') ? chosen.slice(0, spec.count) : chosen[0];
     }
     if (workflow.lengths?.seconds.length) args.duration = draft[extending ? 'extension' : 'length'];
+    // (0.6.211) The camera set, with a model that takes it: its movement, and its speed when it has one. The
+    // prompt goes as it is written; the server adds the sentence the window of the piece shows.
+    const camera = workflow.camera && !extending ? cameraChoice(draft.camera) : null;
+    if (camera) {
+      args.camera = camera.move;
+      if (cameraHasSpeed(camera.move)) args.camera_speed = camera.speed;
+    }
     if (workflow.limits && draft.size && !extending) {
       const [width, height] = draft.size.split('x').map(Number);
       if (workflow.direct) Object.assign(args, { width, height });
@@ -3608,6 +3737,8 @@ export function setupStudio({
    */
   function givenPiece(role, index) {
     if (mode === 'video' && extending && role === 'source') return index === 0 ? extending : null;
+    // (0.6.211) The camera has no case of an input: its choice is the piece.
+    if (role === 'camera') return index === 0 ? (drafts[mode].camera ?? null) : null;
     return drafts[mode].inputs[role]?.[index] ?? null;
   }
   /** The prompt written as it is typed: about 40 letters a second, 1 s at most whatever its length (16/11). */
@@ -6044,7 +6175,8 @@ export function setupStudio({
       made = record.parameters ?? {},
       workflow = modelsOf(target).find(item => item.id === record.workflowId) ?? null,
       gone = [];
-    Object.assign(draft, { prompt: String(record.prompt ?? ''), before: null, inputs: {}, extension: null });
+    // (0.6.211) With the camera it was made with (none: none): its prompt is kept without the sentence added.
+    Object.assign(draft, { prompt: String(record.prompt ?? ''), before: null, inputs: {}, extension: null, camera: cameraChoice(made.camera) });
     if (!workflow) return { lost: 0, gone };
     // The LoRAs of the user are of one family of models: those of the family left wait for its return.
     const family = modelsOf(target).find(item => item.id === draft.workflow)?.family;
