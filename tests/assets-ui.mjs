@@ -632,6 +632,11 @@ test('(0.6.211) the window of a take names its camera after what it was made fro
   assert.deepEqual([lines('media-metadata')['Caméra changée'], 'Ajouté au prompt (caméra)' in lines('media-more-list')], ['Fixe, 30° · 10°', false]);
   await ui.viewOutput(take({ refilm: { camera: { azimuth: 40, elevation: 0, distance: 1 }, camera_start: { azimuth: -10, elevation: 5, distance: 1 } } }), 0);
   assert.equal(lines('media-metadata')['Caméra changée'], '-10° · 5° → 40° · 0°');
+  // (0.6.245) Its clip is named: « Vidéo refilmée », by the number of its take (« Entrée » before).
+  const clip = { ...take({}), id: 'clip-1', outputs: [{ source: { filename: 'c.mp4', subfolder: 'video' }, originalUrl: '/c.mp4', take: 3 }] },
+    again = take({ refilm: { camera: { azimuth: 30, elevation: 10, distance: 1 } }, references: [{ role: 'refilm_source', output_id: 'clip-1' }] });
+  await ui.viewOutput(again, 0, undefined, { list: () => [again, clip], at: () => 0 });
+  assert.deepEqual([lines('media-metadata')['Vidéo refilmée'], 'Entrée' in lines('media-metadata'), lines('media-metadata')['Caméra changée']], ['PRISE 3', false, 'Fixe, 30° · 10°']);
   for (const refilm of [undefined, null, {}, { camera: 'orbit_left' }]) {
     await ui.viewOutput(take(refilm === undefined ? {} : { refilm }), 0);
     assert.equal('Caméra changée' in lines('media-metadata'), false, JSON.stringify(refilm));

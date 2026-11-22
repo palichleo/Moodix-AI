@@ -283,6 +283,8 @@ export function setupAssets({
         img2img: 'Image modifiée',
         source_image: 'Image agrandie',
         driving_video: 'Vidéo suivie',
+        // (0.6.245) The clip a take films again from another camera (« Changer la caméra »).
+        refilm_source: 'Vidéo refilmée',
       },
       lines = new Map();
     for (const ref of parameters.references ?? []) {
