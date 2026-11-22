@@ -619,8 +619,14 @@ test('(0.6.211) the window of a take names its camera after what it was made fro
   // A sheet that keeps the choice alone (a file from elsewhere): the sentence of the table for that choice.
   await ui.viewOutput(take({ camera: { move: 'crane_up', speed: 'fast' } }), 0);
   assert.deepEqual([lines('media-metadata')['Caméra'], lines('media-more-list')['Ajouté au prompt (caméra)']], ['Grue montante, rapide', 'The camera quickly cranes up.']);
+  // (0.6.222) A take of a model that reads the camera itself (Wan 2.2 Caméra) keeps it as two settings: named
+  // the same way, and nothing was added to its prompt.
+  await ui.viewOutput(take({ camera: 'orbit_left', camera_speed: 2 }), 0);
+  assert.deepEqual([lines('media-metadata')['Caméra'], 'Ajouté au prompt (caméra)' in lines('media-more-list')], ['Orbite gauche, rapide', false]);
+  await ui.viewOutput(take({ camera: 'static', camera_speed: 1 }), 0);
+  assert.equal(lines('media-metadata')['Caméra'], 'Fixe');
   // No camera, or a choice that is none of the list: no line of it, above nor under « Plus de détails ».
-  for (const camera of [undefined, null, { move: 'spin' }, 'dolly_in']) {
+  for (const camera of [undefined, null, { move: 'spin' }, 'none', 'spin']) {
     await ui.viewOutput(take(camera === undefined ? {} : { camera, camera_prompt: 'x' }), 0);
     assert.deepEqual(['Caméra' in lines('media-metadata'), 'Ajouté au prompt (caméra)' in lines('media-more-list')], [false, false], JSON.stringify(camera));
   }

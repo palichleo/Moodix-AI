@@ -5,7 +5,7 @@ import { formatOf } from './formats.mjs';
 import { setupTakePlayer } from './take-player.mjs';
 import { generationTime, takeTime } from './generation-time.mjs';
 import { takeSeconds } from './take-length.mjs';
-import { cameraLabel, cameraSentence } from './camera.mjs';
+import { cameraLabel, cameraOf, cameraSentence } from './camera.mjs';
 
 /**
  * The references and the large view of a creation. No panel any more (0.5.106): a reference is
@@ -350,7 +350,8 @@ export function setupAssets({
     const length = media === 'image' ? null : row('Durée', seconds ? duration(seconds) : null);
     for (const [label, value] of inputsOf(parameters, list)) row(label, value);
     // (0.6.211, capture 107) The camera it was made with, after what it was made from: « Travelling avant, lent ».
-    const camera = cameraLabel(parameters.camera);
+    // (0.6.222) Read by the model itself (Wan 2.2 Caméra), it is two of its settings: named the same way.
+    const camera = cameraLabel(cameraOf(parameters));
     if (camera) row('Caméra', camera);
     // The LoRAs the user had added, by their file, with their strength.
     if (Array.isArray(parameters.styles) && parameters.styles.length)
@@ -373,7 +374,8 @@ export function setupAssets({
     if (expanded) row('Prompt enrichi (utilisé pour l’image)', expanded, { more: true });
     // (0.6.211) What the application added after the prompt for the camera: the sentence the model was given
     // (kept with the take; one made before it is known has only its choice, said above).
-    if (camera) row('Ajouté au prompt (caméra)', parameters.camera_prompt || cameraSentence(parameters.camera), { more: true });
+    // (Nothing was added to the prompt of a model that reads the camera itself.)
+    if (camera && typeof parameters.camera !== 'string') row('Ajouté au prompt (caméra)', parameters.camera_prompt || cameraSentence(parameters.camera), { more: true });
     if (parameters.expandPrompt !== undefined) row('Enrichir le prompt', expanded ? 'Activé' : 'Désactivé', { more: true });
     // Its file as it lies in the output folder: in its sub-folder (image/, video/, son/) when it has
     // one (a take of before them has none). Downloaded under its name alone.

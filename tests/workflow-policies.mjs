@@ -1575,3 +1575,98 @@ test('(0.6.211) Studio · the camera, from its piece to the engine: the sentence
     page.restore();
   }
 });
+
+test('(0.6.222) Studio · a model that reads the camera itself (Wan 2.2 Caméra): its piece sets its two settings, nothing is added to the prompt', async () => {
+  // The family wan22_camera has the settings `camera` (the ids of the list, « none » for no camera) and
+  // `camera_speed` (a number). A model of it as it will be shipped: both fixed, as its eight steps. (Its start
+  // image left free here: this page gives none.)
+  const { ToolCatalog } = await import('../lib/tool-catalog.mjs');
+  const base = stored('wan22'),
+    fun = variant(
+      'wan22',
+      { camera: FIXED('none'), camera_speed: FIXED(1), steps: FIXED(8) },
+      { pipeline: 'wan22_camera', id: '7a3c1e9b-4d2f-4b6a-9c1e-2f5d8a7b3c41', name: 'Wan 2.2 Caméra', references: base.references.map(slot => ({ ...slot, required: false })) },
+    ),
+    w = world([variant('ltx25'), fun]),
+    page = await studioPage(w);
+  // What the Studio is told of it: the movements of its own list, a speed; its two settings are no ordinary line.
+  const told = (await new ToolCatalog({ list: async () => w.workflows }).studio()).create_video.find(item => item.name === 'Wan 2.2 Caméra');
+  assert.deepEqual(told.camera, {
+    moves: ['static', 'dolly_in', 'dolly_out', 'truck_left', 'truck_right', 'crane_up', 'crane_down', 'pan_left', 'pan_right', 'tilt_up', 'tilt_down', 'orbit_left', 'orbit_right'],
+    speed: true,
+  });
+  assert.deepEqual(told.settings.map(setting => setting.key).filter(key => /camera/.test(key)), []);
+  assert.ok(told.settings.some(setting => setting.key === 'steps' && setting.fixed && setting.default === 8), JSON.stringify(told.settings.map(setting => setting.key)));
+  try {
+    page.mode(1);
+    const { body } = page,
+      model = name => {
+        const pick = body.find('studio-model-pick')[0];
+        pick.value = w.workflows.find(item => item.name === name).id;
+        pick.onchange();
+      },
+      add = () => body.find('studio-add')[0],
+      pane = () => body.find('studio-camera-window')[0],
+      cards = () => pane().find('studio-camera-move'),
+      card = move => cards().find(item => item.dataset.move === move),
+      speed = id => pane().find('studio-camera-speed').find(item => item.dataset.speed === id),
+      // (The window closes with each creation: opened again from its case when it is not there.)
+      open = () => void (pane() ?? body.find('studio-camera')[0].children[0].children[0].onclick()),
+      greyed = () => cards().filter(item => item.className.includes('is-off')).map(item => item.dataset.move + ':' + item.find('studio-camera-move-note')[0].textContent);
+    model('Wan 2.2 Caméra');
+    write(page, 'Le pêcheur lève les yeux');
+    add().children[0].onclick();
+    add().children[2].children.find(item => item.children?.[0]?.textContent === 'Caméra').onclick();
+    // Its window: an orbit and a crane are its own; what it has not is greyed « indisponible », with why.
+    assert.deepEqual(greyed(), ['zoom_in:indisponible', 'zoom_out:indisponible', 'handheld:indisponible', 'follow:indisponible']);
+    assert.equal(card('zoom_in').attributes['aria-label'], 'Zoom avant, indisponible. Wan 2.2 Caméra ne fait pas ce mouvement.');
+    assert.deepEqual([card('orbit_left').attributes['aria-disabled'] ?? null, card('crane_up').className], [null, 'studio-camera-move']);
+    // Nothing is added to the prompt, and the window says so.
+    const added = pane().find('studio-camera-added')[0];
+    assert.deepEqual([added.children[0].textContent, added.children[1].textContent], ['Lue par le modèle : rien n’est ajouté au prompt.', '']);
+    card('zoom_in').onclick();
+    assert.deepEqual(cards().filter(item => item.className.includes('is-chosen')).map(item => item.dataset.move), ['dolly_in']);
+    card('orbit_left').onclick();
+    speed('fast').onclick();
+    assert.deepEqual([cards().filter(item => item.className.includes('is-chosen')).map(item => item.dataset.move), pane().dataset.speed, added.children[1].textContent], [['orbit_left'], 'fast', '']);
+    // « Générer »: the prompt as written, no argument of the camera; its two settings go as the user's own change,
+    // and the engine reads them. Nothing is added to its prompt.
+    const job = await page.generate(),
+      sent = page.lastAction().arguments;
+    assert.deepEqual([sent.prompt, 'camera' in sent, 'camera_speed' in sent], ['Le pêcheur lève les yeux', false, false]);
+    assert.deepEqual([page.lastRevise().edits.camera, page.lastRevise().edits.camera_speed], ['orbit_left', 2]);
+    assert.deepEqual([job.parameters.prompt, job.parameters.camera, job.parameters.camera_speed, job.parameters.steps], ['Le pêcheur lève les yeux', 'orbit_left', 2, 8]);
+    // The take keeps them as its settings; no sentence beside its prompt.
+    const [record] = w.saved;
+    assert.deepEqual([record.workflowName, record.prompt, record.parameters.camera, record.parameters.camera_speed, record.parameters.camera_prompt], ['Wan 2.2 Caméra', 'Le pêcheur lève les yeux', 'orbit_left', 2, undefined]);
+    // At the normal speed, the speed is not a change: the movement alone goes.
+    open();
+    speed('normal').onclick();
+    card('crane_up').onclick();
+    const next = await page.generate();
+    assert.deepEqual([page.lastRevise().edits.camera, 'camera_speed' in page.lastRevise().edits, next.parameters.camera, next.parameters.camera_speed], ['crane_up', false, 'crane_up', 1]);
+    // That take looked at (« Afficher dans le Studio »): its camera back on the plateau, as it was set.
+    open();
+    card('static').onclick();
+    page.studio.show(record);
+    assert.equal(body.find('studio-camera')[0].children[0].children[0].title, 'Caméra · Orbite gauche, rapide');
+    // Under LTX 2.5 the camera is a sentence of the prompt, and an orbit is not held by the words: « Générer » says
+    // so and makes nothing, rather than a video without the camera shown on the plateau.
+    model('LTX 2.5');
+    write(page, 'Le pêcheur lève les yeux');
+    assert.equal(await page.generate(), null);
+    assert.equal(
+      body.find('studio-error')[0]?.textContent,
+      'Caméra : « Orbite gauche » ne part pas avec LTX 2.5. Pas fiable par les mots seuls : à l’essai, la caméra est restée fixe.',
+    );
+    // And a movement that model has not, the other way: a zoom chosen under LTX 2.5, then Wan 2.2 Caméra.
+    open();
+    card('zoom_in').onclick();
+    model('Wan 2.2 Caméra');
+    write(page, 'Le pêcheur lève les yeux');
+    assert.equal(await page.generate(), null);
+    assert.equal(body.find('studio-error')[0]?.textContent, 'Caméra : « Zoom avant » ne part pas avec Wan 2.2 Caméra. Wan 2.2 Caméra ne fait pas ce mouvement.');
+  } finally {
+    page.restore();
+  }
+});

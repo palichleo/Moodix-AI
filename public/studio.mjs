@@ -13,7 +13,21 @@ import { clipPlayer, stillClip } from './take-player.mjs';
 import { elapsedClock } from './generation-time.mjs';
 import { settingName } from './setting-names.mjs';
 import { PIECES, PIECE_WORDS as WORDS, SHORT_MODELS } from './pieces.mjs';
-import { CAMERA_DEFAULT, CAMERA_GROUPS, CAMERA_OFF_NOTE, CAMERA_SPEEDS, cameraChoice, cameraHasSpeed, cameraLabel, cameraOff, cameraSentence, cameraShort } from './camera.mjs';
+import {
+  CAMERA_DEFAULT,
+  CAMERA_GROUPS,
+  CAMERA_OFF_NOTE,
+  CAMERA_SPEEDS,
+  cameraChoice,
+  cameraHasSpeed,
+  cameraLabel,
+  cameraMade,
+  cameraOf,
+  cameraOff,
+  cameraSentence,
+  cameraShort,
+  cameraSpeedValue,
+} from './camera.mjs';
 import { setupMontage } from './montage.mjs';
 
 /**
@@ -1329,6 +1343,15 @@ export function setupStudio({
    * `off`: kept from a model that takes it (LTX 2.5, Wan 2.2) under one that does not: greyed, why on a
    * click, its × to take it away.
    */
+  /**
+   * (0.6.222) Why the model in hand does not make a movement of the camera, '' when it does. A model that reads
+   * the camera itself makes those of its own list; for the others the camera is a sentence of the prompt, and
+   * what the words alone do not hold is not made (public/camera.mjs).
+   */
+  function cameraRefusal(workflow, move) {
+    const own = workflow?.camera?.moves;
+    return own ? (own.includes(move) ? '' : `${workflow.name} ne fait pas ce mouvement.`) : cameraOff(move);
+  }
   function cameraPiece(workflow, { off = '' } = {}) {
     const draft = drafts[mode],
       // (Never open while it is kept greyed: the plateau closes its window with the model that took it, inputs.)
@@ -1379,12 +1402,12 @@ export function setupStudio({
         // The movement chosen wears the ring and plays in a loop; the others play under the pointer.
         for (const [move, card] of cards) {
           const chosen = move === draft.camera.move;
-          card.className = 'studio-camera-move' + (cameraOff(move) ? ' is-off' : '') + (chosen ? ' is-chosen' : '');
+          card.className = 'studio-camera-move' + (cameraRefusal(workflow, move) ? ' is-off' : '') + (chosen ? ' is-chosen' : '');
           card.setAttribute('aria-checked', String(chosen));
         }
         // A fixed shot, a camera in the hand, one that follows its subject have no speed: its three choices
         // greyed, with why; the speed chosen before comes back with a movement that has one.
-        const still = !cameraHasSpeed(draft.camera.move);
+        const still = !cameraHasSpeed(draft.camera.move) || (own && !own.speed);
         speeds.title = still ? 'Ce mouvement n’a pas de vitesse.' : 'À quelle vitesse la caméra bouge.';
         for (const choice of speeds.children) {
           choice.disabled = still || Boolean(working);
@@ -1392,12 +1415,15 @@ export function setupStudio({
         }
         // (The small scenes play at the speed chosen: moodix.css reads it here.)
         pane.dataset.speed = still ? 'normal' : draft.camera.speed;
-        sentence.textContent = '« ' + cameraSentence(draft.camera) + ' »';
+        sentence.textContent = own ? '' : '« ' + cameraSentence(draft.camera) + ' »';
         told.textContent = cameraLabel(draft.camera);
         pick.title = said();
         pick.setAttribute('aria-label', said());
       },
-      focus = pieceFocus;
+      focus = pieceFocus,
+      // (0.6.222) A model that reads the camera itself: its own movements, the others greyed « indisponible ».
+      own = workflow?.camera?.moves ? workflow.camera : null,
+      noted = own ? 'indisponible' : CAMERA_OFF_NOTE;
     pieceFocus = false;
     pane.setAttribute('role', 'dialog');
     pane.setAttribute('aria-label', WORDS.camera);
@@ -1414,15 +1440,15 @@ export function setupStudio({
       block.dataset.size = String(family.moves.length);
       block.append(node('span', 'studio-camera-family', family.name), row);
       for (const move of family.moves) {
-        const why = cameraOff(move),
+        const why = cameraRefusal(workflow, move),
           name = cameraLabel({ move }),
           card = button('studio-camera-move', '', () => (why ? notice(why) : set({ move })));
         card.dataset.move = move;
         card.setAttribute('role', 'radio');
-        card.setAttribute('aria-label', why ? `${name}, ${CAMERA_OFF_NOTE}. ${why}` : name);
+        card.setAttribute('aria-label', why ? `${name}, ${noted}. ${why}` : name);
         if (why) card.setAttribute('aria-disabled', 'true');
         card.append(cameraScene(move), node('span', 'studio-camera-move-name', cameraShort(move)));
-        if (why) card.append(node('span', 'studio-camera-move-note', CAMERA_OFF_NOTE));
+        if (why) card.append(node('span', 'studio-camera-move-note', noted));
         // Under the pointer or the focus, the foot says its whole name, or why it is greyed.
         card.onpointerenter = card.onfocus = () => (told.textContent = why || name);
         card.onpointerleave = card.onblur = () => (told.textContent = cameraLabel(draft.camera));
@@ -1443,7 +1469,7 @@ export function setupStudio({
     pace.append(node('span', 'studio-label', 'Vitesse'), speeds);
     // (Said again as it changes, for a screen reader: it is what goes to the model.)
     added.setAttribute('aria-live', 'polite');
-    added.append(node('span', 'studio-camera-adds', 'Ajouté au prompt :'), sentence);
+    added.append(node('span', 'studio-camera-adds', own ? 'Lue par le modèle : rien n’est ajouté au prompt.' : 'Ajouté au prompt :'), sentence);
     foot.append(told, button('studio-window-button', 'Retirer', takeBack));
     pane.append(node('p', 'studio-window-title', WORDS.camera), groups, pace, added, foot);
     show();
@@ -3327,10 +3353,20 @@ export function setupStudio({
     if (workflow.lengths?.seconds.length) args.duration = draft[extending ? 'extension' : 'length'];
     // (0.6.211) The camera set, with a model that takes it: its movement, and its speed when it has one. The
     // prompt goes as it is written; the server adds the sentence the window of the piece shows.
-    const camera = workflow.camera && !extending ? cameraChoice(draft.camera) : null;
+    // (0.6.222) With a model that reads the camera itself (Wan 2.2 Caméra), the movement and its speed are two
+    // of its settings, changed by the user's own hand: nothing is added to the prompt. A movement the model in
+    // hand does not make is refused here, in words, never left out without a word.
+    const camera = workflow.camera && !extending ? cameraMade(draft.camera) : null;
     if (camera) {
-      args.camera = camera.move;
-      if (cameraHasSpeed(camera.move)) args.camera_speed = camera.speed;
+      const why = cameraRefusal(workflow, camera.move);
+      if (why) throw Error(`Caméra : « ${cameraLabel({ move: camera.move })} » ne part pas avec ${workflow.name}. ${why}`);
+      if (workflow.camera.moves) {
+        edits.camera = camera.move;
+        if (workflow.camera.speed && cameraHasSpeed(camera.move)) edits.camera_speed = cameraSpeedValue(camera.speed);
+      } else {
+        args.camera = camera.move;
+        if (cameraHasSpeed(camera.move)) args.camera_speed = camera.speed;
+      }
     }
     if (workflow.limits && draft.size && !extending) {
       const [width, height] = draft.size.split('x').map(Number);
@@ -6241,7 +6277,7 @@ export function setupStudio({
       workflow = modelsOf(target).find(item => item.id === record.workflowId) ?? null,
       gone = [];
     // (0.6.211) With the camera it was made with (none: none): its prompt is kept without the sentence added.
-    Object.assign(draft, { prompt: String(record.prompt ?? ''), before: null, inputs: {}, extension: null, camera: cameraChoice(made.camera) });
+    Object.assign(draft, { prompt: String(record.prompt ?? ''), before: null, inputs: {}, extension: null, camera: typeof made.camera === 'string' ? cameraOf(made) : cameraChoice(made.camera) });
     if (!workflow) return { lost: 0, gone };
     // The LoRAs of the user are of one family of models: those of the family left wait for its return.
     const family = modelsOf(target).find(item => item.id === draft.workflow)?.family;

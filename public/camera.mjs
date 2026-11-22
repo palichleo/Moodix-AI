@@ -119,6 +119,25 @@ export function cameraChoice(value) {
   return made && !cameraOff(made.move) ? made : null;
 }
 
+// (0.6.222) A model made for the camera (Wan 2.2 Caméra, family wan22_camera) reads it itself: its workflow has
+// the settings `camera` (the same ids, « none » for no camera) and `camera_speed` (a number: 1 is the whole
+// movement in its five seconds). The three speeds of the window, as that number, and back.
+const SPEED_VALUES = { slow: 0.5, normal: 1, fast: 2 };
+/** The speed of the window as the number such a model reads. */
+export const cameraSpeedValue = speed => (Object.hasOwn(SPEED_VALUES, speed) ? SPEED_VALUES[speed] : 1);
+/** The number a take was made with, as the speed the window names: the nearest of the three. */
+export const cameraSpeedName = value => (Number(value) < 0.75 ? 'slow' : Number(value) > 1.5 ? 'fast' : 'normal');
+/**
+ * The camera of a take, from its sheet (`parameters`): the choice kept beside the prompt when the sentence was
+ * added to it (`{ move, speed }`), or the settings of a model that reads the camera itself (`camera`: an id,
+ * `camera_speed`: a number). null for none, « none », or what is no movement of the list.
+ */
+export function cameraOf(parameters) {
+  const value = parameters?.camera;
+  if (typeof value !== 'string') return cameraMade(value);
+  return cameraMade({ move: value, speed: cameraSpeedName(parameters.camera_speed ?? 1) });
+}
+
 /** The English sentence added to the prompt for a choice: « The camera slowly dollies in. »; '' for none. */
 export function cameraSentence(value) {
   const choice = cameraMade(value);

@@ -13,9 +13,12 @@ import {
   cameraHasSpeed,
   cameraLabel,
   cameraMade,
+  cameraOf,
   cameraOff,
   cameraSentence,
   cameraShort,
+  cameraSpeedName,
+  cameraSpeedValue,
   takesCamera,
   withCamera,
 } from '../public/camera.mjs';
@@ -194,4 +197,17 @@ test('(0.6.215) the movements by family, each with its short name: every movemen
   assert.ok(CAMERA_GROUPS.every(group => group.moves.length >= 2 && group.moves.length <= 4));
   assert.ok(CAMERA_MOVES.every(move => cameraShort(move.id).length > 0 && cameraShort(move.id).length <= 11));
   for (const none of [null, undefined, '', 'spin', 'toString', 'constructor']) assert.equal(cameraShort(none), '', String(none));
+});
+
+test('(0.6.222) the camera a model reads itself: its two settings, read back as a choice of the window', () => {
+  // The three speeds of the window as the number such a model reads, and back to the nearest of the three.
+  assert.deepEqual(['slow', 'normal', 'fast', 'warp', undefined].map(cameraSpeedValue), [0.5, 1, 2, 1, 1]);
+  assert.deepEqual([0.25, 0.5, 0.74, 0.75, 1, 1.5, 1.51, 2, 4, undefined, 'x'].map(cameraSpeedName), ['slow', 'slow', 'slow', 'normal', 'normal', 'normal', 'fast', 'fast', 'fast', 'normal', 'normal']);
+  for (const speed of ['slow', 'normal', 'fast']) assert.equal(cameraSpeedName(cameraSpeedValue(speed)), speed);
+  // The sheet of a take: the settings of the model (an id, a number), or the choice kept beside its prompt.
+  assert.deepEqual(cameraOf({ camera: 'orbit_left', camera_speed: 2 }), { move: 'orbit_left', speed: 'fast' });
+  assert.deepEqual(cameraOf({ camera: 'crane_up' }), { move: 'crane_up', speed: 'normal' });
+  assert.deepEqual(cameraOf({ camera: 'static', camera_speed: 0.5 }), { move: 'static', speed: 'normal' });
+  assert.deepEqual(cameraOf({ camera: { move: 'dolly_in', speed: 'slow' }, camera_prompt: 'x' }), { move: 'dolly_in', speed: 'slow' });
+  for (const none of [null, undefined, {}, { camera: 'none' }, { camera: 'spin' }, { camera: '' }, { camera: null }, { camera: 3 }, { camera_speed: 2 }]) assert.equal(cameraOf(none), null, JSON.stringify(none));
 });
