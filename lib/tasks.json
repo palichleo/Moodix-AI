@@ -114,7 +114,7 @@
     "output": "video",
     "hand": true,
     "summary": "Film an existing video again from another camera, placed by hand: the same scene, motion and sound, seen from another angle.",
-    "guidance": "Asked by the user's own hand only, in the Studio, where the camera is placed (lib/refilm.mjs): never offered to the chat model. No prompt, no length and no size: the video says what is filmed, and keeps its length and its format.",
+    "guidance": "Asked by the user's own hand only, in the Studio, where the camera is placed (lib/refilm.mjs): never offered to the chat model. No prompt and no length: the video says what is filmed, and keeps its length and its format. Its size is its own, or a smaller one chosen in the Studio (size); a larger one only takes longer.",
     "arguments": {
       "camera": {
         "type": "object",
@@ -127,6 +127,10 @@
       "pivot": {
         "type": "object",
         "description": "The point the camera turns around, x and y from 0 to 1 on the first frame. Without it: the middle of the frame."
+      },
+      "size": {
+        "type": "object",
+        "description": "The size the video is filmed again at, width and height in pixels: multiples of 32, at most its own, of its shape within 10 % (it is shrunk to cover it, then cut in its middle). Without it: its own, cut down to multiples of 32."
       }
     },
     "roles": {

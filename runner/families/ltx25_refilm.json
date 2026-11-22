@@ -131,14 +131,25 @@
       "min": 64,
       "max": 4096,
       "multipleOf": 32,
-      "note": "Celle de la vidéo, recadrée au multiple de 32 en dessous."
+      "note": "Celle de la vidéo recadrée au multiple de 32 en dessous, ou une plus petite choisie dans le Studio : la vidéo est réduite jusqu’à la couvrir, puis recadrée en son milieu."
     },
     "height": {
       "type": "integer",
       "min": 64,
       "max": 4096,
       "multipleOf": 32,
-      "note": "Celle de la vidéo, recadrée au multiple de 32 en dessous."
+      "note": "Celle de la vidéo recadrée au multiple de 32 en dessous, ou une plus petite choisie dans le Studio."
+    },
+    "source_width": {
+      "type": "integer",
+      "min": 64,
+      "max": 16384,
+      "note": "La taille de la vidéo à refilmer, telle que sa fiche la dit (le serveur la donne) : le moteur la compare à son fichier."
+    },
+    "source_height": {
+      "type": "integer",
+      "min": 64,
+      "max": 16384
     },
     "steps": {
       "type": "integer",
@@ -239,13 +250,18 @@
       "maybe": { "azimuth": 90, "up": 45, "down": 35 }
     },
     "near": 5,
-    "limits": [
-      { "pixels": 344064, "seconds": 5, "size": "768 × 448", "measured": "22/11 : 121 images en 86 à 107 s, 8,0 à 8,8 Gio de mémoire vidéo au plus haut" },
-      { "pixels": 589824, "seconds": 5, "size": "1024 × 576", "measured": "22/11 : 121 images en 223 s, 8,6 Gio de mémoire vidéo au plus haut (le moteur seul, démarré pour elle)" }
+    "shape": 0.1,
+    "times": [
+      { "pixels": 344064, "takes": 132, "size": "768 × 448", "measured": "22/11, dans l’application : 132 s pour le moteur (160 s en tout, avec la sortie du modèle de chat), 8,0 à 8,8 Gio de mémoire vidéo au plus haut" },
+      { "pixels": 589824, "takes": 223, "size": "1024 × 576", "measured": "22/11, le moteur seul : 8,6 Gio de mémoire vidéo au plus haut" },
+      { "pixels": 901120, "takes": 354, "size": "1280 × 704", "measured": "22/11, le moteur seul : 8,0 Gio de mémoire vidéo au plus haut" },
+      { "pixels": 1433600, "takes": 696, "planned": true, "size": "1600 × 896", "measured": "22/11, le moteur seul, arrêté après 2 étapes de 67 s : 671 s prévues à la fin des 8 étapes, puis le décodage et l’écriture (environ 26 s, à l’échelle de 1280 × 704) ; 8,8 Gio au plus haut" }
     ],
+    "seconds": 5,
+    "patience": 60,
     "fps": [24],
     "sourceFps": { "min": 12, "max": 120 },
-    "note": "Bornes de l’auteur (README de CrossView-Warp v2) : sûr à 45° d’azimut, 30° au-dessus et 20° en dessous ; possible à 90°, 45° et 35° ; chaque zone est une ellipse sur l’azimut et la hauteur. La caméra tourne souvent moins que demandé. Les durées : celles mesurées sur une carte de 12 Go. Une taille n’est donnée que si 5 s s’y refilment en 5 minutes au plus, sans repli (le choix de l’utilisateur, 22/11) : 1280 × 704 en a pris 354, 1600 × 896 environ 11."
+    "note": "Bornes de l’auteur (README de CrossView-Warp v2) : sûr à 45° d’azimut, 30° au-dessus et 20° en dessous ; possible à 90°, 45° et 35° ; chaque zone est une ellipse sur l’azimut et la hauteur. La caméra tourne souvent moins que demandé. Aucune taille ni durée n’est refusée pour le temps qu’elle prend (0.6.248, le choix de l’utilisateur) : la vidéo se refilme à sa taille, ou à une plus petite choisie dans le Studio, qui garde son format à shape près ; seule une durée au-delà de ce que le modèle filme (20 s) est refusée. times : à chaque taille (pixels = largeur × hauteur), le temps en secondes pour refilmer une vidéo de seconds secondes, du début du moteur au fichier, modèles chargés du disque (à froid) ; mesuré sur une carte de 12 Go avec le pêcheur, 121 images, sans repli lent ; planned : prévu d’après ses premières étapes, pas fini. Dans l’application, la première création ajoute la sortie du modèle de chat local s’il est sur la carte (28 s ce jour-là). patience : le seuil de l’utilisateur, en secondes d’attente par seconde de vidéo (« 5s j’accepte 5min max »)."
   },
   "template": {
     "name": "Change the camera of a video",

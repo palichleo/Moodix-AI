@@ -5,7 +5,19 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { family } from '../lib/families.mjs';
 import { ownSettings, resolveNativeWorkflow, validateNativeWorkflow } from '../lib/native-workflows.mjs';
-import { REFILM_SAID, clipOf, refilmBounds, refilmCamera, refilmFormat, refilmParameters, refilmSheet } from '../lib/refilm.mjs';
+import {
+  REFILM_SAID,
+  clipOf,
+  longSaid,
+  refilmBounds,
+  refilmCamera,
+  refilmFormat,
+  refilmParameters,
+  refilmSheet,
+  refilmSize,
+  shapeSaid,
+  sizeSaid,
+} from '../lib/refilm.mjs';
 import { STUDIO_VERBS } from '../lib/studio.mjs';
 import { ToolCatalog } from '../lib/tool-catalog.mjs';
 import { ModelDownloads } from '../lib/model-downloads.mjs';
@@ -28,7 +40,9 @@ const bounds = refilmBounds(manifest);
 const id = 'a1111111-1111-4111-8111-111111111111';
 const SOURCE = '33333333-3333-4333-8333-333333333333';
 const INTENTION = 'Caméra changée, demandée dans le Studio.';
-const LONG = 'Vidéo trop longue : à cette taille, la caméra se change jusqu’à 5 s.';
+// (0.6.248) The only length refused: longer than the model films (481 frames at 24 a second).
+const LONG = 'Vidéo trop longue pour changer sa caméra : 20 s au plus.';
+const SHAPE = 'Taille : elle garde le format de la vidéo, à 10 % près.';
 
 /** The workflows as the catalog lists them: all ready, or « Changer la caméra » with `own` (its files missing). */
 const listed = (own = {}) =>
@@ -130,10 +144,27 @@ test('« Changer la caméra » is a verb of the user’s hand, shipped as a mode
   assert.equal(p.prompt.value, 'crossview');
   assert.ok(Object.values(plain.components).every(component => component.policy === 'fixed'));
   for (const key of ['azimuth', 'elevation', 'distance', 'start_azimuth', 'pivot_x']) assert.equal(p[key], undefined, key);
-  // The bounds of its camera are those the Studio draws, and the clips it takes are of 12 to 120 frames a second.
-  assert.deepEqual(bounds, { ...orbitBounds(manifest.refilm), sourceFps: { min: 12, max: 120 } });
+  // The bounds of its camera are those the Studio draws, and the clips it takes are of 12 to 120 frames a second,
+  // of 20 s at most (481 frames at 24 a second), filmed at their size or at one of their shape within 10 %.
+  assert.deepEqual(bounds, { ...orbitBounds(manifest.refilm), sourceFps: { min: 12, max: 120 }, mostFrames: 481, shape: 0.1 });
   assert.equal(bounds.distance.unavailable, 'La distance ne marche pas encore avec ce modèle : son auteur le dit.');
   assert.equal(refilmBounds(family('ltx25')), null);
+  // (0.6.248) No limit for the time it takes: the times measured, which the Studio warns with.
+  assert.deepEqual(bounds.limits, []);
+  assert.equal(manifest.refilm.limits, undefined);
+  assert.deepEqual(
+    manifest.refilm.times.map(({ pixels, takes, planned }) => ({ pixels, takes, ...(planned ? { planned } : {}) })),
+    [
+      { pixels: 344064, takes: 132 },
+      { pixels: 589824, takes: 223 },
+      { pixels: 901120, takes: 354 },
+      { pixels: 1433600, takes: 696, planned: true },
+    ],
+  );
+  assert.deepEqual([manifest.refilm.seconds, manifest.refilm.patience], [5, 60]);
+  // Its description says the size advised and that larger is longer, never a size it stops at.
+  assert.match(plain.description, /Taille conseillée : 1024 × 576/);
+  assert.doesNotMatch(plain.description, /jusqu’à/);
 });
 
 test('the Studio shows it with the bounds of its camera, greyed without its files, and Moodix AI never has it (0.6.242)', async () => {
@@ -143,6 +174,7 @@ test('the Studio shows it with the bounds of its camera, greyed without its file
   const [tool] = tools.refilm_video;
   assert.equal(tool.id, REFILM_ID);
   assert.deepEqual(tool.refilm, manifest.refilm);
+  assert.deepEqual(tool.refilm.times, manifest.refilm.times);
   // No setting: those of its model are on the page of the model; no size and no length: the clip's.
   assert.deepEqual(tool.settings, []);
   assert.equal(tool.follows, true);
@@ -205,6 +237,8 @@ test('a clip is filmed again from the camera placed in the Studio, and its take 
     { azimuth: 30, elevation: 10, distance: 1, start_azimuth: 0, start_elevation: 0, start_distance: 1 },
   );
   assert.equal(job.parameters.pivot_x, undefined);
+  // (0.6.248) The size of the clip as its record says it, which the engine compares with its file.
+  assert.deepEqual(pick(job.parameters, ['source_width', 'source_height']), { source_width: 768, source_height: 448 });
   assert.deepEqual(
     job.references.map(ref => [ref.role, ref.path]),
     [['refilm_source', join(tmpdir(), 'pecheur.mp4')]],
@@ -219,6 +253,75 @@ test('a clip is filmed again from the camera placed in the Studio, and its take 
     camera_start: { azimuth: 0, elevation: 0, distance: 1 },
   });
   assert.deepEqual(pick(orbitOf(take.parameters, bounds), ['mode', 'start', 'end']), pick(draft, ['mode', 'start', 'end']));
+  // Its size is the one it was filmed at; that of its clip is not kept.
+  assert.deepEqual(pick(take.parameters, ['width', 'height', 'source_width', 'source_height']), {
+    width: 768,
+    height: 448,
+    source_width: undefined,
+    source_height: undefined,
+  });
+});
+
+test('a clip is filmed at a smaller size chosen in the Studio, never refused for its size or its length (0.6.248)', async () => {
+  const jobs = [],
+    saved = [];
+  const large = { outputs: [{ width: 1600, height: 896 }], parameters: { pipeline: 'ltx25', width: 1600, height: 896, frames: 241, fps: 24 } };
+  const { runtime, ask } = runtimeFor({ clip: large, jobs, saved });
+  const fine = { azimuth: 30, elevation: 10, distance: 1 };
+  const run = async proposal => {
+    await runtime.execute({ requestId: proposal.requestId, permission: 'once', approvalToken: proposal.approvalToken });
+    await runtime.finished;
+    assert.equal(runtime.status().state, 'done', runtime.status().error);
+  };
+  // At its own size (1600 × 896, 10 s): made as it is, however long it takes.
+  await run(await ask(held(fine)));
+  assert.deepEqual(pick(jobs[0].parameters, ['width', 'height', 'frames', 'source_width', 'source_height']), {
+    width: 1600,
+    height: 896,
+    frames: 241,
+    source_width: 1600,
+    source_height: 896,
+  });
+  // At a size chosen: the job at that size, the clip's own beside it for the engine; the take says the size made.
+  await run(await ask({ ...held(fine), size: { width: 1024, height: 576 } }));
+  assert.deepEqual(pick(jobs[1].parameters, ['width', 'height', 'frames', 'source_width', 'source_height']), {
+    width: 1024,
+    height: 576,
+    frames: 241,
+    source_width: 1600,
+    source_height: 896,
+  });
+  const [, take] = saved;
+  assert.deepEqual(pick(take.parameters, ['width', 'height', 'frames']), { width: 1024, height: 576, frames: 241 });
+  for (const key of ['size', 'source_width', 'source_height']) assert.equal(take.parameters[key], undefined, key);
+  assert.deepEqual(take.parameters.refilm, { camera: fine });
+  // Its own size given as the size chosen is its own size.
+  await run(await ask({ ...held(fine), size: { width: 1600, height: 896 } }));
+  assert.deepEqual(pick(jobs[2].parameters, ['width', 'height']), { width: 1600, height: 896 });
+  // On its proposal its camera may change, its size stays the one chosen; the size is never changed there.
+  const sized = await ask({ ...held(fine), size: { width: 768, height: 448 } });
+  const edit = (proposal, edits) => runtime.revise({ requestId: proposal.requestId, approvalToken: proposal.approvalToken, edits });
+  await assert.rejects(edit(sized, { size: { width: 1024, height: 576 } }), { message: REFILM_SAID.edited });
+  await run(await edit(sized, { camera: { azimuth: -30, elevation: 5, distance: 1 } }));
+  assert.deepEqual(pick(jobs[3].parameters, ['width', 'height', 'azimuth', 'source_width']), {
+    width: 768,
+    height: 448,
+    azimuth: -30,
+    source_width: 1600,
+  });
+  // What a size chosen cannot be, said in words before anything is proposed.
+  for (const [size, said] of [
+    [{ width: 1920, height: 1088 }, 'Taille : au plus 1600 × 896, la taille de la vidéo.'],
+    [{ width: 1600, height: 928 }, 'Taille : au plus 1600 × 896, la taille de la vidéo.'],
+    [{ width: 896, height: 896 }, SHAPE],
+    [{ width: 1000, height: 576 }, REFILM_SAID.size],
+    [{ width: 32, height: 64 }, REFILM_SAID.size],
+    [{ width: 1024 }, REFILM_SAID.size],
+    [{ width: 1024, height: 576, depth: 1 }, REFILM_SAID.size],
+    ['1024 × 576', REFILM_SAID.size],
+    [[1024, 576], REFILM_SAID.size],
+  ])
+    await assert.rejects(ask({ ...held(fine), size }), { message: said }, JSON.stringify(size));
 });
 
 test('what is not made is said in words before anything is proposed (0.6.242)', async () => {
@@ -239,33 +342,33 @@ test('what is not made is said in words before anything is proposed (0.6.242)', 
   await assert.rejects(ask({ ...held(fine), pivot: { x: 1.5, y: 0.5 } }), { message: REFILM_SAID.pivot });
   // The prompt is the clip's: none is taken.
   await assert.rejects(ask({ ...held(fine), prompt: 'A heron takes off.' }));
-  // What its record says of the clip: too large, too long, at a rate the model does not take, or unknown.
+  // What its record says of the clip: longer than the model films, at a rate the model does not take, or unknown.
+  // (0.6.248) Never too large nor too long for the time it takes: the Studio says how long before.
   for (const [clip, said] of [
-    [{ outputs: [{ width: 1088, height: 1920 }], parameters: { width: 1088, height: 1920, frames: 121, fps: 24 } }, 'Vidéo trop grande pour changer sa caméra.'],
-    [{ parameters: { width: 768, height: 448, frames: 241, fps: 24 } }, LONG],
+    [{ parameters: { width: 768, height: 448, frames: 489, fps: 24 } }, LONG],
     [
       { parameters: { width: 768, height: 448, frames: 41, fps: 8 } },
       'Cette vidéo est à 8 images par seconde : la caméra se change sur une vidéo de 12 à 120 images par seconde.',
     ],
     [{ outputs: [{}], parameters: { frames: 121, fps: 24 } }, REFILM_SAID.unknown],
     [{ mediaType: 'image' }, null],
-    // (0.6.243) A continuation of 4 s after a clip of 4 s: its file plays 7 s, though its job made 3,4 s.
-    [{ parameters: { width: 768, height: 448, frames: 81, fps: 24, continuation: { overlapFrames: 9, sourceFrames: 97, newFrames: 72 } } }, LONG],
+    // (0.6.243) A continuation of 10,4 s after a clip of 10 s: its file plays 20,4 s, though its job made 10,4 s.
+    [{ parameters: { width: 768, height: 448, frames: 249, fps: 24, continuation: { overlapFrames: 9, sourceFrames: 241, newFrames: 249 } } }, LONG],
   ]) {
     const { ask: asking } = runtimeFor({ clip });
     await assert.rejects(asking(held(fine)), said ? { message: said } : Error, JSON.stringify(clip));
   }
-  // A continuation within the limits is filmed again whole: the clip it continues, then what it adds.
+  // A continuation is filmed again whole: the clip it continues, then what it adds (7 s here, as long as 20 s).
   const jobs = [],
     { runtime, ask: asking } = runtimeFor({
-      clip: { parameters: { width: 768, height: 448, frames: 33, fps: 24, continuation: { overlapFrames: 9, sourceFrames: 97, newFrames: 24 } } },
+      clip: { parameters: { width: 768, height: 448, frames: 81, fps: 24, continuation: { overlapFrames: 9, sourceFrames: 97, newFrames: 72 } } },
       jobs,
     });
   const proposal = await asking(held(fine));
   await runtime.execute({ requestId: proposal.requestId, permission: 'once', approvalToken: proposal.approvalToken });
   await runtime.finished;
   assert.equal(runtime.status().state, 'done', runtime.status().error);
-  assert.equal(jobs[0].parameters.frames, 121);
+  assert.equal(jobs[0].parameters.frames, 169);
 });
 
 test('without its two files, a request offers to fetch them, with their sizes and licences (0.6.242)', async () => {
@@ -319,7 +422,8 @@ test('on its proposal its camera may change, never its clip, its size or its len
   const first = await ask(held({ azimuth: 30, elevation: 10, distance: 1 }));
   const edit = (proposal, edits) =>
     runtime.revise({ requestId: proposal.requestId, approvalToken: proposal.approvalToken, edits });
-  for (const edits of [{ width: 640 }, { frames: 81 }, { references: [] }]) await assert.rejects(edit(first, edits), { message: REFILM_SAID.edited });
+  for (const edits of [{ width: 640 }, { frames: 81 }, { references: [] }, { size: { width: 384, height: 224 } }])
+    await assert.rejects(edit(first, edits), { message: REFILM_SAID.edited });
   await assert.rejects(edit(first, { camera: { azimuth: 80, elevation: 40, distance: 1 } }), { message: ORBIT_WARNS.out });
   const run = async proposal => {
     await runtime.execute({ requestId: proposal.requestId, permission: 'once', approvalToken: proposal.approvalToken });
@@ -380,21 +484,53 @@ test('the camera, the format and the sheet of a clip, as the engine reads them (
   assert.deepEqual(refilmFormat({ width: 790, height: 435, frames: 100, fps: 24 }, bounds), { width: 768, height: 416, frames: 97 });
   assert.equal(refilmFormat({ width: 768, height: 448, frames: 81, fps: 16 }, bounds).frames, 121);
   assert.equal(refilmFormat({ width: 768, height: 448, frames: 150, fps: 30000 / 1001 }, bounds).frames, 113);
-  for (const [width, height] of [[832, 480], [1024, 576], [576, 1024]])
+  // (0.6.248) Of any size and up to what the model films (20 s): nothing is refused for the time it takes.
+  for (const [width, height] of [[832, 480], [1024, 576], [576, 1024], [1280, 704], [1600, 896], [896, 1600], [4096, 2304]])
     assert.deepEqual(refilmFormat({ width, height, frames: 121, fps: 24 }, bounds), { width, height, frames: 121 });
+  assert.equal(refilmFormat({ width: 1600, height: 896, frames: 488, fps: 24 }, bounds).frames, 481);
+  assert.equal(refilmFormat({ width: 768, height: 448, frames: 2400, fps: 120 }, bounds).frames, 473);
   for (const [clip, said] of [
     [{ width: 768, height: 448, frames: 121, fps: 7.5 }, 'Cette vidéo est à 7,5 images par seconde : la caméra se change sur une vidéo de 12 à 120 images par seconde.'],
     [{ width: 60, height: 448, frames: 121, fps: 24 }, REFILM_SAID.small],
     [{ width: 768, height: 448, frames: 8, fps: 24 }, REFILM_SAID.short],
-    // (0.6.247) Given up to 1024 × 576 for 5 s (as many pixels standing too): 1280 × 704 took more than 5 minutes.
-    [{ width: 1280, height: 704, frames: 121, fps: 24 }, 'Vidéo trop grande pour changer sa caméra.'],
-    [{ width: 1600, height: 896, frames: 121, fps: 24 }, 'Vidéo trop grande pour changer sa caméra.'],
-    [{ width: 1056, height: 576, frames: 57, fps: 24 }, 'Vidéo trop grande pour changer sa caméra.'],
-    [{ width: 1024, height: 576, frames: 133, fps: 24 }, LONG],
-    [{ width: 768, height: 448, frames: 133, fps: 24 }, LONG],
+    [{ width: 768, height: 448, frames: 489, fps: 24 }, LONG],
+    [{ width: 768, height: 448, frames: 2401, fps: 48 }, LONG],
     [{ width: 768, height: 448, frames: 121, fps: null }, REFILM_SAID.unknown],
   ])
     assert.throws(() => refilmFormat(clip, bounds), { message: said }, JSON.stringify(clip));
+  // The size it is filmed at: the one chosen, at most its own, of its shape within 10 % (the same numbers as the
+  // engine's tests, size_refusal of runner/video/refilm.py), or its own without a choice.
+  const sized = (size, width = 1600, height = 896) => {
+    const clip = { width, height, frames: 121, fps: 24 };
+    return refilmSize(size, refilmFormat(clip, bounds), clip, bounds);
+  };
+  assert.deepEqual(sized(undefined), { width: 1600, height: 896 });
+  assert.deepEqual(sized(null, 790, 435), { width: 768, height: 416 });
+  for (const [width, height] of [[1600, 896], [1280, 704], [1024, 576], [768, 448], [640, 352], [1600, 864]])
+    assert.deepEqual(sized({ width, height }), { width, height });
+  for (const [width, height] of [[1632, 896], [1600, 928], [2048, 1152]])
+    assert.throws(() => sized({ width, height }), { message: sizeSaid({ width: 1600, height: 896 }) });
+  for (const [width, height] of [[896, 896], [1024, 640], [896, 576]]) assert.throws(() => sized({ width, height }), { message: SHAPE });
+  assert.deepEqual(sized({ width: 576, height: 1024 }, 1080, 1920), { width: 576, height: 1024 });
+  assert.deepEqual(sized({ width: 1056, height: 1920 }, 1080, 1920), { width: 1056, height: 1920 });
+  assert.throws(() => sized({ width: 1088, height: 1920 }, 1080, 1920), { message: 'Taille : au plus 1056 × 1920, la taille de la vidéo.' });
+  assert.deepEqual(sized({ width: 64, height: 64 }, 95, 64), { width: 64, height: 64 });
+  assert.deepEqual(sized({ width: 96, height: 64 }, 160, 96), { width: 96, height: 64 });
+  assert.throws(() => sized({ width: 352, height: 320 }, 1000, 1000), { message: SHAPE });
+  for (const size of [{ width: 1000, height: 576 }, { width: 32, height: 64 }, { width: 1024.5, height: 576 }, { width: '1024', height: 576 }, {}, 'big'])
+    assert.throws(() => sized(size), { message: REFILM_SAID.size }, JSON.stringify(size));
+  // The words, as the engine says them.
+  assert.equal(longSaid(20), LONG);
+  assert.equal(shapeSaid(0.1), SHAPE);
+  assert.equal(sizeSaid({ width: 1600, height: 896 }), 'Taille : au plus 1600 × 896, la taille de la vidéo.');
+  // The size of the clip goes with the camera to the engine.
+  assert.deepEqual(refilmParameters({ camera: { azimuth: 30, elevation: 10, distance: 1 }, clip: { width: 1600, height: 896, frames: 121, fps: 24 } }), {
+    azimuth: 30,
+    elevation: 10,
+    distance: 1,
+    source_width: 1600,
+    source_height: 896,
+  });
   // What a record says of its clip: its file first, then its parameters; the rate of a chain of smoothings.
   const record = { outputs: [{ width: 1536, height: 896 }], parameters: { width: 768, height: 448, frames: 121, fps: 24 } };
   assert.deepEqual(clipOf(record), { width: 1536, height: 896, frames: 121, fps: 24 });

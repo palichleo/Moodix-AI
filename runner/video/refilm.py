@@ -4,8 +4,9 @@ again from a camera placed by hand, by LTX 2.5 and the CrossView-Warp IC-LoRA.
 Three stages, in one creation:
 
 1. the clip as LTX reads it: 24 frames a second (the frame of each instant: a clip of 16 or 30 frames a
-   second is timed again, never slowed down), its size cut down to multiples of 32 in its middle, and one
-   shot only (a cut would be filmed across as if it were a movement);
+   second is timed again, never slowed down), its size cut down to multiples of 32 in its middle, or the
+   smaller size chosen in the Studio (0.6.248: the clip shrunk on the processor to cover it, then cut in its
+   middle), and one shot only (a cut would be filmed across as if it were a movement);
 2. its guide: the depth of each frame (MoGe-2, on the card), then each frame drawn again from the new
    camera, on the processor (runner.video.camera_warp), magenta where the first camera saw nothing;
 3. LTX 2.5 with the IC-LoRA, which reads the guide then the clip (runner.video.ic_reference) and films
@@ -13,8 +14,12 @@ Three stages, in one creation:
 
 Its rules are the family's (`refilm` in runner/families/ltx25_refilm.json), the ones the server and the
 Studio hold too (lib/refilm.mjs, public/camera-orbit.mjs), in the same words: what is refused is said in
-words before the card is asked for, never as a failed video. Measured on 22/11 (the fisherman, 768 × 448,
-121 frames): 17 s of depth, 15 to 21 s of drawing, then 86 to 107 s of LTX 2.5; 8.0 to 8.8 GiB at most.
+words before the card is asked for, never as a failed video. Only what cannot be made is refused (0.6.248):
+a large or long clip takes longer, which the Studio says from the times measured (`times` of the family).
+Measured on 22/11 (the fisherman, 121 frames, cold, from the start to the file): 132 s at 768 × 448, 223 s
+at 1024 × 576, 354 s at 1280 × 704; 1600 × 896 took 67 s a step (some 12 minutes in all). The memory held
+at every size (8.0 to 8.8 GiB at most): the larger the clip, the fewer weights stay on the card, the slower
+each step.
 """
 
 from fractions import Fraction
@@ -28,8 +33,6 @@ ROLE = 'refilm_source'
 # What LTX 2.5 films at, and the sound put back (what save_video takes).
 FPS = 24
 SAMPLE_RATE = 48000
-# A quarter of a second over a length is within it: a clip of 121 frames is « 5 s » (public/camera-orbit.mjs).
-GRACE = 0.25
 # Video memory MoGe-2 takes at its peak on a frame of 768 × 448 (1.64 GiB measured), with room to spare:
 # below it, what a creation before left on the card leaves first.
 DEPTH_GIB = 2.5
@@ -53,14 +56,15 @@ CUT_BACK_SHARE = 0.75
 # one a killed worker left is removed by the next creation, once this old.
 WORK = 'moodix-refilm-'
 STALE_SECONDS = 3600
-# A clip is read this far at most: beyond, it is far longer than any measured length.
+# A clip is read this far at most: beyond, it is longer than the model films at any rate it takes (481
+# frames at 24 a second, 20 s; 2400 frames are 20 s at 120 a second).
 MOST_FRAMES = 2400
 
-# The words of the refusals, those of the Studio (public/camera-orbit.mjs, ORBIT_WARNS and clipRefusal).
+# The words of the refusals, those of the Studio (public/camera-orbit.mjs, ORBIT_WARNS) and of the server
+# (lib/refilm.mjs, REFILM_SAID).
 SAID = dict(
     out='Hors de ce que le modèle sait faire : il n’a pas appris cet angle.',
     near='Trop près de la caméra de la vidéo : à si peu d’écart, le modèle se comporte mal.',
-    large='Vidéo trop grande pour changer sa caméra.',
     small='Vidéo trop petite pour changer sa caméra : il lui faut 64 pixels de côté au moins.',
     short='Vidéo trop courte pour changer sa caméra : il lui faut au moins 9 images.',
     invalid='Caméra : angles ou distance invalides.',
@@ -80,7 +84,18 @@ def decimal(value, digits=1):
 
 
 def long_said(seconds):
-    return f'Vidéo trop longue : à cette taille, la caméra se change jusqu’à {decimal(seconds)} s.'
+    """A clip longer than the model films (`seconds`: the most it does)."""
+    return f'Vidéo trop longue pour changer sa caméra : {decimal(seconds)} s au plus.'
+
+
+def size_said(width, height):
+    """A size chosen larger than the clip (`width` × `height`: its own, cut down to multiples of 32)."""
+    return f'Taille : au plus {width} × {height}, la taille de la vidéo.'
+
+
+def shape_said(shape):
+    """A size chosen of another shape than the clip's (`shape`: the share it may differ by)."""
+    return f'Taille : elle garde le format de la vidéo, à {decimal(shape * 100)} % près.'
 
 
 def fps_said(fps, bounds):
@@ -142,17 +157,27 @@ def camera_refusal(end, start, bounds):
     return ''
 
 
-def limit_refusal(width, height, seconds, limits):
-    """Why a clip of this size and length is not refilmed, '' when it is: the first line of the limits
-    as large as the clip says how long it may be (clipRefusal of public/camera-orbit.mjs). Only measured
-    lines are given: a clip larger than all of them is not made."""
-    rows = sorted(limits, key=lambda row: row['pixels'])
-    row = next((row for row in rows if row['pixels'] >= width * height), None)
-    if row is None:
-        return SAID['large']
-    if seconds > row['seconds'] + GRACE:
-        return long_said(row['seconds'])
+def size_refusal(width, height, source_width, source_height, bounds):
+    """Why a clip of `source_width` × `source_height` is not filmed again at `width` × `height`, '' when
+    it is: at most its own size cut down to multiples of 32, which is always taken (the size without a
+    choice), and of its shape within `shape` of the family (refilmSize of lib/refilm.mjs). Its multiples
+    of 32 and its 64 pixels at least are the manifest's. A larger size only takes longer: never refused."""
+    own = (source_width // 32 * 32, source_height // 32 * 32)
+    if (width, height) == own:
+        return ''
+    if width > own[0] or height > own[1]:
+        return size_said(*own)
+    # (The same operations as the server's, so that both find the same at the edge.)
+    if abs(width * source_height / (height * source_width) - 1) > bounds['shape']:
+        return shape_said(bounds['shape'])
     return ''
+
+
+def most_frames():
+    """The most frames the model films a clip at: the last of the family's (481, 20 s at 24 a second)."""
+    from runner.registry import family
+
+    return max(family(FAMILY)['parameters']['frames']['choices'])
 
 
 def covered(frames, fps):
@@ -162,9 +187,10 @@ def covered(frames, fps):
 
 
 def output_format(width, height, frames, fps, bounds):
-    """What a clip of this size, this many frames, at `fps` (a Fraction, or a number) is refilmed at:
-    `width`, `height` (cut down to multiples of 32), `frames` (8n + 1 at 24 a second) and how many
-    frames at 24 it `covered`. Refused in words when it cannot be."""
+    """What a clip of this size, this many frames, at `fps` (a Fraction, or a number) is refilmed at
+    without a size chosen: `width`, `height` (cut down to multiples of 32), `frames` (8n + 1 at 24 a
+    second) and how many frames at 24 it `covered`. Refused in words when it cannot be: a rate the model
+    does not take, a clip too small, too short, or longer than the model films."""
     rate = bounds['sourceFps']
     if not rate['min'] <= fps <= rate['max']:
         raise Refused(fps_said(fps, bounds))
@@ -175,6 +201,9 @@ def output_format(width, height, frames, fps, bounds):
     made = (count - 1) // 8 * 8 + 1
     if made < 9:
         raise Refused(SAID['short'])
+    most = most_frames()
+    if made > most:
+        raise Refused(long_said((most - 1) / FPS))
     return dict(width=made_width, height=made_height, frames=made, covered=count)
 
 
@@ -276,8 +305,8 @@ def source_of(job):
 
 def examine(path, bounds):
     """What a clip is, as it will be refilmed: its own size, frames, rate, length and whether it has a
-    sound, and the format it is refilmed at (output_format). Refused in words for a rate, a size, a
-    length the model does not take, or a second shot."""
+    sound, and the format it is refilmed at without a size chosen (output_format). Refused in words for
+    a rate, a size, a length the model does not take, or a second shot."""
     from runner.video.stream import frames as decode, probe
 
     stat = os.stat(path)
@@ -296,14 +325,11 @@ def examine(path, bounds):
         for frame in decode(path):
             pictures.append(small(frame))
             if len(pictures) > MOST_FRAMES:
-                break
+                raise Refused(long_said((most_frames() - 1) / FPS))
         if not pictures:
             raise ValueError('The video to refilm has no frame')
         made = output_format(info['width'], info['height'], len(pictures), rate, bounds)
         seconds = len(pictures) / rate
-        said = limit_refusal(info['width'], info['height'], float(seconds), bounds['limits'])
-        if said:
-            raise Refused(said)
         cut = cut_at(pictures)
         if cut is not None:
             raise Refused(cut_said(cut / rate))
@@ -333,20 +359,44 @@ def picked(found, count):
     return [min(last, math.floor(Fraction(index) * rate / FPS + Fraction(1, 2))) for index in range(count)]
 
 
-def frames_of(path, found, count):
-    """The `count` frames LTX films the clip at, [H, W, 3] uint8 each, and whether they are the clip's own
-    frames as its file holds them (24 a second, the same size): the file is then read as it is."""
+def covering(source_width, source_height, width, height):
+    """The size a clip is brought to before it is cut in its middle to `width` × `height`: its own when
+    that is its size cut down to multiples of 32 (the size without a choice: nothing is shrunk), else the
+    least that covers it, its shape kept."""
+    if (width, height) == (source_width // 32 * 32, source_height // 32 * 32):
+        return source_width, source_height
+    scale = max(width / source_width, height / source_height)
+    return max(width, round(source_width * scale)), max(height, round(source_height * scale))
+
+
+def fitted(frame, width, height):
+    """A frame [H, W, 3] uint8 at `width` × `height`: shrunk on the processor (Lanczos, which reads every
+    pixel of the frame) to the size that covers it (covering), then cut in its middle."""
+    import numpy as np
+    from PIL import Image
+
+    source_height, source_width = frame.shape[:2]
+    wide, tall = covering(source_width, source_height, width, height)
+    if (wide, tall) != (source_width, source_height):
+        frame = np.asarray(Image.fromarray(frame).resize((wide, tall), Image.Resampling.LANCZOS))
+    top, left = (tall - height) // 2, (wide - width) // 2
+    return frame[top : top + height, left : left + width].copy()
+
+
+def frames_of(path, found, count, size=None):
+    """The `count` frames LTX films the clip at, [H, W, 3] uint8 each, at `size` (width, height; without
+    it, the clip's own cut down to multiples of 32), and whether they are the clip's own frames as its file
+    holds them (24 a second, the same size): the file is then read as it is."""
     from runner.video.stream import frames as decode
 
-    width, height = found['width'], found['height']
-    top, left = (found['sourceHeight'] - height) // 2, (found['sourceWidth'] - width) // 2
+    width, height = size or (found['width'], found['height'])
     wanted = picked(found, count)
     needed, kept = set(wanted), {}
     for index, frame in enumerate(decode(path)):
         if index > wanted[-1]:
             break
         if index in needed:
-            kept[index] = frame[top : top + height, left : left + width].copy()
+            kept[index] = fitted(frame, width, height)
     if len(kept) != len(needed):
         raise Refused(SAID['changed'])
     exact = found['fps'] == FPS and (found['sourceWidth'], found['sourceHeight']) == (width, height)
@@ -358,7 +408,9 @@ def frames_of(path, found, count):
 
 def check(job, family):
     """The rules of a refilm beyond the manifest: one clip, a whole camera, a pivot named whole, a camera
-    the model holds, and a clip within the measured limits (its own size is checked when it is read)."""
+    the model holds, and a size the clip is filmed at that its own allows, when the server names the clip's
+    (`source_width` × `source_height`; its file is read by preflight). No size nor length is refused for the
+    time it takes (0.6.248): the Studio says it before (`times` of the family)."""
     parameters = job['parameters']
     if sum(ref['role'] == ROLE for ref in job['references']) != 1:
         raise ValueError('A camera is changed on one video exactly')
@@ -367,13 +419,18 @@ def check(job, family):
         raise ValueError('The camera of a refilm is named by azimuth, elevation and distance')
     if ('pivot_x' in parameters) != ('pivot_y' in parameters):
         raise ValueError('The pivot is named by pivot_x and pivot_y together')
+    if ('source_width' in parameters) != ('source_height' in parameters):
+        raise ValueError('The size of the clip is named by source_width and source_height together')
     bounds = family['refilm']
     said = camera_refusal(*poses_of(parameters), bounds)
     if said:
         raise Refused(said)
-    said = limit_refusal(parameters['width'], parameters['height'], parameters['frames'] / FPS, bounds['limits'])
-    if said:
-        raise Refused(said)
+    if 'source_width' in parameters:
+        said = size_refusal(
+            parameters['width'], parameters['height'], parameters['source_width'], parameters['source_height'], bounds
+        )
+        if said:
+            raise Refused(said)
 
 
 def ltx_job(job, guide, source):
@@ -422,9 +479,18 @@ def preflight(job, config, ltx_preflight):
     path = source_of(job)['path']
     found = examine(path, bounds)
     # What the server read of the clip in its record, against its file: another size, or fewer frames, is a
-    # clip replaced since (or a record that says another), never made at a size it was not checked at.
-    if (p['width'], p['height']) != (found['width'], found['height']) or p['frames'] > found['covered']:
+    # clip replaced since (or a record that says another), never made at a size it was not checked at. The
+    # size is the clip's own (`source_width` × `source_height`), not the one it is filmed at; a job without
+    # it is filmed at the clip's size cut down to multiples of 32.
+    if 'source_width' in p:
+        changed = (p['source_width'], p['source_height']) != (found['sourceWidth'], found['sourceHeight'])
+    else:
+        changed = (p['width'], p['height']) != (found['width'], found['height'])
+    if changed or p['frames'] > found['covered']:
         raise Refused(SAID['changed'])
+    said = size_refusal(p['width'], p['height'], found['sourceWidth'], found['sourceHeight'], bounds)
+    if said:
+        raise Refused(said)
     moge2.validate_layout(header(job['components']['depth']))
     ltx_preflight(validate_job(ltx_job(job, path, path)), config)
 
@@ -463,7 +529,10 @@ def prepare(job, config, progress, folder):
     began = time.perf_counter()
     progress(stage='reading video to refilm')
     found = examine(path, bounds)
-    clip, exact = frames_of(path, found, p['frames'])
+    # The clip at the size it is filmed at: its own cut down to multiples of 32, or a smaller one chosen in the
+    # Studio, the clip shrunk to cover it (fitted). Depth, guide and LTX are all made at that size.
+    size = (p['width'], p['height'])
+    clip, exact = frames_of(path, found, p['frames'], size)
     # The depth of each frame, on the card: what a creation before left there leaves first when the
     # depth model would not find its room beside it.
     if hardware.free_bytes(torch) / 1024**3 < DEPTH_GIB and kept.drop():
@@ -518,6 +587,8 @@ def prepare(job, config, progress, folder):
     sound = read_audio(path, 0, p['frames'] / FPS, SAMPLE_RATE) if found['audio'] else None
     audio = (np.ascontiguousarray(sound.T), SAMPLE_RATE) if sound is not None else None
     pose = lambda value: dict(azimuth=value[0], elevation=value[1], distance=value[2])  # noqa: E731
+    # (Shrunk: brought to a size below its own; cut: some of its picture left out, on its edges.)
+    brought = covering(found['sourceWidth'], found['sourceHeight'], *size)
     summary = dict(
         camera=pose(end),
         **({'start': pose(start)} if start is not None else {}),
@@ -534,7 +605,8 @@ def prepare(job, config, progress, folder):
             frames=found['sourceFrames'],
             fps=round(float(found['fps']), 3),
             timedAgain=found['fps'] != FPS,
-            cut=(found['sourceWidth'], found['sourceHeight']) != (p['width'], p['height']),
+            shrunk=brought != (found['sourceWidth'], found['sourceHeight']),
+            cut=brought != size,
             sound=audio is not None,
         ),
         seconds=round(time.perf_counter() - began, 1),

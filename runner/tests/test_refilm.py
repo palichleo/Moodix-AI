@@ -19,7 +19,7 @@ from runner.video import refilm as rf
 
 ROOT = Path(__file__).resolve().parents[2]
 BOUNDS = family(rf.FAMILY)['refilm']
-LONG = 'Vidéo trop longue : à cette taille, la caméra se change jusqu’à {} s.'
+LONG = 'Vidéo trop longue pour changer sa caméra : {} s au plus.'
 
 
 def texture(seed, height, width):
@@ -108,7 +108,7 @@ class WordsTests(unittest.TestCase):
     def test_the_refusals_are_said_as_the_studio_and_the_server_say_them(self):
         studio = (ROOT / 'public' / 'camera-orbit.mjs').read_text(encoding='utf-8')
         server = (ROOT / 'lib' / 'refilm.mjs').read_text(encoding='utf-8')
-        for key in ('out', 'near', 'large'):
+        for key in ('out', 'near'):
             with self.subTest(key=key):
                 self.assertIn(f"'{rf.SAID[key]}'", studio)
         for key in ('small', 'short', 'invalid'):
@@ -120,8 +120,10 @@ class WordsTests(unittest.TestCase):
             return re.split(r'\$\{[^}]*\}', found.group(0)[1:-1])
 
         with mock.patch.object(rf, 'decimal', lambda value, digits=1: '\0'):
-            self.assertEqual(rf.long_said(5).split('\0'), template(studio, 'Vidéo trop longue'))
+            self.assertEqual(rf.long_said(5).split('\0'), template(server, 'Vidéo trop longue'))
             self.assertEqual(rf.fps_said(8, BOUNDS).split('\0'), template(server, 'Cette vidéo est à'))
+            self.assertEqual(rf.size_said('\0', '\0').split('\0'), template(server, 'Taille : au plus'))
+            self.assertEqual(rf.shape_said(0.1).split('\0'), template(server, 'Taille : elle garde'))
 
     def test_numbers_are_written_as_a_french_sentence_writes_them(self):
         for value, digits, said in (
@@ -136,11 +138,13 @@ class WordsTests(unittest.TestCase):
         ):
             with self.subTest(value=value):
                 self.assertEqual(rf.decimal(value, digits), said)
-        self.assertEqual(rf.long_said(5), LONG.format(5))
+        self.assertEqual(rf.long_said(20), LONG.format(20))
         self.assertEqual(
             rf.cut_said(30 / 24),
             'Cette vidéo change de plan à 1,3 s : la caméra ne se change que sur une vidéo d’un seul plan.',
         )
+        self.assertEqual(rf.size_said(1600, 896), 'Taille : au plus 1600 × 896, la taille de la vidéo.')
+        self.assertEqual(rf.shape_said(0.1), 'Taille : elle garde le format de la vidéo, à 10 % près.')
 
 
 class CameraTests(unittest.TestCase):
@@ -196,25 +200,79 @@ class CameraTests(unittest.TestCase):
 
 
 class FormatTests(unittest.TestCase):
-    def test_the_measured_limits(self):
-        limits = BOUNDS['limits']
-        self.assertEqual(rf.limit_refusal(768, 448, 121 / 24, limits), '')
-        self.assertEqual(rf.limit_refusal(448, 768, 5.25, limits), '')
-        self.assertEqual(rf.limit_refusal(768, 448, 5.3, limits), LONG.format(5))
-        # (0.6.246) Measured on 22/11 at larger sizes, 5 s each (as many pixels standing are the same work). A size is
-        # given only when its 5 s are refilmed within 5 minutes (0.6.247, the user's choice): 1024 × 576 (223 s),
-        # not 1280 × 704 (354 s) nor 1600 × 896 (some eleven minutes).
-        for width, height in ((832, 480), (1024, 576), (576, 1024)):
+    def test_the_times_measured_and_no_limit_for_the_time_it_takes(self):
+        # (0.6.248, the user's choice) No size nor length is refused for the time it takes: the Studio warns from the
+        # times measured on 22/11 (cold, for 5 s), the last one foreseen from its first steps.
+        self.assertNotIn('limits', BOUNDS)
+        self.assertEqual(
+            [(row['pixels'], row['takes'], row.get('planned', False)) for row in BOUNDS['times']],
+            [(344064, 132, False), (589824, 223, False), (901120, 354, False), (1433600, 696, True)],
+        )
+        for row in BOUNDS['times']:
+            with self.subTest(size=row['size']):
+                width, height = (int(side) for side in row['size'].split(' × '))
+                self.assertEqual(width * height, row['pixels'])
+        self.assertEqual((BOUNDS['seconds'], BOUNDS['patience'], BOUNDS['shape']), (5, 60, 0.1))
+        for width, height in ((1024, 576), (1280, 704), (704, 1280), (1600, 896), (896, 1600), (4096, 2304)):
             with self.subTest(width=width, height=height):
-                self.assertEqual(rf.limit_refusal(width, height, 121 / 24, limits), '')
-        self.assertEqual(rf.limit_refusal(1024, 576, 5.3, limits), LONG.format(5))
-        for width, height in ((1056, 576), (1280, 704), (704, 1280), (1600, 896), (896, 1600)):
+                self.assertEqual(rf.output_format(width, height, 121, 24, BOUNDS)['frames'], 121)
+        # What the model films at most, 20 s at 24 a second: as many frames at 120 a second are read, no more.
+        self.assertEqual(rf.most_frames(), 481)
+        self.assertEqual((rf.most_frames() - 1) / rf.FPS * BOUNDS['sourceFps']['max'], rf.MOST_FRAMES)
+        self.assertEqual(rf.output_format(1600, 896, 488, 24, BOUNDS)['frames'], 481)
+        self.assertEqual(rf.output_format(768, 448, 2400, Fraction(120), BOUNDS)['frames'], 473)
+        with self.assertRaises(rf.Refused) as refused:
+            rf.output_format(768, 448, 489, 24, BOUNDS)
+        self.assertEqual(str(refused.exception), LONG.format(20))
+
+    def test_the_size_a_clip_is_filmed_at(self):
+        def said(width, height, source_width=1600, source_height=896):
+            return rf.size_refusal(width, height, source_width, source_height, BOUNDS)
+
+        # At most its own (cut down to multiples of 32), of its shape within 10 %: as large as it is is no refusal.
+        for width, height in ((1600, 896), (1280, 704), (1024, 576), (768, 448), (640, 352), (1600, 864)):
             with self.subTest(width=width, height=height):
-                self.assertEqual(rf.limit_refusal(width, height, 2, limits), rf.SAID['large'])
-        # The first line as large as the clip says how long it may be.
-        rows = [dict(pixels=344064, seconds=5), dict(pixels=100000, seconds=8)]
-        self.assertEqual(rf.limit_refusal(320, 288, 7.5, rows), '')
-        self.assertEqual(rf.limit_refusal(640, 480, 7.5, rows), LONG.format(5))
+                self.assertEqual(said(width, height), '')
+        for width, height in ((1632, 896), (1600, 928), (2048, 1152)):
+            with self.subTest(width=width, height=height):
+                self.assertEqual(said(width, height), rf.size_said(1600, 896))
+        for width, height in ((896, 896), (1024, 640), (896, 576)):
+            with self.subTest(width=width, height=height):
+                self.assertEqual(said(width, height), rf.shape_said(0.1))
+        # Standing; a size cut down to multiples of 32 is always its own, whatever its shape; the edge of the shape.
+        self.assertEqual(said(576, 1024, 1080, 1920), '')
+        self.assertEqual(said(1056, 1920, 1080, 1920), '')
+        self.assertEqual(said(1088, 1920, 1080, 1920), rf.size_said(1056, 1920))
+        self.assertEqual(said(64, 64, 95, 64), '')
+        self.assertEqual(said(96, 64, 160, 96), '')
+        self.assertEqual(said(352, 320, 1000, 1000), rf.shape_said(0.1))
+
+    def test_the_size_a_clip_is_brought_to_before_it_is_cut(self):
+        self.assertEqual(rf.covering(1600, 896, 1024, 576), (1029, 576))
+        self.assertEqual(rf.covering(1600, 896, 768, 448), (800, 448))
+        self.assertEqual(rf.covering(1080, 1920, 576, 1024), (576, 1024))
+        self.assertEqual(rf.covering(1600, 896, 1600, 864), (1600, 896))
+        # Its own size cut down to multiples of 32: nothing is shrunk, it is only cut.
+        self.assertEqual(rf.covering(1600, 896, 1600, 896), (1600, 896))
+        self.assertEqual(rf.covering(170, 100, 160, 96), (170, 100))
+
+    def test_a_frame_is_shrunk_with_every_pixel_counted_then_cut_in_its_middle(self):
+        # A gradient across: each pixel shrunk by half is the mean of the two it stands for.
+        gradient = np.repeat(np.linspace(0, 255, 160)[None, :, None], 96, axis=0).repeat(3, axis=2).astype(np.uint8)
+        half = rf.fitted(gradient, 80, 48)
+        self.assertEqual((half.shape, half.dtype, half.flags['C_CONTIGUOUS']), ((48, 80, 3), np.uint8, True))
+        expected = (gradient[0, 0::2, 0].astype(np.float32) + gradient[0, 1::2, 0]) / 2
+        self.assertLessEqual(float(np.abs(half[24, 4:-4, 0] - expected[4:-4]).max()), 2)
+        # Stripes of one pixel are grey once shrunk by half, never stripes again.
+        stripes = np.zeros((96, 160, 3), np.uint8)
+        stripes[:, ::2] = 255
+        grey = rf.fitted(stripes, 80, 48).astype(np.float32)
+        self.assertLess(float(np.abs(grey[4:-4, 4:-4] - 127.5).max()), 3)
+        # Of another shape: shrunk to cover it (64 × 38), then cut in its middle.
+        np.testing.assert_array_equal(rf.fitted(gradient, 64, 32), rf.fitted(gradient, 64, 38)[3:35])
+        # Its own size cut down to multiples of 32: the frame cut in its middle, as it is.
+        frame = texture(3, 100, 170).astype(np.uint8)
+        np.testing.assert_array_equal(rf.fitted(frame, 160, 96), frame[2:98, 5:165])
 
     def test_the_format_a_clip_is_filmed_again_at(self):
         self.assertEqual(
@@ -354,6 +412,20 @@ class ClipTests(Folder):
         np.testing.assert_array_equal(clip[2], held[3][2:98, 5:165])
         np.testing.assert_array_equal(clip[32], held[40][2:98, 5:165])
 
+    def test_a_clip_at_a_smaller_size_is_shrunk_to_cover_it_then_cut_in_its_middle(self):
+        path, held = write(self.folder / 'clip.mkv', pan(5, 1, 33, 128, 224), 24)
+        found = rf.examine(path, BOUNDS)
+        self.assertEqual((found['width'], found['height']), (224, 128))
+        clip, exact = rf.frames_of(path, found, 33, (160, 96))
+        self.assertFalse(exact)
+        self.assertEqual(clip[0].shape, (96, 160, 3))
+        for index in (0, 17, 32):
+            np.testing.assert_array_equal(clip[index], rf.fitted(held[index], 160, 96))
+        # (Brought to 168 × 96, which covers it, then cut by 4 columns on each side.)
+        self.assertEqual(rf.covering(224, 128, 160, 96), (168, 96))
+        # At its own size and rate, the file is read as it is.
+        self.assertTrue(rf.frames_of(path, found, 33, (224, 128))[1])
+
     def test_a_slower_clip_shows_each_frame_for_its_time(self):
         path, _held = write(self.folder / 'clip.mkv', pan(5, 1, 21, 96, 160), 16)
         found = rf.examine(path, BOUNDS)
@@ -372,15 +444,16 @@ class ClipTests(Folder):
         with mock.patch('runner.video.stream.frames', side_effect=AssertionError('read again')):
             with self.assertRaises(rf.Refused):
                 rf.examine(cut, BOUNDS)
-        # Beyond what was measured: larger, then longer.
+        # Longer than the model films: once its frames are more than it films (here 25, 1 s), or than are read at
+        # most (here 20: longer than 20 s at 120 a second, whatever its rate).
         clip, _held = write(self.folder / 'clip.mkv', pan(5, 1, 33, 96, 160), 24)
-        for limits, said in (
-            ([dict(pixels=100 * 100, seconds=5)], rf.SAID['large']),
-            ([dict(pixels=160 * 96, seconds=1)], LONG.format(1)),
+        for patch, said in (
+            (mock.patch.object(rf, 'most_frames', return_value=25), LONG.format(1)),
+            (mock.patch.object(rf, 'MOST_FRAMES', 20), LONG.format(20)),
         ):
             rf._SEEN.clear()
-            with self.subTest(said=said), self.assertRaises(rf.Refused) as refused:
-                rf.examine(clip, dict(BOUNDS, limits=limits))
+            with self.subTest(said=said), patch, self.assertRaises(rf.Refused) as refused:
+                rf.examine(clip, BOUNDS)
             self.assertEqual(str(refused.exception), said)
 
     def test_a_clip_replaced_since_its_check_is_refused(self):
@@ -394,7 +467,12 @@ class ClipTests(Folder):
 class JobTests(Folder):
     def test_a_job_of_the_application_passes_with_a_camera_held_moving_or_turning_round_a_point(self):
         source = self.folder / 'clip.mkv'
-        for extra in ({}, dict(start_azimuth=0, start_elevation=0, start_distance=1), dict(pivot_x=0.3, pivot_y=0.6)):
+        for extra in (
+            {},
+            dict(start_azimuth=0, start_elevation=0, start_distance=1),
+            dict(pivot_x=0.3, pivot_y=0.6),
+            dict(source_width=224, source_height=128),
+        ):
             with self.subTest(**extra):
                 job = job_of(self.folder, source, **extra)
                 self.assertIs(validate_job(job), job)
@@ -406,7 +484,11 @@ class JobTests(Folder):
         twice['references'] *= 2
         unnamed = job_of(self.folder, source)
         del unnamed['parameters']['azimuth']
-        half = (job_of(self.folder, source, pivot_x=0.5), job_of(self.folder, source, start_azimuth=0))
+        half = (
+            job_of(self.folder, source, pivot_x=0.5),
+            job_of(self.folder, source, start_azimuth=0),
+            job_of(self.folder, source, source_width=224),
+        )
         for job in (twice, unnamed, *half):
             with self.subTest(job=job['parameters']), self.assertRaises(ValueError) as failed:
                 rf.check(job, manifest)
@@ -415,12 +497,19 @@ class JobTests(Folder):
             (dict(azimuth=80, elevation=40), rf.SAID['out']),
             (dict(azimuth=3, elevation=2), rf.SAID['near']),
             (dict(distance=1.5), BOUNDS['distance']['unavailable']),
-            (dict(width=1600, height=896), rf.SAID['large']),
-            (dict(width=768, height=448, frames=241), LONG.format(5)),
+            (dict(width=256, height=128, source_width=224, source_height=128), rf.size_said(224, 128)),
+            (dict(width=192, height=96, source_width=224, source_height=128), rf.shape_said(0.1)),
         ):
             with self.subTest(**parameters), self.assertRaises(rf.Refused) as refused:
                 rf.check(job_of(self.folder, source, **parameters), manifest)
             self.assertEqual(str(refused.exception), said)
+        # (0.6.248) Large or long, nothing is refused for the time it takes: the Studio says it before.
+        for parameters in (
+            dict(width=1600, height=896, frames=481),
+            dict(width=1024, height=576, source_width=1600, source_height=896, frames=241),
+        ):
+            with self.subTest(**parameters):
+                self.assertIsNone(rf.check(job_of(self.folder, source, **parameters), manifest))
         # Beyond the bars of the Studio, the manifest refuses it first.
         with self.assertRaises(ValueError):
             validate_job(job_of(self.folder, source, azimuth=120))
@@ -462,6 +551,34 @@ class JobTests(Folder):
             with self.subTest(**wrong), self.assertRaises(rf.Refused) as refused:
                 rf.preflight(job_of(self.folder, path, **wrong), {}, lambda job, config: None)
             self.assertEqual(str(refused.exception), rf.SAID['changed'])
+
+    def test_the_checks_before_the_card_compare_the_size_of_the_clip_not_the_size_chosen(self):
+        path, _held = write(self.folder / 'clip.mkv', pan(5, 1, 33, 128, 224), 24)
+        given = []
+        with (
+            mock.patch('runner.models.headers.header', return_value={'__metadata__': {}}),
+            mock.patch('runner.models.moge2.validate_layout'),
+        ):
+            chosen = job_of(self.folder, path, width=160, height=96, source_width=224, source_height=128)
+            rf.preflight(chosen, {}, lambda job, config: given.append(job))
+            # The job LTX 2.5 makes of it is at the size chosen.
+            self.assertEqual((given[0]['parameters']['width'], given[0]['parameters']['height']), (160, 96))
+            for wrong, said in (
+                (dict(source_width=256), rf.SAID['changed']),
+                (dict(width=224, height=128, source_width=None, source_height=None), None),
+                (dict(width=192, height=96), rf.shape_said(0.1)),
+            ):
+                parameters = dict(chosen['parameters'], **wrong)
+                for key in [key for key, value in parameters.items() if value is None]:
+                    del parameters[key]
+                job = dict(chosen, parameters=parameters)
+                with self.subTest(**wrong):
+                    if said is None:
+                        rf.preflight(job, {}, lambda job, config: None)
+                        continue
+                    with self.assertRaises(rf.Refused) as refused:
+                        rf.preflight(job, {}, lambda job, config: None)
+                    self.assertEqual(str(refused.exception), said)
 
 
 class DispatchTests(unittest.TestCase):
@@ -565,7 +682,7 @@ class PrepareTests(Folder):
         self.assertEqual(summary['depth']['peakGiB'], 1.6)
         self.assertEqual(
             summary['source'],
-            dict(width=160, height=96, frames=33, fps=24.0, timedAgain=False, cut=False, sound=True),
+            dict(width=160, height=96, frames=33, fps=24.0, timedAgain=False, shrunk=False, cut=False, sound=True),
         )
         self.assertTrue(all(0 <= value <= 1 for value in summary['holes'].values()))
         sound, rate = saved.kwargs['audio']
@@ -588,10 +705,31 @@ class PrepareTests(Folder):
         self.assertEqual(metadata['refilm']['pivotNamed'], [0.3, 0.6])
         self.assertEqual(
             metadata['refilm']['source'],
-            dict(width=170, height=100, frames=41, fps=30.0, timedAgain=True, cut=True, sound=False),
+            dict(width=170, height=100, frames=41, fps=30.0, timedAgain=True, shrunk=False, cut=True, sound=False),
         )
         self.assertFalse(metadata['audio'])
         self.assertIsNone(saved.kwargs['audio'])
+
+    def test_a_clip_filmed_at_a_smaller_size_is_shrunk_first_and_all_is_made_at_that_size(self):
+        from runner.video.stream import frames as decode
+
+        path, held = write(self.folder / 'clip.mkv', pan(5, 1, 33, 128, 224), 24)
+        job = job_of(self.folder, path, width=160, height=96, source_width=224, source_height=128)
+        converted, _told, _drop, saved = self.prepare(job)
+        # The depth of the clip shrunk, its guide and LTX 2.5 at the size chosen; the clip as LTX reads it, shrunk.
+        source = self.folder / 'work' / 'source.mkv'
+        self.assertEqual(converted['references'][1]['path'], str(source))
+        self.assertEqual((converted['parameters']['width'], converted['parameters']['height']), (160, 96))
+        guide = list(decode(self.folder / 'work' / 'guide.mkv'))
+        self.assertEqual((len(guide), guide[0].shape), (33, (96, 160, 3)))
+        shrunk = list(decode(source))
+        np.testing.assert_array_equal(shrunk[9], rf.fitted(held[9], 160, 96))
+        self.assertEqual(
+            saved.args[3]['refilm']['source'],
+            dict(width=224, height=128, frames=33, fps=24.0, timedAgain=False, shrunk=True, cut=True, sound=False),
+        )
+        # What the video is written with: the job, its size the one chosen.
+        self.assertEqual((saved.args[3]['parameters']['width'], saved.args[3]['parameters']['height']), (160, 96))
 
     def test_the_work_is_removed_after_the_video_and_after_a_failure(self):
         made = []
