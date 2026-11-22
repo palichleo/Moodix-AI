@@ -13,8 +13,12 @@
 const MARGIN = 8,
   GAP = 6;
 
-/** Opens `menu` against `anchor`: under it, above when there is no room below; its right edges on it. */
-export function openPopup(menu, anchor, { view = globalThis, align = 'end' } = {}) {
+/**
+ * Opens `menu` against `anchor`: under it, above when there is no room below; its right edges on it.
+ * (0.6.206) `beside`: an element the menu goes at the left of instead, their tops level (the window of « Plus
+ * de réglages » against the column of the Réglages); at its right when its left has no room.
+ */
+export function openPopup(menu, anchor, { view = globalThis, align = 'end', beside = null } = {}) {
   menu.hidden = false;
   if (typeof menu.showPopover !== 'function' || !anchor?.getBoundingClientRect) return;
   try {
@@ -28,8 +32,17 @@ export function openPopup(menu, anchor, { view = globalThis, align = 'end' } = {
   const box = anchor.getBoundingClientRect(),
     size = menu.getBoundingClientRect(),
     width = view.innerWidth ?? 1280,
-    height = view.innerHeight ?? 800,
-    below = box.bottom + GAP + size.height <= height - MARGIN,
+    height = view.innerHeight ?? 800;
+  if (beside?.getBoundingClientRect) {
+    const edge = beside.getBoundingClientRect(),
+      fits = edge.left - GAP - size.width >= MARGIN,
+      at = fits ? edge.left - GAP - size.width : edge.right + GAP;
+    menu.style.left = Math.round(Math.max(MARGIN, Math.min(at, width - size.width - MARGIN))) + 'px';
+    menu.style.top = Math.round(Math.max(MARGIN, Math.min(edge.top, height - size.height - MARGIN))) + 'px';
+    menu.dataset.side = fits ? 'left' : 'right';
+    return;
+  }
+  const below = box.bottom + GAP + size.height <= height - MARGIN,
     above = box.top - GAP - size.height >= MARGIN,
     top = below || !above ? box.bottom + GAP : box.top - GAP - size.height,
     left = align === 'start' ? box.left : box.right - size.width;

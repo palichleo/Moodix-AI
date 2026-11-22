@@ -3466,6 +3466,19 @@ test('« Enrichir le prompt » rewrites what is typed, which can be taken back; 
     more.onclick();
     assert.equal(body.find('studio-rare')[0].hidden, false);
     assert.equal(body.find('studio-seed').length, 1);
+    // (0.6.206, captures 110 and 111) Its lines in a window of glass named as its pill, not in a block of the
+    // column: the column of the Réglages no longer grows with them.
+    const [pane] = body.find('studio-more-window');
+    assert.deepEqual(
+      [pane.className, pane.attributes.role, pane.attributes['aria-label'], pane.hidden, pane.children.map(part => part.className)],
+      ['glass-menu studio-more-window', 'dialog', 'Plus de réglages', false, ['studio-window-title', 'studio-rare']],
+    );
+    assert.equal(pane.children[0].textContent, 'Plus de réglages');
+    assert.deepEqual(body.find('studio-set-block').filter(block => /studio-rare/.test(block.className)), []);
+    assert.deepEqual(
+      [body.find('studio-more-pill')[0].attributes['aria-haspopup'], body.find('studio-more-pill')[0].attributes['aria-expanded'], body.find('studio-more-pill')[0].className],
+      ['dialog', 'true', 'studio-more-pill is-open'],
+    );
     // The LoRAs in their own block: « LoRA · n / 3 », a line each, and no fourth.
     for (let added = 0; added < 3; added++) body.find('studio-lora-plus')[0].onclick();
     assert.equal(body.find('studio-lora-row').length, 3);
@@ -4477,6 +4490,11 @@ test('a replacement proposed in the chat is set by the pointer: the model, the v
       waiting.body.find('studio-piece-window').map(pane => [pane.attributes['aria-label'], pane.find('studio-field')[0].children[1].value]),
       [['Personnage', 'man']],
     );
+    // (0.6.206) Who is who is no setting of « Plus de réglages »: its window is not opened for it.
+    assert.deepEqual(
+      [waiting.body.find('studio-more-window')[0].hidden, waiting.body.find('studio-more-pill')[0].attributes['aria-expanded']],
+      [true, 'false'],
+    );
     waiting.studio.decline();
     assert.equal(await answer, 'deny');
   } finally {
@@ -5255,7 +5273,7 @@ const lookRoutes = {
   'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }),
 };
 
-test('a take dropped on the screen is shown there with all that made it, its very seed, « Plus de réglages » open; « Revenir » gives the Studio back', async () => {
+test('a take dropped on the screen is shown there with all that made it, its very seed (« Plus de réglages » left closed, 0.6.206); « Revenir » gives the Studio back', async () => {
   const page = await studioPage(lookModels(), lookRoutes, { runs: lookRuns(), project: () => 'p1' });
   const { body, studio, restore } = page;
   const back = () => body.find('studio-look-back')[0],
@@ -5283,7 +5301,10 @@ test('a take dropped on the screen is shown there with all that made it, its ver
     assert.equal(onScreen(), '/film.mp4');
     assert.equal(page.prompt().value, 'un renard court dans la neige');
     assert.deepEqual(slots(), ['/fox.jpg'], 'its start image back in its case');
-    assert.equal(body.find('studio-rare')[0].hidden, false, '« Plus de réglages » open');
+    // (0.6.206) « Plus de réglages » is not opened for it any more: a window now, it would hide the take
+    // looked at. Its seed is there for the one who opens it.
+    assert.equal(body.find('studio-rare')[0].hidden, true, '« Plus de réglages » left closed');
+    assert.equal(body.find('studio-seed')[0].children[1].value, '777');
     // The actions of that take, on the bar of the screen.
     assert.ok(body.find('output-actions')[0].children.length > 0);
     let args = await seedOf(page);
@@ -5358,7 +5379,7 @@ test('a file dropped on the screen: one Moodix made says what made it, whatever 
     assert.equal(body.dataset.mode, 'image');
     assert.equal(onScreen(), '/preview/phare.png');
     assert.equal(page.prompt().value, 'un phare');
-    assert.equal(body.find('studio-rare')[0].hidden, false);
+    assert.equal(body.find('studio-rare')[0].hidden, true);
     let made = await seedOf(page);
     assert.deepEqual([made.width, made.height, made.steps, made.seed], [1344, 768, 30, 99]);
     // Its actions take it as a reference of the project.
@@ -7160,13 +7181,181 @@ test('(0.6.205) a proposal of Moodix AI that sets a bar of « Plus de réglages 
     );
     // (Its help above it, as every bar of the column: only a bar in a window says it beside the window.)
     assert.equal(body.find('studio-rare')[0].find('studio-bar-line')[0].dataset.tipSide, undefined);
-    // « Débruitage » is not among them: in the window of its image, open too.
+    // « Débruitage » is not among them: in the window of its image, where the pointer set it first. (0.6.206)
+    // One thing open at a time: that window closed for « Plus de réglages », the last one set.
     assert.deepEqual(body.find('studio-rare')[0].find('studio-bar').map(bar => bar.dataset.ai), ['setting-shift']);
-    assert.deepEqual(body.find('studio-piece-window').map(pane => pane.find('studio-bar')[0].dataset.ai), ['setting-denoise']);
+    assert.deepEqual(body.find('studio-piece-window'), []);
+    body.find('studio-slot-pick')[0].onclick();
+    assert.deepEqual(
+      [body.find('studio-piece-window').map(pane => pane.find('studio-bar')[0].attributes['aria-valuetext']), body.find('studio-rare')[0].hidden],
+      [['0,70'], true],
+    );
     studio.decline();
     assert.equal(await answer, 'deny');
   } finally {
     restore();
+  }
+  // The other way round (a model whose settings come in that order), the bar of « Plus de réglages » first,
+  // then the one of the piece: that window is the one left open, « Plus de réglages » closed for it.
+  const words = [],
+    reversed = kreaWithDenoise();
+  reversed.settings.unshift({ key: 'shift', type: 'number', min: 0, max: 1, default: 0.5 });
+  const other = await studioPage({ create_image: [reversed] }, {}, { runs: [], cursor: words, targets: true });
+  try {
+    const proposal = kreaProposal({ denoise: 0.62 });
+    proposal.plan.parameters.shift = 0.3;
+    proposal.plan.editable.parameters.push({ key: 'shift', type: 'number', value: 0.3, min: 0, max: 1 });
+    const answer = other.studio.propose(proposal, new AbortController().signal);
+    await until(() => words.includes('attend votre accord'));
+    const [first, then] = ['règle décalage (shift)', 'règle débruitage'].map(step => words.indexOf(step));
+    assert.ok(first >= 0 && first < then, words.join(' | '));
+    assert.deepEqual(
+      [
+        other.body.find('studio-piece-window').map(pane => pane.find('studio-bar')[0].attributes['aria-valuetext']),
+        other.body.find('studio-rare')[0].hidden,
+        other.body.find('studio-more-pill')[0].attributes['aria-expanded'],
+      ],
+      [['0,62'], true, 'false'],
+    );
+    other.studio.decline();
+    assert.equal(await answer, 'deny');
+  } finally {
+    other.restore();
+  }
+});
+
+test('(0.6.206) « Plus de réglages » is a window: it closes at a press outside the Réglages and at Échap, one thing open at a time; the pointer of Moodix AI opens it for any of its settings', async () => {
+  // (Captures 110 and 111. Under its pill, its lines made the column of the Réglages scroll.)
+  const krea = kreaWithDenoise();
+  krea.settings.push({ key: 'steps', type: 'integer', min: 1, max: 50, default: 8 });
+  const page = await studioPage({ create_image: [krea] }, {});
+  const { body, studio, pagePointers, pageKeys, restore } = page;
+  try {
+    const pill = () => body.find('studio-more-pill')[0],
+      open = () => [!body.find('studio-more-window')[0].hidden, pill().attributes['aria-expanded']],
+      press = target => {
+        pagePointers.forEach(listener => listener({ target }));
+        // (Closed without drawing the Studio again, a press being a click too: seen once it is drawn.)
+        studio.render();
+      },
+      // (A key as the page hears it: once taken, `defaultPrevented` says so to those that hear it after.)
+      key = (name, target = {}) => {
+        const event = {
+          key: name,
+          target,
+          taken: 0,
+          defaultPrevented: false,
+          preventDefault() {
+            this.taken++;
+            this.defaultPrevented = true;
+          },
+        };
+        pageKeys.forEach(listener => listener(event));
+        studio.render();
+        return event.taken;
+      };
+    assert.deepEqual(open(), [false, 'false']);
+    pill().onclick();
+    assert.deepEqual(open(), [true, 'true']);
+    // A press in the Réglages leaves it open (a format changed with it open, as when its lines were under its
+    // pill); a press anywhere else closes it.
+    press({ closest: selector => (selector === '.studio-block.is-settings' ? {} : null) });
+    assert.deepEqual(open(), [true, 'true']);
+    press({ closest: () => null });
+    assert.deepEqual(open(), [false, 'false']);
+    // Échap closes it and is taken; a list open in it takes Échap first, and so does « ··· » of the formats.
+    pill().onclick();
+    assert.equal(key('Escape', { closest: selector => (selector === '[role="listbox"]' ? {} : null) }), 0);
+    assert.deepEqual(open(), [true, 'true']);
+    // (One Échap closes one thing: the two were closed at once.)
+    body.find('studio-format').find(chip => /is-more/.test(chip.className)).onclick();
+    assert.equal(key('Escape'), 1, 'taken by « ··· », which closes alone');
+    assert.deepEqual(open(), [true, 'true']);
+    assert.equal(key('Escape'), 1);
+    assert.deepEqual(open(), [false, 'false']);
+    assert.equal(key('Escape'), 0, 'nothing open: left to the page');
+    // One thing open at a time: the window of a piece closes for it, and it for the window of a piece or the
+    // list « Ajouter ».
+    await pasteImage(body);
+    body.find('studio-slot-pick')[0].onclick();
+    assert.equal(body.find('studio-piece-window').length, 1);
+    pill().onclick();
+    assert.deepEqual([open(), body.find('studio-piece-window').length], [[true, 'true'], 0]);
+    body.find('studio-slot-pick')[0].onclick();
+    assert.deepEqual([open(), body.find('studio-piece-window').length], [[false, 'false'], 1]);
+    pill().onclick();
+    body.find('studio-add-pick')[0].onclick();
+    studio.render();
+    assert.deepEqual([open(), body.find('studio-add')[0].children[2].hidden], [[false, 'false'], false]);
+    pill().onclick();
+    assert.deepEqual([open(), body.find('studio-add')[0].children[2].hidden], [[true, 'true'], true]);
+    pill().onclick();
+    assert.deepEqual(open(), [false, 'false']);
+    // One Échap closes one thing for the window of a piece and for the list « Ajouter » too: « ··· » of the
+    // formats, open with them, takes it first.
+    const more = () => body.find('studio-format').find(chip => /is-more/.test(chip.className));
+    body.find('studio-slot-pick')[0].onclick();
+    more().onclick();
+    assert.deepEqual([key('Escape'), body.find('studio-piece-window').length, more().attributes['aria-expanded']], [1, 1, 'false']);
+    assert.deepEqual([key('Escape'), body.find('studio-piece-window').length], [1, 0]);
+    body.find('studio-add-pick')[0].onclick();
+    more().onclick();
+    assert.deepEqual([key('Escape'), body.find('studio-add')[0].children[2].hidden, more().attributes['aria-expanded']], [1, false, 'false']);
+    assert.deepEqual([key('Escape'), body.find('studio-add')[0].children[2].hidden], [1, true]);
+    // In the page: 500 px wide, two columns, fields of 34 px, a long text over both.
+    const { readFile } = await import('node:fs/promises');
+    const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+    const rule = selector => css.slice(css.lastIndexOf('\n' + selector + ' {'), css.indexOf('}', css.lastIndexOf('\n' + selector + ' {')));
+    assert.match(rule('.glass-menu.studio-more-window'), /width: 500px;/);
+    assert.match(rule('.studio-more-window .studio-rare'), /grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\);/);
+    assert.match(rule('.studio-more-window .studio-rare > .studio-field.is-wide'), /grid-column: 1 \/ -1;/);
+    assert.match(rule("#studio-view .studio-more-window .studio-rare :is(input[type='number'], input[type='text'], button.glass-select)"), /height: 34px;/);
+    assert.doesNotMatch(css, /\.studio-rare > \* \+ \*/);
+  } finally {
+    restore();
+  }
+  // A proposal that sets a field of it (« Étapes »): the window is opened for it, where the pointer goes and the
+  // user sees the value (closed, the pointer went to a field that was not shown).
+  const said = [],
+    proposed = await studioPage({ create_image: [krea] }, {}, { runs: [], cursor: said, targets: true });
+  try {
+    const proposal = kreaProposal({ image: false });
+    proposal.plan.parameters.steps = 12;
+    proposal.plan.editable.parameters.push({ key: 'steps', type: 'integer', value: 12, min: 1, max: 50 });
+    const answer = proposed.studio.propose(proposal, new AbortController().signal);
+    await until(() => said.includes('attend votre accord'));
+    assert.ok(said.includes('règle étapes'), said.join(' | '));
+    const steps = proposed.body.find('studio-rare')[0].find('studio-field').map(line => [line.find('studio-label')[0].textContent, line.children[1].value]);
+    assert.deepEqual(
+      [proposed.body.find('studio-more-window')[0].hidden, proposed.body.find('studio-more-pill')[0].attributes['aria-expanded'], steps],
+      [false, 'true', [['Étapes', '12']]],
+    );
+    proposed.studio.decline();
+    assert.equal(await answer, 'deny');
+  } finally {
+    proposed.restore();
+  }
+  // The length of a sound is on the bar of Durée, never among them (one rule for its lines and for the pointer).
+  const sound = {
+      id: 's',
+      name: 'Bruitages',
+      roles: {},
+      seeded: true,
+      settings: [
+        { key: 'seconds', type: 'number', min: 1, max: 30, default: 10 },
+        { key: 'steps', type: 'integer', min: 1, max: 50, default: 8 },
+      ],
+    },
+    audio = await studioPage({ create_audio: [sound] }, {});
+  try {
+    audio.mode(2);
+    audio.body.find('studio-more-pill')[0].onclick();
+    assert.deepEqual(
+      audio.body.find('studio-rare')[0].children.map(line => (line.find('studio-bar-label')[0] ?? line.find('studio-label')[0]).textContent),
+      ['Seed', 'Étapes'],
+    );
+  } finally {
+    audio.restore();
   }
 });
 
@@ -7806,7 +7995,7 @@ test('followed again before its tools are read (a page just reloaded), the Studi
   }
 });
 
-test('drawn again, Réglages and Entrée stay where they were scrolled to; « Plus de réglages » opened is brought into sight', async () => {
+test('drawn again, Réglages and Entrée stay where they were scrolled to; « Plus de réglages », a window, scrolls nothing (0.6.206)', async () => {
   // (0.6.102) Each drawing sent them back to their top, as the Sortie was before (0.6.92): a LoRA
   // switched, a setting changed, « Plus de réglages » opened at the foot of a long column.
   const blocks = new Map();
@@ -7848,12 +8037,11 @@ test('drawn again, Réglages and Entrée stay where they were scrolled to; « Pl
     page.studio.render();
     assert.notEqual(desk, null);
     assert.deepEqual([querySelector(settings).scrollTop, querySelector(input).scrollTop], [140, 60]);
-    // Opened: brought into sight, as little as it takes, from where the column was; its pill in sight
-    // when it is taller than the room it has.
+    // (0.6.206) Opened: a window over the preview, the column is not scrolled to it (under its pill, it was
+    // brought into sight, 0.6.102).
     page.body.find('studio-more-pill')[0].onclick();
     assert.equal(page.body.find('studio-rare')[0].hidden, false);
-    assert.deepEqual(querySelector(rare).into, [{ block: 'nearest' }]);
-    assert.deepEqual(querySelector('#studio-view .studio-more-pill').into, [{ block: 'nearest' }]);
+    assert.deepEqual([querySelector(rare).into, querySelector('#studio-view .studio-more-pill').into], [[], []]);
     assert.equal(querySelector(settings).scrollTop, 140);
     // Drawn again open (a setting changed): it stays where the user scrolled, nothing is brought.
     querySelector(settings).scrollTop = 300;

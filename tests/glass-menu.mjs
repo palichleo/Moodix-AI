@@ -343,3 +343,46 @@ test('a list is dressed wherever it is drawn, and the check of the interface loo
   assert.match(run, /await js\(RAW_LISTS\)/);
   assert.match(run, /problems\.push\(\[name, 'liste', /);
 });
+
+test('(0.6.206) a menu opened beside an element goes at its left, their tops level; at its right when its left has no room; never out of the window', async () => {
+  // (The window of « Plus de réglages » against the column of the Réglages, captures 110 and 111.)
+  const { openPopup } = await import('../public/glass-menu.mjs');
+  const menu = (width, height) => ({
+      hidden: true,
+      shown: false,
+      style: {},
+      dataset: {},
+      attributes: {},
+      hasAttribute(name) {
+        return name in this.attributes;
+      },
+      setAttribute(name, value) {
+        this.attributes[name] = value;
+      },
+      matches: () => false,
+      showPopover() {
+        this.shown = true;
+      },
+      getBoundingClientRect: () => ({ left: 0, top: 0, right: width, bottom: height, width, height }),
+    }),
+    box = (left, top, width, height) => ({ getBoundingClientRect: () => ({ left, top, width, height, right: left + width, bottom: top + height }) }),
+    view = { innerWidth: 1280, innerHeight: 720 },
+    column = box(988, 120, 268, 391),
+    pill = box(1004, 400, 236, 44);
+  let pane = menu(500, 300);
+  openPopup(pane, pill, { view, beside: column });
+  assert.deepEqual([pane.hidden, pane.shown, pane.attributes.popover, pane.style.position], [false, true, 'manual', 'fixed']);
+  assert.deepEqual([pane.style.left, pane.style.top, pane.dataset.side], ['482px', '120px', 'left']);
+  // No room at its left: at its right.
+  pane = menu(500, 300);
+  openPopup(pane, pill, { view, beside: box(10, 120, 268, 391) });
+  assert.deepEqual([pane.style.left, pane.style.top, pane.dataset.side], ['284px', '120px', 'right']);
+  // Taller than what is under its top: kept in the window.
+  pane = menu(500, 660);
+  openPopup(pane, pill, { view, beside: column });
+  assert.deepEqual([pane.style.left, pane.style.top], ['482px', '52px']);
+  // Without it, as before: under its anchor, their right edges level.
+  pane = menu(200, 100);
+  openPopup(pane, box(300, 100, 80, 30), { view });
+  assert.deepEqual([pane.style.left, pane.style.top, pane.dataset.side], ['180px', '136px', 'below']);
+});

@@ -78,15 +78,19 @@ const shippedStudio = {
  * with all it may show; what goes over the Sortie, what the pointer cannot reach, a page that scrolls,
  * in the user's words. The Studio draws each change at once (render): read as soon as it is done.
  */
-const STUDIO_LAYOUT = `(() => {
+const STUDIO_LAYOUT = `(async () => {
   const found = [],
     desk = () => document.querySelector('#studio-view .studio-desk'),
     click = selector => document.querySelector(selector)?.click(),
     // What cuts what it holds: a control is in sight where all of them leave it.
     clips = control => {
       const rooms = [];
-      for (let node = control.parentElement; node && node !== document.body; node = node.parentElement)
+      for (let node = control.parentElement; node && node !== document.body; node = node.parentElement) {
         if (getComputedStyle(node).overflowY !== 'visible') rooms.push(node.getBoundingClientRect());
+        // (0.6.206) A window shown above the page (« Plus de réglages ») is cut by itself alone, not by the
+        // block it is written in: its controls are read where they are shown.
+        if (node.matches(':popover-open')) break;
+      }
       return rooms;
     },
     named = element => element ? element.getAttribute('class') || element.tagName : 'rien';
@@ -98,6 +102,17 @@ const STUDIO_LAYOUT = `(() => {
       const block = desk().querySelector('.studio-block.' + kind),
         over = block ? Math.round(block.getBoundingClientRect().bottom - top) : 0;
       if (over > 0) found.push(where + ' : le bloc ' + label + ' passe ' + over + ' px sous la Sortie');
+      // (0.6.206) A block may still scroll in itself: the Réglages do at 1280 × 720 with three LoRAs added, or
+      // with the note of a model this computer cannot run (measured: 433 and 443 px for 407). Not refused here.
+    }
+    // (0.6.206) The window of « Plus de réglages », when it is open: whole in the window, never over « Générer ».
+    const pane = desk().querySelector('.studio-more-window:popover-open');
+    if (pane) {
+      const box = pane.getBoundingClientRect(),
+        go = desk().querySelector('.studio-go-group')?.getBoundingClientRect();
+      if (box.left < 0 || box.top < 0 || box.right > innerWidth || box.bottom > innerHeight) found.push(where + ' : la fenêtre « Plus de réglages » sort de la fenêtre');
+      if (go && box.left < go.right && box.right > go.left && box.top < go.bottom && box.bottom > go.top) found.push(where + ' : la fenêtre « Plus de réglages » passe sur « Générer »');
+      if (pane.scrollHeight > pane.clientHeight + 1) found.push(where + ' : la fenêtre « Plus de réglages » défile (' + pane.scrollHeight + ' px pour ' + pane.clientHeight + ')');
     }
     const page = document.documentElement;
     if (page.scrollHeight > innerHeight + 1 || page.scrollWidth > innerWidth + 1) found.push(where + ' : la page défile');
@@ -116,6 +131,10 @@ const STUDIO_LAYOUT = `(() => {
       const hit = document.elementFromPoint((left + right) / 2, (upper + lower) / 2);
       // (A bubble of help, or the pointer of Moodix AI, passes over the page: no part of its layout.)
       if (hit?.closest('.help-bubble, .ai-cursor')) continue;
+      // (0.6.206) Nor the window of « Plus de réglages » the user opened over the preview (capture 110: it hides
+      // the screen and « Son » while it is open): what it covers is reached once it is closed. Its own controls
+      // are read as the others.
+      if (hit?.closest('.studio-more-window') && !control.closest('.studio-more-window')) continue;
       if (!hit || !(hit === control || control.contains(hit) || (hit.tagName === 'LABEL' && hit.contains(control))))
         found.push(where + ' : « ' + (control.getAttribute('aria-label') || control.textContent.trim() || named(control)) + ' » hors de portée, sous ' + named(hit));
     }
@@ -146,8 +165,14 @@ const STUDIO_LAYOUT = `(() => {
         else add.click();
         if (document.querySelector('#studio-view .studio-add-menu:not([hidden])')) found.push(name + ' : la liste « Ajouter » reste ouverte');
       }
-      if (!document.querySelector('#studio-view .studio-more-pill')?.classList.contains('is-open')) click('#studio-view .studio-more-pill');
+      // (0.6.206) « Plus de réglages » is a window, shown once the Studio is drawn: read then, with its fields
+      // (look), and closed again so that the next model is read as it opens.
+      const pill = () => document.querySelector('#studio-view .studio-more-pill');
+      if (pill() && !pill().classList.contains('is-open')) pill().click();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      if (pill() && !document.querySelector('#studio-view .studio-more-window:popover-open')) found.push(name + ' : la fenêtre « Plus de réglages » ne s’ouvre pas');
       look(name + ', tout ouvert');
+      if (pill()?.classList.contains('is-open')) pill().click();
     }
   }
   return found;

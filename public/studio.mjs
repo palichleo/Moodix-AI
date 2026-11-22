@@ -154,6 +154,15 @@ const WHO = {
       '« person » suffit pour un humain.',
   },
 };
+/**
+ * (0.6.206) Whether a setting of a workflow is one of « Plus de réglages »: not the lyrics of a song (under the
+ * prompt), nor who is who (in the windows of its pieces), nor the length of a sound (on the bar of Durée). One
+ * rule for its lines and for the pointer of Moodix AI, which opens its window for them.
+ */
+const rareSetting = setting =>
+  !(setting.key === 'lyrics' && setting.type === 'string') &&
+  !(WHO[setting.key] && setting.type === 'string') &&
+  !(setting.key === 'seconds' && setting.type === 'number');
 const VIDEO_TYPES = ['video/mp4', 'video/webm'];
 const SETTING_HELP = { lyrics: 'Vide pour un morceau instrumental. Balises : [Verse], [Chorus], [Bridge]…' };
 const MAX_STYLES = 3;
@@ -420,11 +429,11 @@ export function setupStudio({
     extending = null, // the clip being continued
     failure = '',
     advanced = false, // « Plus de réglages » is open
-    revealRare = false, // it has just been opened: brought into sight once drawn (0.6.102)
     formatsOpen = false, // « ··· » is open
     addOpen = false, // (0.6.203) the list of « Ajouter » is open
     pieceOpen = null, // (0.6.204) { role, index }: the piece given whose small window is open
     pieceFocus = false, // (0.6.204) that window was just opened by a click: the focus goes into it
+    moreFocus = false, // (0.6.206) the same for the window of « Plus de réglages », opened by its pill
     drawn = null, // the size the frame was last drawn at, to ease from
     watching = null, // follows the size of the stage
     laidOut = false, // the stage was in sight at the last look: its screen eases to a new shape
@@ -1065,6 +1074,7 @@ export function setupStudio({
     pieceOpen = same ? null : { role, index };
     pieceFocus = !same;
     addOpen = false;
+    if (pieceOpen) advanced = false;
     render();
   }
   /**
@@ -1483,8 +1493,10 @@ export function setupStudio({
         'studio-add-pick',
         '',
         () => {
-          // (0.6.204) One thing open at a time: the window of a piece closes for this list.
+          // (0.6.204) One thing open at a time: the window of a piece closes for this list, and (0.6.206) that
+          // of « Plus de réglages ».
           if (pieceOpen) closeWindow();
+          if (advanced) closeMore();
           addOpen = !addOpen;
           piece.classList.toggle('is-open', addOpen);
           pick.setAttribute('aria-expanded', String(addOpen));
@@ -2264,13 +2276,11 @@ export function setupStudio({
       lines.push(row);
     }
     for (const setting of workflow.settings) {
-      if (setting.key === 'lyrics' && setting.type === 'string') continue;
-      // Who is who is said in the windows of its two pieces (windowLines).
-      if (WHO[setting.key] && setting.type === 'string') continue;
+      // Not the lyrics, who is who (in the windows of its two pieces, windowLines), a sound's length (on the
+      // bar of Durée): rareSetting.
+      if (!rareSetting(setting)) continue;
       // (0.6.205) Each line where it is set: in the window of its piece, or here.
       if (pieceOf(workflow, setting) !== piece) continue;
-      // A sound's length is on the bar of Durée.
-      if (setting.key === 'seconds' && setting.type === 'number') continue;
       if (fineSetting(setting)) {
         lines.push(fineLine(workflow, setting, { side: piece ? 'right' : '' }));
         continue;
@@ -3460,12 +3470,18 @@ export function setupStudio({
     const marked = key !== 'prompt';
     // `rare`: a setting under « Plus de réglages », opened for it: the pointer does not go to what
     // is folded, and the user sees the value it sets, theirs to change before « Générer ».
-    if (rare) advanced = true;
+    if (rare) {
+      advanced = true;
+      pieceOpen = null;
+    }
     // (0.6.204) A setting that lives in the window of a piece (who is who; 0.6.205, « Débruitage »): its window
     // opened for it, for the same reason, and left open: the user sees the value set there, as under « Plus de
     // réglages » (one window at a time: the last piece set).
     const inWindow = windowOf(key);
-    if (inWindow) pieceOpen = inWindow;
+    if (inWindow) {
+      pieceOpen = inWindow;
+      advanced = false;
+    }
     ai.active = marked ? key : null;
     render();
     // (Its window is shown once on the page: the pointer goes to its field where it is then.)
@@ -3743,9 +3759,13 @@ export function setupStudio({
       const value = draft.settings[workflow.id]?.[key];
       return onBar(key) ? fineValue(onBar(key), value) : (value ?? '');
     };
-    // (0.6.205) A bar under « Plus de réglages », which is opened for it; one set with a piece is in the window
-    // of that piece (stepTo opens it), not there.
-    const rareBar = key => Boolean(onBar(key)) && !pieceOf(workflow, onBar(key));
+    // (0.6.205) A setting under « Plus de réglages », which is opened for it; one set with a piece is in the
+    // window of that piece (stepTo opens it), not there. (0.6.206) Every one of them, a field as a bar: its
+    // window closed, the pointer went to a field that was not shown.
+    const rareBar = key => {
+      const setting = workflow.settings.find(item => item.key === key);
+      return Boolean(setting) && rareSetting(setting) && !pieceOf(workflow, setting);
+    };
     for (const [key, value] of Object.entries(values.settings))
       if (values.settingsFree[key] && String(shown(key)) !== String(value))
         steps.push([
@@ -5350,17 +5370,31 @@ export function setupStudio({
     if (rare.length) {
       const more = button('studio-more-pill' + (advanced ? ' is-open' : ''), '···', () => {
         advanced = !advanced;
-        revealRare = advanced;
+        // (0.6.206) One thing open at a time: the list « Ajouter » and the window of a piece close for it.
+        if (advanced) {
+          addOpen = false;
+          pieceOpen = null;
+        }
+        moreFocus = advanced;
         render();
       });
       more.append(node('span', 'studio-more-word', 'Plus de réglages'));
       more.setAttribute('aria-label', 'Plus de réglages');
       more.title = 'Plus de réglages';
+      more.setAttribute('aria-haspopup', 'dialog');
       more.setAttribute('aria-expanded', String(advanced));
-      const block = node('div', 'studio-set-block studio-rare');
-      block.hidden = !advanced;
+      // (0.6.206, captures 110 and 111; his decision N1 of 21/11) Its lines in a window of glass against the
+      // column, at its left, over the preview, in two columns: opened under its pill, they made the column of
+      // the Réglages scroll, the model and the format out of sight. Shown once on the page (showMore).
+      const pane = node('div', 'glass-menu studio-more-window'),
+        block = node('div', 'studio-rare');
+      pane.setAttribute('role', 'dialog');
+      pane.setAttribute('aria-label', 'Plus de réglages');
+      pane.hidden = block.hidden = !advanced;
       block.append(...rare);
-      settings.append(more, block);
+      pane.append(node('p', 'studio-window-title', 'Plus de réglages'), block);
+      settings.append(more, pane);
+      if (advanced) globalThis.queueMicrotask?.(() => pane.isConnected && advanced && showMore(pane, more));
     }
 
     // The preview, its formats and the button.
@@ -5605,15 +5639,6 @@ export function setupStudio({
       const block = tops[at] ? document.querySelector?.(selector) : null;
       if (block) block.scrollTop = tops[at];
     });
-    // « Plus de réglages » just opened: brought into sight, under its pill, as far as the block allows
-    // (taller than the room it has, from its pill, which stays in sight).
-    if (revealRare) {
-      revealRare = false;
-      if (advanced) {
-        document.querySelector?.('#studio-view .studio-rare')?.scrollIntoView?.({ block: 'nearest' });
-        document.querySelector?.('#studio-view .studio-more-pill')?.scrollIntoView?.({ block: 'nearest' });
-      }
-    }
     if (working) progress();
     // Nothing made any more: the Flux leaves with its frame.
     else if (flux) {
@@ -6204,8 +6229,9 @@ export function setupStudio({
     formatsOpen = false;
     failure = '';
     if (info && modelsOf(target).some(item => item.id === record.workflowId)) {
+      // (0.6.206, point 5 of LOTS.md) « Plus de réglages » is not opened for it any more: a window now, it
+      // would hide the take looked at. Its settings are on its page, and a press on the pill away.
       const { lost, gone } = adopt(record, { exactSeed: true });
-      advanced = true;
       failure = [
         lost > 1
           ? `${lost} images utilisées pour cette prise n’existent plus : leurs cases sont restées vides.`
@@ -6339,6 +6365,50 @@ export function setupStudio({
     },
     true,
   );
+  /**
+   * (0.6.206) The window of « Plus de réglages », shown against the column of the Réglages, at its left, their
+   * tops level, never over « Générer »: as tall as what is above it at most, its lines scrolling in it beyond.
+   */
+  function showMore(pane, more) {
+    const column = document.querySelector?.('#studio-view .studio-block.is-settings'),
+      top = column?.getBoundingClientRect?.().top,
+      limit = document.querySelector?.('#studio-view .studio-go-group')?.getBoundingClientRect?.().top;
+    if (Number.isFinite(top) && Number.isFinite(limit) && limit - top > 172) pane.style.maxHeight = Math.round(limit - top - 12) + 'px';
+    openPopup(pane, more, { beside: column });
+    // Opened by its pill, the focus goes into it (its first field): the pill drawn again had lost it.
+    if (moreFocus) pane.querySelector?.('input, select, textarea, button')?.focus?.();
+    moreFocus = false;
+  }
+  // It closes at a press outside the Réglages (their own controls leave it open: a format changed, it stays,
+  // as its lines did under the pill), at Échap (the focus back on its pill), without drawing the Studio again.
+  function closeMore({ refocus = false } = {}) {
+    advanced = false;
+    const more = document.querySelector?.('#studio-view .studio-more-pill'),
+      pane = document.querySelector?.('#studio-view .studio-more-window');
+    if (pane) closePopup(pane);
+    more?.classList?.remove?.('is-open');
+    more?.setAttribute?.('aria-expanded', 'false');
+    if (refocus) more?.focus?.();
+  }
+  document.addEventListener?.(
+    'pointerdown',
+    event => {
+      if (advanced && !event.target?.closest?.('.studio-block.is-settings')) closeMore();
+    },
+    true,
+  );
+  document.addEventListener?.(
+    'keydown',
+    event => {
+      // (One Échap closes one thing: « ··· » of the formats, open too, has taken it; a list open in the
+      // window takes it first.)
+      if (event.key !== 'Escape' || event.defaultPrevented || !advanced || document.querySelector?.('dialog[open]')) return;
+      if (event.target?.closest?.('[role="listbox"]')) return;
+      event.preventDefault();
+      closeMore({ refocus: true });
+    },
+    true,
+  );
   // (0.6.204) The window of a piece closes the same way: a press beside it and its piece, Échap (the focus back on
   // its case) before anything else hears it. Without drawing the Studio again: a press on another control is
   // also its click, which a control replaced meanwhile would lose.
@@ -6362,7 +6432,7 @@ export function setupStudio({
   document.addEventListener?.(
     'keydown',
     event => {
-      if (event.key !== 'Escape' || !pieceOpen || document.querySelector?.('dialog[open]')) return;
+      if (event.key !== 'Escape' || event.defaultPrevented || !pieceOpen || document.querySelector?.('dialog[open]')) return;
       event.preventDefault();
       closeWindow({ refocus: true });
     },
@@ -6389,7 +6459,7 @@ export function setupStudio({
   document.addEventListener?.(
     'keydown',
     event => {
-      if (event.key !== 'Escape' || !addOpen || document.querySelector?.('dialog[open]')) return;
+      if (event.key !== 'Escape' || event.defaultPrevented || !addOpen || document.querySelector?.('dialog[open]')) return;
       event.preventDefault();
       closeAdd({ refocus: true });
     },

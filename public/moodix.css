@@ -6928,9 +6928,45 @@ html[data-switch='open']::view-transition-old(chat) {
 :root[data-theme='light'] #studio-view .studio-more-pill.is-open {
   background: var(--chip);
 }
-.studio-rare > * + * {
-  padding-top: 10px;
-  border-top: 1px solid #1a1d24;
+/* (0.6.206, captures 110 and 111) « Plus de réglages », a window of glass against the column of the Réglages, at
+   its left, over the preview: its lines in two columns of 500 px in all (our lists stop at 420), fields of 34 px
+   (44 in the column), a long text over both columns on three lines. Under its pill, its lines made the column
+   scroll at 1280 × 720. Never over « Générer »: the page gives it its height (showMore). */
+/* (Its gaps of 10 px, not the 12 of the window of a piece: with the six lines of Wan 2.2 it holds above
+   « Générer » at 1280 × 720 without scrolling, 331 px for 333.) */
+.glass-menu.studio-more-window {
+  gap: 10px;
+  width: 500px;
+  max-width: calc(100vw - 16px);
+  max-height: min(72vh, 560px);
+  padding: 12px 16px 14px;
+}
+.studio-more-window .studio-rare {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 10px 22px;
+}
+.studio-more-window .studio-rare[hidden] {
+  display: none;
+}
+.studio-more-window .studio-rare > * {
+  min-width: 0;
+}
+.studio-more-window .studio-rare > .studio-field.is-wide {
+  grid-column: 1 / -1;
+}
+#studio-view .studio-more-window .studio-rare :is(input[type='number'], input[type='text'], button.glass-select) {
+  height: 34px;
+  min-height: 0;
+}
+#studio-view .studio-more-window .studio-field.is-wide textarea {
+  height: calc(3lh + 18px);
+  min-height: 0;
+  padding: 9px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  resize: none;
 }
 /* A setting on a bar among them (« Débruitage »): what its values do in its tip (0.6.92: no line
    under it, no mark of Moodix AI). Greyed while the input it is only read with is missing, its
