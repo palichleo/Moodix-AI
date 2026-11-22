@@ -4724,6 +4724,33 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
 .studio-piece.is-empty .studio-piece-word {
   color: var(--text-3);
 }
+/* (0.6.202, capture 96) A piece given that the model in hand does not take: greyed, kept; no blue of a case
+   under the pointer, it is none of this model. One line under the plateau says that it will not go. */
+#studio-view .studio-piece.is-off .studio-slot-pick {
+  opacity: 0.38;
+  filter: grayscale(1);
+}
+#studio-view .studio-piece.is-off .studio-slot.is-filled .studio-slot-pick:is(:hover, :focus-visible):enabled {
+  box-shadow: none;
+}
+.studio-piece.is-off .studio-piece-word {
+  color: var(--text-4);
+}
+.studio-plateau-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: -2px 0 0;
+  color: var(--text-2);
+  font: 400 13px/1.4 var(--font-ui);
+}
+.studio-plateau-note > svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+  color: var(--text-3);
+}
 .studio-slot {
   position: relative;
   flex: none;

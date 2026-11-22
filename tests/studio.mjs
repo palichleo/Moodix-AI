@@ -341,9 +341,19 @@ test('a character replaced in a video: its model among the videos, a video and a
     // Back to the model of the clips: its own inputs, and its own verb.
     body.find('studio-model-pick')[0].value = 'v';
     body.find('studio-model-pick')[0].onchange();
-    assert.deepEqual(blocks(), ['Image de début']);
+    // (0.6.202) The video and the character given stay, greyed, for the model that takes them; one line says so.
+    assert.deepEqual(blocks(), ['Image de début', 'Gardées pour un autre modèle']);
+    assert.deepEqual(
+      body.find('studio-kept')[0].children.map(piece => [piece.children[1].textContent, piece.children[0].children[0].title]),
+      [
+        ['À suivre', 'Vidéo à suivre gardée : Clip ne la prend pas.'],
+        ['Sujet', 'Sujet 1 gardé : Clip ne le prend pas.'],
+      ],
+    );
+    assert.equal(body.find('studio-plateau-note')[0].children.at(-1).textContent, 'La vidéo à suivre et le sujet ne partiront pas avec Clip.');
     await generate();
     assert.equal(sent().at(-1)[1].name, 'create_video');
+    assert.deepEqual(['source' in sent().at(-1)[1].arguments, 'reference' in sent().at(-1)[1].arguments], [false, false]);
   } finally {
     restore();
   }
@@ -2019,6 +2029,189 @@ test('an image dragged to another slot changes role; a move that would not combi
   }
 });
 
+test('(0.6.202) what is given that the model in hand does not take stays on the plateau, greyed, with one line, and does not go', async () => {
+  // (Capture 96: an end image and a subject given to LTX 2.5, then Wan 2.2, which takes a start image only. They
+  // were gone from the page without a word, kept in the draft.)
+  const lengths = { seconds: [121 / 24], standard: 121 / 24 },
+    base = { limits: sizes, size: { width: 768, height: 448 }, settings: [], seeded: true, lengths },
+    image = { count: 1, media: ['image'] },
+    ltx = { ...base, id: 'l', name: 'LTX 2.5', roles: { start_image: image, end_image: image, reference: { count: 3, media: ['image'] } } },
+    wan = { ...base, id: 'w', name: 'Wan 2.2', roles: { start_image: image } },
+    // (No model of today takes an end without a start: the line of time is drawn for one all the same.)
+    endOnly = { ...base, id: 'e', name: 'Fin seule', roles: { end_image: image } },
+    scail = {
+      ...base,
+      id: 's',
+      name: 'SCAIL-2',
+      verb: 'replace_character',
+      follows: true,
+      roles: { source: { count: 1, media: ['video'], many: false }, reference: { count: 1, media: ['image'], many: false } },
+    };
+  const page = await studioPage(
+    { create_video: [ltx, wan, endOnly], replace_character: [scail] },
+    { 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }), 'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }) },
+  );
+  const { body, asked, notices, restore } = page;
+  try {
+    page.mode(1);
+    const slots = () => body.find('studio-slot'),
+      // Each piece: its word, whether it is greyed (the piece and its case).
+      pieces = () => body.find('studio-piece').map(piece => [piece.children[1].textContent, /is-off/.test(piece.className), /is-off/.test(piece.children[0].className)]),
+      note = () => body.find('studio-plateau-note').map(line => [line.attributes.role, line.children.length, line.children.at(-1).textContent]),
+      event = files => ({ preventDefault() {}, stopPropagation() {}, dataTransfer: { files, setData() {} } }),
+      drop = async (index, name) => {
+        slots()[index].ondrop(event([{ name }]));
+        await new Promise(resolve => setTimeout(resolve, 5));
+      },
+      model = id => {
+        const pick = body.find('studio-model-pick')[0];
+        pick.value = id;
+        pick.onchange();
+      },
+      sent = async () => {
+        await body.find('studio-go')[0].onclick();
+        await settle();
+        return asked.findLast(([route]) => route === 'tools/action')[1].arguments;
+      };
+    page.prompt().value = 'Un phare';
+    page.prompt().oninput();
+    // (The subject first: what is greyed is said in the order of the plateau, not in the order it was given.)
+    await drop(2, 'sujet.png');
+    await drop(0, 'debut.png');
+    await drop(1, 'fin.png');
+    // LTX 2.5 takes them all: nothing greyed, no line.
+    assert.deepEqual(pieces(), [['Début', false, false], ['Fin', false, false], ['Sujet', false, false], ['Sujet', false, false]]);
+    assert.deepEqual(note(), []);
+
+    // Wan 2.2: the end and the subject stay, greyed, and one line says that they will not go.
+    model('w');
+    assert.deepEqual(pieces(), [['Début', false, false], ['Fin', true, true], ['Sujet', true, true]]);
+    assert.deepEqual(note(), [['note', 2, 'L’image de fin et le sujet ne partiront pas avec Wan 2.2.']]);
+    // The end at its end of the line of time, the subject after the pieces of the model, in a group of its own.
+    assert.deepEqual(body.find('studio-frames')[0].children.map(part => part.className.split(' ')[0]), ['studio-piece', 'studio-span', 'studio-piece']);
+    assert.deepEqual(body.find('studio-swap'), [], 'no swap with an end this model does not take');
+    assert.deepEqual(body.find('studio-kept').map(row => [row.attributes.role, row.attributes['aria-label'], row.children.length]), [['group', 'Gardées pour un autre modèle', 1]]);
+    // Each says why in its tooltip and aloud, and on a click; it has no name for a hand that carries a take (it
+    // lights up for none), takes no drop, keeps its picture, its badge and its ×.
+    const off = () => slots().slice(1);
+    assert.deepEqual(
+      off().map(tile => [tile.children[0].title, tile.children[0].attributes['aria-label'], tile.children[0].attributes['aria-disabled'], tile.dataset.media, tile.dataset.name, tile.ondrop, tile.ondragover]),
+      [
+        ['Image de fin gardée : Wan 2.2 ne la prend pas.', 'Image de fin gardée : Wan 2.2 ne la prend pas.', 'true', undefined, undefined, null, null],
+        ['Sujet 1 gardé : Wan 2.2 ne le prend pas.', 'Sujet 1 gardé : Wan 2.2 ne le prend pas.', 'true', undefined, undefined, null, null],
+      ],
+    );
+    assert.deepEqual(off().map(tile => [tile.children[0].children[0].src, tile.find('studio-slot-badge')[0].textContent, tile.find('studio-slot-remove').length]), [
+      ['/preview/fin.png', '', 1],
+      ['/preview/sujet.png', '@1', 1],
+    ]);
+    off()[0].children[0].onclick();
+    assert.equal(notices.at(-1), 'Image de fin gardée : Wan 2.2 ne la prend pas.');
+    // Sent with Wan 2.2: its start image, neither the end nor the subject.
+    const withWan = await sent();
+    assert.deepEqual([Boolean(withWan.start_image), 'end_image' in withWan, 'reference' in withWan], [true, false, false]);
+
+    // Back to LTX 2.5: nothing greyed, no line, and both go.
+    model('l');
+    assert.deepEqual(pieces(), [['Début', false, false], ['Fin', false, false], ['Sujet', false, false], ['Sujet', false, false]]);
+    assert.deepEqual(note(), []);
+    const withLtx = await sent();
+    assert.deepEqual([Boolean(withLtx.start_image), Boolean(withLtx.end_image), withLtx.reference?.length], [true, true, 1]);
+
+    // A model with no line of time (a character put in a video): the start, the end after its own pieces; its
+    // character is the subject given. One alone: « ne partira pas ».
+    model('s');
+    assert.deepEqual(pieces(), [['À suivre', false, false], ['Personnage', false, false], ['Début', true, true], ['Fin', true, true]]);
+    assert.deepEqual(note(), [['note', 2, 'L’image de début et l’image de fin ne partiront pas avec SCAIL-2.']]);
+    // × on a greyed piece takes it away for good; the line follows.
+    slots()[2].find('studio-slot-remove')[0].onclick();
+    assert.deepEqual(pieces(), [['À suivre', false, false], ['Personnage', false, false], ['Fin', true, true]]);
+    assert.deepEqual(note(), [['note', 2, 'L’image de fin ne partira pas avec SCAIL-2.']]);
+    // A greyed piece dragged to a case of the model takes that role (the end becomes the start of Wan 2.2).
+    model('w');
+    assert.deepEqual(pieces(), [['Début', false, false], ['Fin', true, true], ['Sujet', true, true]]);
+    slots()[1].children[0].ondragstart(event([]));
+    slots()[0].ondrop(event([]));
+    assert.deepEqual(pieces(), [['Début', false, false], ['Sujet', true, true]]);
+    assert.equal(slots()[0].children[0].children[0].src, '/preview/fin.png');
+    assert.deepEqual(note(), [['note', 2, 'Le sujet ne partira pas avec Wan 2.2.']]);
+    // More subjects than the model takes: those past its most, « les sujets ».
+    model('l');
+    await drop(3, 'deux.png');
+    model('s');
+    assert.deepEqual(pieces(), [['À suivre', false, false], ['Personnage', false, false], ['Début', true, true], ['Sujet', true, true]]);
+    assert.equal(slots()[3].children[0].title, 'Sujet 2 gardé : SCAIL-2 ne le prend pas.');
+    assert.deepEqual(note(), [['note', 2, 'L’image de début et le sujet ne partiront pas avec SCAIL-2.']]);
+    // Two subjects this model does not take: « les sujets ».
+    model('w');
+    assert.deepEqual(pieces(), [['Début', false, false], ['Sujet', true, true], ['Sujet', true, true]]);
+    assert.deepEqual(note(), [['note', 2, 'Les sujets ne partiront pas avec Wan 2.2.']]);
+    assert.deepEqual(slots().slice(1).map(tile => tile.find('studio-slot-badge')[0].textContent), ['@1', '@2']);
+    // The first dragged to the start, emptied: the one left is « Sujet 1 », no hole is kept before it.
+    slots()[0].find('studio-slot-remove')[0].onclick();
+    slots()[1].children[0].ondragstart(event([]));
+    slots()[0].ondrop(event([]));
+    assert.deepEqual(pieces(), [['Début', false, false], ['Sujet', true, true]]);
+    assert.deepEqual(
+      [slots()[0].children[0].children[0].src, slots()[1].children[0].children[0].src, slots()[1].children[0].title, slots()[1].find('studio-slot-badge')[0].textContent],
+      ['/preview/sujet.png', '/preview/deux.png', 'Sujet 1 gardé : Wan 2.2 ne le prend pas.', '@1'],
+    );
+    // × on a subject kept takes it away for good too: nothing greyed is left, nor the line.
+    slots()[1].find('studio-slot-remove')[0].onclick();
+    assert.deepEqual(pieces(), [['Début', false, false]]);
+    assert.deepEqual(note(), []);
+    // A model that takes an end only: the start given keeps its end of the line of time, greyed.
+    model('e');
+    assert.deepEqual(pieces(), [['Début', true, true], ['Fin', false, false]]);
+    assert.deepEqual(body.find('studio-frames')[0].children.map(part => part.className.split(' ')[0]), ['studio-piece', 'studio-span', 'studio-piece']);
+    assert.deepEqual(note(), [['note', 2, 'L’image de début ne partira pas avec Fin seule.']]);
+    // In the page: greyed, its word too; the line in 13 px.
+    const { readFile } = await import('node:fs/promises');
+    const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+    const rule = selector => css.slice(css.lastIndexOf('\n' + selector + ' {'), css.indexOf('}', css.lastIndexOf('\n' + selector + ' {')));
+    assert.match(rule('#studio-view .studio-piece.is-off .studio-slot-pick'), /opacity: 0\.38;\n  filter: grayscale\(1\);/);
+    assert.match(rule('.studio-piece.is-off .studio-piece-word'), /color: var\(--text-4\);/);
+    assert.match(rule('.studio-plateau-note'), /font: 400 13px\/1\.4 var\(--font-ui\);/);
+  } finally {
+    restore();
+  }
+});
+
+test('(0.6.202) nothing is greyed under a proposal of Moodix AI, whose notes say what does not go, nor in a continuation, which starts from its clip alone', async () => {
+  const greyed = body => [body.find('studio-plateau-note').length, body.find('studio-piece').filter(piece => /is-off/.test(piece.className)).length];
+  // A proposal whose image has a role its model has not (an end image, for a model that takes a start only): its
+  // note says that it does not go, the plateau does not say it a second time.
+  const { clip, request } = proposalOf();
+  request.plan.references = [{ role: 'end_image', roleLabel: 'Image de fin', preview: '/fin.jpg' }];
+  request.notes = ['L’image de fin ne part pas avec Clip.'];
+  let page = await studioPage({ create_video: [clip] }, {});
+  try {
+    const answer = page.studio.propose(request, new AbortController().signal);
+    await settle();
+    assert.equal(page.studio.proposing(), true);
+    assert.deepEqual(page.body.find('studio-proposal-note').map(note => note.textContent), ['L’image de fin ne part pas avec Clip.']);
+    assert.deepEqual(greyed(page.body), [0, 0]);
+    page.studio.decline();
+    assert.equal(await answer, 'deny');
+  } finally {
+    page.restore();
+  }
+  // A continuation: the start image given for a new clip is no part of it, and is not said to stay behind.
+  const { tools, runs } = continuing();
+  page = await studioPage(tools, {}, { runs });
+  try {
+    page.mode(1);
+    page.body.find('studio-slot')[0].ondrop({ preventDefault() {}, stopPropagation() {}, dataTransfer: { files: [{ name: 'debut.png' }], setData() {} } });
+    await new Promise(resolve => setTimeout(resolve, 5));
+    assert.match(page.body.find('studio-slot')[0].className, /is-filled/);
+    prolonger(page.body).onclick();
+    assert.equal(page.body.find('studio-extending').length, 1);
+    assert.deepEqual([...greyed(page.body), page.body.find('studio-slot').length], [0, 0, 0]);
+  } finally {
+    page.restore();
+  }
+});
+
 test('the plateau (0.6.201): one block without a title, a word under each piece, start and end on a line of time, subjects numbered without holes', async () => {
   const lengths = { seconds: [121 / 24, 193 / 24, 241 / 24], standard: 121 / 24 },
     video = {
@@ -2142,9 +2335,17 @@ test('the plateau (0.6.201): one block without a title, a word under each piece,
     // ends with the length, no « ⇄ ».
     model('w');
     assert.equal(plateau().length, 1);
-    assert.deepEqual(plateau()[0].children.map(row => [row.className, row.attributes['aria-label']]), [['studio-plateau-row studio-frames', 'Image de début']]);
+    // (0.6.202) The subject kept, which this model does not take, after its own pieces, and the line that says so.
+    assert.deepEqual(
+      plateau()[0].children.map(row => [row.className, row.attributes?.['aria-label']]),
+      [
+        ['studio-plateau-row studio-frames', 'Image de début'],
+        ['studio-plateau-row', undefined],
+        ['studio-plateau-note', undefined],
+      ],
+    );
     assert.match(plateau()[0].className, /is-flash/);
-    assert.deepEqual(words(), ['studio-piece-word:Début']);
+    assert.deepEqual(words(), ['studio-piece-word:Début', 'studio-piece-word:Sujet']);
     // (0.6.201) In the page: the word in 12 px under its case; while a take is carried over the cases that take
     // it, the name of each case (« CHANGER », « FIN ») stands in the place of its word, never two words under one.
     const { readFile } = await import('node:fs/promises');

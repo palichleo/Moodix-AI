@@ -210,6 +210,9 @@ const SHORT = { start_image: 'Début', end_image: 'Fin', reference: 'Sujet', sou
 // (0.6.201) The word under a piece of the plateau (capture 93), by its role: what it is for, in a word or two.
 // The video a character is put in says « À suivre », its character « Personnage » (capture 97).
 const WORDS = { start_image: 'Début', end_image: 'Fin', reference: 'Sujet', source: 'À modifier' };
+// (0.6.202) A piece given that the model in hand does not take, as the line under the plateau names it
+// (capture 96): « L’image de fin et le sujet ne partiront pas avec Wan 2.2. ».
+const KEPT = { start_image: 'l’image de début', end_image: 'l’image de fin', source: 'l’image à modifier' };
 const figures = value => twoFigures(value) + ' S';
 /** The length of a sound in the Sortie (capture 23): « 08.00 S », « 1:45 » from a minute. */
 const soundFigures = value => {
@@ -866,9 +869,11 @@ export function setupStudio({
    * it its word (`word`: « Début », « Sujet »), the whole name in its tooltip and for screen readers. A click
    * picks a file; a file dropped on it, or the image of another case (that changes its role); × takes it back.
    */
-  function slot(workflow, role, index, { label, add, tip, word = WORDS[role] ?? label, picto = null, badge = '', onRemove = null, media = 'image' }) {
+  function slot(workflow, role, index, { label, add, tip, word = WORDS[role] ?? label, picto = null, badge = '', onRemove = null, media = 'image', off = '' }) {
     const draft = drafts[mode],
       value = draft.inputs[role]?.[index],
+      // (0.6.202) `off`: a piece given that the model in hand does not take, and why (offPieces). Greyed, kept:
+      // it is no case of this model, so nothing is dropped on it.
       clash = exclusiveWith(workflow, role),
       refused = clash.length ? `Ne se combine pas avec : ${clash.map(other => ROLES[other]).join(', ')}` : '',
       // The inputs of a proposal are those Moodix AI chose: they change role, not image.
@@ -877,11 +882,13 @@ export function setupStudio({
       aiOver = Boolean(aiCarry?.over && aiCarry.role === role && aiCarry.index === index),
       tile = node(
         'div',
-        'studio-slot' + (value ? ' is-filled' : '') + (refused ? ' is-blocked' : '') + (aiOver ? ' is-target' : ''),
+        'studio-slot' + (value ? ' is-filled' : '') + (refused ? ' is-blocked' : '') + (off ? ' is-off' : '') + (aiOver ? ' is-target' : ''),
       );
     tile.dataset.slot = role + '-' + index;
     if (aiOver && aiCarry.preview) tile.style.setProperty?.('--carried', `url("${aiCarry.preview}")`);
     const pick = button('studio-slot-pick', '', () => {
+      // (0.6.202) Kept for a model that takes it: a click says so, as its tooltip does.
+      if (off) return notice(off);
       // An input that does not combine with those given says why. It still takes the image of
       // one of them, dragged here: that is how a role is changed.
       if (refused) return notice(refused);
@@ -897,13 +904,16 @@ export function setupStudio({
     // (0.6.187) « Changer », no longer « Remplacer »: in 12 px, as every word that names a piece now, the
     // longer word went past its case of 52 px, cut by the column under « Fin » (« REMPLACEI ») and over
     // the name of the case beside a reference (measured in the page on 21/11).
-    tile.dataset.media = media;
-    tile.dataset.name = value ? 'Changer' : (SHORT[role] ?? label) + (role === 'reference' ? ' ' + (index + 1) : '');
+    // (0.6.202) A piece the model does not take has no name for that hand: it lights up for nothing carried.
+    if (!off) {
+      tile.dataset.media = media;
+      tile.dataset.name = value ? 'Changer' : (SHORT[role] ?? label) + (role === 'reference' ? ' ' + (index + 1) : '');
+    }
     // (0.6.190) « Sujet 1 · glissez-le » (le sujet); the image or the video of the other cases, « glissez-la ».
-    pick.title = refused || (value ? label + (role === 'reference' ? ' · glissez-le' : ' · glissez-la') + ' vers un autre emplacement pour changer son rôle' : tip);
-    pick.setAttribute('aria-label', value ? label + ' · ' + value.name : refused ? label + ' · ' + refused : add);
+    pick.title = off || refused || (value ? label + (role === 'reference' ? ' · glissez-le' : ' · glissez-la') + ' vers un autre emplacement pour changer son rôle' : tip);
+    pick.setAttribute('aria-label', off ? off : value ? label + ' · ' + value.name : refused ? label + ' · ' + refused : add);
     pick.disabled = Boolean(working);
-    if (refused) pick.setAttribute('aria-disabled', 'true');
+    if (refused || off) pick.setAttribute('aria-disabled', 'true');
     if (value) {
       const preview = node('img');
       preview.src = value.preview || '';
@@ -976,6 +986,9 @@ export function setupStudio({
       }
       void fill(role, index, event.dataTransfer.files[0], media);
     };
+    // (0.6.202) Nothing is dropped on a piece the model does not take: a file carried over it goes where one
+    // dropped beside the cases goes (the column: its first free case).
+    if (off) tile.ondragover = tile.ondragleave = tile.ondrop = null;
     tile.append(pick);
     if (value && !chosenByAi) {
       const remove = button(
@@ -994,7 +1007,7 @@ export function setupStudio({
     }
     // (0.6.201) Its word under it, for the eye: its button says its whole name aloud. While something it takes
     // is carried, the name of its case (`data-name`, « CHANGER ») stands in its place (moodix.css).
-    const piece = node('div', 'studio-piece' + (value ? '' : ' is-empty')),
+    const piece = node('div', 'studio-piece' + (value ? '' : ' is-empty') + (off ? ' is-off' : '')),
       said = node('span', 'studio-piece-word', word);
     said.setAttribute('aria-hidden', 'true');
     piece.append(tile, said);
@@ -1039,10 +1052,13 @@ export function setupStudio({
    * end image at its other end (when the model takes one), the length set in Réglages on the line: in its
    * middle, with the button that swaps them, « ⇄ 05.17 s ». (0.6.201) A row of the one block, no title.
    */
-  function framesRow(workflow) {
+  function framesRow(workflow, off = []) {
     const start = takesImages(workflow, 'start_image'),
       end = takesImages(workflow, 'end_image');
     if (!start && !end) return null;
+    // (0.6.202, capture 96) The end (or the start) given that this model does not take keeps its end of the
+    // line, greyed.
+    const kept = role => off.find(piece => piece.role === role && piece.index === 0);
     const row = node('div', 'studio-plateau-row studio-frames'),
       middle = node('div', 'studio-span' + (start && end ? ' is-both' : '')),
       line = node('span', 'studio-span-line'),
@@ -1068,6 +1084,7 @@ export function setupStudio({
           picto: PICTO.start_image,
         }),
       );
+    else if (kept('start_image')) row.append(offPiece(workflow, kept('start_image')));
     row.append(middle);
     if (end)
       row.append(
@@ -1078,9 +1095,76 @@ export function setupStudio({
           picto: PICTO.end_image,
         }),
       );
+    else if (kept('end_image')) row.append(offPiece(workflow, kept('end_image')));
     span = { line, time, workflow };
     paintSpan();
     return row;
+  }
+  /**
+   * (0.6.202, capture 96) What is given that the model in hand does not take (the end image and the subject
+   * of LTX 2.5 under Wan 2.2): kept in the draft for a model that takes it, as before, and shown now, greyed
+   * on the plateau, one line under it saying that it will not go; it was gone without a word. `[{ role,
+   * index }]`, in the order of the plateau. Not while a proposal of Moodix AI waits (its notes say what does
+   * not go) nor in a continuation (its clip is all it starts from).
+   */
+  function offPieces(workflow) {
+    if (answering() || (mode === 'video' && extending)) return [];
+    const given = drafts[mode].inputs ?? {},
+      found = [];
+    // Without holes, as the subjects of a model that takes them: the place of each is the one its × takes away.
+    if (given.reference) given.reference = given.reference.filter(Boolean);
+    const others = Object.keys(given).filter(role => !['start_image', 'end_image', 'reference'].includes(role));
+    for (const role of ['start_image', 'end_image', ...others, 'reference'])
+      (given[role] ?? []).forEach((item, index) => {
+        if (item && index >= (workflow.roles?.[role]?.count ?? 0)) found.push({ role, index });
+      });
+    return found;
+  }
+  /** (0.6.202) What a role this model has not takes, from a model of the mode that has it: a video to follow, else an image. */
+  const mediaOfRole = role => offered().find(item => item.roles?.[role]?.count)?.roles[role].media[0] ?? 'image';
+  /** (0.6.202) A piece kept that the model does not take: its case greyed, its word, × to take it away. */
+  function offPiece(workflow, { role, index }) {
+    const video = mediaOfRole(role) === 'video',
+      subject = role === 'reference',
+      label = video ? 'Vidéo à suivre' : subject ? ROLES.reference + ' ' + (index + 1) : (ROLES[role] ?? 'Image');
+    return slot(workflow, role, index, {
+      label,
+      word: video ? 'À suivre' : (WORDS[role] ?? 'Image'),
+      picto: video ? 'video' : (PICTO[role] ?? (subject ? null : 'image')),
+      badge: subject ? '@' + (index + 1) : '',
+      media: video ? 'video' : 'image',
+      off: `${label} ${subject ? 'gardé' : 'gardée'} : ${workflow.name} ne ${subject ? 'le' : 'la'} prend pas.`,
+      onRemove: subject
+        ? () => {
+            drafts[mode].inputs.reference.splice(index, 1);
+            render();
+          }
+        : null,
+    });
+  }
+  /**
+   * (0.6.202) The one line under the plateau for all that the model does not take (his answer 10 of 21/11):
+   * « L’image de fin et le sujet ne partiront pas avec Wan 2.2. ».
+   */
+  function offLine(workflow, off) {
+    const count = role => off.filter(piece => piece.role === role).length,
+      names = [...new Set(off.map(piece => piece.role))].map(role =>
+        role === 'reference'
+          ? count(role) > 1
+            ? 'les sujets'
+            : 'le sujet'
+          : mediaOfRole(role) === 'video'
+            ? 'la vidéo à suivre'
+            : (KEPT[role] ?? 'une image'),
+      ),
+      said = names.length > 1 ? names.slice(0, -1).join(', ') + ' et ' + names.at(-1) : names[0],
+      line = node('p', 'studio-plateau-note');
+    line.setAttribute('role', 'note');
+    line.append(
+      icon('info'),
+      node('span', '', said[0].toUpperCase() + said.slice(1) + (off.length > 1 ? ' ne partiront pas avec ' : ' ne partira pas avec ') + workflow.name + '.'),
+    );
+    return line;
   }
   /**
    * The Sujets (« Références » until 0.6.190), after the other pieces: no time; each image with its number
@@ -1218,15 +1302,27 @@ export function setupStudio({
    */
   function inputs(workflow) {
     span = null;
-    const frames = framesRow(workflow),
-      pieces = [sourcesRow(workflow), referencesRow(workflow)].filter(Boolean),
-      plateau = frames || pieces.length ? node('div', 'studio-input-block studio-plateau') : null;
+    const off = offPieces(workflow),
+      frames = framesRow(workflow, off),
+      // (0.6.202) What the model does not take: the start and the end at their end of the line of time when it
+      // has one, the others after its own pieces.
+      rest = off.filter(piece => !(frames && piece.index === 0 && (piece.role === 'start_image' || piece.role === 'end_image'))),
+      pieces = [sourcesRow(workflow), referencesRow(workflow)].filter(Boolean);
+    if (rest.length) {
+      const kept = node('div', 'studio-pieces studio-kept');
+      kept.setAttribute('role', 'group');
+      kept.setAttribute('aria-label', 'Gardées pour un autre modèle');
+      kept.append(...rest.map(piece => offPiece(workflow, piece)));
+      pieces.push(kept);
+    }
+    const plateau = frames || pieces.length ? node('div', 'studio-input-block studio-plateau') : null;
     if (frames) plateau.append(frames);
     if (pieces.length) {
       const row = node('div', 'studio-plateau-row');
       row.append(...pieces);
       plateau.append(row);
     }
+    if (off.length) plateau.append(offLine(workflow, off));
     const blocks = [plateau, whoBlock(workflow)].filter(Boolean);
     if (!blocks.length) return null;
     // Another model: a light line around them for a moment, which fades (nothing blinks). Drawn
