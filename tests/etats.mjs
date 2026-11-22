@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setupFirstLaunch } from '../public/first-launch.mjs';
-import { missingFileCard, sizeText } from '../public/missing-file.mjs';
+import { missingFileCard, roomText, sizeText } from '../public/missing-file.mjs';
 import { ToolCatalog } from '../lib/tool-catalog.mjs';
 
 // The states of etats-maquette.md (16/11): the first launch (50), a missing file (53).
@@ -411,4 +411,29 @@ test('50 · while Windows holds a file of llama.cpp it just wrote, the first lau
   await new Promise(resolve => setTimeout(resolve, 900));
   assert.deepEqual(find(host, 'setup-progress-note'), [], 'let go: its line alone again');
   await installing;
+});
+
+test('(0.6.225) a model converted after its download says the room it needs, on the card of the missing file', async () => {
+  const giga = 1024 ** 3,
+    sentence = 'Il faut 61,2 Go de place libre : après le téléchargement, les fichiers sont convertis pour le moteur de Moodix, puis les originaux sont effacés.';
+  // The offer of the server: `convert`, and `room` (what is left to fetch and the converted files beside them).
+  assert.equal(roomText({ convert: true, room: 61.2 * giga, left: 30.6 * giga, bytes: 30.6 * giga }), sentence);
+  for (const none of [null, undefined, {}, { convert: false, room: 61.2 * giga }, { convert: true }, { convert: true, room: 0 }, { room: 5 * giga }]) assert.equal(roomText(none), '', JSON.stringify(none));
+  const draw = missing => {
+    const host = node('div');
+    missingFileCard({
+      host,
+      request: { workflowId: 'cam', workflowName: 'Wan 2.2 Caméra', mediaType: 'video', missing },
+      node,
+      icon,
+      api: async () => ({ json: async () => ({}) }),
+      wait: () => settle(),
+    });
+    return find(host, 'missing-note')[0].textContent;
+  };
+  const files = [{ role: 'model', file: 'wan2.2_fun_camera_high.safetensors', size: 15.3 * giga, license: null }],
+    plain = 'Il va dans votre dossier des modèles, depuis Hugging Face. Le téléchargement reprend où il en était si vous l’arrêtez.';
+  assert.equal(draw({ files, bytes: 30.6 * giga, left: 30.6 * giga, convert: true, room: 61.2 * giga }), plain + ' ' + sentence);
+  assert.equal(draw({ files, bytes: 30.6 * giga, left: 30.6 * giga }), plain);
+  await settle();
 });

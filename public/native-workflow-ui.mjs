@@ -1,4 +1,5 @@
 import { setupGenerationRuntime } from './generation-runtime.mjs';
+import { roomText } from './missing-file.mjs';
 import { licenseBlock, restrictedOf } from './model-licenses.mjs';
 import {
   GROUPS,
@@ -415,8 +416,10 @@ export function setupNativeWorkflows(options) {
         'secondary model-download',
       );
     start.append(icon('download'), node('span', '', 'Télécharger · ' + size));
-    start.setAttribute('aria-label', `Télécharger ${model.name} (${size})`);
-    start.title = licenseSentence(offer.files) || `Télécharger ${model.name} (${size})`;
+    // (0.6.225) Converted after its download (Wan 2.2 Caméra): the room it needs meanwhile is said with it.
+    const room = roomText(offer);
+    start.setAttribute('aria-label', `Télécharger ${model.name} (${size})` + (room ? '. ' + room : ''));
+    start.title = [licenseSentence(offer.files) || `Télécharger ${model.name} (${size})`, room].filter(Boolean).join(' ');
     start.dataset.nativeControl = 'true';
     if (downloads.job.state === 'running') {
       start.disabled = true;

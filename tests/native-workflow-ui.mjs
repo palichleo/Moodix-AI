@@ -591,7 +591,8 @@ test('a model to download says « Télécharger » and its size in the place of 
       { role: 'textEncoder', file: 'qwen3vl_4b.safetensors', size: giga, license: apache },
       { role: 'model', file: 'krea2_turbo.safetensors', size: 3 * giga, license: krea },
     ]),
-    seedvr: offer([{ role: 'model', file: 'seedvr2.safetensors', size: giga, license: apache }]),
+    // (0.6.225) Converted after its download: the offer says so, and the room the disk needs meanwhile.
+    seedvr: offer([{ role: 'model', file: 'seedvr2.safetensors', size: giga, license: apache }], { convert: true, room: 2 * giga }),
     gated: offer([{ role: 'model', file: 'ltx.safetensors', size: 2 * giga, license: apache }], { needsToken: true, page: 'huggingface.co/Lightricks/LTX-2.5' }),
   };
   const api = f.api,
@@ -630,7 +631,12 @@ test('a model to download says « Télécharger » and its size in the place of 
   assert.deepEqual([find(lineOf('Krea 2'), 'model-note'), find(lineOf('Krea 2'), 'license-block'), confirm('Krea 2')], [[], [], undefined]);
   // Its licences are under the pointer.
   assert.equal(download('Krea 2').title, 'Licences : Krea 2 Community License Agreement v.1 (à conditions) et Apache-2.0. En téléchargeant, vous les acceptez.');
-  assert.equal(download('Upscale SeedVR2').title, 'Licence : Apache-2.0. En téléchargeant, vous l’acceptez.');
+  // (0.6.225) And, for a model converted after its download, the room it needs: under the pointer and read with
+  // its name. Nothing of it for a model that is not converted.
+  const room = 'Il faut 2,0 Go de place libre : après le téléchargement, les fichiers sont convertis pour le moteur de Moodix, puis les originaux sont effacés.';
+  assert.equal(download('Upscale SeedVR2').title, 'Licence : Apache-2.0. En téléchargeant, vous l’acceptez. ' + room);
+  assert.equal(download('Upscale SeedVR2').attributes['aria-label'], 'Télécharger Upscale SeedVR2 (1 Go). ' + room);
+  assert.doesNotMatch(download('Krea 2').title + download('Krea 2').attributes['aria-label'], /place libre/);
 
   // A licence with conditions: the click downloads nothing and shows it, to accept or to refuse.
   await download('Krea 2').onclick();

@@ -25,6 +25,16 @@ export function sizeText(bytes) {
   return Math.max(1, Math.round(value / 1024 ** 2)).toLocaleString('fr-FR') + ' Mo';
 }
 
+/**
+ * (0.6.225) What a download that is converted afterwards asks of the disk (the offer says `convert`, and `room`:
+ * what is left to fetch plus the converted files written beside their sources before those leave): one
+ * sentence, '' for a download that is not converted.
+ */
+export function roomText(offer) {
+  if (!offer?.convert || !(offer.room > 0)) return '';
+  return `Il faut ${sizeText(offer.room)} de place libre : après le téléchargement, les fichiers sont convertis pour le moteur de Moodix, puis les originaux sont effacés.`;
+}
+
 export function missingFileCard({
   host,
   request,
@@ -82,7 +92,9 @@ export function missingFileCard({
       'missing-note',
       missing.needsToken
         ? `Ce fichier demande un compte Hugging Face : acceptez la licence${missing.page ? ' sur ' + missing.page : ''}, puis enregistrez votre jeton dans Paramètres › Modèles › Fichiers.`
-        : 'Il va dans votre dossier des modèles, depuis Hugging Face. Le téléchargement reprend où il en était si vous l’arrêtez.',
+        : ['Il va dans votre dossier des modèles, depuis Hugging Face. Le téléchargement reprend où il en était si vous l’arrêtez.', roomText(missing)]
+            .filter(Boolean)
+            .join(' '),
     );
     const foot = node('div', 'missing-foot');
     if (state === 'running') {
