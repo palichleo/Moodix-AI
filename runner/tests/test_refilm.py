@@ -201,7 +201,15 @@ class FormatTests(unittest.TestCase):
         self.assertEqual(rf.limit_refusal(768, 448, 121 / 24, limits), '')
         self.assertEqual(rf.limit_refusal(448, 768, 5.25, limits), '')
         self.assertEqual(rf.limit_refusal(768, 448, 5.3, limits), LONG.format(5))
-        self.assertEqual(rf.limit_refusal(832, 480, 2, limits), rf.SAID['large'])
+        # (0.6.246) Measured on 22/11 at larger sizes, 5 s each: 1024 × 576, 1280 × 704 (as many pixels standing
+        # are the same work). 1600 × 896 took 67 s a step, some eleven minutes in all: not given.
+        for width, height in ((832, 480), (1024, 576), (576, 1024), (1280, 704), (704, 1280)):
+            with self.subTest(width=width, height=height):
+                self.assertEqual(rf.limit_refusal(width, height, 121 / 24, limits), '')
+        self.assertEqual(rf.limit_refusal(1280, 704, 5.3, limits), LONG.format(5))
+        for width, height in ((1312, 704), (1600, 896), (896, 1600)):
+            with self.subTest(width=width, height=height):
+                self.assertEqual(rf.limit_refusal(width, height, 2, limits), rf.SAID['large'])
         # The first line as large as the clip says how long it may be.
         rows = [dict(pixels=344064, seconds=5), dict(pixels=100000, seconds=8)]
         self.assertEqual(rf.limit_refusal(320, 288, 7.5, rows), '')
@@ -406,7 +414,7 @@ class JobTests(Folder):
             (dict(azimuth=80, elevation=40), rf.SAID['out']),
             (dict(azimuth=3, elevation=2), rf.SAID['near']),
             (dict(distance=1.5), BOUNDS['distance']['unavailable']),
-            (dict(width=832, height=480), rf.SAID['large']),
+            (dict(width=1600, height=896), rf.SAID['large']),
             (dict(width=768, height=448, frames=241), LONG.format(5)),
         ):
             with self.subTest(**parameters), self.assertRaises(rf.Refused) as refused:

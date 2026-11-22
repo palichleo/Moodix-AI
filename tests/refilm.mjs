@@ -380,11 +380,16 @@ test('the camera, the format and the sheet of a clip, as the engine reads them (
   assert.deepEqual(refilmFormat({ width: 790, height: 435, frames: 100, fps: 24 }, bounds), { width: 768, height: 416, frames: 97 });
   assert.equal(refilmFormat({ width: 768, height: 448, frames: 81, fps: 16 }, bounds).frames, 121);
   assert.equal(refilmFormat({ width: 768, height: 448, frames: 150, fps: 30000 / 1001 }, bounds).frames, 113);
+  for (const [width, height] of [[832, 480], [1024, 576], [576, 1024], [1280, 704], [704, 1280]])
+    assert.deepEqual(refilmFormat({ width, height, frames: 121, fps: 24 }, bounds), { width, height, frames: 121 });
   for (const [clip, said] of [
     [{ width: 768, height: 448, frames: 121, fps: 7.5 }, 'Cette vidéo est à 7,5 images par seconde : la caméra se change sur une vidéo de 12 à 120 images par seconde.'],
     [{ width: 60, height: 448, frames: 121, fps: 24 }, REFILM_SAID.small],
     [{ width: 768, height: 448, frames: 8, fps: 24 }, REFILM_SAID.short],
-    [{ width: 832, height: 480, frames: 121, fps: 24 }, 'Vidéo trop grande pour changer sa caméra.'],
+    // (0.6.246) Measured up to 1280 × 704 for 5 s (as many pixels standing too): beyond, not given.
+    [{ width: 1600, height: 896, frames: 121, fps: 24 }, 'Vidéo trop grande pour changer sa caméra.'],
+    [{ width: 1312, height: 704, frames: 57, fps: 24 }, 'Vidéo trop grande pour changer sa caméra.'],
+    [{ width: 1280, height: 704, frames: 133, fps: 24 }, LONG],
     [{ width: 768, height: 448, frames: 133, fps: 24 }, LONG],
     [{ width: 768, height: 448, frames: 121, fps: null }, REFILM_SAID.unknown],
   ])

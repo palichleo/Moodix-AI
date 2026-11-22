@@ -240,7 +240,9 @@
     },
     "near": 5,
     "limits": [
-      { "pixels": 344064, "seconds": 5, "size": "768 × 448", "measured": "22/11 : 121 images en 86 à 107 s, 8,0 à 8,8 Gio de mémoire vidéo au plus haut" }
+      { "pixels": 344064, "seconds": 5, "size": "768 × 448", "measured": "22/11 : 121 images en 86 à 107 s, 8,0 à 8,8 Gio de mémoire vidéo au plus haut" },
+      { "pixels": 589824, "seconds": 5, "size": "1024 × 576", "measured": "22/11 : 121 images en 223 s, 8,6 Gio de mémoire vidéo au plus haut (le moteur seul, démarré pour elle)" },
+      { "pixels": 901120, "seconds": 5, "size": "1280 × 704", "measured": "22/11 : 121 images en 354 s, 8,0 Gio de mémoire vidéo au plus haut (le moteur seul, démarré pour elle)" }
     ],
     "fps": [24],
     "sourceFps": { "min": 12, "max": 120 },

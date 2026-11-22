@@ -5,7 +5,7 @@
   "pipeline": "ltx25_refilm",
   "mediaType": "video",
   "name": "Changer la caméra (LTX 2.5)",
-  "description": "Refilmer une vidéo faite depuis un autre angle, choisi à la main dans le Studio : la même scène, les mêmes gestes, son son. Une vidéo d’un seul plan, de 5 secondes au plus à 768 × 448. La caméra tourne souvent un peu moins que demandé.",
+  "description": "Refilmer une vidéo faite depuis un autre angle, choisi à la main dans le Studio : la même scène, les mêmes gestes, son son. Une vidéo d’un seul plan, de 5 secondes au plus, jusqu’à 1280 × 704 ou 704 × 1280 : sur une carte de 12 Go, environ 2 minutes à 768 × 448 et 6 minutes à 1280 × 704. La caméra tourne souvent un peu moins que demandé.",
   "components": {
     "model": {
       "policy": "fixed",
