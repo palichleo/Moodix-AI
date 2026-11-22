@@ -153,13 +153,14 @@ test('the sentence goes after the prompt, which ends its own sentence first; wit
   assert.equal(withCamera(undefined, null), '');
 });
 
-test('the camera is taken by LTX 2.5 and Wan 2.2 for a new video; the page is served its table, the server reads the same', async () => {
-  assert.deepEqual([CAMERA_FAMILIES, CAMERA_VERBS], [['ltx25', 'wan22'], ['create_video']]);
+test('the camera is taken by LTX 2.5, Wan 2.2 and MiniMax H3 for a new video; the page is served its table, the server reads the same', async () => {
+  // (0.6.221) MiniMax H3 with them: the camera by the words is a sentence of the prompt.
+  assert.deepEqual([CAMERA_FAMILIES, CAMERA_VERBS], [['ltx25', 'wan22', 'minimax_h3'], ['create_video']]);
   assert.deepEqual(
-    [['ltx25', 'create_video'], ['wan22', 'create_video'], ['ltx25', 'extend_video'], ['minimax_h3', 'create_video'], ['wan_scail2', 'replace_character'], ['krea2', 'create_image'], [undefined, 'create_video']].map(
+    [['ltx25', 'create_video'], ['wan22', 'create_video'], ['ltx25', 'extend_video'], ['minimax_h3', 'create_video'], ['minimax_h3', 'extend_video'], ['wan_scail2', 'replace_character'], ['wan_scail2', 'create_video'], ['wan22_camera', 'create_video'], ['krea2', 'create_image'], [undefined, 'create_video']].map(
       ([family, verb]) => takesCamera(family, verb),
     ),
-    [true, true, false, false, false, false, false],
+    [true, true, false, true, false, false, false, false, false, false],
   );
   // Those families exist in the engine under those names.
   for (const family of CAMERA_FAMILIES) assert.equal(JSON.parse(await readFile(new URL(`../runner/families/${family}.json`, import.meta.url), 'utf8')).mediaType ?? 'video', 'video', family);

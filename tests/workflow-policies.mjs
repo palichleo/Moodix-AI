@@ -1561,11 +1561,15 @@ test('(0.6.211) Studio · the camera, from its piece to the engine: the sentence
     page.studio.show(record);
     assert.deepEqual([page.prompt().value, body.find('studio-camera')[0].children[0].children[0].title], ['Le pêcheur lève les yeux', 'Caméra · Panoramique vers le haut, lent']);
     assert.equal((await page.generate()).parameters.prompt, job.parameters.prompt);
-    // Under a model that does not take it, it stays on the plateau, greyed, and nothing of it reaches the engine.
+    // (0.6.221) MiniMax H3 takes it too: the same piece, not greyed, and its engine is given the prompt with the
+    // same sentence; its take keeps the prompt as written, the choice and the sentence beside it.
     model('MiniMax H3 Omni');
-    assert.match(body.find('studio-camera')[0].className, /is-off/);
+    assert.doesNotMatch(body.find('studio-camera')[0].className, /is-off/);
     const other = await page.generate();
-    assert.deepEqual([other.parameters.prompt, 'camera' in page.lastAction().arguments, w.saved[0].parameters.camera], ['Le pêcheur lève les yeux', false, undefined]);
+    assert.deepEqual(
+      [other.parameters.prompt, page.lastAction().arguments.camera, page.lastAction().arguments.camera_speed, w.saved[0].prompt, w.saved[0].parameters.camera, w.saved[0].parameters.camera_prompt],
+      [job.parameters.prompt, 'tilt_up', 'slow', 'Le pêcheur lève les yeux', { move: 'tilt_up', speed: 'slow' }, sentence],
+    );
     assert.equal(w.saved[0].workflowName, 'MiniMax H3 Omni');
   } finally {
     page.restore();

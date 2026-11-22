@@ -1578,14 +1578,17 @@ test('(0.6.211) the camera chosen in the Studio: its sentence after the prompt o
   // Wan 2.2 takes it too, from its start image.
   const animated = await next({ ...asked, workflow: wan.id, start_image: { resource: uid(8) }, camera: 'tilt_up' });
   assert.deepEqual([animated.workflowName, animated.camera], ['Wan 2.2', { move: 'tilt_up', speed: 'slow', sentence: 'The camera slowly tilts up.' }]);
-  // A model of another family does not: left aside, and said as any setting it does not take.
+  // (0.6.221) MiniMax H3 too: it is a sentence of the prompt, nothing of the model. Proposed with it, nothing
+  // said of it; the engine is given the prompt with the sentence, the take keeps the prompt as written.
   const other = await next({ ...asked, workflow: minimax.id });
-  assert.deepEqual([other.workflowName, other.camera], ['MiniMax H3 Omni', undefined]);
-  assert.ok(other.notes.includes('Caméra : valeur ignorée, MiniMax H3 Omni ne prend pas ce réglage.'), JSON.stringify(other.notes));
-  // (Left aside, its sentence is not given to that model either.)
+  assert.deepEqual([other.workflowName, other.camera], ['MiniMax H3 Omni', { move: 'dolly_in', speed: 'slow', sentence: 'The camera slowly dollies in.' }]);
+  assert.equal((other.notes ?? []).some(note => /Caméra/.test(note)), false, JSON.stringify(other.notes));
   jobs.length = 0;
-  const without = await made(other);
-  assert.deepEqual([jobs.at(-1), without.prompt, without.parameters.camera], [['run', 'Le pêcheur lève les yeux'], 'Le pêcheur lève les yeux', undefined]);
+  const filmed = await made(other);
+  assert.deepEqual(
+    [jobs.at(-1), filmed.prompt, filmed.parameters.camera, filmed.parameters.camera_prompt],
+    [['run', 'Le pêcheur lève les yeux. The camera slowly dollies in.'], 'Le pêcheur lève les yeux', { move: 'dolly_in', speed: 'slow' }, 'The camera slowly dollies in.'],
+  );
   // Nor a continuation, for now: its clip is all it starts from.
   const suite = await runtime.request(
     [call('extend_video', { prompt: 'Il se lève.', intention: 'Suite demandée dans le Studio.', source: { output: uid(5) }, duration: 5, camera: 'dolly_in' }, 'call-suite')],
@@ -1608,11 +1611,12 @@ test('(0.6.211) the camera chosen in the Studio: its sentence after the prompt o
   // Passed by a chat model, which is not offered it yet: refused as any argument its tool does not have.
   await assert.rejects(next(asked, { byHand: false }), /create_video n’accepte pas l’argument camera/);
 
-  // What the Studio is told of each model: the camera for a new video of LTX 2.5 and Wan 2.2, nowhere else.
+  // What the Studio is told of each model: the camera for a new video of LTX 2.5, MiniMax H3 and Wan 2.2,
+  // nowhere else.
   const tools = await new ToolCatalog({ list: async () => list }).studio();
   assert.deepEqual(
-    Object.fromEntries(Object.entries(tools).map(([verb, items]) => [verb, (Array.isArray(items) ? items : []).filter(item => item.camera).map(item => item.name)])),
-    { create_image: [], create_video: ['LTX 2.5', 'Wan 2.2'], extend_video: [], replace_character: [], create_audio: [] },
+    Object.fromEntries(Object.entries(tools).map(([verb, items]) => [verb, (Array.isArray(items) ? items : []).filter(item => item.camera).map(item => item.name).sort()])),
+    { create_image: [], create_video: ['LTX 2.5', 'MiniMax H3 Omni', 'Wan 2.2'], extend_video: [], replace_character: [], create_audio: [] },
   );
   // (A workflow whose prompt is fixed has none to add a sentence to: no camera.)
   const { ready: _ready, digest: _digest, ...stored } = ltx,

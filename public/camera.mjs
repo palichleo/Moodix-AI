@@ -11,7 +11,10 @@
 
 // The models that take it, by family (runner/families), and the verb: a new video. (A continuation, a character
 // put in a video and the Bobine come with lot 15.)
-export const CAMERA_FAMILIES = ['ltx25', 'wan22'];
+// (0.6.221) MiniMax H3 too, asked on 22/11: it is a sentence of the prompt, which any model that reads one
+// takes. No movement was tried with it on the card: nothing says yet which ones it follows.
+// (Not SCAIL-2: it follows the video it is given. Not Wan 2.2 Fun Camera: its own adapter reads the camera.)
+export const CAMERA_FAMILIES = ['ltx25', 'wan22', 'minimax_h3'];
 export const CAMERA_VERBS = ['create_video'];
 /** Whether a model of that family takes the camera for that verb. */
 export const takesCamera = (family, verb) => CAMERA_FAMILIES.includes(family) && CAMERA_VERBS.includes(verb);
