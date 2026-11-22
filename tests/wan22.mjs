@@ -176,8 +176,16 @@ test('a file of Wan 2.2 Fun Camera is never taken for Wan 2.2, nor Wan 2.2 for i
   // is two settings more, a movement the engine knows and a speed.
   assert.equal(fun.module, 'wan22');
   assert.deepEqual(Object.keys(fun.components), Object.keys(plain.components));
-  const { camera: move, camera_speed: speed, ...own } = fun.parameters;
-  assert.deepEqual(own, plain.parameters);
+  const { camera: move, camera_speed: speed, ...own } = fun.parameters,
+    limits = specs => Object.fromEntries(Object.entries(specs).map(([name, { note, ...spec }]) => [name, spec]));
+  assert.deepEqual(limits(own), limits(plain.parameters));
+  // (0.6.214) Shipped at eight steps where Wan 2.2 takes four (at four a subject the camera moves away
+  // from is drawn twice, seen on the real videos of 22/11), and twenty for a video found hard, his
+  // words: « on doit pouvoir switch à 20 étapes pour les vidéos difficiles ». Both with the step LoRAs.
+  assert.deepEqual([fun.template.parameters.steps.value, plain.template.parameters.steps.value], [8, 4]);
+  assert.deepEqual([fun.template.parameters.cfg.value, fun.template.parameters.step_lora_strength.value], [1, 1]);
+  assert.deepEqual([own.steps.min, own.steps.max], [4, 50]);
+  assert.match(own.steps.note, /^8 avec les LoRA d’étapes .* 20 pour une vidéo difficile/);
   assert.equal(move.choices[0], 'none');
   assert.ok(move.choices.includes('orbit_left') && move.choices.includes('crane_up') && move.choices.includes('pan_left'));
   assert.deepEqual([speed.min, speed.max], [0.25, 4]);

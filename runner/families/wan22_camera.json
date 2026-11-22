@@ -134,7 +134,7 @@
       "label": "LoRA d’étapes (bruit fort)",
       "folder": "loras",
       "required": true,
-      "note": "Lightning de lightx2v pour le modèle « high noise » : avec lui et son pendant, quatre étapes suffisent.",
+      "note": "Lightning de lightx2v pour le modèle « high noise » : avec lui et son pendant, huit étapes suffisent.",
       "signature": [
         {
           "key": "blocks\\.0\\.self_attn\\.q\\.lora_down\\.weight$",
@@ -187,7 +187,7 @@
       "type": "integer",
       "min": 4,
       "max": 50,
-      "note": "4 avec les LoRA d’étapes : deux pour chaque modèle. Sans eux (intensité à 0) : 20, ou 40 comme le code de Wan."
+      "note": "8 avec les LoRA d’étapes : trois pour le modèle « bruit fort », cinq pour l’autre. 20 pour une vidéo difficile (un grand déplacement de la caméra, un sujet très proche) : environ deux fois plus long. À 4, le sujet laisse un double de lui-même quand la caméra se déplace."
     },
     "cfg": {
       "type": "number",
@@ -205,7 +205,7 @@
       "type": "number",
       "min": 0,
       "max": 2,
-      "note": "1 : quatre étapes suffisent. À 0, les LoRA d’étapes ne sont pas lus : mettez alors 20 étapes et un guidage de 3,5."
+      "note": "1 : huit étapes suffisent. À 0, les LoRA d’étapes ne sont pas lus : à 20 étapes et un guidage de 6, la vidéo prend cinq minutes et demie et la caméra n’est presque plus suivie."
     },
     "camera": {
       "type": "string",
@@ -305,7 +305,7 @@
       },
       "steps": {
         "policy": "fixed",
-        "value": 4
+        "value": 8
       },
       "cfg": {
         "policy": "fixed",

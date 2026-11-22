@@ -807,10 +807,18 @@ class CameraRuleTests(unittest.TestCase):
         plain, fun = registry.families()['wan22'], registry.families()['wan22_camera']
         self.assertIs(registry.pipeline('wan22_camera'), pipeline)
         self.assertEqual((fun['module'], pipeline.CAMERA_FAMILY), ('wan22', 'wan22_camera'))
-        # The same files beside the two models, the same settings, and the camera more.
+        # The same files beside the two models, the same settings within the same limits (what is
+        # said of the steps differs: see below), and the camera more.
         self.assertEqual(list(fun['components']), list(plain['components']))
-        own = {name: spec for name, spec in fun['parameters'].items() if not name.startswith('camera')}
-        self.assertEqual(own, plain['parameters'])
+
+        def limits(specs):
+            return {
+                name: {key: value for key, value in spec.items() if key != 'note'}
+                for name, spec in specs.items()
+                if not name.startswith('camera')
+            }
+
+        self.assertEqual(limits(fun['parameters']), limits(plain['parameters']))
         self.assertEqual(fun['requiredParameters'], plain['requiredParameters'])
         self.assertEqual(fun['roles'], plain['roles'])
         # Every movement the engine knows, and none it does not; « none » reads no camera.
@@ -826,6 +834,53 @@ class CameraRuleTests(unittest.TestCase):
             model, low = manifest['components']['model'], manifest['components']['modelLow']
             for told in (model['fingerprint'], model['signature'], low['signature']):
                 self.assertIn(entry, told, manifest['family'])
+
+    def test_fun_camera_is_shipped_at_eight_steps_and_takes_twenty_for_a_hard_video(self):
+        # (0.6.214) Measured on 22/11: at Wan 2.2's four steps a subject the camera moves away from is
+        # drawn twice, a pale copy left where it was (his words: « le mouvement du pêcheur est comme
+        # fondu »). At eight the copy is gone and the camera moves as far. His decision: « ok pas mal,
+        # mais on doit pouvoir switch à 20 étapes pour les vidéos difficiles ».
+        from runner.registry import families, validate_job
+
+        plain, fun = families()['wan22'], families()['wan22_camera']
+        self.assertEqual((pipeline.STEPS, pipeline.CAMERA_STEPS, pipeline.CAMERA_STEPS_HARD), (4, 8, 20))
+        self.assertEqual(plain['template']['parameters']['steps'], dict(policy='fixed', value=pipeline.STEPS))
+        self.assertEqual(fun['template']['parameters']['steps'], dict(policy='fixed', value=pipeline.CAMERA_STEPS))
+        # Still with the step LoRAs and no guidance: more passes of the same recipe, not another one
+        # (without them, 20 steps took 326 s and the camera hardly moved).
+        for name, value in (('cfg', 1), ('step_lora_strength', 1), ('shift', 5)):
+            self.assertEqual(fun['template']['parameters'][name]['value'], value, name)
+        # Which of the two models draws each step: three and five, eight and twelve.
+        for steps, high in ((pipeline.CAMERA_STEPS, 3), (pipeline.CAMERA_STEPS_HARD, 8)):
+            plan = pipeline.experts(scail.sigmas(steps, pipeline.SHIFT))
+            self.assertEqual(plan, ['high'] * high + ['low'] * (steps - high), steps)
+        # Both are steps a job may ask of the family, as the settings of a model say them.
+        limits = fun['parameters']['steps']
+        self.assertEqual((limits['type'], limits['min'], limits['max']), ('integer', 4, 50))
+        self.assertIn('8 avec les LoRA d’étapes', limits['note'])
+        self.assertIn('20 pour une vidéo difficile', limits['note'])
+        folder = Path.cwd()
+        sent = dict(
+            schemaVersion=1,
+            id='job',
+            pipeline='wan22_camera',
+            mediaType='video',
+            workflowId='camera',
+            workflowDigest='e' * 64,
+            parameters=dict(
+                prompt='a fox', seed=1, width=768, height=448, steps=8, cfg=1, shift=5, frames=81, fps=16,
+                camera='crane_up', camera_speed=1,
+            ),
+            components={name: str(folder / (name + '.safetensors')) for name in fun['components']},
+            loras=[],
+            references=[dict(input='start', role='start_image', path=str(folder / 'start.png'))],
+        )
+        for steps in (pipeline.CAMERA_STEPS, pipeline.CAMERA_STEPS_HARD):
+            validate_job(dict(sent, parameters=dict(sent['parameters'], steps=steps)))
+        # (The whole job runs on the card only: that a job of the family that names no steps is
+        # drawn at eight, and one of Wan 2.2 at four, is read in its text.)
+        source = Path(pipeline.__file__).read_text(encoding='utf-8')
+        self.assertIn("steps = p.get('steps', CAMERA_STEPS if reads_camera(job) else STEPS)", source)
 
     def test_a_job_names_a_movement_and_a_speed_or_reads_no_camera(self):
         from runner.registry import families, validate_job
@@ -1008,8 +1063,14 @@ class CameraRuleTests(unittest.TestCase):
         self.assertEqual(len({made['parameters']['prompt'] for made in jobs}), 1)
         for made in jobs:
             self.assertEqual((made['pipeline'], made['parameters']['camera_speed']), ('wan22_camera', 2.0))
-            self.assertEqual((made['parameters']['steps'], made['parameters']['cfg']), (4, 1))
+            # (0.6.214) The steps the family ships, not Wan 2.2's four; --steps asks for others.
+            self.assertEqual((made['parameters']['steps'], made['parameters']['cfg']), (pipeline.CAMERA_STEPS, 1))
             validate_job(dict(made, schemaVersion=1, workflowId='bench', workflowDigest='d' * 64))
+        args.steps = pipeline.CAMERA_STEPS_HARD
+        self.assertEqual(bench.wan22_camera_job(args, 1)['parameters']['steps'], 20)
+        # Wan 2.2 itself keeps its four steps.
+        args.steps = None
+        self.assertEqual(bench.wan22_job(args, 1)['parameters']['steps'], pipeline.STEPS)
         self.assertEqual([pipeline.camera_of(made) for made in jobs[:2]], [None, dict(move='pan_left', speed=2.0)])
 
 

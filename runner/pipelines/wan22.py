@@ -27,6 +27,21 @@ and a speed; what each model's adapter makes of them is computed once as the mod
 added to the tokens at every pass. Everything else is as above, the step LoRAs included (they
 are the files ComfyUI's page for this model shows it with: the same bytes). Without a movement
 (`none`) the adapter is not read: the same video, the camera left to the model.
+
+Its steps are not Wan 2.2's (measured on 22/11, 81 frames at 768 x 448 on the card of 12 GiB,
+the same image, prompt and seed for every video; the adapter costs 1.2 s as each model opens):
+
+- 4 steps with the step LoRAs, 58 s: where the camera moves a long way (a crane upwards), the
+  subject is drawn twice, a pale copy left where it was while it appears where it goes: what the
+  user called « un fondu », and refused;
+- 8 steps with them, 91 s (three passes of the « high noise » model, five of the other): the
+  camera moves as far, and the copy is gone from the frames looked at. What the family ships;
+- 20 steps with them, for a video the user finds hard (his words: « on doit pouvoir switch à 20
+  étapes pour les vidéos difficiles »): eight passes and twelve, about 3 min by the time of a
+  pass. Not made yet: whether it draws better than 8 is not known;
+- 20 steps without them, at a guidance of 6 (VideoX-Fun's own recipe takes 50 steps): 326 s, no
+  copy, and the camera hardly moves (21 px where the others slide the picture 150 to 175): not
+  the way to more steps.
 """
 
 import gc
@@ -62,6 +77,10 @@ CAMERA_SPEED = 1.0
 # (Twice the speed VideoX-Fun's movements were published at is the fastest tried; beyond four
 # times, a truck leaves the scene the start image shows.)
 CAMERA_FASTEST = 4.0
+# The steps of Fun Camera with its step LoRAs (see the note above): what the family ships, and
+# what a video found hard is made again with.
+CAMERA_STEPS = 8
+CAMERA_STEPS_HARD = 20
 # As runner.pipelines.wan_scail2: RAM the weights leave free, what is locked beyond what is
 # copied, what is copied to the GPU ahead of the layers that read it.
 RAM_RESERVE_GIB = 4
@@ -392,7 +411,8 @@ def generate(job, config, progress):
     check(job, None)
     p, paths = job['parameters'], job['components']
     width, height, frames = p['width'], p['height'], p['frames']
-    steps, guidance, shift = p.get('steps', STEPS), float(p.get('cfg', GUIDANCE)), float(p.get('shift', SHIFT))
+    steps = p.get('steps', CAMERA_STEPS if reads_camera(job) else STEPS)
+    guidance, shift = float(p.get('cfg', GUIDANCE)), float(p.get('shift', SHIFT))
     count = tokens(frames, height, width)
     require('Wan 2.2', working_gib(count), 'la taille ou la durée de la vidéo')
     GiB = 1024**3

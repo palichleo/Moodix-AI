@@ -250,7 +250,8 @@ def wan22_job(args, run):
             width=width,
             height=height,
             steps=args.steps or (4 if lightning else 20),
-            cfg=1 if lightning else 3.5,
+            # (--guidance: another one than the official 3.5, for the recipe without the step LoRAs.)
+            cfg=1 if lightning else (args.guidance or 3.5),
             shift=5,
             # (4n + 1 frames: 81, five seconds, unless such a length is asked.)
             frames=args.frames if args.frames % 4 == 1 else 81,
@@ -270,6 +271,11 @@ def wan22_camera_job(args, run):
     moves = args.camera or ['none']
     job['pipeline'] = 'wan22_camera'
     job['parameters'].update(camera=moves[min(run, len(moves)) - 1], camera_speed=args.camera_speed)
+    # With its step LoRAs, the steps the family ships (8: at Wan 2.2's 4 a subject is drawn twice).
+    if not args.steps and 'stepLora' in job['components']:
+        from runner.pipelines import wan22
+
+        job['parameters']['steps'] = wan22.CAMERA_STEPS
     if args.same_seed:
         job['parameters']['seed'] = args.seed
     return job
@@ -323,6 +329,7 @@ def main(argv=None):
     parser.add_argument('--camera', action='append', default=[], help='Wan 2.2 Fun Camera: a movement, one a run')
     parser.add_argument('--camera-speed', type=float, default=1.0, help='Wan 2.2 Fun Camera: 1 is the usual speed')
     parser.add_argument('--same-seed', action='store_true', help='every run draws from the noise of --seed')
+    parser.add_argument('--guidance', type=float, help='Wan 2.2 without its step LoRAs: guidance (3.5 unless given)')
     parser.add_argument('--cfg', type=float, default=3.0, help='MOSS Image: guidance (1 follows the prompt alone)')
     parser.add_argument('--negative', default='', help='MOSS Image: negative prompt')
     args = parser.parse_args(argv)
