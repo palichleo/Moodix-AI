@@ -132,7 +132,20 @@ const STUDIO_LAYOUT = `(() => {
       const name = mode + ' · ' + (pick()?.selectedOptions[0]?.textContent ?? document.querySelector('#studio-view .studio-model-name')?.textContent ?? '');
       look(name);
       for (let added = 0; added < 3; added++) click('#studio-view .studio-lora-plus');
-      click('#studio-view .studio-lyrics-toggle');
+      // (0.6.203) The list of « Ajouter », whole in the window with every model; the lyrics of a song open from it
+      // (their button « + Paroles » is gone). Closed again before the look: it lies above the page.
+      const add = document.querySelector('#studio-view .studio-add-pick');
+      if (add && !add.disabled) {
+        add.click();
+        const menu = document.querySelector('#studio-view .studio-add-menu'),
+          box = menu?.getBoundingClientRect();
+        if (!menu || menu.hidden || !box.height) found.push(name + ' : la liste « Ajouter » ne s’ouvre pas');
+        else if (box.left < 0 || box.top < 0 || box.right > innerWidth || box.bottom > innerHeight) found.push(name + ' : la liste « Ajouter » sort de la fenêtre');
+        const lyrics = [...(menu?.querySelectorAll('.glass-menu-item:not(.is-off)') ?? [])].find(item => item.firstElementChild?.textContent === 'Paroles');
+        if (lyrics) lyrics.click();
+        else add.click();
+        if (document.querySelector('#studio-view .studio-add-menu:not([hidden])')) found.push(name + ' : la liste « Ajouter » reste ouverte');
+      }
       if (!document.querySelector('#studio-view .studio-more-pill')?.classList.contains('is-open')) click('#studio-view .studio-more-pill');
       look(name + ', tout ouvert');
     }

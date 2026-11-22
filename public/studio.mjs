@@ -213,6 +213,27 @@ const WORDS = { start_image: 'Début', end_image: 'Fin', reference: 'Sujet', sou
 // (0.6.202) A piece given that the model in hand does not take, as the line under the plateau names it
 // (capture 96): « L’image de fin et le sujet ne partiront pas avec Wan 2.2. ».
 const KEPT = { start_image: 'l’image de début', end_image: 'l’image de fin', source: 'l’image à modifier' };
+// The inputs of a proposal are those Moodix AI chose: said on a click on one of its cases, and (0.6.203) why
+// « Ajouter » is greyed under it.
+const AI_INPUTS = 'Les images de cette proposition sont celles de Moodix AI : demandez-lui dans le chat pour en changer.';
+// (0.6.203, captures 94, 100 and 101) Each kind of piece in the list « Ajouter »: its name, what the list says of
+// it once given (`given`), and how a model that does not take it says which one does (`serves`: « Une vidéo à
+// suivre sert avec SCAIL-2 : choisissez-le dans Modèle. »).
+const PIECES = {
+  start_image: { name: 'Image de début', given: 'déjà donnée', serves: 'Une image de début sert' },
+  end_image: { name: 'Image de fin', given: 'déjà donnée', serves: 'Une image de fin sert' },
+  source: { name: 'Image à modifier', given: 'déjà donnée', serves: 'Une image à modifier sert' },
+  follow: { name: 'Vidéo à suivre', given: 'déjà donnée', serves: 'Une vidéo à suivre sert' },
+  character: { name: 'Personnage', given: 'déjà donné', serves: 'Un personnage sert' },
+  reference: { name: 'Sujet', given: 'déjà donné', serves: 'Un sujet sert' },
+  lyrics: { name: 'Paroles', given: 'déjà ouvertes', serves: 'Des paroles servent' },
+  image: { name: 'Image', given: 'déjà donnée', serves: 'Une image sert' },
+};
+// (0.6.203, his answer 8 of 21/11: « avec SCAIL-2 ») A model said short in that list: the name its family has
+// here, else what its name says in brackets (« Musique (ACE-Step 1.5 XL) »), else its name.
+const SHORT_MODELS = { wan_scail2: 'SCAIL-2' };
+const shortModel = workflow =>
+  SHORT_MODELS[workflow.family] ?? String(workflow.name).match(/\(([^()]+)\)\s*$/)?.[1] ?? String(workflow.name);
 const figures = value => twoFigures(value) + ' S';
 /** The length of a sound in the Sortie (capture 23): « 08.00 S », « 1:45 » from a minute. */
 const soundFigures = value => {
@@ -398,6 +419,7 @@ export function setupStudio({
     advanced = false, // « Plus de réglages » is open
     revealRare = false, // it has just been opened: brought into sight once drawn (0.6.102)
     formatsOpen = false, // « ··· » is open
+    addOpen = false, // (0.6.203) the list of « Ajouter » is open
     drawn = null, // the size the frame was last drawn at, to ease from
     watching = null, // follows the size of the stage
     laidOut = false, // the stage was in sight at the last look: its screen eases to a new shape
@@ -892,10 +914,7 @@ export function setupStudio({
       // An input that does not combine with those given says why. It still takes the image of
       // one of them, dragged here: that is how a role is changed.
       if (refused) return notice(refused);
-      if (chosenByAi)
-        return notice(
-          'Les images de cette proposition sont celles de Moodix AI : demandez-lui dans le chat pour en changer.',
-        );
+      if (chosenByAi) return notice(AI_INPUTS);
       // A file of the computer, empty or filled (16/11: « Créations du projet » is gone from here; a
       // take of the project is dragged to it from the Sortie).
       openPicker(role, index, media);
@@ -1294,6 +1313,170 @@ export function setupStudio({
     return block;
   }
   /**
+   * (0.6.203) The kinds of pieces a model takes, in the order of the plateau: `[{ kind, role, media, count }]`
+   * (PIECES). The reference of a model that follows a video is its character; the lyrics of a song are a
+   * piece too, opened under the prompt.
+   */
+  function kindsOf(workflow) {
+    const rank = piece => ['start_image', 'end_image'].indexOf(piece.role) + 1 || (piece.role === 'reference' ? 9 : 5),
+      kinds = Object.entries(workflow.roles ?? {})
+        .filter(([, spec]) => spec?.count)
+        .map(([role, spec]) => {
+          const video = Boolean(spec.media?.includes('video'));
+          return {
+            kind: video ? 'follow' : role === 'reference' ? (workflow.follows ? 'character' : 'reference') : role in PIECES ? role : 'image',
+            role,
+            media: video ? 'video' : 'image',
+            count: spec.count,
+          };
+        })
+        .sort((a, b) => rank(a) - rank(b));
+    if (workflow.settings?.some(setting => setting.key === 'lyrics' && setting.type === 'string')) kinds.push({ kind: 'lyrics' });
+    return kinds;
+  }
+  /**
+   * (0.6.203, captures 94, 100 and 101) The list of « Ajouter »: what the model in hand takes, each choice
+   * opening the files of the computer for its case (the lyrics, their field under the prompt), one already given
+   * greyed (« déjà donnée », his answer 1 of 21/11); then, under a rule, what only another model of the mode
+   * takes, greyed with the short name of that model and the sentence that says where to choose it (they were
+   * nowhere: nothing said that a video can be followed, or that a song has lyrics, with another model).
+   * `[{ name, note, off, run }]`, null for the rule.
+   */
+  function addChoices(workflow) {
+    const draft = drafts[mode],
+      own = kindsOf(workflow),
+      choices = [];
+    for (const piece of own) {
+      const { name, given } = PIECES[piece.kind];
+      if (piece.kind === 'lyrics') {
+        const setting = workflow.settings.find(item => item.key === 'lyrics'),
+          open = draft.lyrics || String(draft.settings[workflow.id]?.lyrics ?? setting.default ?? '').trim();
+        choices.push(
+          open
+            ? { name, note: given, off: 'Les paroles sont déjà ouvertes, sous le prompt.' }
+            : {
+                name,
+                run: () => {
+                  draft.lyrics = true;
+                  render();
+                  document.querySelector?.('#studio-view [data-ai="setting-lyrics"]')?.focus?.();
+                },
+              },
+        );
+        continue;
+      }
+      const list = draft.inputs[piece.role] ?? [],
+        free = Array.from({ length: piece.count }, (_, index) => index).find(index => !list[index]),
+        clash = exclusiveWith(workflow, piece.role),
+        note = piece.count > 1 ? given + 's' : given;
+      if (clash.length) choices.push({ name, off: `Ne se combine pas avec : ${clash.map(other => ROLES[other]).join(', ')}` });
+      else if (free === undefined)
+        choices.push({
+          name,
+          note,
+          off: piece.kind === 'reference' && piece.count > 1 ? `Les ${piece.count} sujets sont déjà donnés.` : `${name} : ${note}. Cliquez sur sa case pour en changer.`,
+        });
+      else choices.push({ name, run: () => openPicker(piece.role, free, piece.media) });
+    }
+    const seen = new Set(own.map(piece => piece.kind)),
+      others = [];
+    // A model this computer can run first: « choisissez-le dans Modèle » names one that can be chosen there.
+    for (const other of [...offered()].sort((a, b) => Boolean(a.unavailable) - Boolean(b.unavailable)))
+      for (const piece of other.id === workflow.id ? [] : kindsOf(other)) {
+        if (seen.has(piece.kind)) continue;
+        seen.add(piece.kind);
+        const { name, serves } = PIECES[piece.kind],
+          short = shortModel(other);
+        others.push({ kind: piece.kind, name, note: 'avec ' + short, off: `${serves} avec ${short} : choisissez-le dans Modèle.` });
+      }
+    // In the order of the plateau (PIECES), whichever model each comes from.
+    const order = Object.keys(PIECES);
+    others.sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
+    return [...choices, ...(choices.length && others.length ? [null] : []), ...others];
+  }
+  /**
+   * (0.6.203, captures 93 and 94) « Ajouter », the last piece of the plateau: a case with its « + », which opens
+   * one of our lists of glass (addChoices), arrows, Entrée and Échap on the keyboard. Greyed with its reason
+   * while a take is made (whyNot) and under a proposal of Moodix AI, whose images are its own. None in a
+   * continuation, which starts from its clip alone, nor in a mode where no model takes anything.
+   */
+  function addPiece(workflow) {
+    if (mode === 'video' && extending) return null;
+    const choices = addChoices(workflow);
+    if (!choices.length) return null;
+    const held = answering() ? AI_INPUTS : working ? whyNot() || BUSY_HERE : '';
+    if (held) addOpen = false;
+    const piece = node('div', 'studio-add' + (addOpen ? ' is-open' : '')),
+      menu = node('div', 'glass-menu studio-add-menu'),
+      word = node('span', 'studio-add-word', 'Ajouter'),
+      pick = button(
+        'studio-add-pick',
+        '',
+        () => {
+          addOpen = !addOpen;
+          piece.classList.toggle('is-open', addOpen);
+          pick.setAttribute('aria-expanded', String(addOpen));
+          if (!addOpen) return closePopup(menu);
+          openPopup(menu, pick, { align: 'start' });
+          // The first choice that can be made in hand; when none can, the first all the same: the keys read
+          // why from there.
+          (menu.querySelector?.('.glass-menu-item:not(.is-off)') ?? menu.querySelector?.('.glass-menu-item'))?.focus?.();
+        },
+        'plus',
+      );
+    // Its word under it says what it does: its tooltip only why it cannot be pressed.
+    pick.setAttribute('aria-label', 'Ajouter');
+    pick.setAttribute('aria-haspopup', 'menu');
+    pick.setAttribute('aria-expanded', String(addOpen));
+    if (held) pick.title = held;
+    pick.disabled = Boolean(held);
+    word.setAttribute('aria-hidden', 'true');
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', 'Ajouter');
+    menu.hidden = !addOpen;
+    for (const choice of choices) {
+      if (!choice) {
+        const rule = node('div', 'glass-menu-rule');
+        rule.setAttribute('role', 'separator');
+        menu.append(rule);
+        continue;
+      }
+      const item = button('glass-menu-item' + (choice.off ? ' is-off' : ''), choice.name, () => {
+        if (choice.off) return;
+        closeAdd();
+        choice.run();
+      });
+      item.setAttribute('role', 'menuitem');
+      if (choice.note) {
+        item.append(node('span', 'glass-menu-note', choice.note));
+        item.setAttribute('aria-label', choice.name + ', ' + choice.note);
+      }
+      // Why it cannot be chosen, under the pointer and on the focus: at the right of the list (0.6.189).
+      if (choice.off) {
+        item.setAttribute('aria-disabled', 'true');
+        item.dataset.tip = choice.off;
+        item.dataset.tipSide = 'right';
+      }
+      menu.append(item);
+    }
+    // The arrows go through every choice, the greyed ones too: their reason is read on the focus.
+    menu.onkeydown = event => {
+      const items = [...(menu.querySelectorAll?.('.glass-menu-item') ?? [])],
+        at = items.indexOf(document.activeElement),
+        to = { ArrowDown: at + 1, ArrowUp: at + items.length - 1, Home: 0, End: items.length - 1 }[event.key];
+      if (event.key === 'Tab') return closeAdd();
+      if (event.key !== 'Escape' && to === undefined) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === 'Escape') closeAdd({ refocus: true });
+      else items[to % items.length]?.focus?.();
+    };
+    piece.append(pick, word, menu);
+    // Left open while the Studio is drawn again: shown once it is on the page (as « ··· »).
+    if (addOpen) globalThis.queueMicrotask?.(() => menu.isConnected && addOpen && openPopup(menu, pick, { align: 'start' }));
+    return piece;
+  }
+  /**
    * The plateau, below the prompt (0.6.201, captures 93 and 108): what the model takes in one block without a
    * title, in the style of the prompt's box, a word under each piece. The start and the end on their line of
    * time, then the other pieces on a row (the image to modify, the video to follow and its character, the
@@ -1315,11 +1498,13 @@ export function setupStudio({
       kept.append(...rest.map(piece => offPiece(workflow, piece)));
       pieces.push(kept);
     }
-    const plateau = frames || pieces.length ? node('div', 'studio-input-block studio-plateau') : null;
+    // (0.6.203) « Ajouter », the last piece: with a model that takes nothing, the plateau is that case alone.
+    const add = addPiece(workflow),
+      plateau = frames || pieces.length || add ? node('div', 'studio-input-block studio-plateau') : null;
     if (frames) plateau.append(frames);
-    if (pieces.length) {
+    if (pieces.length || add) {
       const row = node('div', 'studio-plateau-row');
-      row.append(...pieces);
+      row.append(...pieces, ...(add ? [add] : []));
       plateau.append(row);
     }
     if (off.length) plateau.append(offLine(workflow, off));
@@ -4856,7 +5041,7 @@ export function setupStudio({
   function setMode(next) {
     mode = next;
     failure = '';
-    formatsOpen = false;
+    formatsOpen = addOpen = false;
     if (next !== 'video') extending = null;
     // Back in Vidéo while a proposal of Moodix AI waits there: the clip it continues is its own, not
     // lost with a look at Image or Son (it was then shown, and its length sent, as a new video's).
@@ -5001,7 +5186,8 @@ export function setupStudio({
       event.preventDefault();
       placeImage(workflow, file);
     };
-    // A song's lyrics are words handed over too: under the prompt, opened on demand.
+    // A song's lyrics are words handed over too: under the prompt, opened on demand. (0.6.203) From the list
+    // of « Ajouter » (addChoices, capture 101), no longer from a button « + Paroles (facultatif) » of their own.
     const lyrics = workflow.settings.find(setting => setting.key === 'lyrics' && setting.type === 'string');
     if (lyrics) {
       const store = (draft.settings[workflow.id] ??= {}),
@@ -5013,14 +5199,7 @@ export function setupStudio({
         if (lyrics.maxLength) box.maxLength = lyrics.maxLength;
         aiTarget(box, 'setting-lyrics');
         write.append(field(settingName('lyrics'), box, { wide: true }));
-      } else
-        write.append(
-          button('studio-lyrics-toggle', '+ Paroles (facultatif)', () => {
-            draft.lyrics = true;
-            render();
-            document.querySelector?.('#studio-view [data-ai="setting-lyrics"]')?.focus?.();
-          }),
-        );
+      }
     }
     // The input images (a continuation shows only those it takes: subject references, for
     // MiniMax H3). Another model than the last one drawn: their blocks say so for a moment.
@@ -6036,6 +6215,33 @@ export function setupStudio({
       // (Taken: the chat opened over the Studio folds at Échap when nothing else has it, app.js.)
       event.preventDefault();
       closeFormats({ refocus: true });
+    },
+    true,
+  );
+  // (0.6.203) The list of « Ajouter » closes as « ··· » does: a press beside it, Échap (the focus back on its case).
+  function closeAdd({ refocus = false } = {}) {
+    addOpen = false;
+    const piece = document.querySelector?.('#studio-view .studio-add'),
+      pick = piece?.querySelector?.('.studio-add-pick'),
+      menu = piece?.querySelector?.('.studio-add-menu');
+    if (menu) closePopup(menu);
+    piece?.classList?.remove?.('is-open');
+    pick?.setAttribute?.('aria-expanded', 'false');
+    if (refocus) pick?.focus?.();
+  }
+  document.addEventListener?.(
+    'pointerdown',
+    event => {
+      if (addOpen && !event.target?.closest?.('.studio-add')) closeAdd();
+    },
+    true,
+  );
+  document.addEventListener?.(
+    'keydown',
+    event => {
+      if (event.key !== 'Escape' || !addOpen || document.querySelector?.('dialog[open]')) return;
+      event.preventDefault();
+      closeAdd({ refocus: true });
     },
     true,
   );

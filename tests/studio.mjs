@@ -2177,6 +2177,221 @@ test('(0.6.202) what is given that the model in hand does not take stays on the 
   }
 });
 
+test('(0.6.203) « Ajouter », the last piece of the plateau: its list gives what the model takes, greys what only another model takes, and holds the lyrics', async () => {
+  // (Captures 93, 94, 100 and 101. Before: nothing said that a video can be followed or that a song has lyrics
+  // with another model, and the lyrics had a button of their own under the prompt.)
+  const image = { count: 1, media: ['image'] },
+    shape = { limits: sizes, size: { width: 768, height: 448 }, settings: [], seeded: true },
+    moss = { ...shape, id: 'm', name: 'MOSS Image', family: 'moss', roles: {} },
+    krea = { ...shape, id: 'k', name: 'Krea 2', family: 'krea2', roles: { source: { ...image, many: false } } },
+    // (One this computer cannot run, listed first: the list names a model that can be chosen.)
+    turbo = { ...krea, id: 't', name: 'Krea 2 Turbo', unavailable: 'Krea 2 Turbo demande une carte graphique NVIDIA.' },
+    // (One that takes subjects only, listed before LTX 2.5: the greyed choices follow the order of the plateau.)
+    omni = { ...shape, id: 'o', name: 'MiniMax H3 Omni', family: 'minimax_h3', lengths: { seconds: [121 / 24], standard: 121 / 24 }, roles: { reference: { count: 2, media: ['image'] } } },
+    ltx = { ...shape, id: 'l', name: 'LTX 2.5', family: 'ltx25', lengths: { seconds: [121 / 24], standard: 121 / 24 }, roles: { reference: { count: 3, media: ['image'] }, end_image: image, start_image: image } },
+    // (As MiniMax H3: a start image or subjects, never both.)
+    either = { ...shape, id: 'h', name: 'L’un ou l’autre', lengths: { seconds: [121 / 24], standard: 121 / 24 }, exclusive: [['start_image'], ['reference']], roles: { start_image: image, reference: { count: 2, media: ['image'] } } },
+    scail = {
+      ...shape,
+      id: 's',
+      name: 'Wan 2.1 SCAIL-2',
+      family: 'wan_scail2',
+      verb: 'replace_character',
+      follows: true,
+      roles: { source: { count: 1, media: ['video'], many: false }, reference: { count: 1, media: ['image'], many: false } },
+    },
+    sfx = { id: 'x', name: 'Bruitages (MOSS-SoundEffect v2)', family: 'moss_sfx', roles: {}, settings: [] },
+    ace = { id: 'a', name: 'Musique (ACE-Step 1.5 XL)', family: 'acestep15', roles: {}, settings: [{ key: 'lyrics', type: 'string', maxLength: 4000 }] };
+  const page = await studioPage(
+    { create_image: [moss, turbo, krea], create_video: [omni, ltx, either], replace_character: [scail], create_audio: [sfx, ace] },
+    { 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }), 'tools/execute': () => new Promise(() => {}) },
+  );
+  const { body, studio, pagePointers, pageKeys, restore } = page;
+  try {
+    const picker = page.page['studio-view'].children.find(child => child.tag === 'input'),
+      add = () => body.find('studio-add')[0],
+      pick = () => add().children[0],
+      menu = () => add().children[2],
+      // Each line of the list: greyed or not, its name and what is said of it, its reason; « — » for the rule.
+      list = () => menu().children.map(item => (item.className === 'glass-menu-rule' ? '—' : [/is-off/.test(item.className), item.children.map(part => part.textContent).join(' · '), item.dataset.tip ?? ''])),
+      choose = name => menu().children.find(item => item.children?.[0]?.textContent === name).onclick(),
+      model = id => {
+        const chosen = body.find('studio-model-pick')[0];
+        chosen.value = id;
+        chosen.onchange();
+      },
+      give = async (name, type = 'image/png') => {
+        picker.files = [{ name, type }];
+        await picker.onchange();
+        await new Promise(resolve => setTimeout(resolve, 5));
+      };
+    // Image, a model that takes nothing: the plateau is « Ajouter » alone, its word under it.
+    assert.deepEqual(body.find('studio-plateau')[0].children.map(row => row.children.map(part => part.className)), [['studio-add']]);
+    assert.deepEqual(add().children.map(part => part.className), ['studio-add-pick', 'studio-add-word', 'glass-menu studio-add-menu']);
+    assert.deepEqual(
+      [pick().attributes['aria-label'], pick().attributes['aria-haspopup'], pick().attributes['aria-expanded'], pick().disabled, pick().title],
+      ['Ajouter', 'menu', 'false', false, undefined],
+    );
+    assert.deepEqual([add().children[1].textContent, add().children[1].attributes['aria-hidden']], ['Ajouter', 'true']);
+    assert.deepEqual([menu().hidden, menu().attributes.role, menu().attributes['aria-label']], [true, 'menu', 'Ajouter']);
+    // What only Krea 2 takes, greyed, with the name of that model and where to choose it (capture 100).
+    assert.deepEqual(list(), [[true, 'Image à modifier · avec Krea 2', 'Une image à modifier sert avec Krea 2 : choisissez-le dans Modèle.']]);
+    const [greyed] = menu().children;
+    assert.deepEqual(
+      [greyed.attributes.role, greyed.attributes['aria-disabled'], greyed.attributes['aria-label'], greyed.dataset.tipSide, greyed.children[1].className],
+      ['menuitem', 'true', 'Image à modifier, avec Krea 2', 'right', 'glass-menu-note'],
+    );
+    // Opened by its case; drawn again meanwhile, still open; a greyed choice does nothing; its case closes it.
+    pick().onclick();
+    assert.deepEqual([pick().attributes['aria-expanded'], menu().hidden], ['true', false]);
+    studio.render();
+    assert.deepEqual([add().className, pick().attributes['aria-expanded'], menu().hidden], ['studio-add is-open', 'true', false]);
+    choose('Image à modifier');
+    assert.deepEqual([picker.clicks ?? 0, menu().hidden], [0, false]);
+    pick().onclick();
+    assert.deepEqual([pick().attributes['aria-expanded'], menu().hidden], ['false', true]);
+    // A press beside it closes it, Échap too; a press on it leaves it open.
+    pick().onclick();
+    pagePointers.forEach(listener => listener({ target: { closest: selector => (/studio-add/.test(selector) ? {} : null) } }));
+    studio.render();
+    assert.equal(menu().hidden, false);
+    pagePointers.forEach(listener => listener({ target: { closest: () => null } }));
+    studio.render();
+    assert.deepEqual([add().className, menu().hidden], ['studio-add', true]);
+    pick().onclick();
+    let taken = 0;
+    pageKeys.forEach(listener => listener({ key: 'Escape', target: {}, preventDefault: () => taken++ }));
+    studio.render();
+    assert.deepEqual([menu().hidden, taken], [true, 1]);
+
+    // Krea 2: its image to modify, which opens the files of the computer for its case; given, « déjà donnée ».
+    model('k');
+    assert.deepEqual(body.find('studio-plateau')[0].children.map(row => row.children.map(part => part.className)), [['studio-pieces studio-sources', 'studio-add']]);
+    assert.deepEqual(list(), [[false, 'Image à modifier', '']]);
+    pick().onclick();
+    choose('Image à modifier');
+    assert.deepEqual([picker.clicks, picker.accept], [1, 'image/png,image/jpeg,image/webp']);
+    studio.render();
+    assert.equal(menu().hidden, true, 'closed by a choice');
+    await give('visage.png');
+    assert.match(body.find('studio-slot')[0].className, /is-filled/);
+    assert.deepEqual(list(), [[true, 'Image à modifier · déjà donnée', 'Image à modifier : déjà donnée. Cliquez sur sa case pour en changer.']]);
+
+    // Another mode: the list left open is closed.
+    pick().onclick();
+    page.mode(1);
+    assert.equal(menu().hidden, true);
+    // Vidéo, LTX 2.5 (capture 94): its three kinds, in the order of the plateau whatever the order its model
+    // names them in, then under a rule what SCAIL-2 takes, said short.
+    model('l');
+    assert.deepEqual(list(), [
+      [false, 'Image de début', ''],
+      [false, 'Image de fin', ''],
+      [false, 'Sujet', ''],
+      '—',
+      [true, 'Vidéo à suivre · avec SCAIL-2', 'Une vidéo à suivre sert avec SCAIL-2 : choisissez-le dans Modèle.'],
+      [true, 'Personnage · avec SCAIL-2', 'Un personnage sert avec SCAIL-2 : choisissez-le dans Modèle.'],
+    ]);
+    assert.equal(menu().children[3].attributes.role, 'separator');
+    // « Image de fin » opens the files for the end; « Sujet », for the next subject free, until the three are given.
+    choose('Image de fin');
+    await give('fin.png');
+    assert.deepEqual(body.find('studio-slot').map(tile => /is-filled/.test(tile.className)), [false, true, false]);
+    for (const name of ['un.png', 'deux.png', 'trois.png']) {
+      choose('Sujet');
+      await give(name);
+    }
+    assert.deepEqual(body.find('studio-references')[0].find('studio-slot').map(tile => tile.children[0].children[0].src), ['/preview/un.png', '/preview/deux.png', '/preview/trois.png']);
+    assert.deepEqual(list().slice(0, 3), [
+      [false, 'Image de début', ''],
+      [true, 'Image de fin · déjà donnée', 'Image de fin : déjà donnée. Cliquez sur sa case pour en changer.'],
+      [true, 'Sujet · déjà donnés', 'Les 3 sujets sont déjà donnés.'],
+    ]);
+    assert.deepEqual(body.find('studio-plateau')[0].children.at(-1).children.map(part => part.className), ['studio-pieces studio-references', 'studio-add']);
+    // A model whose start image does not combine with the subjects given: greyed, why in its reason; its two
+    // subjects are given already.
+    model('h');
+    assert.deepEqual(list().slice(0, 2), [
+      [true, 'Image de début', 'Ne se combine pas avec : Sujet'],
+      [true, 'Sujet · déjà donnés', 'Les 2 sujets sont déjà donnés.'],
+    ]);
+    // SCAIL-2: its video (the files of videos) and its character; what the first model that has them takes, greyed.
+    model('s');
+    assert.deepEqual(list(), [
+      [false, 'Vidéo à suivre', ''],
+      [true, 'Personnage · déjà donné', 'Personnage : déjà donné. Cliquez sur sa case pour en changer.'],
+      '—',
+      [true, 'Image de début · avec LTX 2.5', 'Une image de début sert avec LTX 2.5 : choisissez-le dans Modèle.'],
+      [true, 'Image de fin · avec LTX 2.5', 'Une image de fin sert avec LTX 2.5 : choisissez-le dans Modèle.'],
+      // (The first model of the list that takes subjects: named after the start and the end, as on the plateau.)
+      [true, 'Sujet · avec MiniMax H3 Omni', 'Un sujet sert avec MiniMax H3 Omni : choisissez-le dans Modèle.'],
+    ]);
+    choose('Vidéo à suivre');
+    assert.equal(picker.accept, 'video/mp4,video/webm');
+
+    // Son (capture 101): the lyrics, greyed with a model that sings none; with one that does, they open their field
+    // under the prompt (no button « + Paroles » of their own any more), and are « déjà ouvertes ».
+    page.mode(2);
+    assert.deepEqual(list(), [[true, 'Paroles · avec ACE-Step 1.5 XL', 'Des paroles servent avec ACE-Step 1.5 XL : choisissez-le dans Modèle.']]);
+    model('a');
+    assert.deepEqual(list(), [[false, 'Paroles', '']]);
+    // (The field of the lyrics: the one the pointer of Moodix AI aims at, « setting-lyrics ».)
+    const under = element => [element, ...(element.children ?? []).flatMap(child => (child?.children ? under(child) : []))],
+      lyrics = () => under(body).filter(element => element.dataset?.ai === 'setting-lyrics').length;
+    assert.deepEqual([body.find('studio-lyrics-toggle').length, lyrics()], [0, 0]);
+    choose('Paroles');
+    assert.equal(lyrics(), 1);
+    assert.deepEqual(list(), [[true, 'Paroles · déjà ouvertes', 'Les paroles sont déjà ouvertes, sous le prompt.']]);
+
+    // While a take is made: greyed, why in its tooltip; its list closed.
+    page.mode(1);
+    model('l');
+    pick().onclick();
+    page.prompt().value = 'Un phare';
+    page.prompt().oninput();
+    void body.find('studio-go')[0].onclick();
+    await settle();
+    assert.deepEqual([pick().disabled, pick().title, menu().hidden], [true, 'Génération en cours dans cette conversation : attendez sa fin.', true]);
+    // In the page: its case as the others, its word in 12 px.
+    const { readFile } = await import('node:fs/promises');
+    const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+    const rule = selector => css.slice(css.lastIndexOf('\n' + selector + ' {'), css.indexOf('}', css.lastIndexOf('\n' + selector + ' {')));
+    assert.match(rule('#studio-view .studio-add-pick'), /width: 52px;\n  height: 52px;/);
+    assert.match(rule('.studio-add-word'), /font: 400 12px\/1\.2 var\(--font-ui\);/);
+    assert.match(rule('.glass-menu.studio-add-menu .glass-menu-item'), /justify-content: space-between;/);
+    assert.doesNotMatch(css, /studio-lyrics-toggle/);
+  } finally {
+    restore();
+  }
+});
+
+test('(0.6.203) no « Ajouter » in a continuation; under a proposal of Moodix AI it is greyed, the images are its own', async () => {
+  const { tools, runs } = continuing();
+  let page = await studioPage(tools, {}, { runs });
+  try {
+    page.mode(1);
+    assert.equal(page.body.find('studio-add').length, 1);
+    prolonger(page.body).onclick();
+    assert.deepEqual([page.body.find('studio-extending').length, page.body.find('studio-add').length], [1, 0]);
+  } finally {
+    page.restore();
+  }
+  const { clip, request } = proposalOf();
+  page = await studioPage({ create_video: [clip] }, {});
+  try {
+    const answer = page.studio.propose(request, new AbortController().signal);
+    await settle();
+    assert.equal(page.studio.proposing(), true);
+    const [pick] = page.body.find('studio-add-pick');
+    assert.deepEqual([pick.disabled, pick.title], [true, 'Les images de cette proposition sont celles de Moodix AI : demandez-lui dans le chat pour en changer.']);
+    page.studio.decline();
+    assert.equal(await answer, 'deny');
+    assert.deepEqual([page.body.find('studio-add-pick')[0].disabled, page.body.find('studio-add-pick')[0].title], [false, undefined]);
+  } finally {
+    page.restore();
+  }
+});
+
 test('(0.6.202) nothing is greyed under a proposal of Moodix AI, whose notes say what does not go, nor in a continuation, which starts from its clip alone', async () => {
   const greyed = body => [body.find('studio-plateau-note').length, body.find('studio-piece').filter(piece => /is-off/.test(piece.className)).length];
   // A proposal whose image has a role its model has not (an end image, for a model that takes a start only): its

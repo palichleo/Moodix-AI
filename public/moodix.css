@@ -4696,9 +4696,15 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
 .studio-plateau-row,
 .studio-pieces {
   display: flex;
+  /* (0.6.203) On a second row rather than out of the block, when the pieces kept for another model and
+     « Ajouter » make more than the column holds. */
+  flex-wrap: wrap;
   align-items: flex-start;
-  gap: 10px;
+  gap: 14px 10px;
   min-width: 0;
+}
+.studio-plateau-row.studio-frames {
+  flex-wrap: nowrap;
 }
 .studio-plateau-row.studio-frames {
   gap: 8px;
@@ -4750,6 +4756,77 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   height: 15px;
   margin-top: 2px;
   color: var(--text-3);
+}
+/* (0.6.203, captures 93 and 94) « Ajouter », the last piece of the plateau: a case like the others, dashed, its
+   « + » and its word; it opens the list of what can be given. Open, a line of the accent around it. */
+.studio-add {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 52px;
+}
+#studio-view .studio-add-pick {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  min-height: 0;
+  padding: 0;
+  border: 1px dashed rgba(238, 232, 222, 0.18);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-3);
+  transition:
+    border-color 0.15s,
+    background-color 0.15s,
+    color 0.15s,
+    box-shadow 0.15s;
+}
+:root[data-theme='light'] #studio-view .studio-add-pick {
+  border-color: var(--line-strong);
+  color: var(--muted);
+}
+#studio-view .studio-add-pick > svg {
+  width: 18px;
+  height: 18px;
+}
+#studio-view .studio-add-pick:is(:hover, :focus-visible):enabled {
+  border-color: #3d6bf5;
+  background-color: rgba(61, 107, 245, 0.08);
+  color: #9db6ff;
+}
+#studio-view .studio-add.is-open .studio-add-pick {
+  border-style: solid;
+  border-color: transparent;
+  box-shadow: 0 0 0 1.5px var(--accent);
+  color: var(--text-1);
+}
+#studio-view .studio-add-pick:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.studio-add-word {
+  color: var(--text-3);
+  font: 400 12px/1.2 var(--font-ui);
+  white-space: nowrap;
+}
+.studio-add.is-open .studio-add-word {
+  color: var(--text-1);
+}
+/* Its list, one of our lists of glass: the name of each choice at the left, what is said of it at the right
+   (« déjà donnée », « avec SCAIL-2 »); no mark of a choice made, nothing is chosen in it. */
+.glass-menu.studio-add-menu .glass-menu-item {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding-left: 14px;
+}
+.glass-menu.studio-add-menu .glass-menu-note {
+  margin-left: 0;
 }
 .studio-slot {
   position: relative;
@@ -4988,20 +5065,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   padding: 0 9px;
   border-radius: 8px;
   font-size: var(--size-2);
-}
-.studio-lyrics-toggle {
-  align-self: flex-start;
-  min-height: 40px;
-  padding: 0 14px;
-  border-radius: 999px;
-  border: 1px dashed #343944;
-  background: transparent;
-  color: var(--text-2);
-  font-weight: 600;
-}
-:root[data-theme='light'] .studio-lyrics-toggle {
-  border-color: var(--line-strong);
-  color: var(--muted);
 }
 .studio-extending {
   display: flex;
