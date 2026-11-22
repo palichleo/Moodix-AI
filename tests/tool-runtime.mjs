@@ -574,6 +574,28 @@ test('a workflow that takes no image says so of the image the user named', async
   assert.deepEqual(revised.cited, proposal.cited);
 });
 
+test('(0.6.208) an image named and left out keeps its number: a capable model is told « {"ref": 2} », not « undefined »', async () => {
+  // The application tells the model once which image it left out (server.mjs, citedMessage), from what the
+  // proposal says of it (`cited.left`). A capable model names a reference by its number (lib/model-wording.mjs):
+  // the proposal kept the id and the label alone, and that model read « #ref2 ({"ref": undefined}) ».
+  const { citedMessage } = await import('../lib/cited-resources.mjs');
+  const stairs = { id: 'c3333333-3333-4333-8333-333333333333', label: '#ref2', reference: 2, type: 'image', name: 'escalier.png' };
+  const { rt } = runtimeFixture();
+  rt.resources = { activeRecord: async () => ({ mime: 'image/png' }) };
+  rt.sourceMedia = async ref => ({ mime: 'image/png', name: ref.resource_id + '.png', handle: { close: async () => {} } });
+  const left = await rt.request(
+    [{ id: 'call_1', type: 'function', function: { name: 'create_image', arguments: '{"prompt":"portrait"}' } }],
+    { conversationId: id, turnId: id, messages: [], cited: [stairs] },
+  );
+  // Its id, its label and its number: nothing else of the catalogue of the project (its file name).
+  assert.deepEqual(left.cited, { left: [{ id: stairs.id, label: '#ref2', reference: 2 }], roles: ['source'] });
+  assert.match(citedMessage(left.cited.left, left.cited.roles, { byNumber: true }), /#ref2 \(\{"ref": 2\}\)/);
+  assert.match(citedMessage(left.cited.left, left.cited.roles), /#ref2 \(\{"resource": "c3333333-3333-4333-8333-333333333333"\}\)/);
+  // Revised by the user, the proposal still knows it.
+  const revised = await rt.revise({ requestId: left.requestId, approvalToken: left.approvalToken, edits: { prompt: 'un autre portrait' } });
+  assert.deepEqual(revised.cited, left.cited);
+});
+
 /**
  * A series of images asked in the Chat (one call of create_image with `series`) with the local chat
  * model: what the chat engine and the generator are asked, in their order (`order`: stop and start
