@@ -41,7 +41,8 @@ the same image, prompt and seed for every video; the adapter costs 1.2 s as each
   session), 6.7 GiB at most. The crane goes further (231 px) and, on the frames looked at, the
   subject keeps its size as it leaves by the bottom of the picture, where at 8 steps it shrinks
   and stays whole; the orbit is the one of 8 steps with more of the foreground sliding (146 px
-  against 103). Whether that is better in motion is the user's to say;
+  against 103). The user, on the two videos of the crane: the one of 20 steps is the better
+  (« Oui, meilleure », 22/11); he has not said of the orbit;
 - 20 steps without them, at a guidance of 6 (VideoX-Fun's own recipe takes 50 steps): 326 s, no
   copy, and the camera hardly moves (21 px where the others slide the picture 150 to 175): not
   the way to more steps.
