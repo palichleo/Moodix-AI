@@ -25,6 +25,7 @@ import { withArrangement } from './montage-arrange.mjs';
 import { licenseBlock, restrictedOf } from './model-licenses.mjs';
 import { licenseSentence } from './models-page.mjs';
 import { closePopup, openPopup } from './glass-menu.mjs';
+import { PIECES, PIECE_WORDS, SHORT_MODELS } from './pieces.mjs';
 import { fluxStart, takeFlux } from './take-flux.mjs';
 import {
   MONTAGE_LIMITS,
@@ -294,6 +295,9 @@ export function setupMontage({
     archivedKey = null,
     archiving = false,
     exportMenu = null,
+    // (0.6.210) The small list open on a piece of a line of « À créer », or on its « + »:
+    // { id, kind: 'add' | 'start' | 'end', menu, anchor, beside }, or null.
+    pieceMenu = null,
     wantedId = null,
     reading = null,
     // (0.6.169) The click on a take of « Prises » that waits to open it (a second one lays it instead); the
@@ -1119,6 +1123,8 @@ export function setupMontage({
   function toggleExport() {
     if (exportMenu) return closeExport({ refocus: true });
     if (!live.export || live.export.disabled) return;
+    // (0.6.210) One list open at a time on the page.
+    closePieces();
     const menu = node('div', 'glass-menu bobine-export-menu'),
       waiting = todoPlans(montage).length,
       made = montage.plans.filter(plan => !isTodo(plan)).length,
@@ -1419,7 +1425,7 @@ export function setupMontage({
       before = montage.plans[montage.plans.indexOf(plan) - 1],
       // (0.6.149) Only a suite goes on from the take before it (after a take to create, once that one is
       // made: « Suite de la prise à créer »); one no longer joined to its video says so.
-      suite = Boolean(plan.todo.suite) && !plan.photos?.start,
+      suite = isSuite(plan),
       photos = [plan.photos?.start && !suite ? 'image de début' : '', plan.photos?.end ? 'image de fin' : ''].filter(Boolean);
     const first = !suite
       ? 'Nouvelle prise'
@@ -1427,6 +1433,207 @@ export function setupMontage({
         ? 'Suite détachée de sa vidéo'
         : 'Suite de la ' + (takeLabel(before?.source) || 'prise à créer').toLowerCase();
     return [first, photos.length === 2 ? 'images de début et de fin' : photos[0]].filter(Boolean).join(' · ');
+  }
+  /** (0.6.210) A take to create that goes on from the video before it: it has no start of its own. */
+  const isSuite = plan => Boolean(plan.todo.suite) && !plan.photos?.start;
+  function closePieces({ refocus = false } = {}) {
+    if (!pieceMenu) return;
+    const { menu, beside, anchor } = pieceMenu;
+    pieceMenu = null;
+    page?.removeEventListener?.('pointerdown', beside, true);
+    closePopup(menu);
+    menu.remove?.();
+    anchor.setAttribute?.('aria-expanded', 'false');
+    if (refocus && anchor.isConnected !== false) anchor.focus?.();
+  }
+  /**
+   * (0.6.210) One of our lists of glass, open under a piece of a line or under its « + » (`anchor`): one at a
+   * time on the page, the menu of « Exporter » closed for it. Échap, Tab or a press beside it closes it. In
+   * « À créer » itself, not in its line: a press in it is not a press on the line, which chooses its take
+   * and draws the list again.
+   */
+  function openPieces(plan, kind, anchor, menu, items) {
+    closeExport();
+    closePieces();
+    menu.onkeydown = event => {
+      const at = items.indexOf(page?.document?.activeElement),
+        to = { ArrowDown: at + 1, ArrowRight: at + 1, ArrowUp: at + items.length - 1, ArrowLeft: at + items.length - 1, Home: 0, End: items.length - 1 }[event.key];
+      if (event.key === 'Tab') return closePieces();
+      if (event.key !== 'Escape' && (to === undefined || !items.length)) return;
+      event.preventDefault?.();
+      event.stopPropagation?.();
+      if (event.key === 'Escape') closePieces({ refocus: true });
+      else items[to % items.length]?.focus?.();
+    };
+    pieceMenu = { id: plan.id, kind, menu, anchor, beside: event => !menu.contains?.(event.target) && !anchor.contains?.(event.target) && closePieces() };
+    (parts?.create ?? root)?.append?.(menu);
+    openPopup(menu, anchor, { align: 'start' });
+    anchor.setAttribute('aria-expanded', 'true');
+    page?.addEventListener?.('pointerdown', pieceMenu.beside, true);
+    // The first choice that can be made in hand; when none can, the first all the same: its reason is read there.
+    (items.find(item => item.getAttribute?.('aria-disabled') !== 'true') ?? items[0])?.focus?.();
+  }
+  /** The choices of a list of a line, as lines of glass: `[{ name, note, off, run }]`, null for a rule. */
+  function piecesList(plan, kind, anchor, label, choices) {
+    const menu = node('div', 'glass-menu bobine-piece-menu'),
+      items = [];
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', label);
+    for (const choice of choices) {
+      if (!choice) {
+        const rule = node('div', 'glass-menu-rule');
+        rule.setAttribute('role', 'separator');
+        menu.append(rule);
+        continue;
+      }
+      const item = node('button', 'glass-menu-item' + (choice.off ? ' is-off' : ''));
+      item.type = 'button';
+      item.setAttribute('role', 'menuitem');
+      item.append(node('span', 'bobine-piece-choice', choice.name));
+      if (choice.note) {
+        item.append(node('span', 'glass-menu-note', choice.note));
+        item.setAttribute('aria-label', choice.name + ', ' + choice.note);
+      }
+      // Why it cannot be chosen, under the pointer and on the focus: at the left of the list, which is
+      // against the right edge of the page (capture 104).
+      if (choice.off) {
+        item.setAttribute('aria-disabled', 'true');
+        item.dataset.tip = choice.off;
+        item.dataset.tipSide = 'left';
+      }
+      item.onclick = () => {
+        if (choice.off) return;
+        closePieces();
+        choice.run();
+      };
+      items.push(item);
+      menu.append(item);
+    }
+    openPieces(plan, kind, anchor, menu, items);
+  }
+  /**
+   * (0.6.210, « Créations du projet », as the « + » of a card of the Chat) The images of the project, the
+   * newest first: the one taken is the image the take starts from, or ends on (withPhotoIn, as an image
+   * dropped on its place of the track Images). The one it has now is marked.
+   */
+  function pickImage(plan, side, anchor) {
+    const menu = node('div', 'glass-menu bobine-piece-menu bobine-pick'),
+      grid = node('div', 'bobine-pick-grid'),
+      images = (runs() ?? []).filter(record => trackOf(record) === 'image').slice(0, 40),
+      now = plan.photos?.[side],
+      items = [];
+    menu.setAttribute('role', 'dialog');
+    menu.setAttribute('aria-label', `${PIECES[side + '_image'].name} : créations du projet`);
+    menu.append(node('p', 'bobine-pick-title', 'Créations du projet'));
+    for (const record of images) {
+      const take = record.outputs?.[0]?.take,
+        name = Number.isInteger(take) ? 'Prise ' + take : 'Image',
+        pick = button(
+          'bobine-pick-item',
+          '',
+          () => {
+            closePieces();
+            const laid = withPhotoIn(montage, record, plan.id, side);
+            if (laid.reason) return notice(laid.reason);
+            change(laid.montage, { select: laid.chosen });
+          },
+          '',
+          'Prendre : ' + name,
+        ),
+        picture = pictureOf(record);
+      if (picture) pick.append(Object.assign(node('img'), { src: picture, alt: '', loading: 'lazy', decoding: 'async', draggable: false }));
+      else pick.append(node('span', 'bobine-pick-name', name));
+      pick.setAttribute('aria-pressed', String(Boolean(now) && now.runId === record.id && now.conversationId === record.conversationId));
+      items.push(pick);
+      grid.append(pick);
+    }
+    menu.append(images.length ? grid : node('p', 'bobine-pick-none', 'Aucune image dans ce projet pour l’instant.'));
+    openPieces(plan, 'pick-' + side, anchor, menu, items);
+  }
+  /**
+   * (0.6.210, LOTS.md, lot 13; captures 103, 103b and 104) The pieces of a take to create, in its line of
+   * « À créer », where « Nouvelle prise · image de fin » was written: what it starts from and ends on, named
+   * as on the plateau of the Studio and on a card of the Chat (public/pieces.mjs), each 26 px high with its
+   * picture, then « + » and its list. A second way to the images of the track Images, which they follow.
+   * - A suite has no start: its first piece is « À prolonger », the video it goes on from (as in the Studio
+   *   since 0.6.207); nothing to change in it, it is the take before.
+   * - A piece pressed opens its small list: « Changer… » (the images of the project) and « Retirer l’image de
+   *   fin », the words of the small bar of its take.
+   * - « + »: « Image de début » and « Image de fin », greyed once given; then what the Bobine does not make,
+   *   greyed with its reason. Greyed itself, as the pieces, while the bobine cannot be changed (takes being
+   *   made or written, Moodix AI arranging it), in the words of what is refused then (`refusal`).
+   */
+  function piecesOf(plan, model) {
+    const row = node('div', 'bobine-pieces'),
+      held = refusal(),
+      suite = isSuite(plan),
+      short = SHORT_MODELS.wan_scail2;
+    const chip = (tag, className, word, picture, glyph) => {
+      const piece = node(tag, 'bobine-piece' + className);
+      if (tag === 'button') piece.type = 'button';
+      if (picture) piece.append(Object.assign(node('img'), { src: picture, alt: '', decoding: 'async', draggable: false }));
+      else piece.append(icon(glyph));
+      piece.append(node('span', 'bobine-piece-word', word));
+      return piece;
+    };
+    if (suite) {
+      // What it goes on from is said by its line (whatOf): « Suite de la prise 24 », « Suite détachée de sa vidéo ».
+      const before = montage.plans[montage.plans.indexOf(plan) - 1],
+        piece = chip('span', ' is-fixed', PIECE_WORDS.prolong, pictureOf(recordOf(before?.source)), 'forward');
+      piece.dataset.tip = whatOf(plan).split(' · ')[0];
+      row.append(piece);
+    }
+    // (A suite has no start image: with one, it is a new take, isSuite.)
+    for (const side of ['start', 'end']) {
+      const photo = plan.photos?.[side];
+      if (!photo) continue;
+      const role = side + '_image',
+        record = recordOf(photo),
+        said = PIECES[role].name + (record ? ' · ' + (takeLabel(photo) || 'Image') : ' : sa prise n’est plus dans le projet'),
+        piece = chip('button', '', PIECE_WORDS[role], pictureOf(record), 'image');
+      piece.dataset.side = side;
+      piece.dataset.missing = String(!record);
+      piece.setAttribute('aria-label', said);
+      piece.setAttribute('aria-haspopup', 'menu');
+      piece.setAttribute('aria-expanded', 'false');
+      piece.dataset.tip = held || said;
+      piece.disabled = Boolean(held);
+      piece.onclick = event => {
+        // (Not a press on its line: the line would be drawn again under its list.)
+        event?.stopPropagation?.();
+        if (pieceMenu?.id === plan.id && pieceMenu.kind === side) return closePieces({ refocus: true });
+        piecesList(plan, side, piece, PIECES[role].name, [
+          { name: 'Changer…', run: () => pickImage(plan, side, piece) },
+          { name: side === 'start' ? 'Retirer l’image de début' : 'Retirer l’image de fin', run: () => change(withoutPhoto(montage, plan.id, side)) },
+        ]);
+      };
+      row.append(piece);
+    }
+    const add = button('bobine-piece-add', '', event => {
+      event?.stopPropagation?.();
+      if (pieceMenu?.id === plan.id && pieceMenu.kind === 'add') return closePieces({ refocus: true });
+      const side = (which, role) => {
+        const { name, given } = PIECES[role];
+        if (which === 'start' && suite) return { name, off: 'Une suite part de la fin de sa vidéo : elle n’a que son image de fin.' };
+        if (plan.photos?.[which]) return { name, note: given, off: `${name} : ${given}. Cliquez sur sa pièce pour en changer.` };
+        return { name, run: () => pickImage(plan, which, add) };
+      };
+      // (Capture 104) What only another model takes is not made here: every take of the Bobine is made by one.
+      const outside = `Pas dans la Bobine : toutes ses prises sont faites par ${model?.name || 'LTX 2.5'}.`;
+      piecesList(plan, 'add', add, 'Ajouter une pièce', [
+        side('start', 'start_image'),
+        side('end', 'end_image'),
+        null,
+        ...['follow', 'character'].map(kind => ({ name: PIECES[kind].name, note: 'avec ' + short, off: outside })),
+      ]);
+    }, 'plus');
+    add.setAttribute('aria-label', 'Ajouter une pièce');
+    add.setAttribute('aria-haspopup', 'menu');
+    add.setAttribute('aria-expanded', 'false');
+    add.dataset.tip = held || 'Ajouter une pièce : une image de début, de fin…';
+    add.disabled = Boolean(held);
+    row.append(add);
+    return row;
   }
   /**
    * What a take to create is at, on its take of the timeline and in its line. (0.6.200) « En cours » without its
@@ -1456,6 +1663,8 @@ export function setupMontage({
       ready = creatable(),
       can = new Set(ready.map(item => item.id));
     section.setAttribute('aria-label', 'À créer');
+    // (0.6.210) The list of a piece goes with the line it opened from, drawn again here.
+    closePieces();
     live.models = new Map();
     live.states = new Map();
     live.lines = new Map();
@@ -1514,9 +1723,13 @@ export function setupMontage({
       line.onpointerleave = () => linked(item.id, false);
       if (hovered === item.id) line.dataset.linked = 'true';
       // (0.6.152, capture 74) Made in parts: how many, of how long each, at the right of what it is.
+      // (0.6.210, captures 103 and 104) Its pieces where what it is was written (« Nouvelle prise · image de
+      // fin »): those words stay the name of that row, for a screen reader.
       const middle = node('div', 'bobine-line-middle'),
         box = node('div', 'bobine-line-field');
-      middle.append(node('span', 'bobine-line-what', whatOf(plan)));
+      middle.setAttribute('role', 'group');
+      middle.setAttribute('aria-label', whatOf(plan));
+      middle.append(piecesOf(plan, model));
       if (item.parts > 1) middle.append(node('span', 'bobine-line-parts', `${item.parts} × ${mono(item.part)} s`));
       box.append(field);
       if (written) box.append(node('span', 'bobine-line-writing', 'Moodix AI écrit'));
@@ -3373,6 +3586,7 @@ export function setupMontage({
       wand = false;
       page?.removeEventListener?.('keydown', pageKeys);
       closeExport();
+      closePieces();
       enriched?.abort();
       enrichingId = null;
       asking = null;

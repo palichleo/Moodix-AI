@@ -33,5 +33,8 @@ export const PIECES = {
   image: { name: 'Image', given: 'déjà donnée', serves: 'Une image sert' },
 };
 
+// (0.6.203, his answer 8 of 21/11: « avec SCAIL-2 ») A model said short in a list « Ajouter », by its family.
+export const SHORT_MODELS = { wan_scail2: 'SCAIL-2' };
+
 /** A reference of the project as it is written in a message and named on a piece: « #ref3 »; else ''. */
 export const refOf = label => (/^#ref\d{1,4}$/i.test(String(label ?? '').trim()) ? String(label).trim().toLowerCase() : '');

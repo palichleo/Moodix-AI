@@ -100,16 +100,21 @@ const INTENTION = 'Prise d’une bobine, demandée dans la Bobine.',
 // `at`-th), and from which second of its file it is shown (a suite holds the video it goes on from).
 const placeOf = (f, at, from = 0) => ({ id: f.ui.state().montage.id, plan: f.ui.state().montage.plans[at].id, from });
 
-function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed = null, create = null, estimate = null, write = null, thumbnail = () => {}, width = 1000, modelFor = null, longestFor = null, enrich = null, downloads = null, arrange = null, dragImage = null, win = null, canvas = false } = {}) {
+function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed = null, create = null, estimate = null, write = null, thumbnail = () => {}, width = 1000, modelFor = null, longestFor = null, enrich = null, downloads = null, arrange = null, dragImage = null, win = null, canvas = false, base = true } = {}) {
   WIDTH = width;
   const calls = [],
     queue = [],
     kept = new Map(stored.map(montage => [montage.id, montage])),
+    // (0.6.210) `base: false`: a project with the takes of `extra` alone (none of its own images).
     runs = [
-      take(1, 'video', { parameters: { frames: 80, fps: 16 } }),
-      take(2, 'video', { parameters: { frames: 48, fps: 16 } }),
-      take(3, 'image'),
-      take(4, 'audio', { workflowName: 'Musique (ACE-Step 1.5 XL)', parameters: { seconds: 30 } }),
+      ...(base
+        ? [
+            take(1, 'video', { parameters: { frames: 80, fps: 16 } }),
+            take(2, 'video', { parameters: { frames: 48, fps: 16 } }),
+            take(3, 'image'),
+            take(4, 'audio', { workflowName: 'Musique (ACE-Step 1.5 XL)', parameters: { seconds: 30 } }),
+          ]
+        : []),
       ...extra,
     ];
   let project = 'inbox',
@@ -208,6 +213,8 @@ function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed =
     pageKey: (key, more = {}) => heard.get('keydown')?.({ key, target: { tagName: 'DIV' }, preventDefault() {}, ...more }),
     // (0.6.154) Whether the page hears something else (a menu open waits for a click beside it).
     heard: type => heard.has(type),
+    // (0.6.210) A press somewhere on the page, as a menu open hears it.
+    pagePress: target => heard.get('pointerdown')?.({ target }),
     /** Runs what waits (a save a moment after a change, the next tick of the film) and lets it finish. */
     async later({ ms = 0 } = {}) {
       clock += ms;
@@ -234,13 +241,31 @@ function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed =
     pop: () => f.get('montage-pop')[0],
     popLabels: () => under(f.pop()).slice(1).map(item => item.attributes['aria-label']).filter(Boolean),
     // « À créer »: each line, [its instants, its model or state, what it is, why it cannot be created].
+    // (0.6.210) What it is: the name of the row of its pieces (written in the line before).
     lines: () =>
       f.get('bobine-line').map(line => [
         find(line, 'bobine-line-when')[0].textContent,
         find(line, 'bobine-line-right')[0].textContent,
-        find(line, 'bobine-line-what')[0].textContent,
+        find(line, 'bobine-line-middle')[0].attributes['aria-label'],
         find(line, 'bobine-line-reason').map(reason => reason.textContent).join(''),
       ]),
+    // (0.6.210) The pieces of each line: the word of each, then « + ».
+    pieces: () =>
+      f.get('bobine-line').map(line => [
+        ...find(line, 'bobine-piece').map(piece => find(piece, 'bobine-piece-word')[0].textContent),
+        ...find(line, 'bobine-piece-add').map(() => '+'),
+      ]),
+    piece: (at, word) => find(f.get('bobine-line')[at], 'bobine-piece').find(piece => find(piece, 'bobine-piece-word')[0].textContent === word),
+    adder: at => find(f.get('bobine-line')[at], 'bobine-piece-add')[0],
+    // The list open on a piece or on « + »: each choice [its name, what is said of it, why it is greyed], '—' for a rule.
+    menu: () => f.get('bobine-piece-menu')[0],
+    choices: () =>
+      (f.menu()?.children ?? []).map(item =>
+        String(item.className).includes('glass-menu-rule')
+          ? '—'
+          : [find(item, 'bobine-piece-choice')[0]?.textContent, find(item, 'glass-menu-note')[0]?.textContent ?? '', item.dataset.tip ?? ''],
+      ),
+    choose: name => f.menu().children.find(item => find(item, 'bobine-piece-choice')[0]?.textContent === name).onclick(),
     write: (at, words) => Object.assign(f.get('bobine-line-words')[at], { value: words }).oninput(),
     go: () => f.said('bobine-go-label')[0],
     goMain: () => f.get('bobine-go-main')[0],
@@ -3574,7 +3599,8 @@ test('(0.6.200) why a take to create failed is said before its field, two lines 
   const { readFile } = await import('node:fs/promises');
   const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
   const rule = selector => css.slice(css.lastIndexOf(selector + ' {'), css.indexOf('}', css.lastIndexOf(selector + ' {')));
-  assert.match(rule('#bobine-view .bobine-desk .bobine-line:has(.bobine-line-reason) textarea.bobine-line-words'), /max-height: calc\(2lh \+ 18px\);/);
+  // (0.6.210) Two whole lines: its margins (18 px) and its frame (2 px) beside them.
+  assert.match(rule('#bobine-view .bobine-desk .bobine-line:has(.bobine-line-reason) textarea.bobine-line-words'), /max-height: calc\(2lh \+ 20px\);/);
 });
 
 test('a part laid by the page that asked for it is never laid again on what is left of its take (0.6.181)', async () => {
@@ -3861,4 +3887,280 @@ test('the kinds of takes of the Bobine are in the order of the Archives: Tout, I
   // Each shows what it says.
   const shown = at => (f.get('montage-filter')[at].onclick(), f.said('montage-take-number'));
   assert.deepEqual([shown(1), shown(2), shown(3), shown(0)], [['Prise 3'], ['Prise 1', 'Prise 2'], ['Prise 4'], ['Prise 1', 'Prise 2', 'Prise 3', 'Prise 4']]);
+});
+
+test('(0.6.210) the pieces of a take to create, in its line: Début, Fin, « + » and its list; changed or taken away there, the track Images follows', async () => {
+  // (LOTS.md, lot 13; captures 103 and 104) Where « Nouvelle prise · images de début et de fin » was written. The
+  // words are those of the plateau of the Studio and of a card of the Chat (public/pieces.mjs).
+  const { PIECE_WORDS, PIECES } = await import('../public/pieces.mjs');
+  const f = await setup({ extra: photos(), create: async () => null, estimate: async () => ({ workflowName: 'LTX 2.5' }) }).open();
+  lay(f);
+  await f.later();
+  // (A press on a piece or on « + » is not one on its line, which would be drawn again under its list.)
+  const press = target => {
+      let stopped = 0;
+      target.onclick({ stopPropagation: () => stopped++ });
+      assert.equal(stopped, 1, 'the press stays on the piece');
+    },
+    photosOf = at => f.ui.state().montage.plans[at].photos ?? {},
+    pins = () => laid(f).map(pin => [pin.style.backgroundImage, pin.textContent]);
+  // The first from an image to an image, the second towards its own: their pieces, then « + ».
+  assert.deepEqual(f.pieces(), [[PIECE_WORDS.start_image, PIECE_WORDS.end_image, '+'], [PIECE_WORDS.end_image, '+']]);
+  assert.deepEqual(f.pieces(), [['Début', 'Fin', '+'], ['Fin', '+']]);
+  // What it is stays the name of that row, for a screen reader; nothing else is written in the line.
+  assert.deepEqual(f.get('bobine-line-middle').map(row => [row.attributes.role, row.attributes['aria-label']]), [
+    ['group', 'Nouvelle prise · images de début et de fin'],
+    ['group', 'Nouvelle prise · image de fin'],
+  ]);
+  assert.equal(f.get('bobine-line-what').length, 0);
+  // A piece: the picture of its image, its word, what it is under the pointer.
+  const start = f.piece(0, 'Début');
+  assert.deepEqual([start.tagName, start.children[0].tagName, start.children[0].src, start.attributes['aria-label'], start.dataset.tip, start.dataset.side, start.dataset.missing, start.disabled], [
+    'BUTTON', 'IMG', '/thumb/3', 'Image de début · Prise 3', 'Image de début · Prise 3', 'start', 'false', false,
+  ]);
+  assert.equal(f.piece(1, 'Fin').attributes['aria-label'], 'Image de fin · Prise 6');
+
+  // « + »: what the take can still be given, then what the Bobine does not make, greyed with its reason.
+  const chosen = f.ui.state().chosen,
+    add = f.adder(1);
+  assert.deepEqual([add.attributes['aria-label'], add.attributes['aria-haspopup'], add.attributes['aria-expanded'], add.disabled, add.dataset.tip], ['Ajouter une pièce', 'menu', 'false', false, 'Ajouter une pièce : une image de début, de fin…']);
+  press(add);
+  const outside = 'Pas dans la Bobine : toutes ses prises sont faites par LTX 2.5.';
+  assert.deepEqual(f.choices(), [
+    ['Image de début', '', ''],
+    ['Image de fin', 'déjà donnée', 'Image de fin : déjà donnée. Cliquez sur sa pièce pour en changer.'],
+    '—',
+    ['Vidéo à suivre', 'avec SCAIL-2', outside],
+    ['Personnage', 'avec SCAIL-2', outside],
+  ]);
+  assert.deepEqual([PIECES.follow.name, PIECES.character.name, PIECES.end_image.given], ['Vidéo à suivre', 'Personnage', 'déjà donnée']);
+  const list = f.menu();
+  assert.deepEqual([list.attributes.role, list.attributes['aria-label'], add.attributes['aria-expanded'], f.heard('pointerdown')], ['menu', 'Ajouter une pièce', 'true', true]);
+  // One of our lists of glass, in « À créer » and not in its line; the reasons at its left (it is against the edge
+  // of the page); its first choice in hand; the line was not pressed (its take is not chosen for it).
+  assert.ok(list.className.split(' ').includes('glass-menu'));
+  assert.equal(list.parent, f.get('bobine-create')[0]);
+  assert.deepEqual(list.children.filter(item => item.dataset.tip).map(item => [item.dataset.tipSide, item.attributes['aria-disabled'], item.attributes['aria-label'] ?? null]), [
+    ['left', 'true', 'Image de fin, déjà donnée'],
+    ['left', 'true', 'Vidéo à suivre, avec SCAIL-2'],
+    ['left', 'true', 'Personnage, avec SCAIL-2'],
+  ]);
+  assert.equal(f.focused(), list.children[0]);
+  assert.equal(f.ui.state().chosen, chosen);
+  // A greyed choice does nothing; the arrows go through every choice, the greyed ones too.
+  list.children[1].onclick();
+  assert.equal(f.menu(), list);
+  list.onkeydown({ key: 'ArrowDown', preventDefault() {}, stopPropagation() {} });
+  assert.equal(f.focused(), list.children[1]);
+  list.onkeydown({ key: 'End', preventDefault() {}, stopPropagation() {} });
+  assert.equal(f.focused(), list.children[4]);
+  list.onkeydown({ key: 'ArrowDown', preventDefault() {}, stopPropagation() {} });
+  assert.equal(f.focused(), list.children[0], 'from the last to the first');
+  // Échap closes it, the focus back on « + »; pressed again, « + » closes it too.
+  let stopped = 0;
+  list.onkeydown({ key: 'Escape', preventDefault() {}, stopPropagation: () => stopped++ });
+  assert.deepEqual([f.menu(), list.removed, add.attributes['aria-expanded'], f.heard('pointerdown'), f.focused(), stopped], [undefined, true, 'false', false, add, 1]);
+  press(add);
+  press(add);
+  assert.equal(f.menu(), undefined);
+  // Tab leaves it: closed.
+  press(add);
+  f.menu().onkeydown({ key: 'Tab', preventDefault() {}, stopPropagation() {} });
+  assert.equal(f.menu(), undefined);
+  // « Image de début »: « Créations du projet », the images of the project, in the order of « Prises ».
+  // (The other take chosen meanwhile: the image taken chooses the take it goes to.)
+  f.get('bobine-line')[0].onclick({ target: f.get('bobine-line')[0] });
+  assert.equal(f.ui.state().chosen, f.ui.state().montage.plans[0].id);
+  press(f.adder(1));
+  f.choose('Image de début');
+  const picker = f.menu();
+  assert.deepEqual([picker.className, picker.attributes.role, picker.attributes['aria-label'], find(picker, 'bobine-pick-title')[0].textContent], [
+    'glass-menu bobine-piece-menu bobine-pick', 'dialog', 'Image de début : créations du projet', 'Créations du projet',
+  ]);
+  const picks = () => f.get('bobine-pick-item');
+  assert.deepEqual(picks().map(pick => [pick.attributes['aria-label'], pick.children[0].src, pick.attributes['aria-pressed']]), [
+    ['Prendre : Prise 3', '/thumb/3', 'false'],
+    ['Prendre : Prise 5', '/thumb/5', 'false'],
+    ['Prendre : Prise 6', '/thumb/6', 'false'],
+  ]);
+  assert.deepEqual([f.adder(1).attributes['aria-expanded'], f.focused()], ['true', picks()[0]]);
+  // The one taken is its start: its piece, and its image on the track Images, as one dropped there.
+  picks()[1].onclick();
+  assert.deepEqual([f.menu(), f.heard('pointerdown')], [undefined, false]);
+  assert.deepEqual(photosOf(1).start, { conversationId: C, runId: id(5), output: 0 });
+  assert.deepEqual(f.pieces(), [['Début', 'Fin', '+'], ['Début', 'Fin', '+']]);
+  assert.deepEqual(pins(), [['url("/thumb/3")', 'Début'], ['url("/thumb/5")', 'Fin'], ['url("/thumb/5")', 'Début'], ['url("/thumb/6")', 'Fin']]);
+  assert.equal(f.lines()[1][2], 'Nouvelle prise · images de début et de fin');
+  assert.equal(f.ui.state().chosen, f.ui.state().montage.plans[1].id);
+  // Both given: « + » still says so.
+  press(f.adder(1));
+  assert.deepEqual(f.choices().slice(0, 2).map(choice => choice.slice(0, 2)), [['Image de début', 'déjà donnée'], ['Image de fin', 'déjà donnée']]);
+  // A piece pressed: « Changer… » and « Retirer l’image de fin », the words of the small bar of its take. The list
+  // of « + » closes for it: one at a time.
+  const end = f.piece(1, 'Fin');
+  assert.deepEqual([end.attributes['aria-haspopup'], end.attributes['aria-expanded']], ['menu', 'false']);
+  press(end);
+  assert.deepEqual([f.get('bobine-piece-menu').length, f.menu().attributes['aria-label'], end.attributes['aria-expanded'], f.adder(1).attributes['aria-expanded']], [1, 'Image de fin', 'true', 'false']);
+  assert.deepEqual(f.choices(), [['Changer…', '', ''], ['Retirer l’image de fin', '', '']]);
+  assert.ok(f.popLabels().includes('Retirer l’image de fin'));
+  // Pressed again, it closes its list.
+  press(end);
+  assert.deepEqual([f.menu(), end.attributes['aria-expanded'], f.focused()], [undefined, 'false', end]);
+  // « Changer… »: the one it has is marked; another taken replaces it.
+  press(end);
+  f.choose('Changer…');
+  assert.deepEqual(picks().map(pick => pick.attributes['aria-pressed']), ['false', 'false', 'true']);
+  assert.equal(f.menu().attributes['aria-label'], 'Image de fin : créations du projet');
+  picks()[0].onclick();
+  assert.deepEqual([photosOf(1).end, f.piece(1, 'Fin').attributes['aria-label']], [{ conversationId: C, runId: id(3), output: 0 }, 'Image de fin · Prise 3']);
+  // « Retirer l’image de début »: gone from the line and from the track; one step of « Annuler » gives it back.
+  press(f.piece(1, 'Début'));
+  assert.deepEqual(f.choices().map(choice => choice[0]), ['Changer…', 'Retirer l’image de début']);
+  f.choose('Retirer l’image de début');
+  assert.deepEqual([photosOf(1), f.pieces()[1], f.menu(), f.lines()[1][2]], [{ end: { conversationId: C, runId: id(3), output: 0 } }, ['Fin', '+'], undefined, 'Nouvelle prise · image de fin']);
+  assert.deepEqual(pins(), [['url("/thumb/3")', 'Début'], ['url("/thumb/5")', 'Fin'], ['url("/thumb/3")', 'Fin']]);
+  f.pageKey('z', { ctrlKey: true });
+  assert.deepEqual(f.pieces()[1], ['Début', 'Fin', '+']);
+  // The menu of « Exporter » and a list of a line: never both.
+  press(f.adder(0));
+  f.get('montage-export')[0].onclick();
+  assert.deepEqual([f.get('bobine-piece-menu').length, f.get('bobine-export-menu').length], [0, 1]);
+  press(f.adder(0));
+  assert.deepEqual([f.get('bobine-piece-menu').length, f.get('bobine-export-menu').length], [1, 0]);
+  // A press beside it closes it; in it, or on what opened it, does not.
+  const open = f.menu();
+  f.pagePress(open.children[0]);
+  f.pagePress(f.adder(0));
+  assert.equal(f.menu(), open);
+  f.pagePress(f.get('bobine-line')[0]);
+  assert.equal(f.menu(), undefined);
+  // A line drawn again (its take chosen) takes its list with it: the list never points at a piece that is gone.
+  press(f.adder(0));
+  f.get('bobine-line')[1].onclick({ target: f.get('bobine-line')[1] });
+  assert.deepEqual([f.get('bobine-piece-menu').length, f.heard('pointerdown')], [0, false]);
+  // The page left with a list open: closed, nothing of it heard any more.
+  press(f.adder(0));
+  const left = f.menu();
+  await f.ui.leave();
+  assert.deepEqual([left.removed, f.heard('pointerdown')], [true, false]);
+  // The model of the takes is said as its line says it (another one than LTX 2.5 on a computer without it).
+  const other = await setup({ extra: photos(), create: async () => null, estimate: async () => ({ workflowName: 'MiniMax H3 Omni' }) }).open();
+  lay(other);
+  await other.later();
+  press(other.adder(0));
+  assert.equal(other.choices()[3][2], 'Pas dans la Bobine : toutes ses prises sont faites par MiniMax H3 Omni.');
+});
+
+test('(0.6.210) a suite has « À prolonger » for its first piece, the video it goes on from; a take whose image is gone says so on its piece', async () => {
+  // (LOTS.md, point 7: not drawn; as in the Studio since 0.6.207.) Eight seconds of takes on 2000 pixels.
+  const f = await setup({ extra: photos(), create: async () => null, width: 2000 }).open();
+  for (const at of [0, 2]) f.get('montage-take')[at].ondblclick();
+  const grips = () => find(f.root, 'montage-grip'),
+    press = target => target.onclick({ stopPropagation() {} });
+  f.press(grips()[1], 500);
+  f.pointer.move(700);
+  f.pointer.up();
+  assert.deepEqual([f.lines().map(line => line[2]), f.pieces()], [['Suite de la prise 1'], [['À prolonger', '+']]]);
+  // The clip it goes on from: its picture, what it is under the pointer; nothing opens from it, it is the take before.
+  const clip = f.piece(0, 'À prolonger');
+  assert.deepEqual([clip.tagName, clip.className, clip.children[0].src, clip.dataset.tip, clip.onclick ?? null, clip.attributes['aria-haspopup'] ?? null], [
+    'SPAN', 'bobine-piece is-fixed', '/thumb/1', 'Suite de la prise 1', null, null,
+  ]);
+  // No start of its own: « Image de début » greyed, in the words of the track Images when an image is dropped there.
+  press(f.adder(0));
+  assert.deepEqual(f.choices().slice(0, 2), [
+    ['Image de début', '', 'Une suite part de la fin de sa vidéo : elle n’a que son image de fin.'],
+    ['Image de fin', '', ''],
+  ]);
+  // Its end given from the list: « À prolonger », « Fin ».
+  f.choose('Image de fin');
+  f.get('bobine-pick-item')[0].onclick();
+  assert.deepEqual([f.pieces(), f.lines()[0][2]], [[['À prolonger', 'Fin', '+']], 'Suite de la prise 1 · image de fin']);
+
+  // Images taken out of the project since: their pieces say so, in amber; they can still be changed or taken away.
+  const photo = n => ({ conversationId: C, runId: id(n), output: 0 }),
+    stored = photos => ({
+      schemaVersion: 1, id: id(960), name: 'Le phare', format: '16:9', width: 1344, height: 768, fps: 24, sounds: [],
+      plans: [{ id: id(961), kind: 'video', todo: { prompt: 'Le phare s’allume.' }, from: 0, to: 5, frame: 'fit', volume: 1, ...(photos ? { photos } : {}) }],
+    });
+  const gone = await setup({ stored: [stored({ start: photo(42), end: photo(3) })], create: async () => null }).open();
+  await settle();
+  const [lost, kept] = [gone.piece(0, 'Début'), gone.piece(0, 'Fin')];
+  assert.deepEqual([lost.dataset.missing, lost.attributes['aria-label'], lost.children[0].tagName === 'IMG', kept.dataset.missing, kept.attributes['aria-label']], [
+    'true', 'Image de début : sa prise n’est plus dans le projet', false, 'false', 'Image de fin · Prise 3',
+  ]);
+  press(lost);
+  assert.deepEqual(gone.choices().map(choice => choice[0]), ['Changer…', 'Retirer l’image de début']);
+  // A take to create without any image: « + » alone. No image in the project: « Créations du projet » says so.
+  const bare = await setup({ stored: [stored(null)], create: async () => null, base: false, extra: [take(7, 'video', { parameters: { frames: 80, fps: 16 } })] }).open();
+  await settle();
+  assert.deepEqual(bare.pieces(), [['+']]);
+  press(bare.adder(0));
+  bare.choose('Image de fin');
+  assert.deepEqual([bare.get('bobine-pick-item').length, bare.said('bobine-pick-none'), bare.get('bobine-pick-grid').length], [0, ['Aucune image dans ce projet pour l’instant.'], 0]);
+  // (Échap closes it with nothing in hand.)
+  bare.menu().onkeydown({ key: 'Escape', preventDefault() {}, stopPropagation() {} });
+  assert.equal(bare.menu(), undefined);
+});
+
+test('(0.6.210) while a take is made, the pieces of every line and their « + » are greyed, with why; a list open closes', async () => {
+  const f = await setup({ extra: photos(), create: () => new Promise(() => {}), estimate: async () => ({ workflowName: 'LTX 2.5' }) }).open();
+  lay(f);
+  f.write(0, 'Il lève les yeux.');
+  await f.later();
+  f.adder(1).onclick({ stopPropagation() {} });
+  assert.equal(f.get('bobine-piece-menu').length, 1);
+  f.goMain().onclick();
+  await settle();
+  // (The words of what is refused then, whatever is tried on the bobine: `refusal`.)
+  const why = 'Des prises sont en cours de création : attendez la fin, ou arrêtez.';
+  assert.equal(f.get('bobine-piece-menu').length, 0);
+  assert.deepEqual([...f.get('bobine-piece'), ...f.get('bobine-piece-add')].map(control => [control.disabled, control.dataset.tip]), Array(5).fill([true, why]));
+  // (Their words stay: what the take is made from is still read.)
+  assert.deepEqual(f.pieces(), [['Début', 'Fin', '+'], ['Fin', '+']]);
+  // An image dropped on the track Images then is refused in the same words.
+  f.get('montage-take')[2].ondragstart({ dataTransfer: { setData() {} } });
+  f.photos().ondrop(event(900));
+  assert.equal(f.notices.at(-1), why);
+});
+
+test('(0.6.210) the styles of the pieces of a line: 26 px high, 12 px words; 6 px above the first line and under the last; three lines of text while a take is made', async () => {
+  const { readFile } = await import('node:fs/promises');
+  // (`nth`: the rule of that name written again further down the sheet, where it is.)
+  const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n'),
+    rule = (selector, nth = 0) => {
+      let at = -1;
+      for (let seen = 0; seen <= nth; seen++) at = css.indexOf('\n' + selector + ' {', at + 1);
+      assert.ok(at >= 0, selector);
+      return css.slice(at, css.indexOf('}', at));
+    };
+  assert.match(rule('#bobine-view .bobine-piece'), /height: 26px;/);
+  assert.match(rule('#bobine-view .bobine-piece'), /font: 400 12px\/1 var\(--font-ui\);/);
+  assert.match(rule('#bobine-view .bobine-piece > img'), /width: 24px;/);
+  assert.match(rule('#bobine-view .bobine-piece-add'), /width: 26px;\s+height: 26px;/);
+  assert.match(rule('#bobine-view .bobine-piece:disabled,\n#bobine-view .bobine-piece-add:disabled'), /opacity: 0\.45;/);
+  assert.match(rule("#bobine-view .bobine-piece[data-missing='true']"), /border-color: rgba\(214, 160, 90, 0\.55\);/);
+  // (Captures 103 and 103b) To hold at 1280 × 720.
+  assert.match(rule('#bobine-view .bobine-lines > .bobine-line:first-child'), /padding-top: 6px;/);
+  assert.match(rule('#bobine-view .bobine-lines > .bobine-line:last-child'), /padding-bottom: 6px;/);
+  assert.match(rule("#bobine-view .bobine-desk .bobine-line[data-state='making'] textarea.bobine-line-words"), /max-height: calc\(3lh \+ 20px\);/);
+  // Never a line cut in two at the foot of the field (it showed in capture 103): a whole number of lines (its
+  // margins, 18 px, and its frame, 2 px, beside them: the frame was taken from the last one), and its bottom
+  // margin, where the top of the next line showed, covered by the ground of the field; a block, which left 6 px
+  // empty under it.
+  const field = rule('#bobine-view .bobine-desk textarea.bobine-line-words', 1);
+  assert.match(field, /display: block;/);
+  assert.match(field, /min-height: calc\(2lh \+ 20px\);\s+max-height: calc\(4lh \+ 20px\);/);
+  const cover = rule('#bobine-view .bobine-line-field::after');
+  assert.match(cover, /bottom: 1px;\s+left: 1px;\s+height: 9px;/);
+  assert.match(cover, /background: var\(--field\);/);
+  assert.match(cover, /right: 12px;/);
+  assert.match(cover, /pointer-events: none;/);
+  // Its lists: the name at the left, what is said of it at the right, as « Ajouter » of the Studio.
+  assert.match(rule('.glass-menu.bobine-piece-menu .glass-menu-item'), /justify-content: space-between;/);
+  assert.match(rule('.bobine-pick-grid'), /grid-template-columns: repeat\(4, 1fr\);/);
+  assert.doesNotMatch(css, /\.bobine-line-what\b/);
+  // The Bobine reads the table of the pieces, and writes none of its words itself in its lines.
+  const source = await readFile(new URL('../public/montage.mjs', import.meta.url), 'utf8');
+  assert.match(source, /from '\.\/pieces\.mjs'/);
 });

@@ -655,6 +655,46 @@ try {
   await run('Bobine : demander à Moodix AI', () =>
     js(`(() => { const field = document.querySelector('#bobine-view .bobine-ask-words'); if (!field) return; field.value = 'Invente la suite.'; field.dispatchEvent(new Event('input', { bubbles: true })); })()`), () =>
     js(`(() => { const row = document.querySelector('#bobine-view .montage-transport'), box = row?.querySelector('.bobine-ask-field'), field = box?.querySelector('.bobine-ask-words'), send = box?.querySelector('.bobine-ask-send'); if (!box || !field || !send) return false; const at = box.getBoundingClientRect(), time = row.querySelector('.montage-clock-total').getBoundingClientRect(), format = row.querySelector('button.montage-format').getBoundingClientRect(); return box.dataset.state === 'typed' && !send.disabled && at.left >= time.right && at.right <= format.left && at.width > 150 && at.height >= 38 && at.height <= 46 && at.bottom <= innerHeight + 1; })()`), { within: 1500 });
+  // (0.6.210, LOTS.md, lot 13) A take to create, laid by a click in the void of the takes: its line of « À créer »
+  // shows its pieces (none yet: « + » alone, 26 px high), whose list opens whole in the window, one of our
+  // lists of glass; at 1280 × 720 « À créer » does not scroll and the page neither. Then the list closed and
+  // the take taken back (« Annuler »): the bobine as it was for what follows.
+  await run(
+    'Bobine : une prise à créer, ses pièces (1280 × 720)',
+    async () => {
+      await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false });
+      await wait(300);
+      const at = await js(`(() => { const lane = document.querySelector('#bobine-view .montage-track[data-track="plans"] .montage-lane'), box = lane?.getBoundingClientRect(); return box ? { x: Math.round(box.left + box.width / 3), y: Math.round(box.top + box.height / 2) } : null; })()`);
+      if (!at) return false;
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.x, y: at.y });
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+      await wait(400);
+      return click('#bobine-view .bobine-line .bobine-piece-add');
+    },
+    () =>
+      js(`(() => {
+        const view = document.getElementById('bobine-view'), lines = view.querySelectorAll('.bobine-line'), list = view.querySelector('.bobine-lines'), add = lines[0]?.querySelector('.bobine-piece-add'), menu = view.querySelector('.bobine-piece-menu');
+        if (lines.length !== 1 || !add || !menu?.matches(':popover-open')) return false;
+        const box = menu.getBoundingClientRect(), items = [...menu.querySelectorAll('.glass-menu-item')], field = lines[0].querySelector('textarea').getBoundingClientRect(), go = view.querySelector('.bobine-go').getBoundingClientRect();
+        return list.scrollHeight <= list.clientHeight + 1 && document.documentElement.scrollHeight <= innerHeight + 1 && document.documentElement.scrollWidth <= innerWidth + 1 &&
+          box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight && items.length === 4 && items.filter(item => item.getAttribute('aria-disabled') === 'true').length === 2 &&
+          add.getAttribute('aria-expanded') === 'true' && Math.round(add.getBoundingClientRect().height) === 26 && field.bottom <= go.top && lines[0].querySelector('.bobine-line-middle').getAttribute('aria-label') === 'Nouvelle prise';
+      })()`),
+    { within: 2500 },
+  );
+  await run(
+    'Bobine : la liste refermée, la prise retirée',
+    async () => {
+      await click('#bobine-view .bobine-line .bobine-piece-add');
+      await wait(200);
+      const undone = await click('#bobine-fil .bobine-step[aria-label="Annuler (Ctrl+Z)"]');
+      await size(1280);
+      return undone;
+    },
+    () => js(`!document.querySelector('#bobine-view .bobine-piece-menu') && !document.querySelector('#bobine-view .bobine-line') && document.querySelector('#bobine-fil .montage-export')?.disabled === true`),
+    { within: 2500 },
+  );
   await run('Studio : Image, Vidéo, Son', () => click('#studio-open'), () =>
     js(`document.body.dataset.view === 'studio' && [...document.querySelectorAll('#studio-kinds .kind-tab')].map(tab => tab.dataset.mode).join() === 'image,video,audio' && document.querySelector('#studio-kinds .kind-tab[aria-selected="true"]')?.dataset.mode === 'image' && !document.querySelector('#studio-view .bobine-desk')`), { within: 1500 });
   await run('Agent', () => click('#studio-view .studio-agent'), () => js(`document.body.dataset.chat === 'open'`));

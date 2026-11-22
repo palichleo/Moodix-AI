@@ -12,7 +12,7 @@ import { explanation, foldPrompt } from './studio-explain.mjs';
 import { clipPlayer, stillClip } from './take-player.mjs';
 import { elapsedClock } from './generation-time.mjs';
 import { settingName } from './setting-names.mjs';
-import { PIECES, PIECE_WORDS as WORDS } from './pieces.mjs';
+import { PIECES, PIECE_WORDS as WORDS, SHORT_MODELS } from './pieces.mjs';
 import { setupMontage } from './montage.mjs';
 
 /**
@@ -234,7 +234,7 @@ const AI_INPUTS = 'Les images de cette proposition sont celles de Moodix AI : de
 // suivre sert avec SCAIL-2 : choisissez-le dans Modèle. »). (0.6.209) `PIECES`, in public/pieces.mjs.
 // (0.6.203, his answer 8 of 21/11: « avec SCAIL-2 ») A model said short in that list: the name its family has
 // here, else what its name says in brackets (« Musique (ACE-Step 1.5 XL) »), else its name.
-const SHORT_MODELS = { wan_scail2: 'SCAIL-2' };
+// (0.6.210) `SHORT_MODELS`, in public/pieces.mjs: the list of a line of the Bobine says « avec SCAIL-2 » too.
 const shortModel = workflow =>
   SHORT_MODELS[workflow.family] ?? String(workflow.name).match(/\(([^()]+)\)\s*$/)?.[1] ?? String(workflow.name);
 const figures = value => twoFigures(value) + ' S';

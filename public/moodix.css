@@ -17590,10 +17590,6 @@ body[data-view='bobine'] .chat-panel {
 .bobine-line[data-state='failed'] .bobine-line-right {
   color: var(--warning);
 }
-.bobine-line-what {
-  font: 400 12.5px/1.3 var(--font-ui);
-  color: var(--muted);
-}
 #bobine-view .bobine-desk textarea.bobine-line-words {
   height: 58px;
   min-height: 0;
@@ -18473,17 +18469,20 @@ body[data-view='bobine'] .chat-panel {
 #bobine-view .montage-piece.is-sound > .montage-piece-name {
   max-width: calc(100% - 74px);
 }
-/* (Le texte d’une prise à créer, entier jusqu’à quatre lignes : il grandit avec lui, jamais une ligne coupée en deux.) */
+/* (Le texte d’une prise à créer, entier jusqu’à quatre lignes : il grandit avec lui, jamais une ligne coupée en deux.)
+   (0.6.210) Ses marges (18 px) et son cadre (2 px) en plus de ses lignes : le cadre était pris sur la dernière
+   (3,87 lignes vues pour 4). Un bloc : il laissait 6 px vides sous lui, comme un mot dans une ligne. */
 #bobine-view .bobine-desk textarea.bobine-line-words {
+  display: block;
   field-sizing: content;
   height: auto;
-  min-height: calc(2lh + 18px);
-  max-height: calc(4lh + 18px);
+  min-height: calc(2lh + 20px);
+  max-height: calc(4lh + 20px);
 }
 /* (0.6.200) A take whose creation failed: why, before its field, and its field two lines high (it scrolls in
    it), so that the reason is read without scrolling « À créer » at 1280 × 720. */
 #bobine-view .bobine-desk .bobine-line:has(.bobine-line-reason) textarea.bobine-line-words {
-  max-height: calc(2lh + 18px);
+  max-height: calc(2lh + 20px);
 }
 /* (Ce que montre l’aperçu, « PRISE 4 », « À CRÉER · SUITE DE LA PRISE 5 » : sur la plaque sombre des étiquettes, captures 70 et 83.) */
 #bobine-view .montage-caption {
@@ -18513,6 +18512,202 @@ body[data-view='bobine'] .chat-panel {
 }
 #bobine-view .bobine-line[data-linked='true'] {
   box-shadow: inset 0 0 0 1px rgba(238, 232, 222, 0.32);
+}
+
+/* ------------------------------------------------------------------ La Bobine, les pièces d’une ligne (0.6.210) */
+/* (Captures 103, 103b et 104 ; LOTS.md, lot 13) Les pièces d’une prise à créer dans sa ligne, là où « Nouvelle
+   prise · image de fin » était écrit : son image de 24 px et son mot en 12 px, 26 px de haut, puis « + ». Les
+   mêmes mots que le plateau du Studio et la carte du Chat (public/pieces.mjs). */
+#bobine-view .bobine-line-middle {
+  align-items: center;
+}
+.bobine-pieces {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+#bobine-view .bobine-piece {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: 26px;
+  min-height: 0;
+  padding: 0 8px 0 3px;
+  border: 1px solid rgba(238, 232, 222, 0.12);
+  border-radius: 8px;
+  background: rgba(238, 232, 222, 0.04);
+  box-shadow: none;
+  color: var(--text-2);
+  font: 400 12px/1 var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+/* (Ce qu’une suite prolonge : la prise d’avant, rien ne s’ouvre d’elle.) */
+#bobine-view .bobine-piece.is-fixed {
+  cursor: default;
+}
+#bobine-view .bobine-piece > img {
+  width: 24px;
+  height: 18px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+#bobine-view .bobine-piece > svg {
+  width: 15px;
+  height: 15px;
+  margin-left: 4px;
+  color: var(--text-3);
+}
+#bobine-view button.bobine-piece:is(:hover, :focus-visible):enabled {
+  border-color: rgba(238, 232, 222, 0.32);
+  color: var(--text-1);
+}
+#bobine-view .bobine-piece[aria-expanded='true'] {
+  border-color: var(--accent);
+  color: var(--text-1);
+}
+/* (Son image n’est plus dans le projet : en ambre, comme sa place sur la piste Images.) */
+#bobine-view .bobine-piece[data-missing='true'] {
+  border-color: rgba(214, 160, 90, 0.55);
+}
+#bobine-view .bobine-piece-add {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  box-sizing: border-box;
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  padding: 0;
+  border: 1px dashed rgba(238, 232, 222, 0.24);
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+#bobine-view .bobine-piece-add > svg {
+  width: 15px;
+  height: 15px;
+}
+#bobine-view .bobine-piece-add:is(:hover, :focus-visible):enabled,
+#bobine-view .bobine-piece-add[aria-expanded='true'] {
+  border-color: rgba(238, 232, 222, 0.4);
+  color: var(--text-1);
+}
+/* (Pendant qu’une prise se fait ou s’écrit : grisés, leur raison dans leur bulle.) */
+#bobine-view .bobine-piece:disabled,
+#bobine-view .bobine-piece-add:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* Leur liste, une de nos listes de verre : le nom de chaque choix à gauche, ce qu’on en dit à droite
+   (« déjà donnée », « avec SCAIL-2 »), comme « Ajouter » du Studio. */
+.glass-menu.bobine-piece-menu .glass-menu-item {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding-left: 14px;
+}
+.glass-menu.bobine-piece-menu .glass-menu-note {
+  margin-left: 0;
+}
+/* « Créations du projet » : les images du projet, quatre par rangée ; celle que la prise a déjà est cerclée. */
+.glass-menu.bobine-pick {
+  gap: 10px;
+  width: 248px;
+  padding: 12px;
+}
+.bobine-pick-title {
+  margin: 0;
+  color: var(--text-2);
+  font: 400 14px/1.2 var(--font-ui);
+}
+.bobine-pick-none {
+  margin: 0;
+  color: var(--text-3);
+  font: 400 13px/1.4 var(--font-ui);
+}
+.bobine-pick-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  max-height: 172px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.glass-menu .bobine-pick-item {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  aspect-ratio: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(238, 232, 222, 0.1);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  box-shadow: none;
+  cursor: pointer;
+}
+.bobine-pick-item > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.bobine-pick-name {
+  padding: 0 3px;
+  color: var(--text-3);
+  font: 400 12px/1.2 var(--font-ui);
+  text-align: center;
+}
+.glass-menu .bobine-pick-item:is(:hover, :focus-visible) {
+  outline: none;
+  border-color: rgba(238, 232, 222, 0.5);
+}
+.glass-menu .bobine-pick-item[aria-pressed='true'] {
+  border-color: var(--accent);
+}
+/* Pour tenir en 1280 × 720 avec les pièces (captures 103 et 103b) : 6 px au lieu de 12 au-dessus de la
+   première ligne et sous la dernière (12 entre deux lignes, comme avant) ; pendant qu’une prise se fait, son
+   texte sur trois lignes au plus (il ne peut pas changer alors), quatre au repos ; au-delà, il défile dans
+   son champ. */
+#bobine-view .bobine-lines > .bobine-line:first-child {
+  padding-top: 6px;
+}
+#bobine-view .bobine-lines > .bobine-line:last-child {
+  padding-bottom: 6px;
+}
+#bobine-view .bobine-desk .bobine-line[data-state='making'] textarea.bobine-line-words {
+  max-height: calc(3lh + 20px);
+}
+/* (0.6.210) « Jamais une ligne coupée en deux » au pied du champ, pour de bon (on la voyait dans la capture
+   103) : un texte plus long que le champ montrait le haut de la ligne suivante dans sa marge du bas. Le champ
+   fait un nombre entier de lignes (plus haut), et sa marge du bas ne montre plus de texte : elle est couverte
+   par le fond du champ, sauf sa barre de défilement. */
+#bobine-view .bobine-line-field::after {
+  content: '';
+  position: absolute;
+  right: 12px;
+  bottom: 1px;
+  left: 1px;
+  height: 9px;
+  border-radius: 0 0 0 9px;
+  background: var(--field);
+  pointer-events: none;
+}
+/* (Sous la baguette, le champ survolé est teinté et laisse voir ce qui est sous lui : rien n’est posé dessus.) */
+.bobine-desk[data-wand='true'] .bobine-line[data-enrichable='true'][data-linked='true'] .bobine-line-field::after {
+  display: none;
 }
 /* La barre d’une prise trop étroite pour ses emplacements de photo : dans la prise, en bas à gauche, sous
    son texte et loin de sa durée (en bas à droite). */
