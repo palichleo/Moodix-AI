@@ -695,7 +695,7 @@ export function setupStudio({
     if (ai?.touched.has(key)) element.setAttribute('data-ai-touched', '');
     return element;
   }
-  function field(label, control, { help, tip, wide = false } = {}) {
+  function field(label, control, { help, tip, side = '', wide = false } = {}) {
     const wrapper = node('label', 'studio-field' + (wide ? ' is-wide' : '')),
       title = node('span', 'studio-label', label);
     // « ? » at the right of the name: its help at once under the pointer or on focus, as in the
@@ -706,6 +706,8 @@ export function setupStudio({
       ask.setAttribute('role', 'img');
       ask.setAttribute('aria-label', 'Aide : ' + tip);
       ask.dataset.help = tip;
+      // (0.6.205) `side`: beside the window it is in, where above its « ? » it covered the name of the window.
+      if (side) ask.dataset.tipSide = side;
       ask.onclick = event => event.preventDefault();
       title.append(ask);
     }
@@ -1085,7 +1087,7 @@ export function setupStudio({
    */
   function windowLines(workflow, role) {
     const store = (drafts[mode].settings[workflow.id] ??= {});
-    return workflow.settings
+    const who = workflow.settings
       .filter(setting => WHO[setting.key]?.piece === role && setting.type === 'string')
       .map(setting => {
         const control = node('input');
@@ -1099,8 +1101,10 @@ export function setupStudio({
           store[setting.key] = control.value;
         };
         aiTarget(control, 'setting-' + setting.key);
-        return field(settingName(setting.key), control, { tip: WHO[setting.key].help });
+        return field(settingName(setting.key), control, { tip: WHO[setting.key].help, side: 'right' });
       });
+    // (0.6.205) Then what the engine reads with this piece alone, each on its bar or in its field (rareLines).
+    return [...who, ...rareLines(workflow, { piece: role })];
   }
   /**
    * (0.6.204, capture 97) The small window of a piece given, one of our lists of glass hung under its case: its
@@ -2152,6 +2156,21 @@ export function setupStudio({
    * help: never unavailable without its reason.
    */
   /**
+   * (0.6.205, captures 99 and 109; his decision N2 of 21/11) The piece a setting is set with, by its role: one
+   * the engine reads with a single input (`onlyWith`, one role) that the model in hand takes lives in the window
+   * of that piece (« Débruitage » with the image to modify of Krea 2, « Influence de l’image de fin » with the
+   * end of LTX 2.5), no longer under « Plus de réglages », greyed there while its case was empty: a setting is
+   * shown where it is read. null for any other setting (one read with two inputs stays under « Plus de
+   * réglages »), and for the clip of a continuation, which is no piece of the plateau.
+   */
+  function pieceOf(workflow, setting) {
+    if (!setting?.onlyWith) return null;
+    const inputs = [...new Set(onlyInputs(workflow, setting))],
+      [role] = inputs;
+    if (inputs.length !== 1 || !workflow.roles?.[role]?.count) return null;
+    return mode === 'video' && extending && role === 'source' ? null : role;
+  }
+  /**
    * Why a setting the model only reads with an input changes nothing now, the case of that input
    * empty ('' when it is read): said in its tip, the setting greyed. (0.6.102) A continuation reads
    * it with the clip it continues; with several inputs, each is named.
@@ -2169,7 +2188,7 @@ export function setupStudio({
         : `Sert seulement avec l’entrée ${names[0]}.`)
     );
   }
-  function fineLine(workflow, setting) {
+  function fineLine(workflow, setting, { side = '' } = {}) {
     const draft = drafts[mode],
       store = (draft.settings[workflow.id] ??= {}),
       low = setting.min,
@@ -2196,6 +2215,8 @@ export function setupStudio({
     if (said) {
       // The tip of the whole line: a greyed bar takes no focus, its label and its value the pointer.
       line.title = said;
+      // (0.6.205) In the window of a piece, beside the window (`side`): above the bar, it covered its name.
+      if (side) line.dataset.tipSide = side;
       // Read by screen readers after the bar, where the line under it said it, without its room.
       wrapper.append(node('span', 'sr-only', said));
     }
@@ -2204,14 +2225,16 @@ export function setupStudio({
   /**
    * The rare settings, under « ··· » (moodix-design.md 10, 20, 28): the seed (a field, empty for
    * one drawn at each creation, and a die), then the workflow's own settings; one line each.
+   * (0.6.205, captures 99 and 109) Not those that are set with one piece alone (pieceOf): `piece`, a
+   * role, gives the lines of that piece for its window, without the seed.
    */
-  function rareLines(workflow) {
+  function rareLines(workflow, { piece = null } = {}) {
     const draft = drafts[mode],
       lines = [];
     // (0.6.102) A seed « Fixe » too: the workflow's own while the field is empty (said in its place),
     // the one the user names otherwise, for this creation.
     const seedFixed = Number.isSafeInteger(workflow.seedFixed) ? workflow.seedFixed : null;
-    if (workflow.seeded || seedFixed !== null) {
+    if (!piece && (workflow.seeded || seedFixed !== null)) {
       const row = node('div', 'studio-set-line studio-seed'),
         seed = node('input'),
         dice = button(
@@ -2244,10 +2267,12 @@ export function setupStudio({
       if (setting.key === 'lyrics' && setting.type === 'string') continue;
       // Who is who is said in the windows of its two pieces (windowLines).
       if (WHO[setting.key] && setting.type === 'string') continue;
+      // (0.6.205) Each line where it is set: in the window of its piece, or here.
+      if (pieceOf(workflow, setting) !== piece) continue;
       // A sound's length is on the bar of Durée.
       if (setting.key === 'seconds' && setting.type === 'number') continue;
       if (fineSetting(setting)) {
-        lines.push(fineLine(workflow, setting));
+        lines.push(fineLine(workflow, setting, { side: piece ? 'right' : '' }));
         continue;
       }
       // Kept per workflow: a song's length is not a sound effect's.
@@ -3436,31 +3461,29 @@ export function setupStudio({
     // `rare`: a setting under « Plus de réglages », opened for it: the pointer does not go to what
     // is folded, and the user sees the value it sets, theirs to change before « Générer ».
     if (rare) advanced = true;
-    // (0.6.204) A setting that lives in the window of a piece (who is who): its window opened for it, for the
-    // same reason, and closed once it is set (one window at a time, and none left over « Générer »).
+    // (0.6.204) A setting that lives in the window of a piece (who is who; 0.6.205, « Débruitage »): its window
+    // opened for it, for the same reason, and left open: the user sees the value set there, as under « Plus de
+    // réglages » (one window at a time: the last piece set).
     const inWindow = windowOf(key);
     if (inWindow) pieceOpen = inWindow;
     ai.active = marked ? key : null;
     render();
     // (Its window is shown once on the page: the pointer goes to its field where it is then.)
     if (inWindow) await null;
-    try {
-      if (!(await glide(targetOf(key), label, anchor))) return false;
-      if (hold) await wait(hold / 2);
-      await apply();
-      if (hold) {
-        render();
-        await wait(hold / 2);
-      }
-      if (!ai || ai.stopped) return false;
-      if (marked) ai.touched.add(key);
-      ai.active = null;
-    } finally {
-      if (inWindow) closeWindow();
+    if (!(await glide(targetOf(key), label, anchor))) return false;
+    if (hold) await wait(hold / 2);
+    await apply();
+    if (hold) {
+      render();
+      await wait(hold / 2);
     }
+    if (!ai || ai.stopped) return false;
+    if (marked) ai.touched.add(key);
+    ai.active = null;
     render();
-    // (Its window closed, the pointer stays on the case of its piece.)
-    pointer?.follow(targetOf(key) ?? (inWindow && document.querySelector?.(`#studio-view .studio-slot[data-slot="${inWindow.role}-${inWindow.index}"]`)), anchor);
+    // (Drawn again, its window is shown once on the page: the pointer follows its field there.)
+    if (inWindow) await null;
+    pointer?.follow(targetOf(key), anchor);
     return Boolean(ai && !ai.stopped);
   }
   /**
@@ -3468,7 +3491,9 @@ export function setupStudio({
    * that piece is given; null for a setting of the column.
    */
   function windowOf(key) {
-    const role = WHO[String(key).replace(/^setting-/, '')]?.piece;
+    const name = String(key).replace(/^setting-/, ''),
+      workflow = current(),
+      role = WHO[name]?.piece ?? (workflow ? pieceOf(workflow, workflow.settings.find(setting => setting.key === name)) : null);
     return role && drafts[mode].inputs[role]?.[0] ? { role, index: 0 } : null;
   }
   /** The prompt written as it is typed: about 40 letters a second, 1 s at most whatever its length (16/11). */
@@ -3718,6 +3743,9 @@ export function setupStudio({
       const value = draft.settings[workflow.id]?.[key];
       return onBar(key) ? fineValue(onBar(key), value) : (value ?? '');
     };
+    // (0.6.205) A bar under « Plus de réglages », which is opened for it; one set with a piece is in the window
+    // of that piece (stepTo opens it), not there.
+    const rareBar = key => Boolean(onBar(key)) && !pieceOf(workflow, onBar(key));
     for (const [key, value] of Object.entries(values.settings))
       if (values.settingsFree[key] && String(shown(key)) !== String(value))
         steps.push([
@@ -3727,9 +3755,9 @@ export function setupStudio({
           () => {
             (draft.settings[workflow.id] ??= {})[key] = value;
             if (key === 'lyrics' && value) draft.lyrics = true;
-            if (onBar(key)) advanced = true;
+            if (rareBar(key)) advanced = true;
           },
-          { hold: 300, rare: Boolean(onBar(key)) },
+          { hold: 300, rare: rareBar(key) },
         ]);
     // With less motion asked, nothing moves: the end shows at once.
     const still = Boolean(pointer?.reduced());
