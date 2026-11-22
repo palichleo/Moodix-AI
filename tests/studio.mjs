@@ -6386,6 +6386,29 @@ test('(0.6.207) a continuation whose model takes an end image keeps that case at
   }
 });
 
+test('(0.6.244) a continuation Moodix AI proposes of the clip whose camera was being changed is a continuation', async () => {
+  // (Before: the clip stayed « À refilmer », its camera beside it, under a proposal that continues it.)
+  const said = [],
+    { tools, runs } = continuing(),
+    film = { id: 'r', name: 'Changer la caméra (LTX 2.5)', verb: 'refilm_video', family: 'ltx25_refilm', roles: { source: { count: 1, media: ['video'], required: true } }, settings: [] };
+  Object.assign(tools.extend_video[0], { inputs: { source_video: 'source' } });
+  const page = await studioPage({ ...tools, refilm_video: [film] }, {}, { runs, cursor: said, targets: true });
+  const { body, studio, restore } = page;
+  try {
+    page.mode(1);
+    body.find('studio-item').find(tile => tile.dataset.id === 'film').find('studio-item-second')[0].onclick();
+    assert.deepEqual([body.find('studio-refilm').length, body.find('studio-go-label')[0].textContent], [1, 'Changer la caméra']);
+    const answer = studio.propose(continuation(), new AbortController().signal);
+    await until(() => said.includes('attend votre accord'));
+    assert.deepEqual([body.find('studio-refilm').length, body.find('studio-orbit').length, body.find('studio-guide').length, prolonged(body).length], [0, 0, 0, 1]);
+    assert.match(prolonged(body)[0], /^À prolonger · /);
+    studio.decline();
+    assert.equal(await answer, 'deny');
+  } finally {
+    restore();
+  }
+});
+
 test('a continuation proposed by Moodix AI stays one while it waits: another mode visited, « Prolonger » on another clip, « Revenir »', async () => {
   const { tools, runs } = continuing();
   runs.push({ id: 'other', conversationId: 'c1', mediaType: 'video', workflowId: 'v', prompt: 'une mouette', parameters: { width: 768, height: 448, frames: 121, fps: 24 }, outputs: [{ originalUrl: '/other.mp4', thumbUrl: '/other.jpg', take: 0 }] });
@@ -9246,6 +9269,12 @@ test('(0.6.240) « Changer la caméra » d’une vidéo faite : son bouton sur u
     // And the camera of the clip changed again keeps what was set.
     second(body)[0].onclick();
     assert.equal(pick().title, 'Caméra · -20° · 0° → 70° · 8°');
+    // (0.6.244) « Prolonger » of the clip whose camera is being changed, without « Retirer » first: a continuation,
+    // not the camera still.
+    prolonger(body).onclick();
+    assert.deepEqual([prolonged(body).length, body.find('studio-orbit').length, body.find('studio-refilm').length, body.find('studio-go-label')[0].textContent], [1, 0, 0, 'Générer la suite']);
+    second(body)[0].onclick();
+    assert.deepEqual([body.find('studio-refilm').length, body.find('studio-go-label')[0].textContent], [1, 'Changer la caméra']);
     // Nothing written at all: it is made all the same (the clip says what is filmed).
     pane().find('studio-window-foot')[0].children.at(-1).onclick();
     page.prompt().value = '';

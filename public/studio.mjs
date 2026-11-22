@@ -4327,6 +4327,8 @@ export function setupStudio({
     ai = { stopped: false, active: null, touched: new Set() };
     status(true);
     // What the assistant may not change is shown at once, as it will be made.
+    // (0.6.244) A clip it continues is continued, whatever was being done to its camera.
+    refilmId = null;
     if (values.source)
       extending = runs.find(item => item.id === values.source) ?? { id: values.source, prompt: '', parameters: {} };
     else if (values.sourceResource) {
@@ -5277,6 +5279,9 @@ export function setupStudio({
           // « Annuler », no format, « Générer la suite » sending the clip as the source of an image).
           if (mode !== 'video') setMode('video');
           extending = record;
+          // (0.6.244) Continued, not filmed again: the same clip whose camera was being changed (or was, a
+          // moment ago) is an ordinary clip again.
+          refilmId = null;
           failure = '';
           menuFor = confirmFor = null;
           render();

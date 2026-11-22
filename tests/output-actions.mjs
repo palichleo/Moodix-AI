@@ -151,8 +151,12 @@ test('the server lists which media each output button can act on', async () => {
       workflow('rife', 'rife', 'video', 'source_video'),
     ],
   });
-  // « Animer »: none here, no video workflow starts from an image.
-  assert.deepEqual(await tools.actions(), { upscale: ['video'], interpolate: ['video'], extend_video: [], animate: [] });
+  // « Animer »: none here, no video workflow starts from an image. (0.6.244) « Changer la caméra »: none either
+  // without a model that films a video again.
+  assert.deepEqual(await tools.actions(), { upscale: ['video'], interpolate: ['video'], extend_video: [], refilm_video: [], animate: [] });
+  // With the model of « Changer la caméra » ready: its button is lit on a video.
+  const filming = new ToolCatalog({ list: async () => [workflow('refilm', 'ltx25_refilm', 'video', 'refilm_source')] });
+  assert.deepEqual(await filming.actions(), { upscale: [], interpolate: [], extend_video: [], refilm_video: ['video'], animate: [] });
 });
 
 test('an image upscale goes to SeedVR2 before Real-ESRGAN unless the model names a workflow', async () => {

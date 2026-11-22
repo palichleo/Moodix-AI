@@ -6,6 +6,7 @@ import { setupTakePlayer } from './take-player.mjs';
 import { generationTime, takeTime } from './generation-time.mjs';
 import { takeSeconds } from './take-length.mjs';
 import { cameraLabel, cameraOf, cameraSentence } from './camera.mjs';
+import { orbitLabel, orbitOf } from './camera-orbit.mjs';
 
 /**
  * The references and the large view of a creation. No panel any more (0.5.106): a reference is
@@ -353,6 +354,10 @@ export function setupAssets({
     // (0.6.222) Read by the model itself (Wan 2.2 Caméra), it is two of its settings: named the same way.
     const camera = cameraLabel(cameraOf(parameters));
     if (camera) row('Caméra', camera);
+    // (0.6.244) A clip filmed again from another camera (« Changer la caméra »): the camera placed by hand, as
+    // its tool names it (« Fixe, 30° · 10° », « 0° · 0° → 30° · 10° »: degrees to the right, degrees above).
+    const refilmed = orbitOf(parameters);
+    if (refilmed) row('Caméra changée', orbitLabel(refilmed).replace(/^./, first => first.toUpperCase()));
     // The LoRAs the user had added, by their file, with their strength.
     if (Array.isArray(parameters.styles) && parameters.styles.length)
       row('LoRA', parameters.styles.map(style => `${String(style?.name ?? '').split(/[\\/]/).pop().replace(/\.safetensors$/i, '')} · ${String(style?.strength ?? 1).replace('.', ',')}`).join('\n')).classList?.add('media-lines');

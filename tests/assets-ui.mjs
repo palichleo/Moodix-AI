@@ -625,6 +625,17 @@ test('(0.6.211) the window of a take names its camera after what it was made fro
   assert.deepEqual([lines('media-metadata')['Caméra'], 'Ajouté au prompt (caméra)' in lines('media-more-list')], ['Orbite gauche, rapide', false]);
   await ui.viewOutput(take({ camera: 'static', camera_speed: 1 }), 0);
   assert.equal(lines('media-metadata')['Caméra'], 'Fixe');
+  // (0.6.244) A clip filmed again from another camera (« Changer la caméra »): the camera placed by hand, as its
+  // tool names it. It is no camera of a new video: no line « Caméra », nothing added to a prompt.
+  await ui.viewOutput(take({ refilm: { camera: { azimuth: 30, elevation: 10, distance: 1 } } }), 0);
+  assert.deepEqual(Object.keys(lines('media-metadata')), ['Modèle', 'Format', 'Résolution', 'Durée', 'Caméra changée', 'Seed', 'Date', 'Temps de génération']);
+  assert.deepEqual([lines('media-metadata')['Caméra changée'], 'Ajouté au prompt (caméra)' in lines('media-more-list')], ['Fixe, 30° · 10°', false]);
+  await ui.viewOutput(take({ refilm: { camera: { azimuth: 40, elevation: 0, distance: 1 }, camera_start: { azimuth: -10, elevation: 5, distance: 1 } } }), 0);
+  assert.equal(lines('media-metadata')['Caméra changée'], '-10° · 5° → 40° · 0°');
+  for (const refilm of [undefined, null, {}, { camera: 'orbit_left' }]) {
+    await ui.viewOutput(take(refilm === undefined ? {} : { refilm }), 0);
+    assert.equal('Caméra changée' in lines('media-metadata'), false, JSON.stringify(refilm));
+  }
   // No camera, or a choice that is none of the list: no line of it, above nor under « Plus de détails ».
   for (const camera of [undefined, null, { move: 'spin' }, 'none', 'spin']) {
     await ui.viewOutput(take(camera === undefined ? {} : { camera, camera_prompt: 'x' }), 0);
