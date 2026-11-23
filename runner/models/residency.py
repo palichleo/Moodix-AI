@@ -507,6 +507,139 @@ class _Slice:
         return self.tensor[index]
 
 
+class _Copied(_Slice):
+    """What `get_slice(...)[...]` of safe_open gives: a tensor of its own, never a view of the file."""
+
+    def __getitem__(self, index):
+        return self.tensor[index].clone()
+
+
+def _refused(message):
+    from safetensors import SafetensorError
+
+    return SafetensorError('Error while deserializing header: ' + message)
+
+
+def _read_only(path):
+    """The whole file mapped read-only. Under Windows the file is opened shared for deletion too, as safe_open
+    leaves it: a file the engine holds can still be renamed, moved or deleted (with Python's own `open` it could
+    not: « [WinError 32] », 23/11)."""
+    import mmap
+
+    if os.name == 'nt':
+        import ctypes
+        import msvcrt
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                         wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+        kernel32.CreateFileW.restype = wintypes.HANDLE
+        # GENERIC_READ; FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE; OPEN_EXISTING; FILE_ATTRIBUTE_NORMAL.
+        handle = kernel32.CreateFileW(os.path.abspath(os.fspath(path)), 0x80000000, 0x7, None, 3, 0x80, None)
+        if handle not in (None, wintypes.HANDLE(-1).value):
+            try:
+                descriptor = msvcrt.open_osfhandle(handle, os.O_RDONLY)
+            except OSError:
+                kernel32.CloseHandle(wintypes.HANDLE(handle))
+                raise
+            try:
+                return mmap.mmap(descriptor, 0, access=mmap.ACCESS_READ)
+            finally:
+                os.close(descriptor)  # the mapping holds a handle of its own (DuplicateHandle)
+    with open(path, 'rb') as handle:
+        return mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ)
+
+
+class Mapped:
+    """A file read through a read-only mapping of its own, in place of `safe_open(path, framework='pt')`: the same
+    calls (keys, metadata, get_tensor, get_slice) and the same tensors, each a view of the file on a slice of
+    storage of its own as safe_open makes it, on an odd byte too (every tensor of a text encoder here starts on
+    one: 7.5 GiB never copied), from the same pages of the system's file cache. Measured 23/11, alternated: made
+    in half the time (34 ms against 72 for the 7 229 tensors of LTX 2.5; opened in 8 against 5, the checks of
+    safe_open included: 42 ms against 77 in all), copied to the card at the same speed.
+
+    safe_open maps the file copy-on-write, which Windows charges in full to the committed memory (RAM and paging
+    file) as it opens, though nothing is copied: 20.07 GiB for the 20.03 GiB of LTX 2.5, 14.35 for its text
+    encoder. With both and the locked part beside the card, a change of camera asked some 60 GiB, and a machine
+    with a smaller paging file crashed (« Le moteur Python s'est arrêté (3221225477) »). Read-only: 0.04 GiB.
+
+    A tensor read here is never written in place: its pages are read-only, a write would crash the process. Nor is
+    the mapping closed under its tensors (mmap.close() would let it go: torch.frombuffer keeps no buffer exported):
+    as safe_open's, it goes with the last of them. Beyond that, what safe_open does: the file checked as it opens
+    (refused in its words), still free to be renamed or deleted while held, tensors made on the processor
+    whatever the device around, a copy from `get_slice(...)[...]`. A file whose header names a type the arenas
+    do not read either (_DTYPES; none of the 127 files here) opens with safe_open, as before."""
+
+    def __init__(self, path):
+        import math
+        import warnings
+
+        import torch
+
+        self.path = path
+        self.header, self.base = _header(path)
+        self.safe = self.storage = None
+        if any(info['dtype'] not in _DTYPES for name, info in self.header.items() if name != '__metadata__'):
+            from safetensors import safe_open
+
+            self.safe = safe_open(path, framework='pt')
+            return
+        names = [name for name in self.header if name != '__metadata__']
+        view = _read_only(path)
+        # What safe_open checks as it opens the file: one tensor after the other from the start of the data,
+        # each as long as its shape and type make it, the last one ending the file (1.6 ms for 7 229 tensors).
+        sizes, reached = {name: getattr(torch, kind).itemsize for name, kind in _DTYPES.items()}, 0
+        for name in sorted(names, key=lambda name: self.header[name]['data_offsets']):
+            info = self.header[name]
+            start, end = info['data_offsets']
+            if start != reached or end < start:
+                raise _refused(f'invalid offset for tensor `{name}`')
+            if end - start != math.prod(info['shape']) * sizes[info['dtype']]:
+                raise _refused('invalid shape, data type, or offset for tensor')
+            reached = end
+        if self.base + reached != len(view):
+            raise _refused('incomplete metadata, file not fully covered')
+        # Listed in the order safe_open lists them.
+        self.names = sorted(names)
+        # Named once: the word 'cpu' read again at every tensor took 2 ms of the 7 229 of LTX 2.5.
+        self.cpu = torch.device('cpu')
+        with warnings.catch_warnings():
+            # (torch warns that the buffer cannot be written: nothing writes there.)
+            warnings.simplefilter('ignore', UserWarning)
+            # Each tensor's slice holds this storage, which holds the mapping.
+            self.storage = torch.frombuffer(view, dtype=torch.uint8).untyped_storage()
+
+    def keys(self):
+        return self.safe.keys() if self.safe is not None else list(self.names)
+
+    def metadata(self):
+        return self.safe.metadata() if self.safe is not None else self.header.get('__metadata__')
+
+    def get_tensor(self, key):
+        import torch
+
+        if self.safe is not None:
+            return self.safe.get_tensor(key)
+        info = self.header.get(key) if key != '__metadata__' else None
+        if info is None:
+            from safetensors import SafetensorError
+
+            raise SafetensorError(f'File does not contain tensor {key}')
+        start, end = info['data_offsets']
+        raw = torch.empty(0, dtype=torch.uint8, device=self.cpu).set_(self.storage[self.base + start : self.base + end])
+        return raw.view(getattr(torch, _DTYPES[info['dtype']])).reshape(info['shape'])
+
+    def get_slice(self, key):
+        return self.safe.get_slice(key) if self.safe is not None else _Copied(self.get_tensor(key))
+
+    def __exit__(self, *_):
+        # (Never mmap.close(): see above.)
+        if self.safe is not None:
+            self.safe.__exit__(None, None, None)
+        self.safe = self.storage = None
+
+
 class Reader:
     """Reads tensors of a file from the disk a little ahead of their use, in the order given.
 
@@ -636,7 +769,8 @@ class Reader:
 
 
 class Store:
-    """`safe_open`-compatible reader over a resident arena (or the file mapping as fallback)."""
+    """`safe_open`-compatible reader over a resident arena (or a read-only mapping of the file as fallback,
+    see Mapped)."""
 
     def __init__(self, path, resident=True, reserve=None, evict=True, pin=True):
         """`resident`: True loads the file into RAM if it fits, 'if-present' only reuses an arena.
@@ -658,9 +792,7 @@ class Store:
         if self.arena is not None:
             RESIDENCY.hold(self.arena)
         if self.arena is None:
-            from safetensors import safe_open
-
-            self.mapping = safe_open(path, framework='pt')
+            self.mapping = Mapped(path)
 
     def keep(self, keys, reserve=None, spare=()):
         """From now on these tensors are read from page-locked RAM (Residency.partial), the
@@ -711,10 +843,8 @@ class Store:
         until the file was closed, 7 GiB of a video model counted against the free RAM (1 GiB
         left of 32 through a series, measured). Tensors still read from the old mapping keep it."""
         if self.mapping is not None:
-            from safetensors import safe_open
-
             self.mapping.__exit__(None, None, None)
-            self.mapping = safe_open(self.path, framework='pt')
+            self.mapping = Mapped(self.path)
 
     def __enter__(self):
         return self
