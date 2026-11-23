@@ -110,6 +110,27 @@ test('a model this computer cannot run is shown greyed with its reason, others n
   assert.doesNotMatch(offered.function.description, /Krea 2/);
 });
 
+test('(0.6.256) the Studio is told the models of Agrandir and Interpoler with their factor: × 2 · × 4 for SeedVR2 and RIFE, the one of its name for Real-ESRGAN, none of their settings', async () => {
+  const { readFile, readdir } = await import('node:fs/promises');
+  const { ToolCatalog } = await import('../lib/tool-catalog.mjs');
+  const folder = new URL('../runner/workflows/', import.meta.url);
+  const workflows = [];
+  for (const name of await readdir(folder))
+    workflows.push({ ...JSON.parse(await readFile(new URL(name, folder), 'utf8')), ready: true });
+  const tools = await new ToolCatalog({ list: async () => workflows }).studio();
+  const shown = verb => tools[verb].map(item => [item.family, item.media, item.finish, item.settings, Boolean(item.follows), item.roles.source.required]);
+  assert.deepEqual(shown('upscale'), [
+    ['seedvr2', 'image', { key: 'scale', choices: [2, 4], standard: 2 }, [], false, true],
+    ['realesrgan_video', 'video', { factor: 2, maxSide: 3840 }, [], false, true],
+    ['realesrgan_image', 'image', { factor: 4 }, [], false, true],
+  ]);
+  assert.deepEqual(shown('interpolate'), [['rife', 'video', { key: 'multiplier', choices: [2, 4], standard: 2 }, [], false, true]]);
+  // A name that says no factor: the size is the model's.
+  const plain = workflows.find(item => item.pipeline === 'realesrgan_image');
+  const [own] = (await new ToolCatalog({ list: async () => [{ ...plain, name: 'Agrandir' }] }).studio()).upscale;
+  assert.deepEqual(own.finish, { factor: 4 }, 'its family says « ×4 Plus »');
+});
+
 test('the Studio is told, per verb, the ready workflows with their inputs, sizes, lengths and settings', async () => {
   const { readFile, readdir } = await import('node:fs/promises');
   const { ToolCatalog } = await import('../lib/tool-catalog.mjs');
@@ -1608,18 +1629,21 @@ test('the Sortie: pictures only, the newest at the left with the largest number,
     await settle();
     assert.equal(reads, 2);
 
-    // « Animer »: the picture goes to the references of the first video model, once.
+    // « Animer »: (0.6.256, lot 4) the picture goes to the start (« Début ») of the first video model that takes one,
+    // in place of the one there: never to its references any more (the video did not start from it).
+    const start = () => body.find('studio-slot').find(tile => tile.dataset.slot === 'start_image-0')?.children[0]?.children[0]?.src ?? null,
+      subjects = () => body.find('studio-slot').filter(tile => tile.dataset.slot?.startsWith('reference-') && tile.className.includes('is-filled')).length;
     mode(0);
     assert.equal(items()[0].find('studio-item-main')[0].attributes['aria-label'], 'Animer · #4');
     items()[0].find('studio-item-main')[0].onclick();
     assert.equal(body.dataset.mode, 'video');
-    assert.deepEqual(references(), ['@1']);
+    assert.deepEqual([start(), subjects()], ['/p2.png', 0]);
     mode(0);
     items()[0].find('studio-item-main')[0].onclick();
-    assert.deepEqual(references(), ['@1'], 'there already: nothing is added');
+    assert.deepEqual([start(), subjects()], ['/p2.png', 0], 'there already: the same');
     mode(0);
     items()[1].find('studio-item-main')[0].onclick();
-    assert.deepEqual(references(), ['@1', '@2']);
+    assert.deepEqual([start(), subjects()], ['/p1.png', 0], 'in place of the one there');
     // An image's menu keeps « Modifier » (a model of images takes one to start from).
     mode(0);
     items()[0].oncontextmenu({ preventDefault() {} });
@@ -3486,6 +3510,194 @@ test('(0.6.255) the actions of the take stand in a column at the right of the fr
     page.mode(2);
     await settle();
     assert.deepEqual([body.dataset.mode, rail()], ['audio', []]);
+  } finally {
+    restore();
+  }
+});
+
+test('(0.6.256) « Agrandir » prepares its page and waits for « ▶ Agrandir »: the take in « À agrandir », the prompt greyed, the model and its size; made, glued to its take; left by ×, by its button, by another page', async () => {
+  const image = { id: 'w', name: 'Image', roles: {}, limits: sizes, direct: true, size: { width: 1024, height: 1024 }, settings: [], seeded: true },
+    finishing = (id, name, finish) => ({ id, name, media: 'image', verb: 'upscale', roles: { source: { count: 1, media: ['image'], required: true } }, settings: [], finish }),
+    seedvr = finishing('sv', 'Upscale SeedVR2', { key: 'scale', choices: [2, 4], standard: 2 }),
+    esrgan = finishing('es', 'Upscale rapide (Real-ESRGAN ×4)', { factor: 4 });
+  const seen = [];
+  const page = await studioPage(
+    // (A model of clips first: not offered for an image.)
+    { create_image: [image], create_video: [wanStudio()], upscale: [{ ...finishing('ev', 'Upscale vidéo (Real-ESRGAN ×2)', { factor: 2 }), media: 'video' }, seedvr, esrgan] },
+    {
+      'tools/actions': () => ({ upscale: ['image'] }),
+      'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }),
+      'tools/execute': () => {
+        // While it is made: the take on the screen, veiled with its band; « ↳ AGRANDIE » glued before it in the Sortie.
+        const frame = page.body.find('studio-frame')[0],
+          strip = page.body.find('studio-strip')[0].children;
+        seen.push([frame.className.includes('is-finishing'), frame.find('studio-finish-band').length, screenOf(page.body.find('studio-frame-result')[0])?.src]);
+        seen.push(strip.map(tile => tile.find('studio-item-number')[0]?.textContent));
+        const record = {
+          id: 'u',
+          conversationId: 'c1',
+          prompt: 'un phare',
+          parameters: { pipeline: 'seedvr2', references: [{ role: 'source_image', output_id: 'a' }] },
+          outputs: [{ originalUrl: '/u.png', take: 2, width: 4096, height: 4096 }],
+        };
+        page.runs.unshift(record);
+        return { id: 'j', state: 'done', record };
+      },
+    },
+    { runs: [{ id: 'a', conversationId: 'c1', prompt: 'un phare', outputs: [{ originalUrl: '/a.png', take: 1, width: 1024, height: 1024 }] }] },
+  );
+  const { body, asked, restore } = page;
+  const rail = name => body.find('studio-rail')[0]?.find('output-action-' + name)[0],
+    sent = () => asked.filter(([route]) => route === 'tools/action'),
+    chips = () => body.find('studio-finish-chip').map(chip => [chip.children[0].textContent, chip.attributes['aria-checked']]),
+    size = () => body.find('studio-finish-result')[0]?.textContent,
+    goWord = () => body.find('studio-go-label')[0].textContent;
+  try {
+    await settle();
+    page.prompt().value = 'un phare au loin';
+    page.prompt().oninput();
+    // Pressed: nothing made, its page.
+    rail('upscale').onclick();
+    assert.equal(sent().length, 0, 'it waits for its button');
+    const [piece] = body.find('studio-finish');
+    assert.equal(piece.find('studio-piece-word')[0].textContent, 'À agrandir');
+    assert.equal(piece.find('studio-slot-pick')[0].title, 'À agrandir · PRISE 1 · IMAGE');
+    // Its prompt greyed, empty, why under the pointer; the prompt of Image kept in its draft.
+    const field = body.find('studio-prompt-field')[0];
+    assert.deepEqual([page.prompt().disabled, page.prompt().value, field.className.includes('is-needless'), field.title], [true, '', true, 'Agrandir n’a pas besoin de prompt.']);
+    assert.equal(body.find('studio-enrich').length, 0);
+    // « ▶ Agrandir », lit; the button of the take pressed.
+    assert.deepEqual([goWord(), body.find('studio-go')[0].disabled], ['Agrandir', false]);
+    assert.deepEqual([rail('upscale').className.includes('is-on'), rail('upscale').attributes['aria-pressed']], [true, 'true']);
+    // At the right: the model, « Taille » × 2 · × 4, the size it gives; no format, no LoRA, no « Plus de réglages ».
+    assert.equal(body.find('studio-model-pick')[0].value, 'sv');
+    assert.deepEqual([chips(), size()], [[['× 2', 'true'], ['× 4', 'false']], '2048 × 2048']);
+    assert.deepEqual([body.find('studio-set-format').length, body.find('studio-more-pill').length], [0, 0]);
+    body.find('studio-finish-chip')[1].onclick();
+    assert.deepEqual([chips(), size()], [[['× 2', 'false'], ['× 4', 'true']], '4096 × 4096']);
+    // Real-ESRGAN: its factor alone, said by its name.
+    const pick = body.find('studio-model-pick')[0];
+    pick.value = 'es';
+    pick.onchange();
+    assert.deepEqual([chips(), body.find('studio-finish-factor')[0]?.textContent, size()], [[], '× 4', '4096 × 4096']);
+    pick.value = 'sv';
+    body.find('studio-model-pick')[0].onchange.call(pick);
+    // Left by its ×: Image as it was, its model and its prompt.
+    body.find('studio-finish')[0].find('studio-slot-remove')[0].onclick();
+    assert.deepEqual([body.find('studio-finish').length, goWord(), page.prompt().value, body.find('studio-model-name')[0]?.textContent ?? body.find('studio-model-pick')[0]?.value], [0, 'Générer', 'un phare au loin', 'Image']);
+    // Left by its button pressed again, and by another page of the Studio.
+    rail('upscale').onclick();
+    rail('upscale').onclick();
+    assert.equal(body.find('studio-finish').length, 0);
+    rail('upscale').onclick();
+    page.mode(1);
+    page.mode(0);
+    assert.equal(body.find('studio-finish').length, 0);
+    // Made: the take, the model of the page named, its factor (× 4 chosen before: the page starts again from × 2).
+    rail('upscale').onclick();
+    body.find('studio-finish-chip')[1].onclick();
+    await body.find('studio-go')[0].onclick();
+    await settle();
+    const [, action] = sent().at(-1);
+    assert.equal(action.name, 'upscale');
+    assert.deepEqual(action.arguments, { source: { output: 'a' }, workflow: 'sv', intention: 'Agrandir l’image.', scale: 4 });
+    assert.deepEqual(seen, [
+      [true, 1, '/a.png'],
+      ['↳ AGRANDIE', 'PRISE 1'],
+    ]);
+    // Its page left, the take agrandie on the screen, « ↳ AGRANDIE » glued to its take.
+    assert.equal(body.find('studio-finish').length, 0);
+    assert.equal(screenOf(body.find('studio-frame-result')[0]).src, '/u.png');
+    const tiles = body.find('studio-strip')[0].children;
+    assert.deepEqual(tiles.map(tile => tile.find('studio-item-number')[0].textContent), ['↳ AGRANDIE', 'PRISE 1']);
+    assert.ok(tiles[0].className.includes('is-suite'));
+  } finally {
+    restore();
+  }
+});
+
+test('(0.6.256) « Animer » always starts the video from the image: its Début with the first model that takes one, on the screen at half its light, its format greyed, the cursor in the prompt', async () => {
+  const image = { id: 'w', name: 'Image', roles: {}, limits: sizes, direct: true, size: { width: 1024, height: 1024 }, settings: [], seeded: true },
+    // The first video model takes subjects only: the picture goes to the next one, which starts from it.
+    subjects = { id: 'h3', name: 'MiniMax H3', verb: 'create_video', limits: sizes, size: { width: 768, height: 448 }, settings: [], seeded: true, roles: { reference: { count: 3, media: ['image'], many: true } } };
+  const page = await studioPage(
+    { create_image: [image], create_video: [subjects, wanStudio()] },
+    { 'tools/actions': () => ({ animate: ['image'] }), 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }), 'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }) },
+    { runs: [{ id: 'a', conversationId: 'c1', prompt: 'un phare', outputs: [{ originalUrl: '/a.png', take: 1, width: 768, height: 1344 }] }] },
+  );
+  const { body, restore } = page;
+  const start = () => body.find('studio-slot').find(tile => tile.dataset.slot === 'start_image-0')?.children[0]?.children[0]?.src ?? null,
+    formats = () => body.find('studio-format').filter(chip => !chip.className.includes('is-more'));
+  try {
+    await settle();
+    // « × 3 » in Image: back to one in Vidéo.
+    body.find('studio-tries')[0].onclick();
+    body.find('studio-tries-menu')[0].children[2].onclick();
+    body.find('studio-rail')[0].find('output-action-animate')[0].onclick();
+    assert.equal(body.dataset.mode, 'video');
+    assert.equal(body.find('studio-model-pick')[0].value, 'wan');
+    assert.deepEqual([start(), body.find('studio-tries')[0].attributes['aria-label']], ['/a.png', 'Essais : 1']);
+    // On the screen: the picture at half its light, « DÉBUT » at its top left; no column of actions (no take on it).
+    assert.equal(body.find('studio-frame-start')[0]?.src, '/a.png');
+    assert.equal(body.find('studio-frame-label')[0].textContent, 'DÉBUT');
+    assert.deepEqual(body.find('studio-rail'), []);
+    // Its format, greyed and why; the prompt waits for the movement.
+    const checked = formats().find(chip => chip.attributes['aria-checked'] === 'true');
+    assert.deepEqual([checked?.children[0].textContent, checked?.disabled, checked?.title], ['9:16', true, 'Le format suit l’image de début.']);
+    checked.onclick();
+    assert.equal(page.prompt().placeholder, 'Décrivez le mouvement…');
+    // A prompt written before in Vidéo is kept.
+    page.mode(0);
+    page.mode(1);
+    page.prompt().value = 'la mer monte';
+    page.prompt().oninput();
+    page.mode(0);
+    body.find('studio-rail')[0].find('output-action-animate')[0].onclick();
+    assert.equal(page.prompt().value, 'la mer monte');
+    // Made: the screen is the take's again (the picture stays its Début).
+    await body.find('studio-go')[0].onclick();
+    await settle();
+    assert.deepEqual([body.find('studio-frame-start').length, start()], [0, '/a.png']);
+  } finally {
+    restore();
+  }
+});
+
+test('(0.6.256) « Interpoler » prepares its page as Agrandir: « À interpoler », « Images » × 2 · × 4 and the images a second it gives', async () => {
+  const rife = {
+    id: 'rife',
+    name: 'Interpoler (RIFE 4.26)',
+    media: 'video',
+    verb: 'interpolate',
+    roles: { source: { count: 1, media: ['video'], required: true } },
+    settings: [],
+    finish: { key: 'multiplier', choices: [2, 4], standard: 2 },
+  };
+  const page = await studioPage(
+    { create_image: [], create_video: [wanStudio()], interpolate: [rife] },
+    { 'tools/actions': () => ({ interpolate: ['video'] }), 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }), 'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }) },
+    { runs: [{ id: 'c', conversationId: 'c1', mediaType: 'video', prompt: 'la mer', parameters: { fps: 24, frames: 121 }, outputs: [{ originalUrl: '/c.mp4', take: 4 }] }] },
+  );
+  const { body, asked, restore } = page;
+  try {
+    page.mode(1);
+    await settle();
+    body.find('studio-rail')[0].find('output-action-interpolate')[0].onclick();
+    assert.equal(body.find('studio-finish')[0].find('studio-piece-word')[0].textContent, 'À interpoler');
+    assert.equal(body.find('studio-prompt-field')[0].title, 'Interpoler n’a pas besoin de prompt.');
+    // Lit without a prompt: it needs none.
+    assert.deepEqual([body.find('studio-go-label')[0].textContent, body.find('studio-go')[0].disabled, page.prompt().value], ['Interpoler', false, '']);
+    assert.match(body.find('studio-go')[0].title, /^Interpoler \((Ctrl|⌘)\+Entrée\)$/);
+    assert.equal(body.find('studio-finish-line')[0].children[0].textContent, 'Images');
+    assert.equal(body.find('studio-finish-result')[0].textContent, '48 images par seconde');
+    body.find('studio-finish-chip')[1].onclick();
+    assert.equal(body.find('studio-finish-result')[0].textContent, '96 images par seconde');
+    await body.find('studio-go')[0].onclick();
+    await settle();
+    const [, action] = asked.findLast(([route]) => route === 'tools/action');
+    assert.deepEqual([action.name, action.arguments], ['interpolate', { source: { output: 'c' }, workflow: 'rife', intention: 'Rendre la vidéo plus fluide.', multiplier: 4 }]);
+    // Not made: its page stays, its reason said.
+    assert.deepEqual([body.find('studio-finish').length, body.find('studio-error')[0]?.textContent], [1, 'rien']);
   } finally {
     restore();
   }

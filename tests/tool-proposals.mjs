@@ -1624,6 +1624,9 @@ test('(0.6.211) the camera chosen in the Studio: its sentence after the prompt o
       replace_character: [],
       create_audio: [],
       refilm_video: [],
+      // (0.6.256) Agrandir and Interpoler, their pages in the Studio: no camera either.
+      upscale: [],
+      interpolate: [],
     },
   );
   assert.deepEqual(

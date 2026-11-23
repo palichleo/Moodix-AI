@@ -2992,7 +2992,9 @@ async function againTake(failed, { edit = false, figure = null, container }) {
 /**
  * Output buttons. Prolonger writes a line the model understands in the composer, for the user to
  * finish. Upscale and Interpoler run the same proposal a model call would, without a model reply:
- * the user confirms it, the result joins the conversation as an ordinary tool call.
+ * the user confirms it, the result joins the conversation as an ordinary tool call. (0.6.256) Since the
+ * lot 4 of the Studio, the buttons of a take send those two to their page there instead (actOnOutput);
+ * this way is kept as it was, to come back to it by sending them here again.
  */
 async function runOutputAction(record, index, action) {
   // The take by its number when it has one (the model finds it by it: « la prise 12 »).
@@ -5002,22 +5004,32 @@ const libraryActions = outputActions({
   onAction: (record, index, action) => actOnTake(record, index, action),
   onShow: record => showInStudio(record),
 });
+/**
+ * (0.6.256, lot 4 of the Studio) A button of a take: Agrandir and Interpoler prepare their page in the Studio, as
+ * « Changer la caméra » does (the take in hand, its button waits there); the others as before (runOutputAction).
+ */
+function actOnOutput(record, index, action) {
+  if (action !== 'upscale' && action !== 'interpolate') return runOutputAction(record, index, action);
+  return closeChat()
+    .then(() => revealStudio())
+    .then(() => studioUI.finish(record, action));
+}
 /** An action on a take of the Pellicule: in its conversation, opened first (as from the chat). */
 function actOnTake(record, index, action) {
   if (!record.conversationId || record.conversationId === state.conversationId) {
     showChat();
-    return void runOutputAction(record, index, action);
+    return void actOnOutput(record, index, action);
   }
   requestSettingsClose(async () => {
     await loadConversation(record.conversationId);
-    if (state.conversationId === record.conversationId) await runOutputAction(record, index, action);
+    if (state.conversationId === record.conversationId) await actOnOutput(record, index, action);
   });
 }
 const actionButtons = outputActions({
   api,
   node,
   onDetails: (record, index) => assetsUI.viewOutput(record, index),
-  onAction: (record, index, action) => runOutputAction(record, index, action),
+  onAction: (record, index, action) => actOnOutput(record, index, action),
   // « Afficher dans le Studio »: the take on the Studio's screen; the prompt and the settings stay.
   onShow: record => showInStudio(record),
 });

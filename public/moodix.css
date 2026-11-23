@@ -20452,3 +20452,150 @@ body[data-view='bobine'] .chat-panel {
     transition: none;
   }
 }
+/* ------------------------------------------------------------------ (0.6.256) Agrandir, Interpoler: their page */
+/* Lot 4 (captures A04, A05, B08, B09): the prompt greyed (it needs none, why under the pointer), the take in its
+   case « À agrandir », at the right the model and its factor (× 2 · × 4) with what it makes under it, in mono. */
+#studio-view .studio-prompt-field.is-needless {
+  opacity: 0.4;
+  cursor: default;
+}
+#studio-view .studio-prompt-field.is-needless > textarea {
+  pointer-events: none;
+}
+#studio-view .studio-finish-size {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#studio-view .studio-finish-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+#studio-view .studio-finish-chips {
+  display: flex;
+  gap: 4px;
+}
+#studio-view .studio-finish-chip,
+#studio-view .studio-finish-factor {
+  min-width: 38px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-3);
+  font: 500 12px/28px var(--font-mono);
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+#studio-view .studio-finish-chip {
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+#studio-view .studio-finish-chip:hover:not(:disabled) {
+  color: var(--text-1);
+}
+#studio-view .studio-finish-chip.is-on,
+#studio-view .studio-finish-factor {
+  background: rgba(238, 232, 222, 0.1);
+  color: var(--text-1);
+}
+#studio-view .studio-finish-chip:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+#studio-view .studio-finish-chip:disabled {
+  cursor: default;
+}
+#studio-view .studio-finish-result {
+  margin: 0;
+  color: var(--text-2);
+  font: 400 12px/1.4 var(--font-mono);
+  letter-spacing: 0.04em;
+  text-align: right;
+}
+/* While it is made: the take veiled (62 %), a band of light going down over it in 2.4 s. */
+#studio-view .studio-frame.is-finishing .studio-frame-result {
+  opacity: 1;
+  filter: brightness(0.62);
+}
+#studio-view .studio-finish-band {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+#studio-view .studio-finish-band::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 28%;
+  background: linear-gradient(180deg, rgba(238, 232, 222, 0), rgba(238, 232, 222, 0.16) 55%, rgba(238, 232, 222, 0));
+  transform: translateY(-100%);
+  animation: studio-finish-band 2.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+@keyframes studio-finish-band {
+  to {
+    transform: translateY(360%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #studio-view .studio-finish-band::before {
+    animation: none;
+    display: none;
+  }
+  #studio-view .studio-finish-chip {
+    transition: none;
+  }
+}
+/* (0.6.256, captures A07 and A07b) After « Animer »: its picture on the screen of Vidéo at half its light,
+   « DÉBUT » at its top left; the format greyed (it is the picture's); the picture flies to its case. */
+#studio-view .studio-frame-start {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  opacity: 0.5;
+  pointer-events: none;
+}
+#studio-view .studio-format[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: default;
+}
+#studio-view .studio-format[aria-disabled='true']:hover {
+  background: transparent;
+}
+.studio-flight {
+  position: fixed;
+  z-index: 60;
+  margin: 0;
+  object-fit: cover;
+  border-radius: 8px;
+  transform-origin: 0 0;
+  pointer-events: none;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+#studio-view .studio-slot.is-landed {
+  box-shadow:
+    0 0 0 2px var(--accent),
+    0 0 18px rgba(238, 232, 222, 0.25);
+  transition: box-shadow 0.3s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-flight {
+    display: none;
+  }
+  #studio-view .studio-slot.is-landed {
+    transition: none;
+  }
+}

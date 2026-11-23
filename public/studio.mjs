@@ -180,6 +180,33 @@ const BLANK_WHY = {
   audio: 'Décrivez d’abord votre son.',
 };
 /**
+ * (0.6.256, lot 4) The pages Agrandir and Interpoler: the word of the case of their take, of their button, why their
+ * prompt is greyed, what their factor is called, the first step said while they work, the mark of what they made in
+ * the Sortie, and what is said to the server of the request.
+ */
+const FINISH = {
+  upscale: {
+    word: 'À agrandir',
+    go: 'Agrandir',
+    needless: 'Agrandir n’a pas besoin de prompt.',
+    line: 'Taille',
+    step: 'Agrandissement…',
+    badge: '↳ AGRANDIE',
+    glyph: 'act-upscale',
+    intention: media => `Agrandir ${media === 'video' ? 'la vidéo' : 'l’image'}.`,
+  },
+  interpolate: {
+    word: 'À interpoler',
+    go: 'Interpoler',
+    needless: 'Interpoler n’a pas besoin de prompt.',
+    line: 'Images',
+    step: 'Interpolation…',
+    badge: '↳ INTERPOLÉE',
+    glyph: 'act-interpolate',
+    intention: () => 'Rendre la vidéo plus fluide.',
+  },
+};
+/**
  * (0.6.253) A button greyed that still answers: its `disabled` is its own, said by `aria-disabled`, so the
  * browser still gives it the clicks, the focus and the keys (a disabled button said nothing without a hover).
  */
@@ -489,6 +516,11 @@ export function setupStudio({
     released = false,
     enriching = false,
     extending = null, // the clip being continued
+    // (0.6.256, lot 4) The take made larger or smoother on its own page (Agrandir, Interpoler): { verb, record,
+    // workflow (the model chosen there), factor (the one chosen) }; its page is the one of its kind.
+    finishing = null,
+    // (0.6.256) The image « Animer » put as the start of a video: shown on the screen of Vidéo while it is its Début.
+    animated = null,
     refilmId = null, // (0.6.240) the id of that clip when its camera is changed in place of being continued
     refilmGate = null, // (0.6.240) « Changer la caméra » lit or greyed in place, set with its button
     guide = null, // (0.6.240) the simple guide on the screen while a camera is set: { world, warn, bounds }
@@ -612,14 +644,28 @@ export function setupStudio({
    */
   /** (0.6.240) The clip in hand has its camera changed (« Changer la caméra »), it is not continued. */
   const refilming = () => mode === 'video' && Boolean(extending) && refilmId !== null && extending.id === refilmId;
+  /**
+   * (0.6.256) The take of the page Agrandir or Interpoler, when it is the page in hand (its kind's). A clip continued
+   * or filmed again, or a proposal of Moodix AI in this page, comes first.
+   */
+  const finishOn = () =>
+    finishing && !extending && !(proposal && proposal.mode === mode) && mode === mediaOf(finishing.record) ? finishing : null;
   const offered = verb => {
     if (verb) return info?.tools?.[verb] ?? [];
+    // (0.6.256) Agrandir, Interpoler: the models that make a take of this kind larger or smoother.
+    if (finishOn()) return (info?.tools?.[finishing.verb] ?? []).filter(item => item.media === mode);
     if (mode === 'video' && extending) return info?.tools?.[refilming() ? 'refilm_video' : 'extend_video'] ?? [];
     const list = info?.tools?.[modeOf(mode).verb] ?? [];
     return mode === 'video' ? [...list, ...(info?.tools?.replace_character ?? [])] : list;
   };
   const verbOf = () =>
-    mode === 'video' && extending ? (refilming() ? 'refilm_video' : 'extend_video') : (current()?.verb ?? modeOf(mode).verb);
+    finishOn()
+      ? finishing.verb
+      : mode === 'video' && extending
+        ? refilming()
+          ? 'refilm_video'
+          : 'extend_video'
+        : (current()?.verb ?? modeOf(mode).verb);
   const place = () => (legacy ? (info?.legacyId ?? null) : conversation());
   function current() {
     const draft = drafts[mode],
@@ -632,6 +678,8 @@ export function setupStudio({
     // made by none of them: the one chosen here (in the list, or by the proposal just answered).
     // (0.6.240) A clip filmed again is filmed by the model made for it, whatever made the clip.
     if (refilming()) return first;
+    // (0.6.256) Agrandir, Interpoler: the model chosen on their page, never the one of the mode's own draft.
+    if (finishOn()) return usable.find(item => item.id === finishing.workflow) ?? first;
     if (mode === 'video' && extending && !proposal)
       return usable.find(item => item.id === (extending.workflowId ?? draft.workflow)) ?? first;
     return usable.find(item => item.id === draft.workflow) ?? first;
@@ -643,6 +691,11 @@ export function setupStudio({
    * Krea 2 do not follow to MOSS Image (they were sent with it), and come back with Krea 2.
    */
   function choose(id) {
+    // (0.6.256) Another model on the page Agrandir or Interpoler: kept with it, the draft of the mode untouched.
+    if (finishOn()) {
+      finishing.workflow = id;
+      return render();
+    }
     const draft = drafts[mode],
       from = current()?.family,
       to = offered().find(item => item.id === id)?.family;
@@ -1414,6 +1467,102 @@ export function setupStudio({
       });
     }
     return piece;
+  }
+  /**
+   * (0.6.256, captures A04 and B08) The take of the page Agrandir or Interpoler, the one piece of its plateau: its
+   * picture in its case, the sign of the action on it, its word (« À agrandir »), × to leave the page. A click on it
+   * shows it whole, as a take of the Sortie. Nothing is dropped on it: the page is opened from the take itself.
+   */
+  function finishPiece(finish) {
+    const { record, verb } = finish,
+      output = record.outputs?.[0] ?? {},
+      said = FINISH[verb].word + ' · ' + saidOfRecord(record),
+      column = node('div', 'studio-inputs'),
+      plateau = node('div', 'studio-input-block studio-plateau'),
+      line = node('div', 'studio-plateau-row'),
+      piece = node('div', 'studio-piece studio-finish'),
+      tile = node('div', 'studio-slot is-filled'),
+      pick = button('studio-slot-pick', '', () => showDetails(record)),
+      preview = node('img'),
+      mark = node('span', 'studio-slot-badge'),
+      word = node('span', 'studio-piece-word', FINISH[verb].word),
+      leave = button('studio-slot-remove', '', () => leaveFinish(), 'close');
+    tile.dataset.slot = 'source-0';
+    pick.title = said;
+    pick.setAttribute('aria-label', said);
+    pick.disabled = Boolean(working);
+    preview.src = output.thumbUrl || (mediaOf(record) === 'image' ? output.originalUrl : '') || '';
+    preview.alt = '';
+    preview.draggable = false;
+    mark.setAttribute('aria-hidden', 'true');
+    mark.append(icon(FINISH[verb].glyph));
+    pick.append(preview.src ? preview : icon(mediaOf(record) === 'video' ? 'video' : 'image'), mark);
+    leave.setAttribute('aria-label', verb === 'upscale' ? 'Ne plus agrandir cette prise' : 'Ne plus interpoler cette prise');
+    leave.title = 'Retirer';
+    leave.disabled = Boolean(working);
+    tile.append(pick, leave);
+    word.setAttribute('aria-hidden', 'true');
+    piece.append(tile, word);
+    line.append(piece);
+    plateau.append(line);
+    column.append(plateau);
+    return column;
+  }
+  /**
+   * (0.6.256, capture A04) The factor of the model of the page Agrandir or Interpoler, and what it makes: « Taille »
+   * × 2 · × 4 with the size it gives under it (SeedVR2), or the factor the model has alone (Real-ESRGAN, its name
+   * says it); « Images » × 2 · × 4 and the images a second it gives (RIFE). When nothing says it: the size is the
+   * model's. Never another setting: those are in its page of Paramètres › Modèles.
+   */
+  function finishBlock(workflow, finish) {
+    const spec = workflow.finish ?? {},
+      upscale = finish.verb === 'upscale',
+      block = node('div', 'studio-set-block studio-finish-size'),
+      head = node('div', 'studio-finish-line'),
+      result = node('p', 'studio-finish-result'),
+      factor = spec.key ? finishFactor(workflow) : spec.factor,
+      source = sizeOfRecord(finish.record),
+      fps = Number(finish.record.parameters?.fps) || null;
+    const tell = value => {
+      if (!value) {
+        result.textContent = upscale ? 'La taille est donnée par le modèle.' : 'Les images en plus sont données par le modèle.';
+        return;
+      }
+      if (!upscale) {
+        result.textContent = fps ? `${Math.round(fps * value)} images par seconde` : `${value} fois plus d’images`;
+        return;
+      }
+      if (!source) {
+        result.textContent = `${value} fois plus grande`;
+        return;
+      }
+      // Held by the largest side the model makes (Real-ESRGAN for a clip: 3840).
+      const largest = Math.max(source.width, source.height) * value,
+        cut = spec.maxSide && largest > spec.maxSide ? spec.maxSide / largest : 1;
+      result.textContent = `${Math.round(source.width * value * cut)} × ${Math.round(source.height * value * cut)}`;
+    };
+    head.append(node('span', 'studio-label', FINISH[finish.verb].line));
+    if (spec.key && spec.choices.length > 1) {
+      const chips = node('div', 'studio-finish-chips');
+      chips.setAttribute('role', 'radiogroup');
+      chips.setAttribute('aria-label', FINISH[finish.verb].line);
+      for (const value of spec.choices) {
+        const chip = button('studio-finish-chip' + (value === factor ? ' is-on' : ''), '× ' + value, () => {
+          finishing.factor = value;
+          render();
+        });
+        chip.setAttribute('role', 'radio');
+        chip.setAttribute('aria-checked', String(value === factor));
+        chip.setAttribute('aria-label', '× ' + value);
+        chip.disabled = Boolean(working);
+        chips.append(chip);
+      }
+      head.append(chips);
+    } else if (factor) head.append(node('span', 'studio-finish-factor', '× ' + factor));
+    result.setAttribute('aria-live', 'polite');
+    tell(factor);
+    block.append(head, result);
+    return block;
   }
   /**
    * (0.6.211, LOTS.md, lot 14; capture 95) The camera, a piece of the plateau once added by « Ajouter »: its
@@ -3198,15 +3347,21 @@ export function setupStudio({
   function stage() {
     const screen = node('div', 'studio-screen'),
       box = node('div', 'studio-stage'),
-      // While a creation is being made the frame is its own (the picture so far).
-      last = onStage(),
+      // While a creation is being made the frame is its own (the picture so far). (0.6.256, captures A05 and B09)
+      // A take made larger or smoother stays on it meanwhile, veiled, a band of light going down over it.
+      finished = working?.finish && mode === mediaOf(working.finish.record) ? working.finish.record : null,
+      // (0.6.256, capture A07) After « Animer »: its picture, the start of the video to make, in place of the last clip.
+      start = finished ? null : animatedStart(),
+      last = start ? null : (onStage() ?? finished),
       frame = node(
         'div',
         'studio-frame' +
           (mode === 'audio' ? ' is-audio' : '') +
           (working ? ' is-busy' : '') +
+          (finished ? ' is-finishing' : '') +
           (last ? ' has-result' : '') +
-          (!last && !working && !gpuBlocked() ? ' is-empty' : '') +
+          (start ? ' has-start' : '') +
+          (!last && !start && !working && !gpuBlocked() ? ' is-empty' : '') +
           (gpuBlocked() && !working ? ' is-held' : ''),
       ),
       // The card held: the take that held it is drawn at the format chosen for it (54).
@@ -3220,8 +3375,8 @@ export function setupStudio({
       node('span', 'studio-frame-fill'),
       node(
         'span',
-        'studio-frame-label' + (numbered ? ' is-take' : coming ? ' is-take is-coming' : ''),
-        numbered ? 'PRISE ' + take : coming ? 'PRISE ' + coming : next.label,
+        'studio-frame-label' + (numbered ? ' is-take' : coming ? ' is-take is-coming' : start ? ' is-take is-start' : ''),
+        numbered ? 'PRISE ' + take : coming ? 'PRISE ' + coming : start ? 'DÉBUT' : next.label,
       ),
     );
     blankLines = null;
@@ -3256,8 +3411,18 @@ export function setupStudio({
     } else if (!working && refilming()) {
       // (0.6.240) While the camera of a clip is set: its simple guide, in the place of the take on the screen.
       frame.append(orbitGuide(current()));
+    } else if (start) {
+      // At half its light: no take yet, the picture the video will start from.
+      const picture = node('img', 'studio-frame-start');
+      Object.assign(picture, { src: start.preview, alt: '', draggable: false });
+      frame.append(picture);
     } else if (last) {
       frame.append(result(last));
+      if (finished) {
+        const band = node('span', 'studio-finish-band');
+        band.setAttribute('aria-hidden', 'true');
+        frame.append(band);
+      }
     } else if (!working) {
       // Nothing made in this mode yet (etats-maquette.md, 55). (0.6.253, generer-maquette.md, A00) No sentence of
       // help any more, nor the Éclipse: the format and the size of what will be made, in mono, in the middle
@@ -3334,6 +3499,8 @@ export function setupStudio({
   function railTake() {
     const onScreen = working ? (kept[mode] ?? ownRuns().find(item => mediaOf(item) === mode) ?? null) : onStage();
     if (!onScreen || mode === 'audio' || extending || (gpuBlocked() && !working)) return null;
+    // (0.6.256) Nor while the screen shows the start image « Animer » put: no take on it.
+    if (animatedStart()) return null;
     return onScreen.external && !onScreen.resource ? null : onScreen;
   }
   /** The creation on the screen: the image (a click shows it whole), the clip to play, or the sound. */
@@ -3419,7 +3586,11 @@ export function setupStudio({
       menu = node('div', 'studio-format-menu');
     row.setAttribute('role', 'radiogroup');
     row.setAttribute('aria-label', 'Format');
+    // (0.6.256, capture A07) After « Animer », the format is the one of its picture: greyed, why said (greyable: it
+    // still answers the pointer with its bubble).
+    const held = mode === 'video' && animatedStart() ? 'Le format suit l’image de début.' : '';
     const pick = id => {
+      if (held) return;
       Object.assign(draft, { format: id, size: null, formatChosen: true });
       formatsOpen = false;
       // The chips and the sizes change with the format (another one may take the place of « ··· »).
@@ -3427,15 +3598,16 @@ export function setupStudio({
     };
     for (const id of main) {
       const format = FORMATS.find(item => item.id === id),
-        chip = button('studio-format', id, () => pick(id));
-      chip.title = format.label;
+        chip = held ? greyable(button('studio-format', id, () => pick(id))) : button('studio-format', id, () => pick(id));
+      chip.title = held || format.label;
       chip.setAttribute('role', 'radio');
       chip.setAttribute('aria-checked', String(id === draft.format));
-      chip.disabled = Boolean(working);
+      chip.disabled = Boolean(working) || Boolean(held);
       row.append(chip);
     }
     // Never cut by its panel (16/11): shown above the page, on the side that has room (glass-menu.mjs).
     const more = button('studio-format is-more' + (extra ? ' is-on' : ''), extra ? extra + ' ···' : '···', () => {
+      if (held) return;
       formatsOpen = !formatsOpen;
       if (formatsOpen) openPopup(menu, more);
       else closePopup(menu);
@@ -3443,7 +3615,11 @@ export function setupStudio({
     });
     more.setAttribute('aria-label', extra ? `Format ${extra} · tous les formats` : 'Tous les formats');
     more.setAttribute('aria-expanded', String(formatsOpen));
-    more.disabled = Boolean(working);
+    if (held) {
+      greyable(more);
+      more.title = held;
+    }
+    more.disabled = Boolean(working) || Boolean(held);
     if (extra) {
       more.setAttribute('role', 'radio');
       more.setAttribute('aria-checked', 'true');
@@ -3571,12 +3747,14 @@ export function setupStudio({
       return;
     // (0.6.253) Nor while the chat answers: greyed by the form with that reason (`chatBusy`).
     if (!ai && blocked()) return;
-    const blank = !drafts[mode].prompt.trim() && !refilming(),
+    // (0.6.256) Agrandir, Interpoler: lit with their take, whatever the prompt of the page.
+    const finish = finishOn(),
+      blank = !finish && !drafts[mode].prompt.trim() && !refilming(),
       // (0.6.188) Nor lit by the prompt alone while an input its model cannot do without is missing.
-      missing = blank ? '' : inputMissing(current(), drafts[mode].inputs, extending);
+      missing = blank || finish ? '' : inputMissing(current(), drafts[mode].inputs, extending);
     go.disabled = blank || Boolean(missing);
     go.classList.toggle('is-blank', blank);
-    go.title = blank ? blankWhy() : missing || `Générer (${MODIFIER}+Entrée)`;
+    go.title = blank ? blankWhy() : missing || `${finish ? FINISH[finish.verb].go : 'Générer'} (${MODIFIER}+Entrée)`;
   }
   /** (0.6.253) What « Générer » says without a prompt: what to describe first (the continuation, in Vidéo). */
   // A character put in a video: its wand writes the prompt, as request() says it.
@@ -3609,6 +3787,8 @@ export function setupStudio({
       if (held) return { text: held };
     }
     if (!free) return null;
+    // (0.6.256) Agrandir, Interpoler: nothing to write, nothing to give but the take of the page.
+    if (finishOn()) return null;
     if (!draft.prompt.trim() && !refilming()) return { text: blankWhy(), light: 'prompt' };
     const role = missingRole(workflow, draft.inputs, extending);
     return role ? { text: inputMissing(workflow, draft.inputs, extending), light: role } : null;
@@ -3906,6 +4086,14 @@ export function setupStudio({
       verb = verbOf(),
       prompt = draft.prompt.trim();
     if (!workflow) throw Error('Aucun modèle prêt pour cette création.');
+    // (0.6.256) Agrandir, Interpoler: the take, the model of the page named, its factor; no prompt, no setting.
+    const finish = finishOn();
+    if (finish) {
+      const args = { source: outputSource(finish.record), workflow: workflow.id, intention: FINISH[finish.verb].intention(mode) },
+        factor = finishFactor(workflow);
+      if (factor !== null) args[workflow.finish.key] = factor;
+      return { verb, args, edits: {}, styles: [], finish: { verb: finish.verb, record: finish.record } };
+    }
     // (0.6.240) A clip filmed again needs no prompt: the clip says what is filmed.
     if (!prompt && !refilming())
       throw Error(
@@ -4036,16 +4224,41 @@ export function setupStudio({
     if (id === 'animate') return animateImage(record);
     if (id === 'extend') return actionsOf(record).find(action => action.id === 'extend')?.run();
     if (id === 'refilm') return actionsOf(record).find(action => action.id === 'refilm')?.run();
-    const clip = mediaOf(record) === 'video';
-    void generate({
-      verb: id,
-      args: {
-        source: outputSource(record),
-        intention: id === 'upscale' ? `Agrandir ${clip ? 'la vidéo' : 'l’image'}.` : 'Rendre la vidéo plus fluide.',
-      },
-      edits: {},
-      styles: [],
-    });
+    // (0.6.256, lot 4) Agrandir and Interpoler prepare their page and wait for its button: made at once before.
+    if (id === 'upscale' || id === 'interpolate') finishTake(record, id);
+  }
+  /**
+   * (0.6.256, captures A04 and B08) The page Agrandir (or Interpoler) of a take: in the page of its kind, the take on
+   * the screen and in its case « À agrandir », the prompt greyed (it needs none), at the right the model and its
+   * factor, « ▶ Agrandir » under the screen. Pressed again on its page, or its × pressed: left, as Prolonger is.
+   */
+  function finishTake(record, verb) {
+    if (working) return;
+    if (proposal) return notice('Moodix AI est en train de proposer');
+    if (finishOn()?.verb === verb && finishing.record.id === record.id) return leaveFinish();
+    const kind = mediaOf(record);
+    leaveLook();
+    if (mode !== kind) setMode(kind);
+    extending = null;
+    refilmId = null;
+    finishing = { verb, record, workflow: null, factor: null };
+    kept[kind] = record;
+    failure = '';
+    menuFor = confirmFor = null;
+    pieceOpen = null;
+    render();
+    $('studio-view')?.scrollTo?.({ top: 0, behavior: 'smooth' });
+  }
+  /** (0.6.256) The page Agrandir or Interpoler left: the page of its kind as it was, the take still on the screen. */
+  function leaveFinish() {
+    finishing = null;
+    render();
+  }
+  /** (0.6.256) The factor sent with the model of the page: the one chosen, or the one it starts from. */
+  function finishFactor(workflow) {
+    const spec = workflow?.finish;
+    if (!spec?.key) return null;
+    return spec.choices.includes(finishing?.factor) ? finishing.factor : spec.standard;
   }
   async function generate(given = null) {
     // (0.6.175) A take of the Bobine that cannot begin is refused with its reason, said there: it got
@@ -4120,13 +4333,17 @@ export function setupStudio({
     // (0.6.182) `tell`: what the Bobine hears of it, its step, how far it is, its picture so far, and how long it
     // has been (the count of the Studio, as its own line under « Générer » says it).
     working = {
-      label: 'Préparation…',
+      // (0.6.256) Agrandir, Interpoler: their first step said, their take shown while it is made (stage).
+      label: wanted.finish ? FINISH[wanted.finish.verb].step : 'Préparation…',
       fraction: null,
       controller,
       montage: Boolean(onTake?.montage),
       series,
+      ...(wanted.finish ? { finish: wanted.finish } : {}),
       ...(onTake?.montage?.onProgress ? { tell: () => working && onTake.montage.onProgress(working.label, working.fraction, working.preview, working.time) } : {}),
     };
+    // (0.6.256) A video made from the picture « Animer » put: once made, its screen shows the take, not the picture.
+    if (asked === 'video') animated = null;
     // Its conversation from its first instant (0.6.81): the page may show another meanwhile, the
     // creation is still this one's, and the page follows it there.
     const conversationId = former ? info.legacyId : await ensureConversation();
@@ -4257,6 +4474,8 @@ export function setupStudio({
           // (0.6.142) In the Studio of before the conversations, a take of the bobine leaves the screen of the mode as it was.
           if (record && !onTake?.montage) {
             kept[asked] = record;
+            // (0.6.256) Agrandie or interpolée: on the screen, its page left (as a continuation is once made).
+            if (wanted.finish && finishing?.record.id === wanted.finish.record.id) finishing = null;
             // Made from what was looked at: those settings are the user's now, nothing to come back to.
             endLook();
           }
@@ -4364,7 +4583,9 @@ export function setupStudio({
     // What the generator has so far, on the screen, through the Flux (take-flux.mjs, capture 24): the
     // start image until a picture comes, else the colours of the room. The frame is rebuilt with the page.
     const frame = document.querySelector?.('#studio-view .studio-frame');
-    if (frame && mode !== 'audio') {
+    // (0.6.256, captures A05 and B09) Not over a take being made larger or smoother: it stays seen, veiled, its band
+    // of light going down over it (stage).
+    if (frame && mode !== 'audio' && !frame.classList?.contains?.('is-finishing')) {
       if (flux?.frame !== frame) {
         flux?.flux.stop();
         flux = { frame, flux: takeFlux(frame, { node }) };
@@ -5388,14 +5609,17 @@ export function setupStudio({
   }
   // Agrandie (Real-ESRGAN) or interpolée (RIFE): made from a clip too (its « source_video »), but the
   // whole clip again, not its continuation (17/11: they were said « ↳ SUITE », their length « + »).
-  const TRANSFORMED = { realesrgan_video: 'AGRANDIE', rife: 'INTERPOLÉE' };
+  // (0.6.256) An image agrandie too (SeedVR2, Real-ESRGAN): made from its « source_image ».
+  const TRANSFORMED = { realesrgan_video: 'AGRANDIE', rife: 'INTERPOLÉE', seedvr2: 'AGRANDIE', realesrgan_image: 'AGRANDIE' };
   const transformOf = record => TRANSFORMED[record.parameters?.pipeline] ?? null;
   /** The clip a continuation goes on from; none for anything else. */
   const sourceOf = record =>
     transformOf(record) ? undefined : record.parameters?.references?.find(ref => ref.role === 'source_video')?.output_id;
-  /** The clip an upscale or an interpolation was made from. */
+  /** The clip (the image) an upscale or an interpolation was made from. */
   const transformedFrom = record =>
-    transformOf(record) ? record.parameters?.references?.find(ref => ref.role === 'source_video')?.output_id : undefined;
+    transformOf(record)
+      ? record.parameters?.references?.find(ref => ref.role === 'source_video' || ref.role === 'source_image')?.output_id
+      : undefined;
   /**
    * A take leaves its conversation (its file stays in output): the one deletion of the page, that of
    * the Sortie and of the Pellicule (0.6.147, take-delete.mjs). Whether it went: refused, it says why.
@@ -5410,6 +5634,7 @@ export function setupStudio({
       // A later reply of the chat that names it no longer draws it from what was read before.
       forgetCitedTakes();
       if (extending?.id === record.id) extending = null;
+      if (finishing?.record.id === record.id) finishing = null;
       for (const key of Object.keys(kept)) if (kept[key].id === record.id) delete kept[key];
       // (0.6.147) The newest take of a conversation left, whose Studio is kept as it was left: it comes
       // back so, not with the settings of the take before it (as settledHere does for the one in hand).
@@ -5476,42 +5701,91 @@ export function setupStudio({
     followFormat(role);
     render();
   }
-  /** Where « Animer » puts a picture: the first video model, its references, else its start image. */
+  /**
+   * Where « Animer » puts a picture. (0.6.256, lot 4, captures A07 and A08) Always its start image (« Début »), with
+   * the first video model that takes one: among its references before (Sujet), the video did not start from it.
+   */
   function animation() {
-    const video = offered('create_video')[0];
-    if (!video) return null;
-    const role = takesImages(video, 'reference')
-      ? 'reference'
-      : takesImages(video, 'start_image')
-        ? 'start_image'
-        : null;
-    return role ? { video, role } : null;
+    const video = offered('create_video').find(item => !item.unavailable && takesImages(item, 'start_image'));
+    return video ? { video, role: 'start_image' } : null;
   }
   /**
-   * « Animer » (7 bis 11): the picture goes to the first video model, among its references, or as
-   * its start image when it takes none; nothing is added when it is there already. Not while a
+   * « Animer » (7 bis 11): the picture goes to the first video model that starts from an image, as its start image,
+   * in place of the one there. (0.6.256) The page Vidéo opens with it: on its screen at half its light, « DÉBUT » at
+   * its top left (animatedStart), the format its own (greyed meanwhile, why said), « × 1 » again, the cursor in the
+   * prompt, « Décrivez le mouvement… » when it is empty; the picture flies from the screen to its case. Not while a
    * proposal of Moodix AI waits.
    */
   function animateImage(record) {
     const target = animation();
     if (!target || working) return;
     if (proposal) return notice('Moodix AI est en train de proposer');
-    const { video, role } = target,
+    const { video } = target,
       draft = drafts.video;
+    // Where it flies from: the picture of the screen (the take of Image), before Vidéo is drawn.
+    const from = flightStart();
     setMode('video');
     extending = null;
+    tries = 1;
     if (current()?.id !== video.id) choose(video.id);
-    const given = Object.values(draft.inputs).some(list =>
-      (list ?? []).some(item => item?.source?.output === record.id),
-    );
-    if (given) return;
-    if (role === 'start_image') return useImage(record, 'video', role, 0);
-    const list = (draft.inputs.reference ?? []).filter(Boolean),
-      clash = exclusiveWith(video, 'reference');
+    // (Read in Vidéo: the inputs of its draft.)
+    const clash = exclusiveWith(video, 'start_image');
     if (clash.length) return notice(`Ne se combine pas avec : ${clash.map(other => ROLES[other]).join(', ')}`);
-    if (list.length >= video.roles.reference.count) return notice('Toutes les cases d’images sont prises.');
-    draft.inputs.reference = list;
-    useImage(record, 'video', 'reference', list.length);
+    animated = record.id;
+    const input = creationInput(record),
+      format = input.width && input.height ? formatOf(input.width, input.height) : null;
+    // Its format, whatever was chosen before: the video starts from the picture.
+    if (format) Object.assign(draft, { format: format.id, size: null, formatChosen: false });
+    (draft.inputs.start_image ??= [])[0] = input;
+    failure = '';
+    render();
+    $('studio-view')?.scrollTo?.({ top: 0, behavior: 'smooth' });
+    fly(from, input.preview);
+    globalThis.queueMicrotask?.(() => globalThis.document?.querySelector?.('#studio-prompt')?.focus?.({ preventScroll: true }));
+  }
+  /** (0.6.256) The start image « Animer » put, while it is still the one of Vidéo: shown on its screen. */
+  function animatedStart() {
+    if (!animated || mode !== 'video' || working || extending || finishOn() || answering()) return null;
+    const start = drafts.video.inputs.start_image?.[0];
+    return start?.source?.output === animated && start.preview ? start : null;
+  }
+  /** (0.6.256) Where the picture of « Animer » leaves from: the take on the screen, measured before Vidéo is drawn. */
+  function flightStart() {
+    const picture = document.querySelector?.('#studio-view .studio-frame-result img, #studio-view .studio-frame-result');
+    const box = picture?.getBoundingClientRect?.();
+    return box?.width ? { left: box.left, top: box.top, width: box.width, height: box.height } : null;
+  }
+  /**
+   * (0.6.256, capture A07b) The picture flies from the screen to its case « Début » (0.9 s after 0.3 s), then its case
+   * lights up for a moment. Neither with the animations reduced, nor without a page to draw in.
+   */
+  function fly(from, src) {
+    const page = globalThis.document;
+    if (!from || !src || !page?.createElement || globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const tile = page.querySelector?.('#studio-view .studio-slot[data-slot="start_image-0"]'),
+      to = tile?.getBoundingClientRect?.();
+    if (!to?.width) return;
+    const ghost = page.createElement('img');
+    ghost.src = src;
+    ghost.alt = '';
+    ghost.className = 'studio-flight';
+    Object.assign(ghost.style, { left: from.left + 'px', top: from.top + 'px', width: from.width + 'px', height: from.height + 'px' });
+    page.body.append(ghost);
+    const move = `translate(${to.left - from.left}px, ${to.top - from.top}px) scale(${to.width / from.width}, ${to.height / from.height})`;
+    const flight = ghost.animate?.([{ transform: 'none' }, { transform: move }], {
+      duration: 900,
+      delay: 300,
+      easing: 'cubic-bezier(0.5, 0, 0.2, 1)',
+      fill: 'forwards',
+    });
+    if (!flight) return void ghost.remove();
+    flight.onfinish = flight.oncancel = () => {
+      ghost.remove();
+      const now = page.querySelector?.('#studio-view .studio-slot[data-slot="start_image-0"]');
+      if (!now) return;
+      now.classList.add('is-landed');
+      setTimeout(() => now.classList.remove('is-landed'), 900);
+    };
   }
   /** « Ouvrir » a creation (« Détails » before 0.6.198): shown whole, its details beside it (what a click on it does). */
   function showDetails(record) {
@@ -5580,6 +5854,7 @@ export function setupStudio({
           // « Annuler », no format, « Générer la suite » sending the clip as the source of an image).
           if (mode !== 'video') setMode('video');
           extending = record;
+          finishing = null;
           // (0.6.244) Continued, not filmed again: the same clip whose camera was being changed (or was, a
           // moment ago) is an ordinary clip again.
           refilmId = null;
@@ -5607,6 +5882,7 @@ export function setupStudio({
           // Made in Vidéo, as a continuation is: the clip takes the place of the start of a new video.
           if (mode !== 'video') setMode('video');
           extending = record;
+          finishing = null;
           refilmId = record.id;
           failure = '';
           menuFor = confirmFor = null;
@@ -5682,8 +5958,8 @@ export function setupStudio({
       },
       from = media === 'video' && sourceOf(record) ? numberOf({ id: sourceOf(record), mediaType: 'video' }) : null,
       // An upscale or an interpolation of a clip: the clip it was made from.
-      transform = media === 'video' ? transformOf(record) : null,
-      origin = transform && transformedFrom(record) ? numberOf({ id: transformedFrom(record), mediaType: 'video' }) : null,
+      transform = media === 'audio' ? null : transformOf(record),
+      origin = transform && transformedFrom(record) ? numberOf({ id: transformedFrom(record), mediaType: media }) : null,
       said = [
         name,
         from ? 'suite de ' + madeFrom(sourceOf(record), from) : '',
@@ -5824,7 +6100,8 @@ export function setupStudio({
         pick.classList.add('has-strip');
       }
     }
-    if (from && next?.id === sourceOf(record)) tile.classList.add('is-suite');
+    // (0.6.256) An agrandie (interpolée) made just after its take sits glued to it too.
+    if ((from && next?.id === sourceOf(record)) || (transform && origin && next?.id === transformedFrom(record))) tile.className += ' is-suite';
     tile.append(pick, caption);
     const main = actions.find(action => action.id === 'extend' || action.id === 'animate');
     if (main) tile.append(onPicture(main, 'studio-item-main', name));
@@ -5951,17 +6228,23 @@ export function setupStudio({
     const strip = node('div', 'studio-strip studio-timeline');
     strip.setAttribute('aria-label', sort.id === 'all' ? 'Créations du projet' : sort.label + ' du projet');
     // The creation under way, at the far left (studio-maquette.md): dark, « EN COURS » and how far.
-    if (working && !working.external) {
-      const tile = node('div', 'studio-item is-making'),
-        pick = node('div', 'studio-item-pick'),
+    // (0.6.256, captures A05 and B09) A take being made larger or smoother: « ↳ AGRANDIE », glued to its take.
+    const making = working && !working.external ? node('div', 'studio-item is-making') : null,
+      finishFrom = making && working.finish && shown.some(record => record.id === working.finish.record.id) ? working.finish.record.id : null;
+    if (making) {
+      const pick = node('div', 'studio-item-pick'),
         caption = node('span', 'studio-item-caption');
-      caption.append(node('span', 'studio-item-number', 'En cours'), node('span', 'studio-item-meta', ''));
-      tile.setAttribute('aria-hidden', 'true');
-      tile.append(pick, caption);
-      strip.append(tile);
+      caption.append(node('span', 'studio-item-number', finishFrom ? FINISH[working.finish.verb].badge : 'En cours'), node('span', 'studio-item-meta', ''));
+      making.setAttribute('aria-hidden', 'true');
+      making.append(pick, caption);
+      if (finishFrom) making.className += ' is-suite';
+      else strip.append(making);
     }
     // A continuation made just after its clip sits glued to it (« une suite reste collée à sa prise »).
-    shown.forEach((record, at) => strip.append(item(record, shown[at + 1])));
+    shown.forEach((record, at) => {
+      if (record.id === finishFrom) strip.append(making);
+      strip.append(item(record, shown[at + 1]));
+    });
     // The wheel of a mouse scrolls it sideways, the pointer anywhere over the Sortie (a mouse has
     // no sideways wheel); a sideways move of a trackpad is left to the browser.
     section.onwheel = event => scrollSideways(strip, event);
@@ -6198,6 +6481,8 @@ export function setupStudio({
     formatsOpen = addOpen = triesOpen = false;
     pieceOpen = null;
     if (next !== 'video') extending = null;
+    // (0.6.256) The page Agrandir (Interpoler) of a take is left for another kind, as Prolonger is.
+    if (finishing && next !== mediaOf(finishing.record)) finishing = null;
     // Back in Vidéo while a proposal of Moodix AI waits there: the clip it continues is its own, not
     // lost with a look at Image or Son (it was then shown, and its length sent, as a new video's).
     else if (proposal?.mode === 'video' && proposal.values) extending = proposal.extending ?? null;
@@ -6252,12 +6537,16 @@ export function setupStudio({
     // under the cases it was out of sight in a window of 720 px (the column scrolls in itself).
     if (answering())
       for (const note of proposal.request.notes ?? []) write.append(node('p', 'studio-proposal-note', String(note)));
+    // (0.6.256) Agrandir, Interpoler: their prompt greyed, empty, why under the pointer; the one of the page kept.
+    const finish = finishOn();
     const prompt = textarea(
       // (0.6.240) A clip filmed again: the clip says what is filmed. Its field is empty and closed meanwhile; the
       // prompt of the video being written stays in its draft, neither shown nor sent.
-      refilming() ? '' : draft.prompt,
+      refilming() || finish ? '' : draft.prompt,
       8,
-      refilming()
+      finish
+        ? ''
+        : refilming()
         ? 'Rien à écrire : seule la caméra change.'
         : extending
           ? 'Ce qui se passe ensuite…'
@@ -6266,7 +6555,9 @@ export function setupStudio({
           : mode === 'video'
             ? workflow.follows
               ? 'Décrivez la vidéo avec votre personnage…'
-              : 'Décrivez votre vidéo…'
+              : animatedStart()
+                ? 'Décrivez le mouvement…'
+                : 'Décrivez votre vidéo…'
             : 'Décrivez votre son…',
       value => {
         draft.prompt = value;
@@ -6278,7 +6569,7 @@ export function setupStudio({
       },
     );
     prompt.id = 'studio-prompt';
-    if (refilming()) prompt.disabled = true;
+    if (refilming() || finish) prompt.disabled = true;
     prompt.maxLength = 4000;
     prompt.title = MODIFIER + ' + Entrée pour générer';
     aiTarget(prompt, 'prompt');
@@ -6288,11 +6579,14 @@ export function setupStudio({
     const promptField = node(
       'div',
       'studio-field studio-prompt-field is-wide' +
-        (mode !== 'audio' ? ' has-enrich' : '') +
+        (mode !== 'audio' && !finish ? ' has-enrich' : '') +
         (folded && !folded.open ? ' is-folded' : ''),
     );
     promptField.append(prompt);
-    if (mode !== 'audio') promptField.append(enrichRow());
+    if (finish) {
+      promptField.className += ' is-needless';
+      promptField.title = prompt.title = FINISH[finish.verb].needless;
+    } else if (mode !== 'audio') promptField.append(enrichRow());
     if (enriching) promptField.classList.add('is-improving');
     measurePrompt = folded
       ? foldPrompt({ node, icon, field: promptField, box: prompt, state: folded, onToggle: () => render() })
@@ -6342,7 +6636,8 @@ export function setupStudio({
     // MiniMax H3). Another model than the last one drawn: their blocks say so for a moment.
     if (shownModel[mode] && shownModel[mode] !== workflow.id) flashUntil = Date.now() + 650;
     shownModel[mode] = workflow.id;
-    const row = inputs(workflow);
+    // (0.6.256) Agrandir, Interpoler: their take alone, in its case « À agrandir » (« À interpoler »).
+    const row = finish ? finishPiece(finish) : inputs(workflow);
     if (row) write.append(row);
 
     // Réglages (moodix-design.md 16, 20, 28): blocks without titles, Modèle · Durée + Taille ·
@@ -6350,20 +6645,24 @@ export function setupStudio({
     settings.append(modelBlock(workflow, list));
     const lacking = extending ? null : unavailableNote(workflow);
     if (lacking) settings.append(lacking);
+    // (0.6.256) Agrandir, Interpoler: the model, then its factor and what it makes; nothing else (its settings are
+    // in its page of Paramètres › Modèles).
+    const finishSize = finish ? finishBlock(workflow, finish) : null;
+    if (finishSize) settings.append(finishSize);
     // The format, above the resolution (studio-maquette.md: no longer under the screen).
-    if (workflow.limits && !extending && mode !== 'audio') {
+    if (workflow.limits && !extending && !finish && mode !== 'audio') {
       const formats = node('div', 'studio-set-block studio-set-format');
       formats.append(node('span', 'studio-label', 'Format'), formatChips(workflow));
       settings.append(formats);
     }
     // (0.6.250) A clip filmed again: the size it is brought to, in the place of the format and the length.
-    const shape = refilming() ? refilmBlock(workflow) : shapeBlock(workflow);
+    const shape = finish ? null : refilming() ? refilmBlock(workflow) : shapeBlock(workflow);
     if (shape) settings.append(shape);
     // Those of the user show on a proposal of Moodix AI too: it is made with them (edits).
     const styled = workflow.styled && mode !== 'audio' && !extending;
-    const loras = loraBlock(workflow, styled);
+    const loras = finish ? null : loraBlock(workflow, styled);
     if (loras) settings.append(loras);
-    const rare = rareLines(workflow);
+    const rare = finish ? [] : rareLines(workflow);
     if (rare.length) {
       const more = button('studio-more-pill' + (advanced ? ' is-open' : ''), '···', () => {
         advanced = !advanced;
@@ -6459,21 +6758,31 @@ export function setupStudio({
       // (Each makes a creation: not while another conversation makes one, 0.6.81.)
       row.inert = answering() || Boolean(working) || Boolean(busyElsewhere);
       if (row.inert) row.classList.add('is-held');
+      // (0.6.256) On the page Agrandir (Interpoler) of this take: its button pressed; pressed again, the page is left.
+      const pressed =
+        finish?.record.id === onScreen.id
+          ? [...row.children].find(child => String(child.className).split(' ').includes('output-action-' + finish.verb))
+          : null;
+      if (pressed) {
+        pressed.className += ' is-on';
+        pressed.setAttribute('aria-pressed', 'true');
+      }
       over.append(row);
     }
     bar.append(node('div', 'output-actions is-empty'));
     // (0.6.253) Greyed, it still answers (greyable): its reason in its bubble, and what lacks lights up (pressGo).
     const go = aiTarget(greyable(button('primary studio-go', '', () => pressGo(go), 'go')), 'generate'),
-      label = node('span', 'studio-go-label', working ? goLabel() : refilming() ? 'Changer la caméra' : extending ? 'Générer la suite' : 'Générer'),
+      label = node('span', 'studio-go-label', working ? goLabel() : refilming() ? 'Changer la caméra' : extending ? 'Générer la suite' : finish ? FINISH[finish.verb].go : 'Générer'),
       fill = node('span', 'studio-go-bar');
     goButton = go;
     fill.setAttribute('aria-hidden', 'true');
     // The triangle and its word, centred (moodix-design.md 7 bis 22); the keys are in its tooltip.
     // While the creation is made, « Génération · 42 % » alone, over the bar that fills the button.
     go.append(label, fill);
-    go.title = (answering() ? 'Générer la proposition de Moodix AI' : 'Générer') + ` (${MODIFIER}+Entrée)`;
-    // Nothing to make without a prompt (55): greyed, said in its tooltip; Moodix AI stays.
-    const blank = !draft.prompt.trim() && !answering() && !checking && !refilming();
+    go.title = (answering() ? 'Générer la proposition de Moodix AI' : finish ? FINISH[finish.verb].go : 'Générer') + ` (${MODIFIER}+Entrée)`;
+    // Nothing to make without a prompt (55): greyed, said in its tooltip; Moodix AI stays. (0.6.256) Agrandir and
+    // Interpoler need none, nor any input but their take.
+    const blank = !draft.prompt.trim() && !answering() && !checking && !refilming() && !finish;
     // (0.6.253, A10 « Moodix AI écrit ») Nor while the chat answers (`blocked`, which generate refuses): « Générer »
     // waits, greyed, and says why. Not under a proposal it waits on, which is answered here.
     go.disabled = enriching || Boolean(working) || Boolean(workflow.unavailable) || blank || Boolean(busyElsewhere) || Boolean(chatBusy);
@@ -6485,7 +6794,7 @@ export function setupStudio({
     // and the character of SCAIL-2): greyed, its tooltip says which, as request() says it once pressed. The prompt
     // first, as there; not under a proposal of Moodix AI, which puts its images itself.
     const missing =
-      !working && !blank && !answering() && !checking ? inputMissing(workflow, draft.inputs, extending) : '';
+      !working && !blank && !answering() && !checking && !finish ? inputMissing(workflow, draft.inputs, extending) : '';
     if (missing) {
       go.disabled = true;
       go.title = missing;
@@ -6894,6 +7203,7 @@ export function setupStudio({
     for (const key of Object.keys(kept)) delete kept[key];
     pinned = null;
     extending = null;
+    finishing = animated = null;
     failure = '';
     legacy = false;
   }
@@ -6921,6 +7231,9 @@ export function setupStudio({
     // of the conversation left. Kept as they were, its drafts were those of the take looked at (its
     // very seed with them, which followed into the conversation opened) and the user's own were lost.
     leaveLook();
+    // (0.6.256) The page Agrandir (Interpoler) is the take's of the conversation left.
+    if (finishing && finishing.record.conversationId !== conversation()) finishing = null;
+    animated = null;
     const next = draftKey();
     // A conversation not begun that gets its identifier while its first take is made: the same one.
     const begun = draftsKey?.startsWith('new|') && conversation() && Boolean(working);
@@ -7258,6 +7571,7 @@ export function setupStudio({
     kept[target] = record;
     pinned = record.id;
     extending = null;
+    finishing = animated = null;
     formatsOpen = false;
     failure = '';
     if (info && modelsOf(target).some(item => item.id === record.workflowId)) {
@@ -7524,6 +7838,8 @@ export function setupStudio({
     show,
     // (0.6.240) « Changer la caméra » of a take, asked from the Chat or the Archives.
     refilm: record => actionsOf(record).find(action => action.id === 'refilm')?.run(),
+    // (0.6.256) The page Agrandir or Interpoler of a take, asked from the Chat or the Archives.
+    finish: (record, verb) => finishTake(record, verb),
     takeOver,
     conversationChanged,
     invalidate,
