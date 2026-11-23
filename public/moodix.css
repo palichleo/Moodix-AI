@@ -5897,6 +5897,16 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   color: var(--text-3);
   font: 400 12px/1 var(--font-ui);
 }
+/* (0.6.250) Under the bar of the size a clip is filmed again at: what that size costs on this computer, in the
+   colour of a warning when it is long (the amber of the zone « possible »). */
+#studio-view .studio-refilm-said {
+  margin: 0 0 8px;
+  color: var(--text-3);
+  font: 400 12px/1.4 var(--font-ui);
+}
+#studio-view .studio-refilm-said[data-warn='true'] {
+  color: rgb(246, 195, 67);
+}
 /* What the model does not hold (its distance, for now): the bar stays, greyed; under it, why in a few words
    (the whole reason under the pointer). */
 .studio-orbit-bar.is-off > .studio-label,

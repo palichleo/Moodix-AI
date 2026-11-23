@@ -9287,11 +9287,10 @@ test('(0.6.240) « Changer la caméra » d’une vidéo faite : son bouton sur u
     page.restore();
   }
 
-  // A model that does not hold the distance yet, and a clip too long for its size (1344 × 768, 121 frames at 24 a
-  // second, where it changes the camera of 3 s): the bar of the distance stays, greyed, and says why; « Changer la
-  // caméra » is greyed whatever the camera, and says why.
+  // A model that does not hold the distance yet: its bar stays, greyed, and says why. (0.6.250) A clip long for
+  // its size is not refused any more: its size is chosen, see below.
   const reason = 'La distance ne marche pas encore avec ce modèle : son auteur le dit.',
-    less = { ...film, refilm: { ...bounds, distance: { min: 1, max: 1, unavailable: reason }, limits: [{ pixels: 1344 * 768, seconds: 3 }] } };
+    less = { ...film, refilm: { ...bounds, distance: { min: 1, max: 1, unavailable: reason } } };
   page = await studioPage({ ...tools, refilm_video: [less] }, routes, { runs });
   try {
     const { body } = page;
@@ -9304,10 +9303,106 @@ test('(0.6.240) « Changer la caméra » d’une vidéo faite : son bouton sur u
     assert.deepEqual([distance.className, distance.title, distance.children[1].disabled, distance.children[1].min, distance.children[1].max, distance.children[2].textContent], ['studio-orbit-bar is-off', reason, true, '1', '1', '× 1,0']);
     assert.deepEqual([scale.className, scale.title, scale.children.map(word => word.textContent)], ['studio-orbit-scale is-off', reason, ['Pas encore avec ce modèle']]);
     assert.deepEqual(pane.find('studio-orbit-bar').slice(0, 2).map(line => line.children[1].disabled), [false, false]);
-    assert.deepEqual([go().disabled, go().title], [true, 'Vidéo trop longue : à cette taille, la caméra se change jusqu’à 3 s.']);
-    pane.find('studio-orbit-bar')[0].children[1].value = '40';
-    pane.find('studio-orbit-bar')[0].children[1].oninput();
-    assert.deepEqual([go().disabled, go().title], [true, 'Vidéo trop longue : à cette taille, la caméra se change jusqu’à 3 s.']);
+    assert.deepEqual([go().disabled, go().title], [false, 'Générer (Ctrl+Entrée)']);
+  } finally {
+    page.restore();
+  }
+});
+
+test('(0.6.250) « Changer la caméra » : la taille à laquelle le clip est refilmé se choisit ; plus grand est dit plus long, jamais refusé', async () => {
+  // (His words of 23/11: « je veux que l’user puisse choisir sa resolution d’entrée […] ne pas griser les grande
+  // resolution, juste mettre un triger warning », then « la durée ne sera pas la meme en fonction des pc, donc
+  // generalise »: the time said is the one this computer took, never one measured elsewhere.)
+  const { tools, runs } = continuing(),
+    routes = { 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }), 'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }) },
+    film = refilm => ({ id: 'r', name: 'Changer la caméra (LTX 2.5)', verb: 'refilm_video', family: 'ltx25_refilm', roles: { source: { count: 1, media: ['video'], required: true } }, settings: [], refilm }),
+    second = (body, id = 'film') => body.find('studio-item').find(tile => tile.dataset.id === id).find('studio-item-second')[0],
+    looked = body => {
+      const bar = body.find('studio-bar').find(item => item.dataset.ai === 'refilm-size'),
+        [said] = body.find('studio-refilm-said');
+      return { bar, said, now: [bar.max, bar.value, bar.attributes['aria-valuetext'], said.hidden ? '' : said.textContent, said.dataset.warn] };
+    },
+    move = (body, place) => {
+      const { bar } = looked(body);
+      bar.value = String(place);
+      bar.oninput();
+      return looked(body).now;
+    };
+  runs.push({ id: 'bare', conversationId: 'c1', mediaType: 'video', workflowId: 'v', prompt: 'un phare', parameters: { frames: 121, fps: 24 }, outputs: [{ originalUrl: '/b.mp4', thumbUrl: '/b.jpg', take: 4 }] });
+  // (A smaller clip of the project: 768 × 448.)
+  runs.push({ id: 'small', conversationId: 'c1', mediaType: 'video', workflowId: 'v', prompt: 'une mouette', parameters: { width: 768, height: 448, frames: 121, fps: 24 }, outputs: [{ originalUrl: '/s.mp4', thumbUrl: '/s.jpg', take: 3 }] });
+
+  // A computer that never changed a camera. The clip is 1344 × 768, 5 s: its bar offers the sizes of its format
+  // up to its own, and starts on the one advised (1024 × 576), with nothing said under it.
+  let page = await studioPage({ ...tools, refilm_video: [film({})] }, routes, { runs });
+  try {
+    const { body, asked } = page,
+      sent = () => asked.filter(([route]) => route === 'tools/action').at(-1)[1],
+      generate = async () => {
+        page.page['studio-view'].onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
+        await settle();
+      },
+      go = () => body.find('studio-go')[0];
+    page.mode(1);
+    second(body).onclick();
+    assert.deepEqual(looked(body).now, ['3', '2', '1024 × 576', '', 'false']);
+    // (Its line is not there while it says nothing.)
+    assert.equal(looked(body).said.hidden, true);
+    const [block] = body.find('studio-refilm-size');
+    assert.deepEqual(
+      [block.className, block.find('studio-bar-line')[0].title, block.find('studio-bar-label')[0].textContent, block.find('studio-bar-notch').length, looked(body).said.attributes.role],
+      ['studio-set-block studio-set-shape studio-refilm-size', 'La vidéo est ramenée à cette taille avant d’être refilmée. Plus grand : plus long.', 'Résolution', 4, 'status'],
+    );
+    // (In the place of the format and the length of a new video: neither is offered for a clip filmed again.)
+    assert.deepEqual([body.find('studio-formats').length, body.find('studio-bar').filter(item => ['size', 'duration'].includes(item.dataset.ai)).length], [0, 0]);
+    // Its own size, larger: said longer, in the colour of a warning, by how much. Never refused: the button stays lit.
+    assert.deepEqual(move(body, 3), ['3', '3', '1344 × 768', 'Plus long à cette taille : environ 2 fois le temps de 1024 × 576.', 'true']);
+    assert.deepEqual([go().disabled, body.find('studio-go-label')[0].textContent, looked(body).said.hidden], [false, 'Changer la caméra', false]);
+    await generate();
+    assert.deepEqual([sent().name, sent().arguments.size], ['refilm_video', { width: 1344, height: 768 }]);
+    // The smallest: nothing to warn of. Sent as chosen.
+    second(body).onclick();
+    assert.deepEqual(looked(body).now, ['3', '3', '1344 × 768', 'Plus long à cette taille : environ 2 fois le temps de 1024 × 576.', 'true'], 'kept while the clip is the same');
+    assert.deepEqual(move(body, 0), ['3', '0', '512 × 288', '', 'false']);
+    await generate();
+    assert.deepEqual(sent().arguments.size, { width: 512, height: 288 });
+    // Another clip starts again from what suits it: a clip of 768 × 448 on its own size, the largest it has.
+    second(body, 'small').onclick();
+    assert.deepEqual(looked(body).now, ['1', '1', '768 × 448', '', 'false']);
+    await generate();
+    assert.deepEqual(sent().arguments.size, { width: 768, height: 448 });
+    // A clip whose size is not known (a file from elsewhere): no bar, and no size is sent; the server takes its own.
+    second(body, 'bare').onclick();
+    assert.deepEqual([body.find('studio-refilm-size').length, body.find('studio-refilm').length], [0, 1]);
+    await generate();
+    assert.deepEqual([sent().name, 'size' in sent().arguments], ['refilm_video', false]);
+  } finally {
+    page.restore();
+  }
+
+  // A computer that has changed a camera before (768 × 448, 121 frames, in 113 s): it says how long it would
+  // take, and starts on the largest size within its patience (60 s of work for a second of video).
+  page = await studioPage({ ...tools, refilm_video: [film({ made: [{ pixels: 768 * 448, frames: 121, seconds: 113 }], patience: 60 })] }, routes, { runs });
+  try {
+    const { body } = page;
+    page.mode(1);
+    second(body).onclick();
+    assert.deepEqual(looked(body).now, ['3', '2', '1024 × 576', 'Environ 3 min 10 sur cet ordinateur.', 'false']);
+    assert.deepEqual(move(body, 1), ['3', '1', '768 × 448', 'Environ 1 min 50 sur cet ordinateur.', 'false']);
+    // Beyond its patience: a warning, with the time. The button stays lit.
+    assert.deepEqual(move(body, 3), ['3', '3', '1344 × 768', 'Long à cette taille : environ 6 min sur cet ordinateur.', 'true']);
+    assert.equal(body.find('studio-go')[0].disabled, false);
+  } finally {
+    page.restore();
+  }
+  // A slower computer (the same change of camera in 400 s): it starts lower, and warns sooner.
+  page = await studioPage({ ...tools, refilm_video: [film({ made: [{ pixels: 768 * 448, frames: 121, seconds: 400 }] })] }, routes, { runs });
+  try {
+    const { body } = page;
+    page.mode(1);
+    second(body).onclick();
+    assert.deepEqual(looked(body).now, ['3', '0', '512 × 288', 'Environ 2 min 50 sur cet ordinateur.', 'false']);
+    assert.deepEqual(move(body, 1), ['3', '1', '768 × 448', 'Long à cette taille : environ 7 min sur cet ordinateur.', 'true']);
   } finally {
     page.restore();
   }

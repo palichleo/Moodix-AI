@@ -7,7 +7,6 @@ import {
   ORBIT_BOUNDS,
   ORBIT_SAID,
   ORBIT_WARNS,
-  clipRefusal,
   distanceText,
   globeDots,
   globePoint,
@@ -27,7 +26,12 @@ import {
   orbitZone,
   poseBetween,
   poseText,
+  refilmSaid,
+  refilmSizes,
+  refilmStart,
+  refilmTime,
   ringGradient,
+  workSaid,
 } from '../public/camera-orbit.mjs';
 
 // (0.6.240) « Changer la caméra » d'une vidéo faite : the camera placed by hand, one pose held or two. Nothing of it
@@ -46,7 +50,10 @@ test('a pose stays within the bounds of the tool; the bounds are the server’s 
     distance: { min: 0.5, max: 2 },
     zones: { safe: { azimuth: 45, up: 30, down: 20 }, maybe: { azimuth: 90, up: 45, down: 35 } },
     near: 5,
-    limits: [],
+    // (0.6.250) The size advised while the computer has made nothing, its patience, what it made.
+    advised: 1024 * 576,
+    patience: 60,
+    made: [],
   });
   assert.deepEqual(orbitBounds(null), ORBIT_BOUNDS);
   // The server's bounds, each one taken whole or not at all.
@@ -56,7 +63,9 @@ test('a pose stays within the bounds of the tool; the bounds are the server’s 
     distance: { min: 3, max: 1 },
     zones: { safe: { azimuth: 30, up: 20, down: 10 }, maybe: { azimuth: 60, up: 0, down: 35 } },
     near: 8,
-    limits: [{ pixels: 2000, seconds: 4 }, { pixels: 'x', seconds: 9 }, { pixels: 1000, seconds: 8 }, { pixels: 500, seconds: 0 }, null],
+    advised: 400000,
+    patience: 30,
+    made: [{ pixels: 344064, frames: 121, seconds: 113, size: '768 × 448' }, { pixels: 0, frames: 121, seconds: 9 }, { pixels: 10, frames: '121', seconds: 9 }, null],
   });
   assert.deepEqual(own, {
     azimuth: { min: -60, max: 60 },
@@ -64,11 +73,12 @@ test('a pose stays within the bounds of the tool; the bounds are the server’s 
     distance: ORBIT_BOUNDS.distance,
     zones: { safe: { azimuth: 30, up: 20, down: 10 }, maybe: ORBIT_BOUNDS.zones.maybe },
     near: 8,
-    // (The lines that say a size and a length, the smallest first.)
-    limits: [{ pixels: 1000, seconds: 8 }, { pixels: 2000, seconds: 4 }],
+    advised: 400000,
+    patience: 30,
+    made: [{ pixels: 344064, frames: 121, seconds: 113 }],
   });
   assert.deepEqual(orbitPose({ azimuth: 120, elevation: -10, distance: 1 }, own), { azimuth: 60, elevation: 0, distance: 1 });
-  for (const none of [{ azimuth: { min: 90, max: -90 } }, { azimuth: { min: '0', max: 90 } }, { near: -1 }, { near: '5' }, { limits: 'x' }]) assert.deepEqual(orbitBounds(none), ORBIT_BOUNDS, JSON.stringify(none));
+  for (const none of [{ azimuth: { min: 90, max: -90 } }, { azimuth: { min: '0', max: 90 } }, { near: -1 }, { near: '5' }, { advised: 0 }, { patience: '60' }, { made: 'x' }]) assert.deepEqual(orbitBounds(none), ORBIT_BOUNDS, JSON.stringify(none));
   // A distance the model does not hold: one value alone, and why; every pose keeps it.
   const held = orbitBounds({ distance: { min: 1, max: 1, unavailable: 'La distance ne marche pas encore avec ce modèle : son auteur le dit.' } });
   assert.deepEqual(held.distance, { min: 1, max: 1, unavailable: 'La distance ne marche pas encore avec ce modèle : son auteur le dit.' });
@@ -145,17 +155,67 @@ test('where a camera stands in what the model holds: sure, possible, never learn
   );
 });
 
-test('a clip too large or too long for the model: said before it is asked', () => {
-  const bounds = orbitBounds({ limits: [{ pixels: 1344 * 768, seconds: 3 }, { pixels: 768 * 448, seconds: 5 }] }),
-    clip = (width, height, seconds) => clipRefusal({ width, height, seconds }, bounds);
-  // The first line as large as the clip gives how long it may be (121 frames at 24 a second are « 5 s »).
-  assert.deepEqual([clip(768, 448, 5), clip(768, 448, 121 / 24), clip(448, 768, 5), clip(640, 352, 5.2), clip(1344, 768, 3)], ['', '', '', '', '']);
-  assert.equal(clip(768, 448, 8), 'Vidéo trop longue : à cette taille, la caméra se change jusqu’à 5 s.');
-  assert.equal(clip(1344, 768, 5), 'Vidéo trop longue : à cette taille, la caméra se change jusqu’à 3 s.');
-  assert.equal(clipRefusal({ width: 768, height: 448, seconds: 9 }, orbitBounds({ limits: [{ pixels: 1e6, seconds: 7.5 }] })), 'Vidéo trop longue : à cette taille, la caméra se change jusqu’à 7,5 s.');
-  assert.equal(clip(1920, 1080, 2), 'Vidéo trop grande pour changer sa caméra.');
-  // What the tool or the clip does not say is left to the server.
-  assert.deepEqual([clipRefusal({ width: 1920, height: 1080, seconds: 60 }), clip(undefined, 448, 9), clip(768, 448, undefined), clip(768, 448, NaN), clipRefusal(null, bounds)], ['', '', '', '', '']);
+test('(0.6.250) the size a clip is filmed again at: those of its format up to its own; a large one is said long, never refused', () => {
+  const said = clip => refilmSizes(clip).map(size => size.width + ' × ' + size.height);
+  // The sizes of its format, the smallest first, up to its own; its own cut down to multiples of 32.
+  assert.deepEqual(said({ width: 1600, height: 896 }), ['512 × 288', '768 × 448', '1024 × 576', '1344 × 768', '1600 × 896']);
+  assert.deepEqual(said({ width: 896, height: 1600 }), ['288 × 512', '448 × 768', '576 × 1024', '768 × 1344', '896 × 1600']);
+  assert.deepEqual(said({ width: 768, height: 448 }), ['512 × 288', '768 × 448']);
+  assert.deepEqual(said({ width: 1280, height: 704 }), ['512 × 288', '768 × 448', '1024 × 576', '1280 × 704']);
+  assert.deepEqual(said({ width: 1290, height: 730 }), ['512 × 288', '768 × 448', '1024 × 576', '1280 × 704']);
+  assert.deepEqual(said({ width: 1024, height: 1024 }), ['384 × 384', '512 × 512', '768 × 768', '1024 × 1024']);
+  // (Never one of another shape: the sizes of 16:9 that fit in a clip of 1600 × 1200 are none of its own.)
+  assert.deepEqual(said({ width: 1600, height: 1200 }), ['384 × 288', '512 × 384', '640 × 480', '768 × 576', '1024 × 768', '1280 × 960', '1600 × 1184']);
+  // (A panorama no format is near: its own size alone, never a size that would cut a third of it away.)
+  assert.deepEqual(said({ width: 1920, height: 640 }), ['1920 × 640']);
+  for (const none of [null, {}, { width: 100, height: 40 }, { width: 'x', height: 448 }]) assert.deepEqual(refilmSizes(none), [], JSON.stringify(none));
+
+  const sizes = refilmSizes({ width: 1600, height: 896 }),
+    at = name => sizes.find(size => size.width + ' × ' + size.height === name),
+    seconds = 121 / 24,
+    never = orbitBounds(null),
+    here = orbitBounds({ made: [{ pixels: 768 * 448, frames: 121, seconds: 113 }] });
+  // A computer that never changed a camera: no time to say. It starts on the largest size within the one
+  // advised, says nothing up to it, and above it how many times longer, as a warning.
+  assert.equal(refilmTime(at('1024 × 576'), seconds, never), null);
+  assert.equal(refilmStart(sizes, seconds, never), at('1024 × 576'));
+  assert.deepEqual(sizes.map(size => refilmSaid(size, sizes, seconds, never)), [
+    { text: '', warn: false },
+    { text: '', warn: false },
+    { text: '', warn: false },
+    { text: 'Plus long à cette taille : environ 2 fois le temps de 1024 × 576.', warn: true },
+    { text: 'Plus long à cette taille : environ 2,5 fois le temps de 1024 × 576.', warn: true },
+  ]);
+  // (A clip smaller than the size advised starts on its own; one whose every size is above it, on the smallest.)
+  assert.deepEqual(refilmStart(refilmSizes({ width: 768, height: 448 }), seconds, never), { width: 768, height: 448 });
+  assert.equal(refilmStart(sizes, seconds, orbitBounds({ advised: 1000 })), sizes[0]);
+  assert.equal(refilmStart([], seconds, never), null);
+  // A computer that has: its own time, brought to what is asked in proportion to the pictures to make (their
+  // size by their number). The same size and length: that time itself.
+  assert.deepEqual(refilmTime(at('768 × 448'), seconds, here), { seconds: 113, exact: true });
+  assert.deepEqual(refilmTime(at('1600 × 896'), seconds, here), { seconds: (113 * 1600 * 896) / (768 * 448), exact: false });
+  assert.equal(Math.round(refilmTime(at('768 × 448'), 61 / 24, here).seconds), 57, 'half as long, half the time');
+  // (The nearest of what it made: that size first, then the nearest in pictures to make.)
+  const two = orbitBounds({ made: [{ pixels: 768 * 448, frames: 121, seconds: 113 }, { pixels: 1024 * 576, frames: 49, seconds: 100 }] });
+  assert.deepEqual(refilmTime(at('1024 × 576'), seconds, two), { seconds: (100 * 121) / 49, exact: false });
+  assert.equal(Math.round(refilmTime(at('1344 × 768'), seconds, two).seconds), Math.round((113 * 1344 * 768) / (768 * 448)));
+  assert.equal(refilmTime(at('768 × 448'), undefined, here), null, 'a clip that does not say its length');
+  // It starts on the largest size within its patience (60 s of work for a second of video), says the time of
+  // each, and warns beyond.
+  assert.equal(refilmStart(sizes, seconds, here), at('1024 × 576'));
+  assert.deepEqual(sizes.map(size => refilmSaid(size, sizes, seconds, here)), [
+    { text: 'Environ 50 s sur cet ordinateur.', warn: false },
+    { text: 'Environ 1 min 50 sur cet ordinateur.', warn: false },
+    { text: 'Environ 3 min 10 sur cet ordinateur.', warn: false },
+    { text: 'Long à cette taille : environ 6 min sur cet ordinateur.', warn: true },
+    { text: 'Long à cette taille : environ 8 min sur cet ordinateur.', warn: true },
+  ]);
+  // (A faster computer goes further, a slower one starts lower: nothing of another computer is said.)
+  assert.equal(refilmStart(sizes, seconds, orbitBounds({ made: [{ pixels: 768 * 448, frames: 121, seconds: 40 }] })), at('1600 × 896'));
+  assert.equal(refilmStart(sizes, seconds, orbitBounds({ made: [{ pixels: 768 * 448, frames: 121, seconds: 2000 }] })), sizes[0]);
+  assert.equal(refilmStart(sizes, seconds, orbitBounds({ made: [{ pixels: 768 * 448, frames: 121, seconds: 113 }], patience: 30 })), at('768 × 448'));
+  // A time as a sentence says it.
+  assert.deepEqual([3, 20, 57, 58, 100, 223, 290, 296, 354, 660].map(workSaid), ['5 s', '20 s', '55 s', '1 min', '1 min 40', '3 min 40', '4 min 50', '5 min', '6 min', '11 min']);
 });
 
 test('the sphere: a camera in front at its bottom, to the right at its right, behind greyed; the pointer names a pose', () => {

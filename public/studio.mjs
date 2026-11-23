@@ -32,7 +32,6 @@ import {
   GLOBE,
   ORBIT_SAID,
   ORBIT_WARNS,
-  clipRefusal,
   distanceText,
   globeDots,
   globePoint,
@@ -47,6 +46,9 @@ import {
   orbitRefusal,
   orbitWorst,
   poseText,
+  refilmSaid,
+  refilmSizes,
+  refilmStart,
   ringGradient,
 } from './camera-orbit.mjs';
 import { clipSeconds } from './take-length.mjs';
@@ -1397,18 +1399,69 @@ export function setupStudio({
     return { bounds, state: draft.orbit };
   }
   /**
-   * Why the camera in hand is not made, '' when it is: out of what the model learnt, too near the one of the
-   * clip, or a clip too large or too long for it (public/camera-orbit.mjs). « Changer la caméra » is greyed
-   * meanwhile and says it; the server refuses the same.
+   * Why the camera in hand is not made, '' when it is: out of what the model learnt, or too near the one of the
+   * clip (public/camera-orbit.mjs). « Changer la caméra » is greyed meanwhile and says it; the server refuses
+   * the same. (0.6.250) Never for a clip large or long: its size is chosen, and what is long is said, not refused.
    */
   function refilmRefusal(workflow) {
+    const { bounds, state } = orbitState(workflow);
+    return orbitRefusal(state, bounds);
+  }
+  /**
+   * (0.6.250) The size the clip is filmed again at: the sizes offered for it (those of its format up to its
+   * own), its length, and the one chosen, kept with the camera while the clip is the same. Another clip starts
+   * from the largest this computer films again without being long (refilmStart).
+   */
+  function refilmChoice(workflow) {
     const { bounds, state } = orbitState(workflow),
       output = extending?.outputs?.[0] ?? {},
-      made = extending?.parameters ?? {};
-    return (
-      orbitRefusal(state, bounds) ||
-      clipRefusal({ width: output.width ?? made.width, height: output.height ?? made.height, seconds: clipSeconds(made) }, bounds)
-    );
+      made = extending?.parameters ?? {},
+      seconds = clipSeconds(made),
+      sizes = refilmSizes({ width: output.width ?? made.width, height: output.height ?? made.height });
+    if (state.clip !== extending?.id || !sizes.some(size => sizeKey(size) === state.size)) {
+      const start = refilmStart(sizes, seconds, bounds);
+      state.clip = extending?.id;
+      state.size = start ? sizeKey(start) : '';
+    }
+    return { bounds, state, sizes, seconds, size: sizes.find(size => sizeKey(size) === state.size) ?? null };
+  }
+  /**
+   * (0.6.250) Its bar among the settings: « Résolution », then what that size costs under it. How long this
+   * computer would take when it has made a change of camera before; a warning when that is long, or when it
+   * never made one and the size is above the one advised. A warning only: every size is made.
+   */
+  function refilmBlock(workflow) {
+    const choice = refilmChoice(workflow),
+      { sizes, state } = choice;
+    if (!sizes.length) return null;
+    const block = node('div', 'studio-set-block studio-set-shape studio-refilm-size'),
+      said = node('p', 'studio-refilm-said'),
+      tell = () => {
+        const now = refilmSaid(sizes.find(size => sizeKey(size) === state.size), sizes, choice.seconds, choice.bounds);
+        said.textContent = now.text;
+        said.hidden = !now.text;
+        said.dataset.warn = String(now.warn);
+      },
+      line = barLine('Résolution', {
+        key: 'refilm-size',
+        count: sizes.length,
+        index: Math.max(
+          0,
+          sizes.findIndex(size => sizeKey(size) === state.size),
+        ),
+        share: place => (sizes.length > 1 ? place / (sizes.length - 1) : 1),
+        text: place => `${sizes[place].width} × ${sizes[place].height}`,
+        onInput: place => {
+          state.size = sizeKey(sizes[place]);
+          tell();
+        },
+        notches: true,
+      });
+    line.title = 'La vidéo est ramenée à cette taille avant d’être refilmée. Plus grand : plus long.';
+    said.setAttribute('role', 'status');
+    tell();
+    block.append(line, said);
+    return block;
   }
   /** The camera is changed no more: a new video, as a continuation left. */
   function leaveRefilm() {
@@ -3669,6 +3722,9 @@ export function setupStudio({
       const held = refilmRefusal(workflow);
       if (held) throw Error(held);
       Object.assign(args, orbitArgs(orbitState(workflow).state), { intention: 'Caméra changée, demandée dans le Studio.' });
+      // (0.6.250) The size it is filmed again at, chosen on its bar.
+      const { size } = refilmChoice(workflow);
+      if (size) args.size = { width: size.width, height: size.height };
       delete args.prompt;
     }
     // What the model cannot do without is asked for here, in the user's words (0.6.102: by its
@@ -6045,7 +6101,8 @@ export function setupStudio({
       formats.append(node('span', 'studio-label', 'Format'), formatChips(workflow));
       settings.append(formats);
     }
-    const shape = shapeBlock(workflow);
+    // (0.6.250) A clip filmed again: the size it is brought to, in the place of the format and the length.
+    const shape = refilming() ? refilmBlock(workflow) : shapeBlock(workflow);
     if (shape) settings.append(shape);
     // Those of the user show on a proposal of Moodix AI too: it is made with them (edits).
     const styled = workflow.styled && mode !== 'audio' && !extending;

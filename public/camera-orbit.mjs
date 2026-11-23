@@ -13,8 +13,14 @@
  * a camera too near the one of the clip (`near`): there such a model behaves badly. The angle chosen is a target:
  * such models often turn less than asked.
  *
+ * (0.6.250) The size the clip is filmed again at is chosen too: one of its format up to its own. A large size
+ * is never refused: it is longer, and the Studio says so, with the time THIS computer took for its own changes
+ * of camera (`made`, kept by the application) or, when it never made one, how many times longer than the size
+ * advised. No time measured on another computer is said.
+ *
  * Nothing here needs the page: the Studio draws with what these functions say (public/studio.mjs).
  */
+import { nearestFormat, sizesFor } from './formats.mjs';
 
 // What the tool is drawn with when the server says nothing of a bound (what its author gives for
 // CrossView-Warp; the server's own replace them).
@@ -26,8 +32,12 @@ export const ORBIT_BOUNDS = {
   zones: { safe: { azimuth: 45, up: 30, down: 20 }, maybe: { azimuth: 90, up: 45, down: 35 } },
   // Degrees from the camera of the clip under which nothing is made.
   near: 5,
-  // How long a clip may be for its size, `[{ pixels, seconds }]`; none: the server alone says.
-  limits: [],
+  // (0.6.250) The pixels of the size advised while this computer has made no change of camera yet (the class of
+  // 1024 × 576), and the seconds of work for a second of video beyond which the Studio warns.
+  advised: 589824,
+  patience: 60,
+  // What this computer took for its own changes of camera, `[{ pixels, frames, seconds }]`.
+  made: [],
 };
 /** The bounds of a tool, each one the server's when it gives it whole, the one above otherwise. */
 export function orbitBounds(refilm) {
@@ -48,17 +58,18 @@ export function orbitBounds(refilm) {
         ? { azimuth: own.azimuth, up: own.up, down: own.down }
         : { ...ORBIT_BOUNDS.zones[key] };
     },
-    limits = (Array.isArray(refilm?.limits) ? refilm.limits : [])
-      .filter(row => real(row?.pixels) && real(row?.seconds) && row.pixels > 0 && row.seconds > 0)
-      .map(({ pixels, seconds }) => ({ pixels, seconds }))
-      .sort((a, b) => a.pixels - b.pixels);
+    made = (Array.isArray(refilm?.made) ? refilm.made : [])
+      .filter(row => [row?.pixels, row?.frames, row?.seconds].every(value => real(value) && value > 0))
+      .map(({ pixels, frames, seconds }) => ({ pixels, frames, seconds }));
   return {
     azimuth: axis('azimuth'),
     elevation: axis('elevation'),
     distance,
     zones: { safe: zone('safe'), maybe: zone('maybe') },
     near: real(refilm?.near) && refilm.near >= 0 ? refilm.near : ORBIT_BOUNDS.near,
-    limits,
+    advised: real(refilm?.advised) && refilm.advised > 0 ? refilm.advised : ORBIT_BOUNDS.advised,
+    patience: real(refilm?.patience) && refilm.patience > 0 ? refilm.patience : ORBIT_BOUNDS.patience,
+    made,
   };
 }
 
@@ -132,22 +143,6 @@ export function orbitRefusal(draft, bounds = ORBIT_BOUNDS) {
   const zone = orbitWorst(draft, bounds);
   return zone === 'out' || zone === 'near' ? ORBIT_WARNS[zone] : '';
 }
-/**
- * Why the camera of a clip cannot be changed for its size or its length, '' when it can, or when the tool or
- * the clip does not say enough (the server then says it). `clip` is `{ width, height, seconds }`; the first
- * line of the limits as large as the clip gives how long it may be.
- */
-export function clipRefusal(clip, bounds = ORBIT_BOUNDS) {
-  const pixels = Number(clip?.width) * Number(clip?.height),
-    seconds = Number(clip?.seconds);
-  if (!bounds.limits.length || !(pixels > 0)) return '';
-  const row = bounds.limits.find(limit => limit.pixels >= pixels);
-  if (!row) return 'Vidéo trop grande pour changer sa caméra.';
-  // (A quarter of a second of grace: a clip of 121 frames is « 5 s ».)
-  if (seconds > row.seconds + 0.25)
-    return `Vidéo trop longue : à cette taille, la caméra se change jusqu’à ${String(Math.round(row.seconds * 10) / 10).replace('.', ',')} s.`;
-  return '';
-}
 
 const degrees = value => Math.round(value) + '°';
 /** A pose as its end of the window names it: « 35° · 23° ». */
@@ -170,6 +165,79 @@ export function orbitOf(parameters, bounds = ORBIT_BOUNDS) {
   return made.camera_start && typeof made.camera_start === 'object'
     ? { mode: 'move', active: 'end', fixed: end, start: orbitPose(made.camera_start, bounds), end }
     : { mode: 'fixed', active: 'end', fixed: end, start: orbitPose(null, bounds), end };
+}
+
+// (0.6.250) The size a clip is filmed again at. The model films at 24 frames a second.
+const REFILM_FPS = 24;
+const pixelsOf = size => size.width * size.height;
+/**
+ * The sizes a clip may be filmed again at, the smallest first: those of its format up to its own (public/formats.mjs,
+ * within a tenth of its ratio: the clip covers the frame and is cut in its middle), then its own, cut down to
+ * multiples of 32 (a size of the list almost as large as its own is left out: two notches for one size). None for
+ * a clip too small or of an unknown size.
+ */
+export function refilmSizes(clip) {
+  const width = Math.floor(Number(clip?.width) / 32) * 32,
+    height = Math.floor(Number(clip?.height) / 32) * 32;
+  if (!(Math.min(width, height) >= 64)) return [];
+  const own = { width, height },
+    format = nearestFormat(width, height),
+    near = size => Math.abs(Math.log(size.width / size.height / (width / height))) <= Math.log(1.1);
+  // (Of that shape and with fewer pictures to make, a size of the list is never wider nor taller than the clip.)
+  return [...(format ? sizesFor(format) : []).filter(size => pixelsOf(size) <= 0.85 * pixelsOf(own) && near(size)), own];
+}
+/** The frames a clip of that many seconds is filmed again in. */
+const framesOf = seconds => Math.max(1, Math.round(Number(seconds) * REFILM_FPS));
+/**
+ * How long this computer would take to film a clip again at a size: `{ seconds, exact }`, from the nearest of
+ * its own changes of camera (that size first, then the nearest in pictures to make), its time brought to what is
+ * asked in proportion to the pictures (their size by their number), as the application foresees any creation.
+ * null when it never made one, or when the clip does not say its length: nothing to say.
+ */
+export function refilmTime(size, seconds, bounds = ORBIT_BOUNDS) {
+  if (!bounds.made.length || !(Number(seconds) > 0)) return null;
+  const pixels = pixelsOf(size),
+    frames = framesOf(seconds),
+    asked = pixels * frames,
+    rank = row => [row.pixels === pixels ? 0 : 1, Math.abs(row.pixels * row.frames - asked)],
+    best = bounds.made.reduce((kept, row) => (rank(row)[0] - rank(kept)[0] || rank(row)[1] - rank(kept)[1]) < 0 ? row : kept);
+  return { seconds: (best.seconds * asked) / (best.pixels * best.frames), exact: best.pixels === pixels && best.frames === frames };
+}
+/**
+ * The size the bar starts on: the largest this computer films again within its patience (so many seconds of work
+ * for a second of video); when it never made a change of camera, the largest within the size advised. The
+ * smallest when none is.
+ */
+export function refilmStart(sizes, seconds, bounds = ORBIT_BOUNDS) {
+  const known = sizes.some(size => refilmTime(size, seconds, bounds)),
+    fine = size => (known ? refilmTime(size, seconds, bounds).seconds <= bounds.patience * seconds : pixelsOf(size) <= bounds.advised);
+  return sizes.filter(fine).at(-1) ?? sizes[0] ?? null;
+}
+/** A time as a sentence says it: « 45 s », « 3 min 40 », « 11 min ». */
+export function workSaid(seconds) {
+  if (seconds < 57.5) return Math.max(5, Math.round(seconds / 5) * 5) + ' s';
+  if (seconds < 295) {
+    const rounded = Math.round(seconds / 10) * 10;
+    return Math.floor(rounded / 60) + ' min' + (rounded % 60 ? ' ' + String(rounded % 60).padStart(2, '0') : '');
+  }
+  return Math.round(seconds / 60) + ' min';
+}
+/**
+ * What is said under the bar of the size: `{ text, warn }`. With what this computer made: how long it would take,
+ * as a warning beyond its patience. Without: nothing up to the size the bar starts on, and above it how many
+ * times longer (in proportion to the pictures), as a warning. Never a refusal: a large size is made all the same.
+ */
+export function refilmSaid(size, sizes, seconds, bounds = ORBIT_BOUNDS) {
+  const time = refilmTime(size, seconds, bounds);
+  if (time) {
+    const warn = time.seconds > bounds.patience * seconds,
+      said = `environ ${workSaid(time.seconds)} sur cet ordinateur.`;
+    return { text: warn ? 'Long à cette taille : ' + said : said.replace(/^./, first => first.toUpperCase()), warn };
+  }
+  const start = refilmStart(sizes, seconds, bounds),
+    times = start ? Math.round((pixelsOf(size) / pixelsOf(start)) * 2) / 2 : 1;
+  if (times < 1.5) return { text: '', warn: false };
+  return { text: `Plus long à cette taille : environ ${String(times).replace('.', ',')} fois le temps de ${start.width} × ${start.height}.`, warn: true };
 }
 
 /** The pose between two, `at` from 0 (the first) to 1 (the second). */

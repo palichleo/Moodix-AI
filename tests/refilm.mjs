@@ -159,7 +159,8 @@ test('« Changer la caméra » is a verb of the user’s hand, shipped as a mode
   assert.equal(refilmBounds(family('ltx25')), null);
   // (0.6.248) No limit for the time it takes; (0.6.249) and no time measured on another computer: the Studio says
   // the time this one took (`made`, from its history of times), or starts from the size advised.
-  assert.deepEqual(bounds.limits, []);
+  // (0.6.250) Nor does the Studio hold any: `limits` is read no more (public/camera-orbit.mjs).
+  assert.equal('limits' in bounds, false);
   for (const key of ['limits', 'times', 'seconds']) assert.equal(manifest.refilm[key], undefined, key);
   assert.deepEqual([manifest.refilm.advised, manifest.refilm.patience], [1024 * 576, 60]);
   // Its description says the size advised and that larger is longer, in no minutes and with no size it stops at.
