@@ -3841,6 +3841,171 @@ test('(0.6.254) « × 3 »: three takes one after the other, the same settings a
   }
 });
 
+test('(0.6.260) a series ends at « Arrêter » pressed once its take is saved, or between two takes; another conversation opened ends it with a word', async () => {
+  const image = { id: 'w', name: 'Image', roles: {}, limits: sizes, direct: true, size: { width: 1024, height: 1024 }, settings: [], seeded: true };
+  let made = 0,
+    shown = 'c1',
+    // What the take being asked does: its job as the server answers it, and a hand that presses meanwhile.
+    asked = null,
+    // Pressed when the Studio reads its takes again (its take saved, or just made and being put on its screen).
+    onRead = null;
+  const page = await studioPage(
+    { create_image: [image] },
+    {
+      'tools/action': () => ({ requestId: 'q' + (made + 1), plan: { parameters: {} } }),
+      'tools/execute': () => {
+        const record = { id: 'r' + ++made, conversationId: 'c1', prompt: 'un phare', outputs: [{ originalUrl: `/r${made}.png`, take: made }] };
+        page.runs.unshift(record);
+        return asked?.(record) ?? { id: 'j', state: 'done', record };
+      },
+      // Stopped once its take was saved: the server ends it « cancelled », the take kept.
+      'tools/job': () => ({ id: 'j', state: 'cancelled', record: page.runs[0] }),
+    },
+    { runs: [], conversation: () => shown, extra: { onRuns: () => onRead?.() } },
+  );
+  const { body, notices, restore } = page;
+  const tries = () => body.find('studio-tries')[0],
+    choose = count => {
+      tries().onclick();
+      body.find('studio-tries-menu')[0].children[count - 1].onclick();
+    },
+    halt = () => {
+      onRead = null;
+      body.find('studio-stop')[0].onclick();
+    },
+    go = async () => {
+      page.prompt().value = 'un phare';
+      page.prompt().oninput();
+      await body.find('studio-go')[0].onclick();
+      // A take followed by the page waits 700 ms between two of its answers.
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    };
+  try {
+    // Its take saved, then « Arrêter »: that take kept, no other one.
+    choose(3);
+    asked = record => ((onRead = halt), { id: 'j', state: 'running', record });
+    await go();
+    assert.deepEqual([made, page.runs.map(record => record.id), body.find('studio-go-label')[0].textContent], [1, ['r1'], 'Générer']);
+    // Between two takes, the first being put on its screen: the second does not go.
+    asked = null;
+    onRead = halt;
+    await go();
+    assert.equal(made, 2);
+    // Another conversation opened while the first take is made: the series ends there, and says it.
+    assert.equal(tries().attributes['aria-label'], 'Essais : 3');
+    asked = record => {
+      shown = 'c2';
+      page.studio.conversationChanged();
+      return { id: 'j', state: 'done', record };
+    };
+    await go();
+    assert.deepEqual([made, notices.at(-1)], [3, 'Série arrêtée après la prise 1 sur 3 : une autre conversation a été ouverte.']);
+  } finally {
+    restore();
+  }
+});
+
+test('(0.6.260) « × n » is at one and greyed where « Générer » makes one take (the page Agrandir, a proposal of Moodix AI), and back to one whatever changes the page', async () => {
+  const image = { id: 'w', name: 'Image', roles: {}, limits: sizes, direct: true, size: { width: 1024, height: 1024 }, settings: [], seeded: true },
+    seedvr = { id: 'sv', name: 'Upscale SeedVR2', media: 'image', verb: 'upscale', roles: { source: { count: 1, media: ['image'], required: true } }, settings: [], finish: { key: 'scale', choices: [2, 4], standard: 2 } };
+  const clip = { id: 'c', conversationId: 'c1', mediaType: 'video', workflowId: 'wan', prompt: 'la mer', outputs: [{ originalUrl: '/c.mp4', take: 2, width: 832, height: 480 }] };
+  const page = await studioPage(
+    { create_image: [image], create_video: [wanStudio()], upscale: [seedvr] },
+    {
+      'tools/actions': () => ({ upscale: ['image'] }),
+      'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }),
+      'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }),
+    },
+    { runs: [clip, { id: 'a', conversationId: 'c1', prompt: 'un phare', outputs: [{ originalUrl: '/a.png', take: 1, width: 1024, height: 1024 }] }] },
+  );
+  const { body, asked, said, restore } = page;
+  const tries = () => body.find('studio-tries')[0],
+    menu = () => body.find('studio-tries-menu')[0],
+    choose = count => {
+      tries().onclick();
+      menu().children[count - 1].onclick();
+    },
+    sent = () => asked.filter(([route]) => route === 'tools/action');
+  try {
+    await settle();
+    page.mode(0);
+    choose(3);
+    // The page Agrandir: at one, greyed, why in its bubble; one enlargement.
+    body.find('studio-rail')[0].find('output-action-upscale')[0].onclick();
+    const once = 'Agrandir fait une seule prise : la même prise agrandie deux fois donne la même image.';
+    assert.deepEqual([tries().attributes['aria-label'], tries().attributes['aria-disabled'], tries().title], ['Essais : 1', 'true', once]);
+    tries().onclick();
+    await settle();
+    assert.deepEqual([menu().hidden, said.at(-1)], [true, once]);
+    await body.find('studio-go')[0].onclick();
+    await settle();
+    assert.deepEqual(sent().map(([, action]) => action.name), ['upscale']);
+    // « Afficher dans le Studio » of a clip: another page, one try again.
+    body.find('studio-finish')[0].find('studio-slot-remove')[0].onclick();
+    choose(3);
+    page.studio.show(clip);
+    assert.equal(tries().attributes['aria-label'], 'Essais : 1');
+  } finally {
+    restore();
+  }
+  // Under a proposal of Moodix AI: at one, greyed; made, still one.
+  const { clip: model, request } = proposalOf();
+  const proposed = await studioPage({ create_video: [model] }, {});
+  try {
+    proposed.mode(1);
+    proposed.body.find('studio-tries')[0].onclick();
+    proposed.body.find('studio-tries-menu')[0].children[2].onclick();
+    const answer = proposed.studio.propose(request, new AbortController().signal);
+    await settle();
+    const pick = proposed.body.find('studio-tries')[0];
+    assert.deepEqual([pick.attributes['aria-label'], pick.attributes['aria-disabled'], pick.title], ['Essais : 1', 'true', 'Une proposition de Moodix AI se génère une fois.']);
+    proposed.studio.decline();
+    assert.equal(await answer, 'deny');
+  } finally {
+    proposed.restore();
+  }
+});
+
+test('(0.6.260) the list of the tries is closed once a creation goes (Ctrl+Entrée while it was open: it opened again at its end)', async () => {
+  const image = { id: 'w', name: 'Image', roles: {}, limits: sizes, direct: true, size: { width: 1024, height: 1024 }, settings: [], seeded: true };
+  const page = await studioPage(
+    { create_image: [image] },
+    {
+      'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }),
+      'tools/execute': () => {
+        const record = { id: 'r1', conversationId: 'c1', prompt: 'un phare', outputs: [{ originalUrl: '/r1.png', take: 1 }] };
+        page.runs.unshift(record);
+        return { id: 'j', state: 'done', record };
+      },
+    },
+    { runs: [] },
+  );
+  const { body, restore } = page;
+  try {
+    body.find('studio-tries')[0].onclick();
+    assert.equal(body.find('studio-tries-menu')[0].hidden, false);
+    page.prompt().value = 'un phare';
+    page.prompt().oninput();
+    await body.find('studio-go')[0].onclick();
+    await settle();
+    assert.deepEqual([body.find('studio-tries-menu')[0].hidden, body.find('studio-tries')[0].attributes['aria-expanded']], [true, 'false']);
+  } finally {
+    restore();
+  }
+});
+
+test('(0.6.260) « Libérer le GPU » is in the glass of « Générer », as before 0.6.253', async () => {
+  const page = await studioPage({ create_video: [wanStudio()] }, {}, { extra: { gpuBlocked: () => true } });
+  try {
+    page.mode(1);
+    const group = page.body.find('studio-go-group')[0],
+      [glass] = group.children;
+    assert.deepEqual([group.children.length, glass.className, glass.children.map(child => child.className)], [1, 'studio-go-glass', ['studio-go studio-recover']]);
+  } finally {
+    page.restore();
+  }
+});
+
 test('(0.6.253) while the chat answers, « Générer » waits greyed with its reason, and comes back at its end; Moodix AI stays at hand', async () => {
   const image = { id: 'w', name: 'Image', roles: {}, limits: sizes, direct: true, size: { width: 1024, height: 1024 }, settings: [], seeded: true };
   const reason = 'Attendez la fin de la réponse en cours.';

@@ -5010,14 +5010,23 @@ const libraryActions = outputActions({
  */
 function actOnOutput(record, index, action) {
   if (action !== 'upscale' && action !== 'interpolate') return runOutputAction(record, index, action);
+  // (0.6.260) The Studio making a take: said where the button was pressed, and the page stays (it went to the
+  // Studio, where nothing happened and nothing said why).
+  const busy = studioUI.finishBlocked?.();
+  if (busy) return void notice(busy);
   return closeChat()
     .then(() => revealStudio())
     .then(() => studioUI.finish(record, action));
 }
 /** An action on a take of the Pellicule: in its conversation, opened first (as from the chat). */
 function actOnTake(record, index, action) {
+  // (0.6.260) Agrandir and Interpoler go to the Studio: not through the Chat (shown for a moment between the
+  // Archives and the Studio), and not at all while the Studio makes a take (said here).
+  const finish = action === 'upscale' || action === 'interpolate',
+    busy = finish ? studioUI.finishBlocked?.() : '';
+  if (busy) return void notice(busy);
   if (!record.conversationId || record.conversationId === state.conversationId) {
-    showChat();
+    if (!finish) showChat();
     return void actOnOutput(record, index, action);
   }
   requestSettingsClose(async () => {

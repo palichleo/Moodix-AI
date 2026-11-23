@@ -15135,7 +15135,8 @@ body[data-setup='incomplete'] #resume-last {
   filter: blur(22px) saturate(0.35) brightness(0.38);
   transform: scale(1.08);
 }
-#studio-view .studio-go-group.is-held .studio-recover {
+#studio-view .studio-go-group.is-held .studio-recover,
+#studio-view .studio-go-group.is-held .studio-go-glass .studio-go.studio-recover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -20195,6 +20196,18 @@ body[data-view='bobine'] .chat-panel {
 #studio-view .studio-go-glass .studio-go[aria-disabled='true']:not([role='progressbar']):hover {
   background: transparent;
   cursor: default;
+}
+/* (0.6.260) « × n » greyed (the page Agrandir or Interpoler, a proposal of Moodix AI): at one, as « Générer » greyed,
+   its reason in its bubble. */
+#studio-view .studio-go-glass .studio-tries[aria-disabled='true'] {
+  color: rgba(238, 232, 222, 0.45);
+  cursor: default;
+}
+#studio-view .studio-go-glass .studio-tries[aria-disabled='true']:hover {
+  background: transparent;
+}
+#studio-view .studio-go-glass .studio-tries[aria-disabled='true'] svg {
+  opacity: 0.5;
 }
 /* Under way, the glass of « Générer » is the bar that fills (206 px), « 46 % » in mono, « Arrêter » at its right. */
 #studio-view .studio-go-glass.is-working {

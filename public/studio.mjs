@@ -195,6 +195,8 @@ const FINISH = {
     badge: '↳ AGRANDIE',
     glyph: 'act-upscale',
     intention: media => `Agrandir ${media === 'video' ? 'la vidéo' : 'l’image'}.`,
+    // (0.6.260) Why « × n » is greyed on its page: the same take made larger twice is the same take.
+    once: 'Agrandir fait une seule prise : la même prise agrandie deux fois donne la même image.',
   },
   interpolate: {
     word: 'À interpoler',
@@ -205,6 +207,7 @@ const FINISH = {
     badge: '↳ INTERPOLÉE',
     glyph: 'act-interpolate',
     intention: () => 'Rendre la vidéo plus fluide.',
+    once: 'Interpoler fait une seule prise : la même vidéo interpolée deux fois donne la même vidéo.',
   },
 };
 /**
@@ -2178,6 +2181,8 @@ export function setupStudio({
     if (off) {
       const remove = button('camera-block-remove', '', () => {
         setCamera(null);
+        // (0.6.260) Taken away with the keys: the focus on « Ajouter », just above (it fell on the page).
+        if (remove.matches?.(':focus-visible')) refocusTo = '.studio-add-pick';
         render();
       }, 'close');
       remove.setAttribute('aria-label', 'Retirer la caméra');
@@ -4407,27 +4412,52 @@ export function setupStudio({
   // (0.6.253) How many takes « Générer » makes at once, 1 to 4 (generer-maquette.md). (0.6.254) One after the other,
   // the same settings, a new seed for each (generate). Back to 1 when another page of the Studio is chosen (Image,
   // Vidéo, Son: setMode) and once a take is made in the Chat (unwatch) or the Bobine (generate): those make one.
+  // (0.6.260) `triesIn`: the page it was chosen in. Back to 1 whatever changes the page (render): « Afficher dans le
+  // Studio », a conversation opened whose last take is of another kind, a take of the Chat shown, not only the tabs.
+  // `seriesStopped`: « Arrêter » pressed between two takes of a series, when nothing is being made to stop.
   let tries = 1,
-    triesOpen = false;
+    triesOpen = false,
+    triesIn = null,
+    seriesStopped = false;
   const TRIES = [1, 2, 3, 4];
+  /** (0.6.260) Back to one try when the page of the Studio is no longer the one it was chosen in. */
+  function triesFollowPage() {
+    if (triesIn !== mode) tries = 1;
+    triesIn = mode;
+  }
+  /**
+   * (0.6.260) Why « × n » is greyed, '' when it is not: the page Agrandir (Interpoler) makes one take, as a proposal of
+   * Moodix AI does (its « Générer » answers it, once). They made 3 identical enlargements, or showed « × 3 » for one.
+   */
+  function triesHeld() {
+    const finish = finishOn();
+    if (finish) return FINISH[finish.verb].once;
+    return answering() ? 'Une proposition de Moodix AI se génère une fois.' : '';
+  }
   /**
    * (0.6.253) « × 1 ⌄ », at the left of the glass of « Générer »: a fine grey ×, the count in Jost, its arrow.
    * (0.6.254) Pressed, its list under it, opaque (#121116): × 1 to × 4, a check on the one chosen.
    */
   function triesButton() {
-    const pick = node('button', 'studio-tries'),
-      menu = node('div', 'glass-menu studio-tries-menu');
+    const pick = greyable(node('button', 'studio-tries')),
+      menu = node('div', 'glass-menu studio-tries-menu'),
+      // (0.6.260) Greyed with why (triesHeld), at one: what « Générer » makes there.
+      held = triesHeld();
+    if (held) triesOpen = false;
     pick.type = 'button';
-    pick.append(icon('tries-x'), node('span', 'studio-tries-count', String(tries)), icon('tries-down'));
-    pick.title = 'Essais : combien en faire d’un coup';
-    pick.setAttribute('aria-label', `Essais : ${tries}`);
+    pick.append(icon('tries-x'), node('span', 'studio-tries-count', String(held ? 1 : tries)), icon('tries-down'));
+    pick.title = held || 'Essais : combien en faire d’un coup';
+    pick.setAttribute('aria-label', `Essais : ${held ? 1 : tries}`);
     pick.setAttribute('aria-haspopup', 'menu');
     pick.setAttribute('aria-expanded', String(triesOpen));
+    pick.disabled = Boolean(held);
     const show = () => {
       openPopup(menu, pick, { align: 'start' });
       menu.querySelector?.('.glass-menu-item.is-on')?.focus?.();
     };
     pick.onclick = () => {
+      // Greyed, it answers with its reason in its bubble, as « Générer » does (pressGo).
+      if (pick.disabled) return void queueMicrotask(() => sayTip(pick));
       // One list open at a time, as for « Ajouter » (0.6.204).
       if (addOpen) closeAdd();
       triesOpen = !triesOpen;
@@ -4634,7 +4664,8 @@ export function setupStudio({
    * before; Agrandir et affiner and Interpoler are made at once, from that take.
    */
   function takeAction(record, id) {
-    if (working) return;
+    // (0.6.260) Said, never silent: from the Chat or the Archives, the Studio opened and nothing happened in it.
+    if (working) return notice(whyNot() || BUSY_HERE);
     if (proposal) return notice('Moodix AI est en train de proposer');
     if (id === 'animate') return animateImage(record);
     if (id === 'extend') return actionsOf(record).find(action => action.id === 'extend')?.run();
@@ -4648,12 +4679,14 @@ export function setupStudio({
    * factor, « ▶ Agrandir » under the screen. Pressed again on its page, or its × pressed: left, as Prolonger is.
    */
   function finishTake(record, verb) {
-    if (working) return;
+    if (working) return notice(whyNot() || BUSY_HERE);
     if (proposal) return notice('Moodix AI est en train de proposer');
     if (finishOn()?.verb === verb && finishing.record.id === record.id) return leaveFinish();
     const kind = mediaOf(record);
     leaveLook();
     if (mode !== kind) setMode(kind);
+    // (0.6.260) A page of its own: one try, as after « Animer » (it kept « × 3 » and made three enlargements).
+    tries = 1;
     extending = null;
     refilmId = null;
     finishing = { verb, record, workflow: null, factor: null };
@@ -4720,8 +4753,14 @@ export function setupStudio({
     if (!again && !mayBegin()) return refuse('');
     // (0.6.254) « × 3 »: three takes one after the other, said on « Générer » (« 1 SUR 3 · 46 % »). Not a take
     // of the Bobine nor an action on a take, which make one; a take of the Bobine puts the tries back to 1.
-    const series = onTake ? null : (again?.series ?? (tries > 1 ? { at: 1, total: tries } : null));
+    // (0.6.260) Nor the page Agrandir (Interpoler): it made the same enlargement three times.
+    triesFollowPage();
+    const series = onTake || wanted.finish ? null : (again?.series ?? (tries > 1 ? { at: 1, total: tries } : null));
     if (onTake?.montage) tries = 1;
+    // (0.6.260) A creation that begins: no « Arrêter » of a former series held for it, and the list of the tries
+    // closed (left open by Ctrl+Entrée, it opened again at the end of the take and took the focus).
+    if (!again) seriesStopped = false;
+    triesOpen = false;
     failure = '';
     // (0.6.177, « studio ne suit pas exactement ce que fait bobine ») A take of the Bobine is followed here as
     // a take of the Chat is (watch): the Studio kept as it is, then the mode of the take at once, and its
@@ -4917,11 +4956,21 @@ export function setupStudio({
     }
     // (0.6.254) The next try of a series: once this one is made and on its screen, not stopped nor failed, in the
     // conversation it is made in (another one shown meanwhile: the series ends there, its takes kept).
-    if (series && result && !halted && series.at < series.total && conversation() === conversationId && !away())
+    // (0.6.260) Stopped once its take was saved (the take is then kept, found again in the gallery: `halted` stayed
+    // false and the next one went), or between two takes (seriesStopped): the series ends there too.
+    if (series && result && !halted && !controller.signal.aborted && !seriesStopped && series.at < series.total) {
+      // (0.6.260) Said: it ended without a word, the miniature telling the take ready as if all were made.
+      if (conversation() !== conversationId || away())
+        return notice(`Série arrêtée après la prise ${series.at} sur ${series.total} : une autre conversation a été ouverte.`);
       return generate({ again: { wanted: anotherTry(wanted), series: { ...series, at: series.at + 1 } } });
+    }
   }
   function stop() {
-    if (!working) return;
+    // (0.6.260) Between two takes of a series (the take just made being put on its screen): the next one does not go.
+    if (!working) {
+      if (settling) seriesStopped = true;
+      return;
+    }
     if (working.external) return stopTurn();
     working.controller.abort();
     if (working.requestId) api('tools/cancel', { requestId: working.requestId }).catch(() => {});
@@ -5977,6 +6026,8 @@ export function setupStudio({
       if (result?.record) {
         const record = runs.find(item => item.id === result.record.id) ?? result.record;
         kept[mediaOf(record)] = record;
+        // (0.6.260) A take that Moodix AI proposed, made: one try again, as after a take of the Chat (unwatch).
+        tries = 1;
         // Shown from its request: those of its take now, its seed drawn again unless it was named.
         if (shown) adopt(record);
       } else if (external && result?.error) failure = result.error;
@@ -7313,7 +7364,10 @@ export function setupStudio({
       );
       free.append(node('span', 'studio-go-label', 'Libérer le GPU'));
       free.title = 'La carte graphique est restée prise par la dernière génération : la libérer';
-      group.replaceChildren(free);
+      // (0.6.260) In the glass of « Générer » (0.6.253 left it bare: the group lost its own glass then).
+      const held = node('div', 'studio-go-glass');
+      held.append(free);
+      group.replaceChildren(held);
       group.classList.add('is-held');
     }
     bar.append(group);
@@ -7333,6 +7387,23 @@ export function setupStudio({
     paintSave();
     return desk;
   }
+  /**
+   * (0.6.260) What had the focus of the keys, to give it back once the Studio is drawn again (render replaces it all,
+   * the focus fell on the page): a button of the column of the actions, « × n », the ball of the camera, its switch,
+   * « Générer », « Arrêter ». A focus of the keys only (`:focus-visible`): one of the pointer would keep the column
+   * unfolded under no pointer. Never a field (its caret would be lost). `refocusTo`: where it goes when that control
+   * is no longer drawn (the camera taken away with its ×).
+   */
+  let refocusTo = null;
+  const REFOCUSED = ['studio-tries', 'camera-block-ball', 'camera-block-switch', 'studio-go', 'studio-stop'];
+  function focusKey(element) {
+    if (!element?.matches?.(':focus-visible') || ['TEXTAREA', 'INPUT', 'SELECT'].includes(element.tagName)) return null;
+    const names = String(element.className ?? '').split(' '),
+      action = names.find(name => name.startsWith('output-action-'));
+    if (action) return '.studio-rail > .' + action;
+    const known = REFOCUSED.find(name => names.includes(name));
+    return known ? '.' + known : null;
+  }
   function render() {
     kinds();
     const body = $('studio-body');
@@ -7341,6 +7412,11 @@ export function setupStudio({
     // its identifier (its first take) while they are on the page.
     if (draftsKey === null || (draftsKey.startsWith('new|') && conversation())) draftsKey = draftKey();
     body.dataset.mode = mode;
+    triesFollowPage();
+    const focused = globalThis.document?.activeElement,
+      focusAgain = (body.contains?.(focused) && focusKey(focused)) || null,
+      focusElse = refocusTo;
+    refocusTo = null;
     // The stage leaves with the form it is in, and nothing follows its size any longer: still
     // watched, it was reported once more as it went, with no mode left to read a format from.
     watching?.disconnect();
@@ -7374,6 +7450,9 @@ export function setupStudio({
     sketched = false;
     body.replaceChildren(desk);
     keepKinds(body);
+    // (0.6.260) The focus back on the same control drawn again (focusKey), else where it was said to go.
+    const regained = (focusAgain && desk.querySelector?.(focusAgain)) || (focusElse && desk.querySelector?.(focusElse));
+    regained?.focus?.({ preventScroll: true });
     // What Moodix AI understood and its prompt, measured once on the page: an arrow only where words
     // are cut (0.6.95). The prompt is measured again when its column changes width.
     if (explaining && (answering() || ai)) explaining.measure();
@@ -8274,6 +8353,8 @@ export function setupStudio({
     refilm: record => actionsOf(record).find(action => action.id === 'refilm')?.run(),
     // (0.6.256) The page Agrandir or Interpoler of a take, asked from the Chat or the Archives.
     finish: (record, verb) => finishTake(record, verb),
+    // (0.6.260) Why that page cannot open now ('' when it can): asked there before the Chat is left.
+    finishBlocked: () => (working ? whyNot() || BUSY_HERE : proposal ? 'Moodix AI est en train de proposer' : ''),
     takeOver,
     conversationChanged,
     invalidate,
