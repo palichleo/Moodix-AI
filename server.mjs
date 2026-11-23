@@ -146,6 +146,7 @@ const staticFiles = new Map([
   ['/pieces.mjs', ['pieces.mjs', 'text/javascript; charset=utf-8']],
   ['/camera.mjs', ['camera.mjs', 'text/javascript; charset=utf-8']],
   ['/camera-orbit.mjs', ['camera-orbit.mjs', 'text/javascript; charset=utf-8']],
+  ['/camera-ball.mjs', ['camera-ball.mjs', 'text/javascript; charset=utf-8']],
   ['/formats.mjs', ['formats.mjs', 'text/javascript; charset=utf-8']],
   ['/output-actions.mjs', ['output-actions.mjs', 'text/javascript; charset=utf-8']],
   ['/chat-videos.mjs', ['chat-videos.mjs', 'text/javascript; charset=utf-8']],

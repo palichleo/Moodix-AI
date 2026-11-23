@@ -28,6 +28,7 @@ import {
   cameraShort,
   cameraSpeedValue,
 } from './camera.mjs';
+import { ballDress, ballSvg } from './camera-ball.mjs';
 import {
   GLOBE,
   ORBIT_SAID,
@@ -530,6 +531,8 @@ export function setupStudio({
     addOpen = false, // (0.6.203) the list of « Ajouter » is open
     pieceOpen = null, // (0.6.204) { role, index }: the piece given whose small window is open
     pieceFocus = false, // (0.6.204) that window was just opened by a click: the focus goes into it
+    cameraMenu = false, // (0.6.257) the menu of the block « Caméra » is open
+    cameraFocus = false, // (0.6.257) it was just opened by a click: the focus goes to the movement chosen
     moreFocus = false, // (0.6.206) the same for the window of « Plus de réglages », opened by its pill
     drawn = null, // the size the frame was last drawn at, to ease from
     watching = null, // follows the size of the stage
@@ -626,6 +629,8 @@ export function setupStudio({
     settings: {},
     lyrics: false, // the lyrics are shown (« + Paroles »)
     camera: null, // (0.6.211) the camera of a video, once added: { move, speed } (public/camera.mjs)
+    // (0.6.257) The last movement chosen in the block « Caméra », kept while its switch is off: it comes back on.
+    cameraLast: null,
   });
   const drafts = Object.fromEntries(MODES.map(item => [item.id, blank()]));
   const picker = node('input');
@@ -1205,7 +1210,7 @@ export function setupStudio({
     const same = pieceOpen?.role === role && pieceOpen.index === index;
     pieceOpen = same ? null : { role, index };
     pieceFocus = !same;
-    addOpen = false;
+    addOpen = cameraMenu = false;
     if (pieceOpen) advanced = false;
     render();
   }
@@ -2065,6 +2070,306 @@ export function setupStudio({
     scene.append(zoom);
     return scene;
   }
+  // ------------------------------------------------------------------ la caméra avant (0.6.257)
+  // (camera-avant-maquette.md, captures K00 to K04, 23/11) The camera of a new video set before it is made: a block
+  // of its own under the images, its ball, the name of its movement and its speed; a click on the ball opens the
+  // movements in a menu at its right. It sets what will be made: the screen never changes for it. « Changer la
+  // caméra » of a clip made stays at the right of the screen (the column of its actions), as it was.
+  /** The width of the ball of the block (K00), in pixels. */
+  const BALL_SIZE = 216;
+  /** The parts of the block and of its menu drawn last, which a choice sets again in place (paintCamera). */
+  let cameraParts = null;
+  /** A class put on an element or taken from it, kept in `className` (the other classes left as they are). */
+  function setClass(element, name, on) {
+    const classes = String(element.className ?? '')
+      .split(' ')
+      .filter(item => item && item !== name);
+    if (on) classes.push(name);
+    element.className = classes.join(' ');
+  }
+  /**
+   * (0.6.257) The camera of the block set: on with that movement, the speed it had kept (normal for the first), or
+   * off (null): the model chooses, nothing is added to the prompt; the movement it had is kept for its way back.
+   */
+  function setCamera(value) {
+    const draft = drafts.video;
+    if (!value) {
+      if (draft.camera) draft.cameraLast = draft.camera;
+      draft.camera = null;
+      return;
+    }
+    const speed = value.speed ?? draft.camera?.speed ?? draft.cameraLast?.speed ?? 'normal';
+    draft.camera = draft.cameraLast = { move: value.move, speed };
+  }
+  /**
+   * The ball of a movement (null: none, « Au choix du modèle »), `size` pixels wide: its drawing (public/camera-ball.mjs)
+   * and the subject at its middle, the image of the start when there is one, else the sign of an image.
+   */
+  function ballFace(move, size, { dim = false, subject = '' } = {}) {
+    const face = node('span', 'camera-ball' + (dim ? ' is-dim' : '')),
+      art = node('span', 'camera-ball-svg'),
+      center = node('span', 'camera-ball-subject' + (subject ? '' : ' is-picto'));
+    face.setAttribute('aria-hidden', 'true');
+    face.style.setProperty?.('--ball', size + 'px');
+    art.innerHTML = ballSvg(move, { size, dim });
+    ballDress(art);
+    if (subject) {
+      const picture = node('img');
+      Object.assign(picture, { src: subject, alt: '', draggable: false });
+      center.append(picture);
+    } else center.append(icon('image'));
+    face.append(art, center);
+    return { face, art };
+  }
+  /** The three speeds, a group of the block or of its menu; greyed with why for a movement that has none. */
+  function cameraSpeeds(className) {
+    const speeds = node('div', 'studio-camera-speeds ' + className);
+    speeds.setAttribute('role', 'group');
+    speeds.setAttribute('aria-label', 'Vitesse');
+    for (const speed of CAMERA_SPEEDS) {
+      const choice = greyable(
+        button('studio-camera-speed', speed.name, () => {
+          if (choice.disabled) return notice(speeds.title);
+          setCamera({ ...drafts.video.camera, speed: speed.id });
+          paintCamera();
+        }),
+      );
+      choice.dataset.speed = speed.id;
+      speeds.append(choice);
+    }
+    return speeds;
+  }
+  /**
+   * (0.6.257, K00 to K02) The block « Caméra », under the images, for a new video of a model where the camera is a
+   * sentence of the prompt (LTX 2.5, Wan 2.2, MiniMax H3: public/camera.mjs, takesCamera): at its head its switch,
+   * then its ball (the subject, the camera three quarters in front, its movement looped), the name of the movement
+   * and its speed. Off, it is « Au choix du modèle »: nothing is added to the prompt; on again, the last movement
+   * chosen comes back (his précision of 23/11: the camera of LTX before a video is turned on and off). It is kept in
+   * the draft of the video, as the rest. `kept`: set for a model that takes it, under one that does not: greyed,
+   * why, its × to take it away (as the other pieces kept, KEPT). None in a continuation, for a clip filmed again,
+   * nor under a proposal of Moodix AI (its pieces are its own); none in Image and in Son (no model takes one).
+   * A model that reads the camera itself (Wan 2.2 Caméra) keeps its piece « Caméra », from « Ajouter ».
+   */
+  function cameraBlock(workflow, { kept = false } = {}) {
+    cameraParts = null;
+    if (mode !== 'video' || answering() || extending || (workflow.camera !== true && !kept)) return null;
+    const draft = drafts.video,
+      off = kept ? `Caméra gardée : ${workflow.name} ne la prend pas.` : '',
+      held = off ? '' : working ? whyNot() || BUSY_HERE : '';
+    if (off || held) cameraMenu = false;
+    const block = node('section', 'studio-input-block studio-camera-block' + (off ? ' is-off' : '') + (cameraMenu ? ' is-open' : '')),
+      head = node('div', 'camera-block-head'),
+      ball = greyable(
+        button('camera-block-ball', '', () => {
+          if (off || held) return notice(off || held);
+          toggleCameraMenu();
+        }),
+      ),
+      subject = draft.inputs.start_image?.[0]?.preview || '',
+      { face, art } = ballFace(draft.camera?.move ?? null, BALL_SIZE, { subject }),
+      name = node('span', 'camera-block-name'),
+      why = node('p', 'camera-block-why'),
+      speeds = cameraSpeeds('camera-block-speeds');
+    block.setAttribute('aria-label', WORDS.camera);
+    head.append(node('span', 'camera-block-title', WORDS.camera));
+    let toggle = null;
+    if (off) {
+      const remove = button('camera-block-remove', '', () => {
+        setCamera(null);
+        render();
+      }, 'close');
+      remove.setAttribute('aria-label', 'Retirer la caméra');
+      remove.title = 'Retirer';
+      head.append(remove);
+    } else {
+      // A switch, at the right of its name: off, the model chooses; on, the last movement chosen comes back.
+      toggle = greyable(
+        button('camera-block-switch', '', () => {
+          if (held) return notice(held);
+          setCamera(drafts.video.camera ? null : (drafts.video.cameraLast ?? CAMERA_DEFAULT));
+          paintCamera();
+        }),
+      );
+      toggle.setAttribute('role', 'switch');
+      toggle.setAttribute('aria-label', 'Caméra choisie');
+      toggle.append(node('span', 'camera-block-knob'));
+      toggle.disabled = Boolean(held);
+      head.append(toggle);
+    }
+    face.className += ' is-playing';
+    ball.append(face);
+    ball.setAttribute('aria-haspopup', 'dialog');
+    ball.disabled = Boolean(off || held);
+    aiTarget(ball, 'camera-move');
+    aiTarget(speeds, 'camera-speed');
+    why.setAttribute('aria-live', 'polite');
+    block.append(head, ball, name, why, speeds);
+    cameraParts = { workflow, block, toggle, ball, face, art, subject, name, why, speeds, off, held, menu: null };
+    if (cameraMenu) {
+      const menu = cameraMenuPane(workflow);
+      cameraParts.menu = menu;
+      block.append(menu.pane);
+      const focus = cameraFocus;
+      cameraFocus = false;
+      globalThis.queueMicrotask?.(() => {
+        if (!menu.pane.isConnected || !cameraMenu) return;
+        placeCameraMenu(menu.pane, block, ball);
+        if (focus) (menu.options.get(drafts.video.camera?.move) ?? menu.model).focus?.();
+      });
+    }
+    paintCamera();
+    return block;
+  }
+  /**
+   * (0.6.257, K01) The menu of the block: « Au choix du modèle » at its head, then the movements by family, each a
+   * small ball with its short name (two columns: the families that move the camera at the left, the zoom and what the
+   * words alone do not hold at the right), the orbits and the cranes greyed « pas fiable », why under the pointer;
+   * the speed at its foot, and the sentence added to the prompt under it. Opaque, at the right of the block.
+   */
+  function cameraMenuPane(workflow) {
+    const pane = node('div', 'glass-menu camera-menu'),
+      head = node('div', 'camera-menu-head'),
+      model = button('camera-menu-option is-model', '', () => {
+        setCamera(null);
+        paintCamera();
+      }),
+      cols = node('div', 'camera-menu-cols'),
+      pace = node('div', 'camera-menu-pace'),
+      speeds = cameraSpeeds('camera-menu-speeds'),
+      added = node('p', 'camera-menu-added'),
+      adds = node('span', 'camera-menu-adds'),
+      sentence = node('span', 'camera-menu-sentence'),
+      options = new Map();
+    pane.setAttribute('role', 'dialog');
+    pane.setAttribute('aria-label', WORDS.camera);
+    pane.hidden = true;
+    model.setAttribute('role', 'radio');
+    model.setAttribute('aria-label', 'Au choix du modèle');
+    model.title = 'Le modèle choisit le mouvement : rien n’est ajouté au prompt.';
+    model.append(ballFace(null, 44).face, node('span', 'camera-menu-name', 'Au choix du modèle'));
+    head.append(node('p', 'studio-window-title', WORDS.camera), model);
+    cols.setAttribute('role', 'radiogroup');
+    cols.setAttribute('aria-label', 'Mouvement');
+    for (const [at, family] of CAMERA_GROUPS.entries()) {
+      const group = node('div', 'camera-menu-group'),
+        row = node('div', 'camera-menu-row');
+      // (Its place is given by the styles: two columns, three in a short window, where it stays above « Générer ».)
+      group.dataset.family = String(at);
+      group.append(node('span', 'camera-menu-family', family.name), row);
+      for (const move of family.moves) {
+        const why = cameraRefusal(workflow, move),
+          name = cameraLabel({ move }),
+          option = button('camera-menu-option' + (why ? ' is-off' : ''), '', () => {
+            if (why) return notice(why);
+            setCamera({ move });
+            paintCamera();
+          });
+        option.dataset.move = move;
+        option.setAttribute('role', 'radio');
+        option.setAttribute('aria-label', why ? `${name}, ${CAMERA_OFF_NOTE}. ${why}` : name);
+        option.title = why || name;
+        if (why) option.setAttribute('aria-disabled', 'true');
+        option.append(ballFace(move, 70, { dim: Boolean(why) }).face, node('span', 'camera-menu-name', cameraShort(move)));
+        if (why) option.append(node('span', 'camera-menu-note', CAMERA_OFF_NOTE));
+        options.set(move, option);
+        row.append(option);
+      }
+      cols.append(group);
+    }
+    pace.append(node('span', 'studio-label', 'Vitesse'), speeds);
+    added.setAttribute('aria-live', 'polite');
+    added.append(adds, sentence);
+    pane.append(head, cols, pace, added);
+    // Échap closes it, the focus back on the ball (the page's own listener does the same from anywhere else).
+    pane.onkeydown = event => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeCameraMenu({ refocus: true });
+    };
+    return { pane, model, options, speeds, adds, sentence };
+  }
+  /** What the block and its menu say, set again in place after a choice (drawn again, the focus would be lost). */
+  function paintCamera() {
+    const parts = cameraParts;
+    if (!parts) return;
+    const draft = drafts.video,
+      choice = draft.camera,
+      refused = choice ? cameraRefusal(parts.workflow, choice.move) : '',
+      still = !choice || !cameraHasSpeed(choice.move),
+      named = choice ? cameraLabel({ move: choice.move }) : 'Au choix du modèle';
+    setClass(parts.block, 'is-on', Boolean(choice));
+    setClass(parts.block, 'is-refused', Boolean(refused));
+    if (parts.toggle) {
+      parts.toggle.setAttribute('aria-checked', String(Boolean(choice)));
+      parts.toggle.title = parts.held || (choice ? 'Désactiver : le modèle choisit le mouvement' : 'Activer : le dernier mouvement choisi revient');
+    }
+    parts.art.innerHTML = ballSvg(choice?.move ?? null, { size: BALL_SIZE, dim: Boolean(parts.off || refused) });
+    ballDress(parts.art);
+    setClass(parts.face, 'is-dim', Boolean(parts.off || refused));
+    parts.name.textContent = named;
+    const why = parts.off || refused;
+    parts.why.textContent = why;
+    parts.why.hidden = !why;
+    parts.ball.title = parts.off || parts.held || 'Choisir le mouvement';
+    parts.ball.setAttribute('aria-label', WORDS.camera + ' · ' + (choice ? cameraLabel(choice) : named));
+    parts.ball.setAttribute('aria-expanded', String(Boolean(parts.menu)));
+    const lists = [parts.speeds, ...(parts.menu ? [parts.menu.speeds] : [])],
+      speedWhy = parts.off || parts.held || (!choice ? 'Choisissez d’abord un mouvement.' : still ? 'Ce mouvement n’a pas de vitesse.' : '');
+    for (const speeds of lists) {
+      speeds.title = speedWhy || 'À quelle vitesse la caméra bouge.';
+      for (const item of speeds.children) {
+        item.disabled = Boolean(speedWhy);
+        item.setAttribute('aria-pressed', String(!speedWhy && item.dataset.speed === choice.speed));
+      }
+    }
+    const menu = parts.menu;
+    if (!menu) return;
+    for (const [move, option] of menu.options) {
+      setClass(option, 'is-chosen', choice?.move === move);
+      option.setAttribute('aria-checked', String(choice?.move === move));
+    }
+    setClass(menu.model, 'is-chosen', !choice);
+    menu.model.setAttribute('aria-checked', String(!choice));
+    menu.adds.textContent = choice ? 'Ajouté au prompt :' : 'Rien n’est ajouté au prompt : le modèle choisit le mouvement.';
+    menu.sentence.textContent = choice ? '« ' + cameraSentence(choice) + ' »' : '';
+  }
+  /** The menu of the block opened, or closed when it was open; one thing open at a time. */
+  function toggleCameraMenu() {
+    cameraMenu = !cameraMenu;
+    cameraFocus = cameraMenu;
+    if (cameraMenu) {
+      addOpen = false;
+      pieceOpen = null;
+      advanced = false;
+    }
+    render();
+  }
+  /**
+   * The menu against its block: at its right, its top level with the block's; raised when it would reach « Générer »
+   * (K01: it never hides it), never above the top of the column.
+   */
+  function placeCameraMenu(pane, block, ball) {
+    openPopup(pane, ball, { beside: block });
+    const box = pane.getBoundingClientRect?.(),
+      go = document.querySelector?.('#studio-view .studio-go-group')?.getBoundingClientRect?.(),
+      column = block.closest?.('.studio-block')?.getBoundingClientRect?.();
+    if (!box || !go || !column) return;
+    if (box.left < go.right && box.right > go.left && box.bottom > go.top - 8)
+      pane.style.top = Math.round(Math.max(Math.min(column.top, go.top - 8 - box.height), 8)) + 'px';
+  }
+  /** Closed without drawing the Studio again (a press beside it, Échap): the focus back on the ball when asked. */
+  function closeCameraMenu({ refocus = false } = {}) {
+    cameraMenu = false;
+    const block = document.querySelector?.('#studio-view .studio-camera-block'),
+      pane = block?.querySelector?.('.camera-menu'),
+      ball = block?.querySelector?.('.camera-block-ball');
+    if (pane) closePopup(pane);
+    block?.classList?.remove?.('is-open');
+    ball?.setAttribute?.('aria-expanded', 'false');
+    if (cameraParts) cameraParts.menu = null;
+    if (refocus) ball?.focus?.();
+  }
   /**
    * (0.6.202, capture 96) What is given that the model in hand does not take (the end image and the subject
    * of LTX 2.5 under Wan 2.2): kept in the draft for a model that takes it, as before, and shown now, greyed
@@ -2253,7 +2558,10 @@ export function setupStudio({
         })
         .sort((a, b) => rank(a) - rank(b));
     // (0.6.211, capture 94) The camera, after what the model takes as images: a piece too, with no file.
-    if (workflow.camera) kinds.push({ kind: 'camera' });
+    // (0.6.257, K00) No more for a model where it is a sentence of the prompt (LTX 2.5, Wan 2.2, MiniMax H3): its
+    // block « Caméra » is always there, under the images (cameraBlock). Still for one that reads it itself (Wan 2.2
+    // Caméra), as it was.
+    if (workflow.camera?.moves) kinds.push({ kind: 'camera' });
     if (workflow.settings?.some(setting => setting.key === 'lyrics' && setting.type === 'string')) kinds.push({ kind: 'lyrics' });
     return kinds;
   }
@@ -2358,6 +2666,7 @@ export function setupStudio({
           // (0.6.204) One thing open at a time: the window of a piece closes for this list, and (0.6.206) that
           // of « Plus de réglages ».
           if (pieceOpen) closeWindow();
+          if (cameraMenu) closeCameraMenu();
           if (advanced) closeMore();
           addOpen = !addOpen;
           piece.classList.toggle('is-open', addOpen);
@@ -2435,14 +2744,16 @@ export function setupStudio({
     // take is made (its case cannot be pressed then), under another model that does not take it.
     // (0.6.211) The camera is a piece of a model that takes it, for a new video made by hand: not under a
     // proposal of Moodix AI (its pieces are its own) nor in a continuation (its clip is all it starts from).
-    const filmed = Boolean(workflow.camera && drafts[mode].camera) && !answering() && !(mode === 'video' && extending),
+    // (0.6.257) The piece is that of a model that reads the camera itself; for the others, the block (cameraBlock).
+    const filmed = Boolean(workflow.camera?.moves && drafts[mode].camera) && !answering() && !(mode === 'video' && extending),
       taken = pieceOpen && (pieceOpen.role === 'camera' ? filmed : pieceOpen.role === 'orbit' ? refilming() : pieceOpen.index < (workflow.roles?.[pieceOpen.role]?.count ?? 0));
     if (pieceOpen && (working || !givenPiece(pieceOpen.role, pieceOpen.index) || !taken)) pieceOpen = null;
     const off = offPieces(workflow),
       frames = framesRow(workflow, off),
       // (0.6.202) What the model does not take: the start and the end at their end of the line of time when it
       // has one, the others after its own pieces.
-      rest = off.filter(piece => !(frames && piece.index === 0 && (piece.role === 'start_image' || piece.role === 'end_image'))),
+      // (0.6.257) The camera kept is its block, greyed (cameraBlock), not a piece of the plateau any more.
+      rest = off.filter(piece => piece.role !== 'camera' && !(frames && piece.index === 0 && (piece.role === 'start_image' || piece.role === 'end_image'))),
       pieces = [sourcesRow(workflow), referencesRow(workflow), filmed ? cameraPiece(workflow) : null].filter(Boolean);
     if (rest.length) {
       const kept = node('div', 'studio-pieces studio-kept');
@@ -2462,7 +2773,8 @@ export function setupStudio({
     }
     if (off.length) plateau.append(offLine(workflow, off));
     // (0.6.204) The plateau alone: « Qui est qui » left the column for the windows of its two pieces.
-    const blocks = [plateau].filter(Boolean);
+    // (0.6.257, K00) Under it, the block « Caméra » of a model that takes one; greyed when it is kept from one.
+    const blocks = [plateau, cameraBlock(workflow, { kept: off.some(piece => piece.role === 'camera') })].filter(Boolean);
     if (!blocks.length) return null;
     // Another model: a light line around them for a moment, which fades (nothing blinks). Drawn
     // again meanwhile, they keep it until the moment is over.
@@ -6478,7 +6790,7 @@ export function setupStudio({
     if (next !== mode) tries = 1;
     mode = next;
     failure = '';
-    formatsOpen = addOpen = triesOpen = false;
+    formatsOpen = addOpen = triesOpen = cameraMenu = false;
     pieceOpen = null;
     if (next !== 'video') extending = null;
     // (0.6.256) The page Agrandir (Interpoler) of a take is left for another kind, as Prolonger is.
@@ -6668,7 +6980,7 @@ export function setupStudio({
         advanced = !advanced;
         // (0.6.206) One thing open at a time: the list « Ajouter » and the window of a piece close for it.
         if (advanced) {
-          addOpen = false;
+          addOpen = cameraMenu = false;
           pieceOpen = null;
         }
         moreFocus = advanced;
@@ -7782,6 +8094,23 @@ export function setupStudio({
       if (event.key !== 'Escape' || event.defaultPrevented || !pieceOpen || document.querySelector?.('dialog[open]')) return;
       event.preventDefault();
       closeWindow({ refocus: true });
+    },
+    true,
+  );
+  // (0.6.257) The menu of the block « Caméra » the same way: a press beside its block, Échap.
+  document.addEventListener?.(
+    'pointerdown',
+    event => {
+      if (cameraMenu && !event.target?.closest?.('.studio-camera-block')) closeCameraMenu();
+    },
+    true,
+  );
+  document.addEventListener?.(
+    'keydown',
+    event => {
+      if (event.key !== 'Escape' || event.defaultPrevented || !cameraMenu || document.querySelector?.('dialog[open]')) return;
+      event.preventDefault();
+      closeCameraMenu({ refocus: true });
     },
     true,
   );

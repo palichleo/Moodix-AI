@@ -211,3 +211,72 @@ test('(0.6.222) the camera a model reads itself: its two settings, read back as 
   assert.deepEqual(cameraOf({ camera: { move: 'dolly_in', speed: 'slow' }, camera_prompt: 'x' }), { move: 'dolly_in', speed: 'slow' });
   for (const none of [null, undefined, {}, { camera: 'none' }, { camera: 'spin' }, { camera: '' }, { camera: null }, { camera: 3 }, { camera_speed: 2 }]) assert.equal(cameraOf(none), null, JSON.stringify(none));
 });
+
+test('(0.6.257) the ball of the camera: the camera three quarters in front of the subject, the way of each movement, its drawing', async () => {
+  // (camera-avant-maquette.md, K00 and K01; outil/gen_camera_avant.py, move_path and ball) The sphere of « Changer la
+  // caméra » seen a little from above, in a view of 152 × 140: the subject at its middle, the camera at azimuth 50°.
+  const { BALL_CAMERA, BALL_SUBJECT, BALL_SUBJECT_BOX, BALL_VIEW, ballSvg, ballWay } = await import('../public/camera-ball.mjs');
+  assert.deepEqual(BALL_VIEW, { width: 152, height: 140 });
+  assert.deepEqual(BALL_SUBJECT, [76, 70]);
+  assert.deepEqual(BALL_CAMERA.map(value => Number(value.toFixed(2))), [122.51, 83.5]);
+  assert.deepEqual(Object.values(BALL_SUBJECT_BOX).map(value => Number(value.toFixed(4))), [0.4079, 0.4357, 0.1842, 0.1286]);
+  const distance = point => Math.hypot(point[0] - BALL_SUBJECT[0], point[1] - BALL_SUBJECT[1]),
+    from = distance(BALL_CAMERA);
+  // Along a line: a travelling nearer or farther, to the left or the right; a crane up or down.
+  assert.ok(distance(ballWay('dolly_in').to) < from * 0.6 && distance(ballWay('dolly_out').to) > from * 1.4);
+  assert.ok(ballWay('truck_left').to[0] < BALL_CAMERA[0] - 20 && ballWay('truck_right').to[0] > BALL_CAMERA[0] + 20);
+  assert.deepEqual([ballWay('crane_up').to[1] - BALL_CAMERA[1], ballWay('crane_down').to[1] - BALL_CAMERA[1]].map(Math.round), [-36, 30]);
+  // An orbit along the equator, from the camera; the hand that holds it; nothing for what turns or stays in place.
+  const orbit = ballWay('orbit_left').points;
+  assert.equal(orbit.length, 25);
+  assert.deepEqual(orbit[0], BALL_CAMERA);
+  assert.ok(orbit.every(point => Math.abs(((point[0] - 76) / (66 * 0.92)) ** 2 + ((point[1] - 70) / 21) ** 2 - 1) < 1e-9));
+  assert.ok(ballWay('orbit_right').points.at(-1)[1] < BALL_SUBJECT[1], 'to the right it goes behind the subject');
+  assert.deepEqual(ballWay('handheld'), { shake: true });
+  for (const move of ['zoom_in', 'zoom_out', 'pan_left', 'pan_right', 'tilt_up', 'tilt_down', 'static', 'follow', 'nothing']) assert.equal(ballWay(move), null, move);
+  // Its drawing: the sphere alone for « Au choix du modèle »; for each movement, the camera and the way it goes.
+  const none = ballSvg(null);
+  assert.match(none, /^<svg class="camera-ball-art" viewBox="0 0 152 140" width="152" height="140" aria-hidden="true" focusable="false">/);
+  assert.doesNotMatch(none, /camera-ball-(cam|line|head|cone)/);
+  const { CAMERA_MOVES } = await import('../public/camera.mjs');
+  for (const { id } of CAMERA_MOVES) {
+    const drawn = ballSvg(id),
+      way = ballWay(id);
+    assert.match(drawn, new RegExp(`class="camera-ball-cam" data-way="${way?.to ? 'line' : way?.shake ? 'shake' : 'still'}"`), id);
+    // Everything but a fixed shot draws its movement in the accent, which the styles draw in a loop (pathLength 1).
+    if (id === 'static') assert.doesNotMatch(drawn, /camera-ball-line/);
+    else assert.match(drawn, /class="camera-ball-line" d="M[^"]+" pathLength="1" fill="none" stroke="currentColor"/, id);
+    // Where it goes along a line is where the camera is carried to.
+    if (way?.to) assert.match(drawn, new RegExp(`data-dx="${(way.to[0] - BALL_CAMERA[0]).toFixed(1)}" data-dy="${(way.to[1] - BALL_CAMERA[1]).toFixed(1)}"`), id);
+    // No style in its markup (the rules of security of the page refuse it: check-ui saw it) nor a variable in an
+    // attribute (never read there).
+    assert.doesNotMatch(drawn, / style=|var\(/, id);
+  }
+  // The page gives where the camera goes to the styles once the markup is in place.
+  const { ballDress } = await import('../public/camera-ball.mjs'),
+    set = {},
+    holder = { querySelector: selector => (selector === '.camera-ball-cam' ? { dataset: { dx: '-20.9', dy: '-6.1' }, style: { setProperty: (key, value) => (set[key] = value) } } : null) };
+  ballDress(holder);
+  assert.deepEqual(set, { '--dx': '-20.9px', '--dy': '-6.1px' });
+  ballDress({ querySelector: () => null });
+  ballDress(null);
+  // Its lines keep their width in pixels whatever its size; greyed, it is at 40 %.
+  assert.match(ballSvg('dolly_in', { size: 76 }), /class="camera-ball-line"[^>]*stroke-width="3\.20"/);
+  assert.match(ballSvg('dolly_in', { size: 304 }), /class="camera-ball-line"[^>]*stroke-width="0\.80"/);
+  assert.match(ballSvg('orbit_left', { size: 70, dim: true }), /^<svg [^>]*width="70" height="64" [^>]*opacity="0\.4">/);
+  assert.doesNotMatch(ballSvg('orbit_left', { size: 70 }), /opacity="0\.4"/);
+  // The styles: the movement looped every 2,8 s, never for who asks for less motion; its menu opaque; nothing under 12 px.
+  const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n'),
+    part = css.slice(css.indexOf('/* ------------------------------------------------------------------ la caméra avant (0.6.257) */'));
+  assert.ok(part.length > 1000);
+  assert.match(part, /\.camera-ball\.is-playing:not\(\.is-dim\) \.camera-ball-line,\n\.camera-menu-option:is\(:hover, :focus-visible\):not\(\.is-off\) \.camera-ball-line \{\n  animation: camera-ball-draw 2\.8s infinite;/);
+  assert.match(part, /\.camera-ball-cam\[data-way='line'\][^{]*\{\n  animation: camera-ball-go 2\.8s infinite;/);
+  assert.match(part, /@keyframes camera-ball-go \{[\s\S]*?transform: translate\(var\(--dx\), var\(--dy\)\);/);
+  assert.match(part, /@media \(prefers-reduced-motion: reduce\) \{\n  \.camera-ball \.camera-ball-line,[\s\S]*?animation: none !important;/);
+  assert.match(part, /#studio-view \.glass-menu\.camera-menu \{[^}]*background: #121116;/);
+  const sizes = [...part.matchAll(/font(?:-size)?: (?:\d+ )?([\d.]+)px/g)].map(found => Number(found[1]));
+  assert.ok(sizes.length > 5 && sizes.every(size => size >= 12), JSON.stringify(sizes));
+  // The page is served it, and the Studio draws with it.
+  assert.match(await readFile(new URL('../server.mjs', import.meta.url), 'utf8'), /\['\/camera-ball\.mjs', \['camera-ball\.mjs',/);
+  assert.match(await readFile(new URL('../public/studio.mjs', import.meta.url), 'utf8'), /from '\.\/camera-ball\.mjs'/);
+});

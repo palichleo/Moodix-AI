@@ -221,6 +221,43 @@ const STUDIO_LAYOUT = `(async () => {
           if (document.querySelector('#studio-view .studio-camera')) found.push(name + ' : la Caméra n’est pas retirée');
         }
       }
+      // (0.6.257, K00 to K02) With a model where the camera is a sentence of the prompt (LTX 2.5, Wan 2.2, MiniMax H3),
+      // no more in that list: its block under the images, turned on by its switch, its movement drawn in a loop; its
+      // menu opened by its ball, whole in the window, never over « Générer », seventeen small balls, the orbits and the
+      // cranes greyed « pas fiable », three speeds; « Au choix du modèle » turns it off, the ball closes the menu.
+      const cameraBlock = () => document.querySelector('#studio-view .studio-camera-block:not(.is-off)');
+      if (cameraBlock()) {
+        const toggle = () => cameraBlock()?.querySelector('.camera-block-switch');
+        if (toggle()?.getAttribute('aria-checked') !== 'true') toggle()?.click();
+        if (toggle()?.getAttribute('aria-checked') !== 'true') found.push(name + ' : la Caméra ne s’active pas');
+        const own = cameraBlock().getBoundingClientRect(),
+          column = cameraBlock().closest('.studio-block')?.getBoundingClientRect(),
+          drawing = cameraBlock().querySelector('.camera-ball-line');
+        if (column && (own.left < column.left - 1 || own.right > column.right + 1)) found.push(name + ' : le bloc Caméra sort de sa colonne');
+        if (!drawing || getComputedStyle(drawing).animationName !== 'camera-ball-draw') found.push(name + ' : le mouvement de la Caméra ne se dessine pas en boucle');
+        cameraBlock().querySelector('.camera-block-ball')?.click();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        const pane = document.querySelector('#studio-view .camera-menu:popover-open'),
+          box = pane?.getBoundingClientRect(),
+          go = document.querySelector('#studio-view .studio-go-group')?.getBoundingClientRect();
+        if (!pane) found.push(name + ' : le menu de la Caméra ne s’ouvre pas');
+        else {
+          if (box.left < 0 || box.top < 0 || box.right > innerWidth || box.bottom > innerHeight) found.push(name + ' : le menu de la Caméra sort de la fenêtre');
+          if (go && box.left < go.right && box.right > go.left && box.top < go.bottom && box.bottom > go.top) found.push(name + ' : le menu de la Caméra passe sur « Générer »');
+          if (pane.scrollHeight > pane.clientHeight + 1) found.push(name + ' : le menu de la Caméra défile');
+          const options = [...pane.querySelectorAll('.camera-menu-option[data-move]')],
+            greyed = options.filter(option => option.classList.contains('is-off'));
+          if (options.length !== 17) found.push(name + ' : le menu de la Caméra montre ' + options.length + ' mouvements au lieu de 17');
+          if (greyed.map(option => option.dataset.move).sort().join(' ') !== 'crane_down crane_up orbit_left orbit_right' || greyed.some(option => option.getAttribute('aria-disabled') !== 'true' || option.querySelector('.camera-menu-note')?.textContent !== 'pas fiable'))
+            found.push(name + ' : le menu de la Caméra ne grise pas ce qu’il doit (' + greyed.map(option => option.dataset.move).join(' ') + ')');
+          if (pane.querySelectorAll('.studio-camera-speed').length !== 3) found.push(name + ' : le menu de la Caméra n’a pas ses trois vitesses');
+          if (options.some(option => option.scrollWidth > option.clientWidth + 1)) found.push(name + ' : un nom de mouvement déborde de sa case');
+          pane.querySelector('.camera-menu-option.is-model')?.click();
+          if (toggle()?.getAttribute('aria-checked') !== 'false') found.push(name + ' : « Au choix du modèle » ne coupe pas la Caméra');
+          cameraBlock()?.querySelector('.camera-block-ball')?.click();
+        }
+        if (document.querySelector('#studio-view .camera-menu:popover-open')) found.push(name + ' : le menu de la Caméra reste ouvert');
+      }
       // (0.6.206) « Plus de réglages » is a window, shown once the Studio is drawn: read then, with its fields
       // (look), and closed again so that the next model is read as it opens.
       const pill = () => document.querySelector('#studio-view .studio-more-pill');

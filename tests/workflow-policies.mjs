@@ -1527,22 +1527,20 @@ test('(0.6.211) Studio · the camera, from its piece to the engine: the sentence
         pick.value = tool.id;
         pick.onchange();
       },
-      add = () => body.find('studio-add')[0],
-      choose = name => {
-        add().children[0].onclick();
-        add().children[2].children.find(item => item.children?.[0]?.textContent === name).onclick();
-      },
-      pane = () => body.find('studio-camera-window')[0],
+      // (0.6.257) The block « Caméra » under the images, turned on; its menu, opened by its ball.
+      block = () => body.find('studio-camera-block')[0],
+      pane = () => body.find('camera-menu')[0],
       // (0.6.215) A movement is a case pressed, a speed one of three choices.
       set = (at, value) =>
         pane()
-          .find(at === 0 ? 'studio-camera-move' : 'studio-camera-speed')
+          .find(at === 0 ? 'camera-menu-option' : 'studio-camera-speed')
           .find(item => (at === 0 ? item.dataset.move : item.dataset.speed) === value)
           .onclick(),
-      shown = () => pane().find('studio-camera-sentence')[0].textContent.replace(/^« | »$/g, '');
+      shown = () => pane().find('camera-menu-sentence')[0].textContent.replace(/^« | »$/g, '');
     model('LTX 2.5');
     write(page, 'Le pêcheur lève les yeux');
-    choose('Caméra');
+    block().find('camera-block-switch')[0].onclick();
+    block().find('camera-block-ball')[0].onclick();
     set(0, 'tilt_up');
     set(1, 'slow');
     const sentence = shown();
@@ -1561,15 +1559,15 @@ test('(0.6.211) Studio · the camera, from its piece to the engine: the sentence
     assert.equal((await page.generate()).parameters.prompt, job.parameters.prompt);
     // The camera taken away, then the take looked at (« Afficher dans le Studio »): its prompt, its camera back on
     // the plateau; made again from there, the engine is given what it was given the first time.
-    body.find('studio-camera')[0].children[0].children[1].onclick();
+    block().find('camera-block-switch')[0].onclick();
     assert.equal((await page.generate()).parameters.prompt, 'Le pêcheur lève les yeux');
     page.studio.show(record);
-    assert.deepEqual([page.prompt().value, body.find('studio-camera')[0].children[0].children[0].title], ['Le pêcheur lève les yeux', 'Caméra · Panoramique vers le haut, lent']);
+    assert.deepEqual([page.prompt().value, block().find('camera-block-ball')[0].attributes['aria-label']], ['Le pêcheur lève les yeux', 'Caméra · Panoramique vers le haut, lent']);
     assert.equal((await page.generate()).parameters.prompt, job.parameters.prompt);
     // (0.6.221) MiniMax H3 takes it too: the same piece, not greyed, and its engine is given the prompt with the
     // same sentence; its take keeps the prompt as written, the choice and the sentence beside it.
     model('MiniMax H3 Omni');
-    assert.doesNotMatch(body.find('studio-camera')[0].className, /is-off/);
+    assert.doesNotMatch(block().className, /is-off/);
     const other = await page.generate();
     assert.deepEqual(
       [other.parameters.prompt, page.lastAction().arguments.camera, page.lastAction().arguments.camera_speed, w.saved[0].prompt, w.saved[0].parameters.camera, w.saved[0].parameters.camera_prompt],
@@ -1662,9 +1660,12 @@ test('(0.6.222) Studio · a model that reads the camera itself (Wan 2.2 Caméra)
       body.find('studio-error')[0]?.textContent,
       'Caméra : « Orbite gauche » ne part pas avec LTX 2.5. Pas fiable par les mots seuls : à l’essai, la caméra est restée fixe.',
     );
-    // And a movement that model has not, the other way: a zoom chosen under LTX 2.5, then Wan 2.2 Caméra.
-    open();
-    card('zoom_in').onclick();
+    // (0.6.257) Its block says so too, the orbit greyed with why under its name.
+    const said = body.find('studio-camera-block')[0];
+    assert.deepEqual([said.className.includes('is-refused'), said.find('camera-block-why')[0].textContent], [true, 'Pas fiable par les mots seuls : à l’essai, la caméra est restée fixe.']);
+    // And a movement that model has not, the other way: a zoom chosen under LTX 2.5 (in its block), then Wan 2.2 Caméra.
+    said.find('camera-block-ball')[0].onclick();
+    body.find('camera-menu')[0].find('camera-menu-option').find(item => item.dataset.move === 'zoom_in').onclick();
     model('Wan 2.2 Caméra');
     write(page, 'Le pêcheur lève les yeux');
     assert.equal(await page.generate(), null);
