@@ -676,6 +676,168 @@ try {
       js(`document.querySelectorAll('#library-view .library-tile[data-media="video"]').length === 2 && ![...document.querySelectorAll('#library-view video')].some(video => video.controls)`), { within: 2000 });
     await run('Chat depuis les Archives (clips)', () => click('#chat-open'), view('chat'));
   }
+  /**
+   * (0.6.258) The loupe of an image made larger: a conversation with an image and the same made larger (SeedVR2), both
+   * drawn by the page itself (a canvas: nothing of the user's). In the Studio: its size at the bottom right of the
+   * image, « Comparer » 8 px under the actions; under the pointer, the round loupe of 200 px centred on it, the image
+   * it was made from at the left; « Comparer » released, none. Last of the steps of the Studio: it opens a conversation.
+   */
+  async function loupe() {
+    const drawn = await js(`(() => {
+      const draw = size => {
+        const canvas = Object.assign(document.createElement('canvas'), { width: size, height: size }),
+          context = canvas.getContext('2d');
+        context.fillStyle = '#c98f7a';
+        context.fillRect(0, 0, size, size);
+        context.fillStyle = '#221e24';
+        context.beginPath();
+        context.arc(size * 0.42, size * 0.4, size * 0.12, 0, 7);
+        context.fill();
+        return canvas.toDataURL('image/png').split(',')[1] || null;
+      };
+      const small = draw(96), large = draw(1536);
+      return small && large ? { small, large } : null;
+    })()`).catch(() => null);
+    if (!drawn) return void console.log('Loupe sautée : ce navigateur ne dessine pas d’image.');
+    const conversation = randomUUID(),
+      takes = { small: randomUUID(), large: randomUUID() },
+      gallery = new Gallery({ historyDir: join(data, 'history') });
+    await mkdir(join(data, 'output', 'image'), { recursive: true });
+    for (const name of ['small', 'large'])
+      await writeFile(join(data, 'output', 'image', `verification-${name}.png`), Buffer.from(drawn[name], 'base64'));
+    for (const [name, side, take] of [['small', 96, 1], ['large', 1536, 2]])
+      await gallery.put(
+        {
+          id: takes[name],
+          conversationId: conversation,
+          provider: 'native',
+          mediaType: 'image',
+          workflowId: 'verification',
+          workflowName: name === 'large' ? 'SeedVR2' : 'Vérification',
+          prompt: 'Une image à agrandir',
+          parameters:
+            name === 'large'
+              ? { pipeline: 'seedvr2', references: [{ role: 'source_image', output_id: takes.small, output_index: 0 }] }
+              : { width: side, height: side },
+          createdAt: new Date(Date.now() + take * 1000).toISOString(),
+          outputs: [{ source: { filename: `verification-${name}.png`, subfolder: 'image', type: 'output' }, take, width: side, height: side }],
+        },
+        { persist: true },
+      );
+    const { token } = await (await fetch(app.url + '/api/bootstrap?brief=1')).json(),
+      response = await fetch(app.url + '/api/history/save', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: conversation,
+          messages: [
+            { role: 'user', content: 'Une image agrandie à regarder' },
+            ...['small', 'large'].flatMap((name, index) => [
+              { role: 'assistant', content: '', tool_calls: [{ id: 'call_' + index, type: 'function', function: { name: 'create_image', arguments: '{}' } }] },
+              { role: 'tool', tool_call_id: 'call_' + index, content: JSON.stringify({ status: 'done', run_id: takes[name], studio: true }) },
+            ]),
+          ],
+        }),
+      });
+    if (!response.ok) throw new Error(`history/save : ${response.status} ${await response.text()}`);
+    const opened = title => () =>
+      click('#thread-conversation').then(() => wait(200)).then(() =>
+        js(`(() => { const line = [...document.querySelectorAll('.thread-menu .thread-choice')].find(item => item.textContent.includes(${JSON.stringify(title)})); line?.click(); return !!line; })()`));
+    // (The page comes back where it was, in the Studio.)
+    await run('rechargement avec une image agrandie', () => send('Page.reload').then(() => wait(2000)), () => js(`Boolean(document.getElementById('studio-open'))`));
+    await run('conversation à l’image agrandie', opened('Une image agrandie'), () => js(`document.querySelectorAll('#messages .generation-card').length >= 1`), { within: 3000 });
+    const shown = `(() => {
+      const box = element => element?.getBoundingClientRect(),
+        image = document.querySelector('#studio-view .studio-frame-result'),
+        size = document.querySelector('#studio-view .studio-frame-size'),
+        compare = document.querySelector('#studio-view .studio-rail .output-action-compare'),
+        loupe = document.querySelector('#studio-view .studio-loupe');
+      return JSON.stringify({
+        image: image && image.complete && image.naturalWidth ? [box(image).left, box(image).top, box(image).right, box(image).bottom] : null,
+        size: size && !size.hidden ? [size.textContent, box(size).right, box(size).bottom, getComputedStyle(size).fontFamily] : null,
+        compare: compare && [compare.getAttribute('aria-pressed'), Math.round(box(compare).top - box(compare.previousElementSibling).bottom)],
+        loupe: loupe && !loupe.hidden ? [box(loupe).left, box(loupe).top, box(loupe).width, box(loupe).height, getComputedStyle(loupe).borderRadius,
+          [...loupe.querySelectorAll('img')].map(item => item.getAttribute('src').includes(${JSON.stringify(takes.small)}) || item.getAttribute('src').includes('verification-small') ? 'avant' : 'après'),
+          loupe.querySelector('img').style.width] : null,
+      });
+    })()`;
+    let seen = null;
+    const look = async () => (seen = JSON.parse(await js(shown)));
+    const ready = `(() => { const image = document.querySelector('#studio-view .studio-frame-result'); return Boolean(image?.complete && image.naturalWidth && document.querySelector('#studio-view .studio-frame-size:not([hidden])')); })()`;
+    await run(
+      'Studio : la taille et « Comparer » d’une image agrandie',
+      async () => {
+        await click('#studio-open');
+        await wait(1200);
+        await js(`document.querySelectorAll('#studio-kinds .kind-tab, #studio-kinds button')[0]?.click()`);
+        // (Its file read: its size is that of the file.)
+        await until(() => js(ready), 4000);
+      },
+      async () => {
+        await look();
+        if (!seen.image || !seen.size || !seen.compare) {
+          problems.push([step, 'état', 'l’image agrandie, sa taille ou « Comparer » manque : ' + JSON.stringify(seen)]);
+          return false;
+        }
+        const wanted = [];
+        if (seen.size[0] !== '1536 × 1536') wanted.push('la taille de l’image agrandie est fausse : ' + seen.size[0]);
+        // At its bottom right corner, inside it (10 px).
+        const [right, bottom] = [seen.image[2] - seen.size[1], seen.image[3] - seen.size[2]];
+        if (!(right >= 6 && right <= 14 && bottom >= 6 && bottom <= 14))
+          wanted.push(`la taille n’est pas au coin de l’image (${Math.round(right)}, ${Math.round(bottom)})`);
+        if (!/mono/i.test(seen.size[3])) wanted.push('la taille n’est pas en mono');
+        if (seen.compare[0] !== 'true') wanted.push('« Comparer » n’est pas enfoncé au départ');
+        if (seen.compare[1] !== 16) wanted.push('« Comparer » n’est pas à 8 px de plus sous les actions : ' + seen.compare[1]);
+        for (const what of wanted) problems.push([step, 'état', what]);
+        return wanted.length === 0;
+      },
+    );
+    const pointer = (x, y) => send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }),
+      middle = () => (seen.image ? { x: Math.round((seen.image[0] + seen.image[2]) / 2), y: Math.round((seen.image[1] + seen.image[3]) / 2) } : { x: 5, y: 790 }),
+      lens = `document.querySelector('#studio-view .studio-loupe')?.hidden === false`;
+    await run(
+      'Studio : la loupe sous le pointeur',
+      async () => {
+        await look();
+        if (!seen.image) return false;
+        await pointer(middle().x, middle().y);
+        await until(() => js(lens), 2000);
+      },
+      async () => {
+        const { x, y } = middle();
+        await look();
+        if (!seen.loupe) return false;
+        const [left, top, width, height, round, halves, scale] = seen.loupe,
+          wanted = [];
+        if (Math.abs(left + width / 2 - x) > 2 || Math.abs(top + height / 2 - y) > 2) wanted.push('la loupe n’est pas centrée sur le pointeur');
+        if (width !== 200 || height !== 200 || round !== '50%') wanted.push(`la loupe n’est pas ronde de 200 px (${width} × ${height}, ${round})`);
+        if (halves.join(' ') !== 'avant après') wanted.push('la loupe ne montre pas l’originale à gauche : ' + halves.join(' '));
+        if (scale !== '1536px') wanted.push('la loupe n’est pas à 100 % : ' + scale);
+        for (const what of wanted) problems.push([step, 'état', what]);
+        return wanted.length === 0;
+      },
+    );
+    await run(
+      'Studio : « Comparer » relâché, plus de loupe',
+      async () => {
+        await click('#studio-view .studio-rail .output-action-compare');
+        await pointer(middle().x + 4, middle().y + 4);
+      },
+      async () => (await look()) && !seen.loupe && seen.compare?.[0] === 'false',
+    );
+    await run(
+      'Studio : « Comparer » de nouveau, la loupe revient, puis s’en va hors de l’image',
+      async () => {
+        await click('#studio-view .studio-rail .output-action-compare');
+        await pointer(middle().x, middle().y);
+        const back = await until(() => js(lens), 2000);
+        await pointer(5, 790);
+        return back;
+      },
+      async () => (await look()) && !seen.loupe && seen.compare?.[0] === 'true',
+    );
+    await run('Chat (image agrandie)', () => click('#chat-open'), view('chat'));
+  }
 
   await send('Runtime.enable');
   await send('Log.enable');
@@ -1125,6 +1287,8 @@ try {
         return found.length === 0;
       },
     );
+  // (0.6.258) With the tools of the Studio still given: the loupe of an image made larger, in its own conversation.
+  await loupe();
   await send('Fetch.disable');
   laidOut = false;
   console.log(`Vérification de l’interface (${browser.split(/[\\/]/).pop()}) : ${results.filter(([, ok]) => ok).length}/${results.length} étapes.`);

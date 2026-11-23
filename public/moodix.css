@@ -21102,3 +21102,76 @@ body[data-view='bobine'] .chat-panel {
     font-size: 12px;
   }
 }
+/* ------------------------------------------------------------------ (0.6.258) The loupe of an image made larger */
+/* Lot 6 (captures A06, B10): over an image made larger (SeedVR2, Real-ESRGAN), its size at its bottom right, in mono;
+   under the pointer, a round loupe of 200 px at 100 %, cut in two by a line: the image it was made from at the left,
+   the one made larger at the right (studio.mjs, magnifier). The image is as large as the frame allows, in its middle
+   (--media-ratio): the size is put at its corner by the same sum. « Comparer » comes 8 px under the actions. */
+#studio-view .studio-frame > .studio-frame-size {
+  --shown-width: min(100cqw - 16px, (100cqh - 16px) * var(--media-ratio, 1));
+  position: absolute;
+  right: calc((100cqw - var(--shown-width)) / 2 + 10px);
+  bottom: calc((100cqh - var(--shown-width) / var(--media-ratio, 1)) / 2 + 10px);
+  z-index: 2;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(12, 11, 14, 0.72);
+  color: var(--text-1);
+  font: 500 12px/1.2 var(--font-mono);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+#studio-view .studio-frame > .studio-frame-size[hidden],
+#studio-view .studio-frame > .studio-loupe[hidden] {
+  display: none;
+}
+#studio-view .studio-frame > .studio-loupe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  width: 200px;
+  height: 200px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #0c0b0e;
+  box-shadow:
+    0 0 0 2px rgba(238, 232, 222, 0.92),
+    0 14px 40px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+#studio-view .studio-loupe-half {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+#studio-view .studio-loupe-half.is-before {
+  clip-path: inset(0 50% 0 0);
+}
+#studio-view .studio-loupe-half.is-after {
+  clip-path: inset(0 0 0 50%);
+}
+#studio-view .studio-loupe-half > img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  max-height: none;
+  border-radius: 0;
+  transform-origin: 0 0;
+}
+#studio-view .studio-loupe-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 1px);
+  width: 2px;
+  background: rgba(238, 232, 222, 0.92);
+}
+#studio-view .studio-rail > .output-action-compare {
+  margin-top: 8px;
+}
+#studio-view .studio-rail > .output-action-compare[aria-pressed='true'] > svg {
+  color: var(--accent);
+}

@@ -533,6 +533,8 @@ export function setupStudio({
     pieceFocus = false, // (0.6.204) that window was just opened by a click: the focus goes into it
     cameraMenu = false, // (0.6.257) the menu of the block « Caméra » is open
     cameraFocus = false, // (0.6.257) it was just opened by a click: the focus goes to the movement chosen
+    comparing = true, // (0.6.258) the loupe over an image made larger (« Comparer » pressed)
+    loupeShown = null, // (0.6.258) the loupe of the screen drawn last: { hide }
     moreFocus = false, // (0.6.206) the same for the window of « Plus de réglages », opened by its pill
     drawn = null, // the size the frame was last drawn at, to ease from
     watching = null, // follows the size of the stage
@@ -3692,6 +3694,7 @@ export function setupStudio({
       ),
     );
     blankLines = null;
+    loupeShown = null;
     if (mode === 'audio') {
       const bars = node('div', 'studio-bars');
       bars.setAttribute('aria-hidden', 'true');
@@ -3734,7 +3737,7 @@ export function setupStudio({
         const band = node('span', 'studio-finish-band');
         band.setAttribute('aria-hidden', 'true');
         frame.append(band);
-      }
+      } else if (enlarged(last)) frame.append(...magnifier(last, frame));
     } else if (!working) {
       // Nothing made in this mode yet (etats-maquette.md, 55). (0.6.253, generer-maquette.md, A00) No sentence of
       // help any more, nor the Éclipse: the format and the size of what will be made, in mono, in the middle
@@ -3876,9 +3879,109 @@ export function setupStudio({
       element.onload = () => {
         shaped(element.naturalWidth, element.naturalHeight);
         measuredOnScreen(record, element.naturalWidth, element.naturalHeight);
+        // (0.6.258) An image made larger: its size at the bottom right, read from its file once it is.
+        const badge = globalThis.document?.querySelector?.('#studio-view .studio-frame-size');
+        if (badge && onStage()?.id === record.id) sayEnlarged(badge, enlargedSize(record, element));
       };
     }
     return element;
+  }
+  /** (0.6.258, lot 6) An image made larger (SeedVR2, Real-ESRGAN): the loupe and its size are on it. */
+  const enlarged = record => mediaOf(record) === 'image' && transformOf(record) === 'AGRANDIE';
+  /** (0.6.258) The image it was made larger from, when it is still in the Sortie: the address of its file. */
+  function enlargedFrom(record) {
+    if (!enlarged(record)) return null;
+    const reference = record.parameters?.references?.find(ref => ref.role === 'source_image'),
+      original = reference && runs.find(item => item.id === reference.output_id),
+      url = original?.outputs?.[reference.output_index ?? 0]?.originalUrl ?? original?.outputs?.[0]?.originalUrl;
+    return url ? { record: original, url } : null;
+  }
+  /** (0.6.258) Its size: that of its file once it is read, else that of its output (never of what it was asked). */
+  function enlargedSize(record, picture) {
+    if (picture?.complete && picture.naturalWidth > 0 && picture.naturalHeight > 0)
+      return { width: picture.naturalWidth, height: picture.naturalHeight };
+    const { width, height } = record.outputs?.[0] ?? {};
+    return width > 0 && height > 0 ? { width, height } : null;
+  }
+  /** (0.6.258) « 2048 × 2048 », in mono, at the bottom right of the image (its shape for the sheet, --media-ratio). */
+  function sayEnlarged(badge, size) {
+    badge.hidden = !size;
+    badge.textContent = size ? size.width + ' × ' + size.height : '';
+    if (size) badge.style.setProperty?.('--media-ratio', (size.width / size.height).toFixed(4));
+  }
+  const LOUPE = 200;
+  /**
+   * (0.6.258, lot 6, captures A06 and B10) Over an image made larger, its size at the bottom right; under the pointer,
+   * a round loupe of 200 px that follows it. It shows the image at 100 % (a pixel of its file for a pixel of the
+   * page), cut in two by a line: at the left the image it was made from, at the same size, at the right the image
+   * made larger. Not with « Comparer » released, nor by touch (nothing goes under a finger), nor without the image
+   * it was made from (deleted): its size alone.
+   */
+  function magnifier(record, frame) {
+    const picture = result(record),
+      badge = node('span', 'studio-frame-size'),
+      pair = enlargedFrom(record);
+    badge.title = 'Taille de l’image agrandie';
+    sayEnlarged(badge, enlargedSize(record, picture));
+    if (!pair) return [badge];
+    const loupe = node('div', 'studio-loupe'),
+      before = node('span', 'studio-loupe-half is-before'),
+      after = node('span', 'studio-loupe-half is-after'),
+      was = node('img'),
+      now = node('img');
+    Object.assign(was, { src: pair.url, alt: '', draggable: false, decoding: 'async' });
+    Object.assign(now, { src: record.outputs[0].originalUrl, alt: '', draggable: false, decoding: 'async' });
+    before.append(was);
+    after.append(now);
+    loupe.append(before, after, node('span', 'studio-loupe-line'));
+    loupe.setAttribute('aria-hidden', 'true');
+    loupe.hidden = true;
+    const hide = () => void (loupe.hidden = true);
+    frame.onpointermove = event => {
+      if (!comparing || event.pointerType === 'touch') return hide();
+      const box = picture.getBoundingClientRect?.(),
+        room = frame.getBoundingClientRect?.();
+      if (!box?.width || !box.height || !room) return hide();
+      const x = (event.clientX - box.left) / box.width,
+        y = (event.clientY - box.top) / box.height;
+      if (x < 0 || x > 1 || y < 0 || y > 1) return hide();
+      // At 100 %: the size of its file; never smaller than on the screen.
+      const size = enlargedSize(record, picture),
+        width = Math.max(size?.width ?? 0, box.width),
+        height = (width * box.height) / box.width;
+      loupe.hidden = false;
+      loupe.style.transform = `translate(${Math.round(event.clientX - room.left - LOUPE / 2)}px, ${Math.round(event.clientY - room.top - LOUPE / 2)}px)`;
+      for (const image of [was, now]) {
+        image.style.width = Math.round(width) + 'px';
+        image.style.height = Math.round(height) + 'px';
+        image.style.transform = `translate(${Math.round(LOUPE / 2 - x * width)}px, ${Math.round(LOUPE / 2 - y * height)}px)`;
+      }
+    };
+    frame.onpointerleave = hide;
+    loupeShown = { hide };
+    return [badge, loupe];
+  }
+  /**
+   * (0.6.258, lot 6) « Comparer », 8 px under the actions of an image made larger: pressed (at first), the loupe comes
+   * under the pointer over the image; released, it does not. Said in place, the focus kept on it.
+   */
+  function compareButton() {
+    const control = button('output-action output-action-compare', 'Comparer', () => {
+      comparing = !comparing;
+      sayCompare(control);
+      if (!comparing) loupeShown?.hide();
+    }, 'act-compare');
+    sayCompare(control);
+    return control;
+  }
+  function sayCompare(control) {
+    control.setAttribute('aria-pressed', String(comparing));
+    control.setAttribute(
+      'aria-label',
+      comparing
+        ? 'Comparer : la loupe au survol de l’image, l’originale à gauche, l’agrandie à droite'
+        : 'Comparer : remettre la loupe au survol de l’image',
+    );
   }
   /** The number of a creation in the Sortie: the first made is #1, the newest the largest. */
   function numberOf(record) {
@@ -7079,6 +7182,8 @@ export function setupStudio({
         pressed.className += ' is-on';
         pressed.setAttribute('aria-pressed', 'true');
       }
+      // (0.6.258, lot 6) An image made larger, the image it was made from still there: « Comparer », 8 px under them.
+      if (enlargedFrom(onScreen)) row.append(compareButton());
       over.append(row);
     }
     bar.append(node('div', 'output-actions is-empty'));

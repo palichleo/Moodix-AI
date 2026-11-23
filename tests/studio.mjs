@@ -9951,3 +9951,126 @@ test('(0.6.250) « Changer la caméra » : la taille à laquelle le clip est ref
     page.restore();
   }
 });
+
+test('(0.6.258) an image made larger: its size at its bottom right, a loupe of 200 px at 100 % under the pointer (the image it was made from at the left), « Comparer » to take it away; none for another image, none while it is made larger again', async () => {
+  const image = { id: 'w', name: 'Image', roles: {}, limits: sizes, direct: true, size: { width: 1024, height: 1024 }, settings: [], seeded: true },
+    seedvr = { id: 'sv', name: 'Upscale SeedVR2', media: 'image', verb: 'upscale', roles: { source: { count: 1, media: ['image'], required: true } }, settings: [], finish: { key: 'scale', choices: [2, 4], standard: 2 } };
+  const original = { id: 'a', conversationId: 'c1', prompt: 'un phare', outputs: [{ originalUrl: '/a.png', take: 1, width: 1024, height: 1024 }] },
+    // (Its settings say what was asked of the model, the size of the image it was made from: its output says its own.)
+    larger = (id, from, url) => ({
+      id,
+      conversationId: 'c1',
+      prompt: 'un phare',
+      parameters: { pipeline: 'seedvr2', width: 1024, height: 1024, references: [{ role: 'source_image', output_id: from, output_index: 0 }] },
+      outputs: [{ originalUrl: url, take: 2, width: 2048, height: 2048 }],
+    });
+  const seen = [];
+  const page = await studioPage(
+    { create_image: [image], upscale: [seedvr] },
+    {
+      'tools/actions': () => ({ upscale: ['image'] }),
+      'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }),
+      'tools/execute': () => {
+        // Made larger again: veiled, neither its loupe nor its size meanwhile.
+        const frame = page.body.find('studio-frame')[0];
+        seen.push([frame.className.includes('is-finishing'), frame.find('studio-loupe').length, frame.find('studio-frame-size').length]);
+        return { id: 'j', state: 'error', error: 'rien' };
+      },
+    },
+    { runs: [larger('u', 'a', '/u.png'), original] },
+  );
+  const { body, restore } = page;
+  const frame = () => body.find('studio-frame')[0],
+    loupe = () => body.find('studio-loupe')[0],
+    compare = () => body.find('studio-rail')[0]?.find('output-action-compare')[0],
+    images = () => loupe().find('studio-loupe-half').map(half => half.children[0]),
+    move = (clientX, clientY, pointerType = 'mouse') => {
+      const picture = body.find('studio-frame-result')[0];
+      picture.getBoundingClientRect = () => ({ left: 100, top: 50, width: 400, height: 400 });
+      frame().getBoundingClientRect = () => ({ left: 92, top: 42, width: 416, height: 416 });
+      frame().onpointermove({ clientX, clientY, pointerType });
+    };
+  try {
+    await settle();
+    assert.equal(screenOf(body.find('studio-frame-result')[0]).src, '/u.png');
+    // Its size, from its output (not the size it was asked from).
+    const [size] = body.find('studio-frame-size');
+    assert.deepEqual([size.textContent, size.hidden], ['2048 × 2048', false]);
+    // The loupe, hidden until the pointer comes: the image it was made from at the left, the one made larger at the right.
+    assert.deepEqual([loupe().hidden, loupe().attributes['aria-hidden']], [true, 'true']);
+    assert.deepEqual(
+      loupe().find('studio-loupe-half').map(half => half.className),
+      ['studio-loupe-half is-before', 'studio-loupe-half is-after'],
+    );
+    assert.deepEqual(images().map(item => item.src), ['/a.png', '/u.png']);
+    assert.equal(loupe().find('studio-loupe-line').length, 1);
+    // « Comparer », the last of the column, pressed.
+    const rail = body.find('studio-rail')[0];
+    assert.equal(rail.children.at(-1), compare());
+    assert.deepEqual([compare().children[1].textContent, compare().attributes['aria-pressed']], ['Comparer', 'true']);
+    assert.match(compare().attributes['aria-label'], /l’originale à gauche, l’agrandie à droite/);
+    // Under the pointer, at the middle of the image and a quarter of its height: centred on it, at 100 % (2048 px).
+    move(300, 150);
+    assert.equal(loupe().hidden, false);
+    assert.equal(loupe().style.transform, 'translate(108px, 8px)');
+    for (const item of images())
+      assert.deepEqual([item.style.width, item.style.height, item.style.transform], ['2048px', '2048px', 'translate(-924px, -412px)']);
+    // Out of the image (its frame around it): hidden; by touch, none.
+    move(96, 150);
+    assert.equal(loupe().hidden, true);
+    move(300, 150, 'touch');
+    assert.equal(loupe().hidden, true);
+    // « Comparer » released: no loupe, said in place (the focus stays on it); pressed again, it comes back.
+    move(300, 150);
+    const pressed = compare();
+    pressed.onclick();
+    assert.deepEqual([compare(), pressed.attributes['aria-pressed'], loupe().hidden], [pressed, 'false', true]);
+    assert.match(pressed.attributes['aria-label'], /remettre la loupe/);
+    move(300, 150);
+    assert.equal(loupe().hidden, true);
+    pressed.onclick();
+    move(300, 150);
+    assert.deepEqual([pressed.attributes['aria-pressed'], loupe().hidden], ['true', false]);
+    // Made larger again: neither meanwhile.
+    rail.find('output-action-upscale')[0].onclick();
+    await body.find('studio-go')[0].onclick();
+    await settle();
+    assert.deepEqual(seen, [[true, 0, 0]]);
+  } finally {
+    restore();
+  }
+  // The image it was made from gone from the Sortie: its size alone, no loupe, no « Comparer ». Another image: none.
+  for (const [runs, wanted] of [
+    [[larger('v', 'gone', '/v.png')], [1, 0, false]],
+    [[original], [0, 0, false]],
+  ]) {
+    const other = await studioPage({ create_image: [image], upscale: [seedvr] }, { 'tools/actions': () => ({ upscale: ['image'] }) }, { runs });
+    try {
+      await settle();
+      assert.deepEqual(
+        [other.body.find('studio-frame-size').length, other.body.find('studio-loupe').length, Boolean(other.body.find('studio-rail')[0]?.find('output-action-compare')[0])],
+        wanted,
+      );
+    } finally {
+      other.restore();
+    }
+  }
+});
+
+test('(0.6.258) the styles of the loupe: round, 200 px, cut in two; the size in mono at 12 px; « Comparer » 8 px under the actions', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n'),
+    part = css.slice(css.indexOf('(0.6.258) The loupe of an image made larger'));
+  assert.ok(part.length > 200);
+  assert.match(part, /\.studio-loupe \{[^}]*width: 200px;[^}]*height: 200px;[^}]*border-radius: 50%;[^}]*pointer-events: none;/);
+  assert.match(part, /\.is-before \{\s*clip-path: inset\(0 50% 0 0\);/);
+  assert.match(part, /\.is-after \{\s*clip-path: inset\(0 0 0 50%\);/);
+  assert.match(part, /\.studio-loupe-half > img \{[^}]*max-width: none;/);
+  assert.match(part, /\.studio-frame-size \{[^}]*font: 500 12px\/1\.2 var\(--font-mono\);/);
+  assert.match(part, /\.output-action-compare \{\s*margin-top: 8px;/);
+  assert.match(part, /\.studio-loupe\[hidden\] \{\s*display: none;/);
+  for (const [, size] of part.matchAll(/(\d+(?:\.\d+)?)px\/|font-size: (\d+)px/g)) if (size) assert.ok(Number(size) >= 12);
+  // Its pictogram, beside those of the other actions.
+  const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
+  assert.match(html, /<symbol id="i-act-compare" viewBox="0 0 24 24">/);
+});
