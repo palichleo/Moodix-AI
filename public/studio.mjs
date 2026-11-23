@@ -684,13 +684,17 @@ export function setupStudio({
   agent.append(node('span', 'studio-agent-word', 'Moodix AI'), light);
   // The actions of the take on the screen, at the left of the bar (studio-maquette.md): the same
   // icons and the same help as in the conversation (output-actions.mjs), without « Ouvrir ».
+  // (0.6.255, lot 3) In a column at the right of the frame (`rail`), their names under their icons when it unfolds.
   const takeActions = outputActions({
     api,
     node,
     icon,
     onDetails: null,
     onAction: (record, index, id) => takeAction(record, id),
+    rail: true,
   });
+  // (0.6.255) What the column of the actions takes at the right of the frame: 16 px, then its buttons of 54.
+  const RAIL_ROOM = 70;
   // Image · Vidéo · Son: drawn in the head of the screen, put back above it when there is none.
   let kindsEl = null;
   const kindsBar = () => (kindsEl ??= $('studio-kinds'));
@@ -3170,7 +3174,9 @@ export function setupStudio({
   /** The room the frame has: its stage, less a margin; a default before the stage is laid out. */
   function room(frame) {
     const box = frame.parentElement,
-      width = box?.clientWidth ?? 0,
+      // (0.6.255) The frame stays in the middle, the column of the actions at its right: as much on each side.
+      // Only a frame as wide as its stage is narrowed by it (a tall one leaves room enough).
+      width = Math.max(0, (box?.clientWidth ?? 0) - (railTake() ? RAIL_ROOM * 2 : 0)),
       height = box?.clientHeight ?? 0;
     // As large as the stage: the Studio fills the window, the screen with it.
     return width > 40 && height > 40 ? { width: Math.min(width, 1600), height: Math.min(height, 1000) } : FRAME;
@@ -3319,7 +3325,16 @@ export function setupStudio({
       });
       watching.observe(box);
     }
-    return { screen, box, frame };
+    return { screen, box, frame, over };
+  }
+  /**
+   * (0.6.255, lot 3) The take whose actions stand in a column at the right of the frame: the one on the screen (the
+   * last of its mode while one is made), not a sound, not while a clip is continued nor while the card is held.
+   */
+  function railTake() {
+    const onScreen = working ? (kept[mode] ?? ownRuns().find(item => mediaOf(item) === mode) ?? null) : onStage();
+    if (!onScreen || mode === 'audio' || extending || (gpuBlocked() && !working)) return null;
+    return onScreen.external && !onScreen.resource ? null : onScreen;
   }
   /** The creation on the screen: the image (a click shows it whole), the clip to play, or the sound. */
   function result(record) {
@@ -6380,7 +6395,7 @@ export function setupStudio({
     }
 
     // The preview, its formats and the button.
-    const { screen } = stage(),
+    const { screen, over } = stage(),
       head = node('div', 'studio-screen-head'),
       heldGpu = gpuBlocked() && !working,
       freed = !heldGpu && !working && Date.now() < freedUntil,
@@ -6434,15 +6449,19 @@ export function setupStudio({
     }
     preview.append(head, screen);
     const bar = node('div', 'studio-actionbar');
-    // The actions of the take on the screen; held while Moodix AI proposes or a take is made.
-    const onScreen = working ? (kept[mode] ?? ownRuns().find(item => mediaOf(item) === mode) ?? null) : onStage();
-    if (onScreen && mode !== 'audio' && !extending && !heldGpu && !(onScreen.external && !onScreen.resource)) {
+    // The actions of the take on the screen; held while Moodix AI proposes or a take is made. (0.6.255, lot 3) In a
+    // column at the right of the frame, over it (studio-frame-over follows its size, whatever its format): the bar
+    // keeps « Générer » and Moodix AI alone, in the middle.
+    const onScreen = railTake();
+    if (onScreen) {
       const row = takeActions(onScreen, 0);
+      row.className += ' studio-rail';
       // (Each makes a creation: not while another conversation makes one, 0.6.81.)
       row.inert = answering() || Boolean(working) || Boolean(busyElsewhere);
       if (row.inert) row.classList.add('is-held');
-      bar.append(row);
-    } else bar.append(node('div', 'output-actions is-empty'));
+      over.append(row);
+    }
+    bar.append(node('div', 'output-actions is-empty'));
     // (0.6.253) Greyed, it still answers (greyable): its reason in its bubble, and what lacks lights up (pressGo).
     const go = aiTarget(greyable(button('primary studio-go', '', () => pressGo(go), 'go')), 'generate'),
       label = node('span', 'studio-go-label', working ? goLabel() : refilming() ? 'Changer la caméra' : extending ? 'Générer la suite' : 'Générer'),

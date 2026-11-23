@@ -131,6 +131,31 @@ test('a row drawn before a workflow became ready enables its button when the poi
   }
 });
 
+test('(0.6.255) in the column of the Studio (rail): the short name under each icon, no bubble but the reason of one greyed, gone when it is lit again', async () => {
+  mock.timers.enable({ apis: ['Date'], now: 0 });
+  try {
+    let image = [];
+    const actions = outputActions({ api: async () => Response.json({ upscale: image, animate: ['image'] }), node, onDetails: null, onAction() {}, rail: true });
+    const row = actions({ id: 'still' }, 0);
+    // No « Ouvrir » in the Studio; « Agrandir », not « Agrandir et affiner »; their words said all the same.
+    assert.deepEqual(row.children.map(label), ['Agrandir', 'Animer']);
+    assert.deepEqual(row.children.map(button => button.attributes['aria-label']), ['Agrandir et affiner ce résultat', 'Animer : une vidéo qui part de cette prise']);
+    await new Promise(setImmediate);
+    const [upscale, animate] = row.children;
+    assert.deepEqual([upscale.disabled, upscale.title], [true, 'Aucun modèle ne sait agrandir une image.']);
+    assert.deepEqual([animate.disabled, animate.title], [false, undefined]);
+    // A model of upscale became ready: lit, and its reason goes, with the bubble help-tips.mjs made of it.
+    upscale.removeAttribute = name => delete upscale[name];
+    upscale.dataset = { tip: upscale.title };
+    image = ['image'];
+    mock.timers.tick(6000);
+    await row.listeners.pointerenter();
+    assert.deepEqual([upscale.disabled, upscale.title, upscale.dataset.tip], [false, undefined, undefined]);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
 test('the server lists which media each output button can act on', async () => {
   const workflow = (id, pipeline, mediaType, role) => ({
     id,

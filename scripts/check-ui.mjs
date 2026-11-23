@@ -105,6 +105,19 @@ const STUDIO_LAYOUT = `(async () => {
       // (0.6.206) A block may still scroll in itself: the Réglages do at 1280 × 720 with three LoRAs added, or
       // with the note of a model this computer cannot run (measured: 433 and 443 px for 407). Not refused here.
     }
+    // (0.6.255) The actions of the take on the screen: a column 16 px after the right edge of the frame, at the
+    // height of its top, buttons of 54 at rest, whole in the block of the preview (captures B00 to B04).
+    const rail = desk().querySelector('.studio-frame-over > .studio-rail'),
+      frame = desk().querySelector('.studio-frame');
+    if (rail && frame) {
+      const own = rail.getBoundingClientRect(),
+        edge = frame.getBoundingClientRect(),
+        block = rail.closest('.studio-block')?.getBoundingClientRect();
+      if (Math.abs(own.left - edge.right - 16) > 1.5 || Math.abs(own.top - edge.top) > 1.5)
+        found.push(where + ' : la colonne des actions est à ' + Math.round(own.left - edge.right) + ' px du cadre et ' + Math.round(own.top - edge.top) + ' px sous son haut');
+      if ([...rail.children].some(button => Math.round(button.getBoundingClientRect().width) !== 54)) found.push(where + ' : un bouton de la colonne des actions n’a pas 54 px');
+      if (block && (own.right > block.right || own.bottom > block.bottom)) found.push(where + ' : la colonne des actions sort du bloc Aperçu');
+    }
     // (0.6.206) The window of « Plus de réglages », when it is open: whole in the window, never over « Générer ».
     const pane = desk().querySelector('.studio-more-window:popover-open');
     if (pane) {

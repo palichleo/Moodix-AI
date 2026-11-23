@@ -20311,16 +20311,6 @@ body[data-view='bobine'] .chat-panel {
   font: 400 12px/1.4 var(--font-mono);
   letter-spacing: 0.12em;
 }
-/* Where the screen is narrow (a window of 1280 px), the actions of the take still in the bar: the two buttons
-   centred in the room at their right, no longer over them (« × 1 » made them wider). */
-@media (max-width: 1399px) {
-  #studio-view .studio-actionbar:has(> .output-actions > .output-action) {
-    grid-template-columns: auto minmax(0, 1fr) 0;
-  }
-  #studio-view .studio-actionbar:has(> .output-actions > .output-action) > .studio-go-group {
-    justify-self: center;
-  }
-}
 /* ------------------------------------------------------------------ (0.6.254) The tries, « × 1 » to « × 4 » */
 /* Under the left part of the glass of « Générer » (A09, « Les essais, ouverts »): opaque, the × fine and grey, the
    count in Jost, a check at the right of the one chosen. */
@@ -20356,4 +20346,109 @@ body[data-view='bobine'] .chat-panel {
 }
 #studio-view .studio-tries-menu .glass-menu-item.is-on {
   background: rgba(238, 232, 222, 0.1);
+}
+/* ------------------------------------------------------------------ (0.6.255) The actions, a column at the right */
+/* Lot 3 (captures A03, B00 to B06; RAIL_CSS of outil/gen_actions.py): the actions of the take on the screen in a
+   column 16 px after the right edge of the frame, at the height of its top, whatever its format. At rest, buttons of
+   54 × 54; the column under the pointer (or the focus of the keyboard) unfolds at once, each button 112 × 82 with its
+   name under its icon. No bubble: their names are said (aria-label); a greyed one says why in its own. */
+#studio-view .studio-frame-over > .studio-rail {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 16px);
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  pointer-events: auto;
+}
+#studio-view .studio-rail > .output-action {
+  box-sizing: border-box;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: 54px;
+  height: 54px;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(12, 11, 14, 0.55);
+  box-shadow: inset 0 0 0 1px #2a2730;
+  color: var(--text-1);
+  cursor: pointer;
+  transform: none;
+  transition:
+    width 0.2s ease,
+    height 0.2s ease,
+    background 0.15s ease;
+}
+#studio-view .studio-rail > .output-action > svg {
+  flex: none;
+  width: 23px;
+  height: 23px;
+  stroke-width: 1.6;
+  opacity: 1;
+}
+#studio-view .studio-rail > .output-action > span {
+  display: block;
+  max-height: 0;
+  margin-top: 0;
+  padding: 0 6px;
+  opacity: 0;
+  color: var(--text-2);
+  font: 400 12px/1.25 var(--font-ui);
+  letter-spacing: 0;
+  text-align: center;
+  white-space: normal;
+  transition:
+    max-height 0.2s ease,
+    opacity 0.15s ease,
+    margin 0.2s ease;
+}
+#studio-view .studio-rail:is(:hover, :focus-within) > .output-action {
+  width: 112px;
+  height: 82px;
+}
+#studio-view .studio-rail:is(:hover, :focus-within) > .output-action > span {
+  max-height: 32px;
+  margin-top: 8px;
+  opacity: 1;
+}
+#studio-view .studio-rail > .output-action:is(:hover, :focus-visible):not(:disabled),
+#studio-view .studio-rail > .output-action.is-on {
+  background: rgba(238, 232, 222, 0.13);
+  box-shadow: inset 0 0 0 1px rgba(238, 232, 222, 0.36);
+  transform: none;
+}
+#studio-view .studio-rail > .output-action:is(:hover, :focus-visible):not(:disabled) > span,
+#studio-view .studio-rail > .output-action.is-on > span {
+  color: var(--text-1);
+}
+#studio-view .studio-rail > .output-action:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+#studio-view .studio-rail > .output-action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* During a creation or a proposal: held, as in the bar before (is-held, inert). */
+#studio-view .studio-rail.is-held {
+  opacity: 0.38;
+}
+@media (prefers-reduced-motion: reduce) {
+  #studio-view .studio-rail > .output-action,
+  #studio-view .studio-rail > .output-action > span {
+    transition: none;
+  }
 }

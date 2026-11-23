@@ -50,6 +50,8 @@ const ACTIONS = [
     id: 'upscale',
     verb: 'upscale',
     label: 'Agrandir et affiner',
+    // (0.6.255) Its name under its icon in the column of the Studio (lot 3).
+    name: 'Agrandir',
     tip: 'Agrandir et affiner ce résultat',
     icon: 'act-upscale',
     media: ['image', 'video'],
@@ -84,7 +86,7 @@ const tipOf = (action, reason = '') => (reason ? `${action.tip}\n${reason}` : ac
  * le Studio `onShow(record, index)` (absent: not offered, as in the Studio itself). Without
  * `onDetails`, no « Ouvrir » (the Studio: a click on the take on its screen opens it).
  */
-export function outputActions({ api, node, onDetails, onAction, onShow = null, icon: drawIcon = null }) {
+export function outputActions({ api, node, onDetails, onAction, onShow = null, icon: drawIcon = null, rail = false }) {
   let available = null,
     loaded = 0;
   function load() {
@@ -118,8 +120,10 @@ export function outputActions({ api, node, onDetails, onAction, onShow = null, i
       const button = node('button', 'output-action output-action-' + action.id);
       button.type = 'button';
       button.setAttribute('aria-label', action.tip);
-      button.title = tipOf(action);
-      button.append(icon(action.icon), node('span', '', action.label));
+      // (0.6.255) In the column of the Studio (`rail`), its name under its icon when the column unfolds, and no
+      // bubble: only one greyed says why in its own.
+      if (!rail) button.title = tipOf(action);
+      button.append(icon(action.icon), node('span', '', rail ? (action.name ?? action.label) : action.label));
       button.onclick = () =>
         action.id === 'details'
           ? onDetails(record, index)
@@ -138,7 +142,13 @@ export function outputActions({ api, node, onDetails, onAction, onShow = null, i
         for (const [button, action] of buttons) {
           const ready = (verbs[action.verb] || []).includes(media);
           button.disabled = !ready;
-          button.title = tipOf(action, ready ? '' : action.missing(media));
+          if (!rail) button.title = tipOf(action, ready ? '' : action.missing(media));
+          else if (!ready) button.title = action.missing(media);
+          else {
+            // Ready again: its bubble of before goes (public/help-tips.mjs turned its title into a tip).
+            button.removeAttribute?.('title');
+            delete button.dataset?.tip;
+          }
         }
       });
     }

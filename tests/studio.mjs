@@ -3418,6 +3418,79 @@ test('« Moodix AI » (« Agent » before), right of « Générer », opens the 
   }
 });
 
+test('(0.6.255) the actions of the take stand in a column at the right of the frame, their names under their icons; no bubble but the reason of one greyed; held while a take is made; none for a sound or a clip continued', async () => {
+  const image = { id: 'w', name: 'Image', roles: {}, limits: sizes, direct: true, size: { width: 1024, height: 1024 }, settings: [], seeded: true },
+    sound = { id: 's', name: 'Bruitages', roles: {}, settings: [] };
+  const held = [];
+  const page = await studioPage(
+    { create_image: [image], create_video: [wanStudio()], create_audio: [sound], extend_video: [{ ...wanStudio(), verb: 'extend_video' }] },
+    {
+      'tools/actions': () => ({ upscale: ['image', 'video'], extend_video: ['video'], refilm_video: ['video'] }),
+      'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }),
+      'tools/execute': () => {
+        // While it is made: the column of the take on the screen, held.
+        const row = rail()[0];
+        held.push([row?.inert, row?.className]);
+        return { id: 'j', state: 'error', error: 'rien' };
+      },
+    },
+    {
+      runs: [
+        { id: 'a', conversationId: 'c1', prompt: 'un phare', outputs: [{ originalUrl: '/a.png', take: 1 }] },
+        { id: 'c', conversationId: 'c1', mediaType: 'video', workflowId: 'wan', prompt: 'la mer', outputs: [{ originalUrl: '/c.mp4', take: 2 }] },
+        { id: 's', conversationId: 'c1', mediaType: 'audio', workflowId: 's', prompt: 'des vagues', outputs: [{ originalUrl: '/s.wav', take: 3 }] },
+      ],
+    },
+  );
+  const { body, restore } = page;
+  const rail = () => body.find('studio-frame-over')[0]?.find('studio-rail') ?? [],
+    buttons = () => rail()[0]?.find('output-action') ?? [],
+    named = () => buttons().map(button => [button.className.split(' ')[1], button.children[1].textContent, button.disabled, button.title]);
+  try {
+    await settle();
+    // An image: « Agrandir », « Animer », over the frame (studio-frame-over follows its size); the bar under the
+    // screen keeps « Générer » and Moodix AI alone.
+    assert.equal(body.dataset.mode, 'image');
+    assert.equal(rail().length, 1);
+    assert.deepEqual(body.find('studio-actionbar')[0].find('output-action'), []);
+    assert.deepEqual(named(), [
+      ['output-action-upscale', 'Agrandir', false, undefined],
+      ['output-action-animate', 'Animer', true, 'Aucun modèle vidéo ne part d’une image.'],
+    ]);
+    // Its words are still said to a screen reader.
+    assert.equal(buttons()[0].attributes['aria-label'], 'Agrandir et affiner ce résultat');
+    // Held while a take is made, lit again at its end.
+    page.prompt().value = 'un phare';
+    page.prompt().oninput();
+    await body.find('studio-go')[0].onclick();
+    await settle();
+    assert.deepEqual(held, [[true, 'output-actions studio-rail']]);
+    assert.equal(rail()[0].inert, false);
+    // A clip: its four, in that order.
+    page.mode(1);
+    await settle();
+    assert.deepEqual(
+      named().map(([, name, greyed]) => [name, greyed]),
+      [
+        ['Prolonger', false],
+        ['Changer la caméra', false],
+        ['Interpoler', true],
+        ['Agrandir', false],
+      ],
+    );
+    // Continued: the column goes, as the actions went from the bar before.
+    buttons()[0].onclick();
+    assert.equal(prolonged(body).length, 1);
+    assert.deepEqual(rail(), []);
+    // A sound: none.
+    page.mode(2);
+    await settle();
+    assert.deepEqual([body.dataset.mode, rail()], ['audio', []]);
+  } finally {
+    restore();
+  }
+});
+
 test('(0.6.253) « Générer » greyed still answers: pressed or its keys, its reason in its bubble, the prompt lit with the cursor in it, or the case of the image missing; nothing is made', async () => {
   const image = { id: 'w', name: 'Image', roles: {}, limits: sizes, direct: true, size: { width: 1024, height: 1024 }, settings: [], seeded: true };
   // What a press lights: the field of the prompt, the case of the start image; where the cursor goes.
