@@ -3794,15 +3794,94 @@ export function setupStudio({
   }
 
   // ------------------------------------------------------------------ the tries (« × 1 »)
-  let tries = 1; // (0.6.253) how many takes « Générer » makes at once, 1 to 4 (generer-maquette.md)
-  /** (0.6.253) « × 1 ⌄ », at the left of the glass of « Générer »: a fine grey ×, the count in Jost, its arrow. */
+  // (0.6.253) How many takes « Générer » makes at once, 1 to 4 (generer-maquette.md). (0.6.254) One after the other,
+  // the same settings, a new seed for each (generate). Back to 1 when another page of the Studio is chosen (Image,
+  // Vidéo, Son: setMode) and once a take is made in the Chat (unwatch) or the Bobine (generate): those make one.
+  let tries = 1,
+    triesOpen = false;
+  const TRIES = [1, 2, 3, 4];
+  /**
+   * (0.6.253) « × 1 ⌄ », at the left of the glass of « Générer »: a fine grey ×, the count in Jost, its arrow.
+   * (0.6.254) Pressed, its list under it, opaque (#121116): × 1 to × 4, a check on the one chosen.
+   */
   function triesButton() {
-    const pick = node('button', 'studio-tries');
+    const pick = node('button', 'studio-tries'),
+      menu = node('div', 'glass-menu studio-tries-menu');
     pick.type = 'button';
     pick.append(icon('tries-x'), node('span', 'studio-tries-count', String(tries)), icon('tries-down'));
     pick.title = 'Essais : combien en faire d’un coup';
     pick.setAttribute('aria-label', `Essais : ${tries}`);
-    return pick;
+    pick.setAttribute('aria-haspopup', 'menu');
+    pick.setAttribute('aria-expanded', String(triesOpen));
+    const show = () => {
+      openPopup(menu, pick, { align: 'start' });
+      menu.querySelector?.('.glass-menu-item.is-on')?.focus?.();
+    };
+    pick.onclick = () => {
+      // One list open at a time, as for « Ajouter » (0.6.204).
+      if (addOpen) closeAdd();
+      triesOpen = !triesOpen;
+      pick.setAttribute('aria-expanded', String(triesOpen));
+      if (triesOpen) show();
+      else closePopup(menu);
+    };
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', 'Essais');
+    menu.hidden = !triesOpen;
+    for (const count of TRIES) {
+      const item = button('glass-menu-item' + (count === tries ? ' is-on' : ''), '', () => {
+        tries = count;
+        closeTries({ refocus: true });
+        render();
+      });
+      item.setAttribute('role', 'menuitemradio');
+      item.setAttribute('aria-checked', String(count === tries));
+      item.setAttribute('aria-label', count === 1 ? '1 essai' : `${count} essais`);
+      item.append(icon('tries-x'), node('span', 'studio-tries-count', String(count)));
+      if (count === tries) item.append(icon('check'));
+      menu.append(item);
+    }
+    menu.onkeydown = event => {
+      const items = [...(menu.querySelectorAll?.('.glass-menu-item') ?? [])],
+        at = items.indexOf(document.activeElement),
+        to = { ArrowDown: at + 1, ArrowUp: at + items.length - 1, Home: 0, End: items.length - 1 }[event.key];
+      if (event.key === 'Tab') return closeTries();
+      if (event.key !== 'Escape' && to === undefined) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === 'Escape') closeTries({ refocus: true });
+      else items[to % items.length]?.focus?.();
+    };
+    // Left open while the Studio is drawn again: shown once it is on the page (as « Ajouter »).
+    if (triesOpen) globalThis.queueMicrotask?.(() => menu.isConnected && triesOpen && show());
+    return { pick, menu };
+  }
+  function closeTries({ refocus = false } = {}) {
+    triesOpen = false;
+    const pick = document.querySelector?.('#studio-view .studio-tries'),
+      menu = document.querySelector?.('#studio-view .studio-tries-menu');
+    if (menu) closePopup(menu);
+    pick?.setAttribute?.('aria-expanded', 'false');
+    if (refocus) pick?.focus?.();
+  }
+  document.addEventListener?.(
+    'pointerdown',
+    event => {
+      if (triesOpen && !event.target?.closest?.('.studio-tries, .studio-tries-menu')) closeTries();
+    },
+    true,
+  );
+  /**
+   * (0.6.254) The next try of a series: what the first asked, with a new seed. The seed the user named goes with
+   * the first one only; a model that draws one by itself draws again; a seed « Fixe » of its model is replaced.
+   */
+  function anotherTry(wanted, workflow = current()) {
+    const seed = Math.floor(Math.random() * 2 ** 31),
+      args = { ...wanted.args },
+      edits = { ...wanted.edits };
+    if ('seed' in args) args.seed = seed;
+    else if ('seed' in edits || Number.isSafeInteger(workflow?.seedFixed)) edits.seed = seed;
+    return { ...wanted, args, edits };
   }
 
   // ------------------------------------------------------------------ generation
@@ -3961,8 +4040,12 @@ export function setupStudio({
     };
     // (Nor from the Studio of another conversation than the one whose work it holds, 0.6.87.)
     if (working || away()) return refuse(whyNot() || BUSY_HERE);
-    // An action on a take brings what to make; « Générer » (a click, its keys) does not.
-    const onTake = given?.verb ? given : null;
+    // An action on a take brings what to make; « Générer » (a click, its keys) does not. (0.6.254) Nor the next try
+    // of a series (`again`): what the first one asked, a new seed, and where the series is.
+    const onTake = given?.verb ? given : null,
+      again = given?.again ?? null;
+    // A proposal of Moodix AI or its character came meanwhile: they are answered first, the series ends there.
+    if (again && (checking || answering())) return;
     // The character being checked: the key that generates keeps it, where the question is asked
     // (Image, the button reads « OK »). From another mode, where it reads « Générer », it is no
     // answer: the question comes back on screen instead of being taken for a yes.
@@ -3982,7 +4065,7 @@ export function setupStudio({
     }
     let wanted;
     try {
-      wanted = onTake ?? request();
+      wanted = onTake ?? again?.wanted ?? request();
     } catch (error) {
       failure = error.message;
       return render();
@@ -3990,7 +4073,12 @@ export function setupStudio({
     // Asked once the creation can go (0.6.90): asked before, a « yes » cost the conversation set aside
     // for a creation that then did not go (an image missing, a seed refused).
     // (The user said no to what it costs: nothing to say again in the Bobine.)
-    if (!mayBegin()) return refuse('');
+    // (0.6.254) Once for a series: its first try.
+    if (!again && !mayBegin()) return refuse('');
+    // (0.6.254) « × 3 »: three takes one after the other, said on « Générer » (« 1 SUR 3 · 46 % »). Not a take
+    // of the Bobine nor an action on a take, which make one; a take of the Bobine puts the tries back to 1.
+    const series = onTake ? null : (again?.series ?? (tries > 1 ? { at: 1, total: tries } : null));
+    if (onTake?.montage) tries = 1;
     failure = '';
     // (0.6.177, « studio ne suit pas exactement ce que fait bobine ») A take of the Bobine is followed here as
     // a take of the Chat is (watch): the Studio kept as it is, then the mode of the take at once, and its
@@ -4021,6 +4109,7 @@ export function setupStudio({
       fraction: null,
       controller,
       montage: Boolean(onTake?.montage),
+      series,
       ...(onTake?.montage?.onProgress ? { tell: () => working && onTake.montage.onProgress(working.label, working.fraction, working.preview, working.time) } : {}),
     };
     // Its conversation from its first instant (0.6.81): the page may show another meanwhile, the
@@ -4177,6 +4266,10 @@ export function setupStudio({
       if (!result) throw Object.assign(new Error(refused || 'La génération a échoué.'), halted ? { stopped: true } : {});
       return result;
     }
+    // (0.6.254) The next try of a series: once this one is made and on its screen, not stopped nor failed, in the
+    // conversation it is made in (another one shown meanwhile: the series ends there, its takes kept).
+    if (series && result && !halted && series.at < series.total && conversation() === conversationId && !away())
+      return generate({ again: { wanted: anotherTry(wanted), series: { ...series, at: series.at + 1 } } });
   }
   function stop() {
     if (!working) return;
@@ -4216,6 +4309,16 @@ export function setupStudio({
    */
   const workTip = () => (working.chat ? BUSY_HERE : [working.label, working.time].filter(Boolean).join(' · '));
   /** Updates the button and the screen alone: the form keeps its focus while a generation runs. */
+  /**
+   * (0.6.253) What « Générer » says while its take is made: « 46 % » (`percent`, null while unknown: « En cours… »).
+   * (0.6.254) In a series, which try first: « 1 SUR 3 · 46 % », « 1 SUR 3 ».
+   */
+  function goLabel(percent = null) {
+    const series = working?.series,
+      done = percent === null ? '' : `${percent} %`;
+    if (!series) return done || 'En cours…';
+    return [`${series.at} SUR ${series.total}`, done].filter(Boolean).join(' · ');
+  }
   function progress() {
     if (!working) return;
     if (working.preview) seenPreview = working.preview;
@@ -4230,7 +4333,7 @@ export function setupStudio({
       go.style.setProperty('--studio-progress', known ? String(percent / 100) : '0');
       const label = go.querySelector('.studio-go-label');
       // (0.6.253, A10 « En cours ») « 46 % » alone in the bar that fills (« En cours · 46 % » before).
-      if (label) label.textContent = known ? `${percent} %` : 'En cours…';
+      if (label) label.textContent = goLabel(percent);
       go.setAttribute('aria-valuenow', known ? String(percent) : '');
       go.title = workTip();
     }
@@ -5157,6 +5260,8 @@ export function setupStudio({
     const seen = globalThis.document?.body?.dataset?.view === 'studio';
     if (ended?.record) {
       runsStale = true;
+      // (0.6.254) A take made in the Chat: the Studio makes one again.
+      tries = 1;
       if (seen) return void showMade(ended.record);
     } else if (ended?.type === 'failed' && seen) failure = ended.message || 'La génération a échoué.';
     render();
@@ -6071,9 +6176,11 @@ export function setupStudio({
     release();
   }
   function setMode(next) {
+    // (0.6.254) Another page of the Studio: one try again.
+    if (next !== mode) tries = 1;
     mode = next;
     failure = '';
-    formatsOpen = addOpen = false;
+    formatsOpen = addOpen = triesOpen = false;
     pieceOpen = null;
     if (next !== 'video') extending = null;
     // Back in Vidéo while a proposal of Moodix AI waits there: the clip it continues is its own, not
@@ -6338,7 +6445,7 @@ export function setupStudio({
     } else bar.append(node('div', 'output-actions is-empty'));
     // (0.6.253) Greyed, it still answers (greyable): its reason in its bubble, and what lacks lights up (pressGo).
     const go = aiTarget(greyable(button('primary studio-go', '', () => pressGo(go), 'go')), 'generate'),
-      label = node('span', 'studio-go-label', working ? 'En cours…' : refilming() ? 'Changer la caméra' : extending ? 'Générer la suite' : 'Générer'),
+      label = node('span', 'studio-go-label', working ? goLabel() : refilming() ? 'Changer la caméra' : extending ? 'Générer la suite' : 'Générer'),
       fill = node('span', 'studio-go-bar');
     goButton = go;
     fill.setAttribute('aria-hidden', 'true');
@@ -6413,7 +6520,11 @@ export function setupStudio({
       halt.setAttribute('aria-label', 'Arrêter la génération');
       halt.title = 'Arrêter la génération';
       glass.append(go, rule, halt);
-    } else glass.append(triesButton(), rule, go);
+    } else {
+      // (0.6.254) Its list in the glass, shown above the page (a popover: never cut by the glass).
+      const tried = triesButton();
+      glass.append(tried.pick, rule, go, tried.menu);
+    }
     // Its Éclipse breathes while Moodix AI proposes: from its first setting to the user's answer.
     agent.classList?.toggle('is-thinking', Boolean(!working && (answering() || ai)));
     // (0.6.253) Pressed, it opens the chat, a creation under way or not: the chat can be opened meanwhile (0.6.81),

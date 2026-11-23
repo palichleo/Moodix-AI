@@ -223,6 +223,8 @@ async function studioPage(w, { runs = null } = {}) {
   );
   // The pointer of Moodix AI: what it says is kept in `said`.
   const said = [],
+    // (0.6.253) What the bubble of « Générer » greyed and pressed says at once.
+    tipped = [],
     classes = new Set();
   page['ai-cursor'] = {
     hidden: true,
@@ -305,6 +307,7 @@ async function studioPage(w, { runs = null } = {}) {
     viewOutput() {},
     waitForModel: async () => {},
     blocked: () => '',
+    sayTip: element => tipped.push(element.title),
     onChange() {},
     conversation: () => CONVERSATION,
     project: () => 'p1',
@@ -332,6 +335,7 @@ async function studioPage(w, { runs = null } = {}) {
     body,
     asked,
     said,
+    tipped,
     notices,
     restore: () => Object.assign(globalThis, before),
     prompt: () => body.find('studio-prompt-field')[0].children[0],
@@ -688,13 +692,14 @@ test('a reference slot has no « Description » in the editor any more, it reach
     editor.restore();
   }
   // The Studio asks for it by what it is: the image to modify (« Ajoutez l’image du personnage » before,
-  // the words of a character put in a video), the image of the start of a video.
+  // the words of a character put in a video), the image of the start of a video. (0.6.253) In the bubble of
+  // « Générer » greyed and pressed, at once, no longer on a line under it.
   const w = world([asked]),
     page = await studioPage(w);
   try {
     write(page, 'Un renard');
     assert.equal(await page.generate(), null);
-    assert.equal(page.body.find('studio-error')[0]?.textContent, 'Ajoutez l’image à modifier.');
+    assert.deepEqual([page.tipped.at(-1), page.body.find('studio-error')], ['Ajoutez l’image à modifier.', []]);
   } finally {
     page.restore();
   }
@@ -708,7 +713,7 @@ test('a reference slot has no « Description » in the editor any more, it reach
     video.mode(1);
     write(video, 'Un renard court dans la neige');
     assert.equal(await video.generate(), null);
-    assert.equal(video.body.find('studio-error')[0]?.textContent, 'Ajoutez l’image de début.');
+    assert.deepEqual([video.tipped.at(-1), video.body.find('studio-error')], ['Ajoutez l’image de début.', []]);
   } finally {
     video.restore();
   }

@@ -20321,3 +20321,39 @@ body[data-view='bobine'] .chat-panel {
     justify-self: center;
   }
 }
+/* ------------------------------------------------------------------ (0.6.254) The tries, « × 1 » to « × 4 » */
+/* Under the left part of the glass of « Générer » (A09, « Les essais, ouverts »): opaque, the × fine and grey, the
+   count in Jost, a check at the right of the one chosen. */
+#studio-view .studio-tries-menu {
+  min-width: 94px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--room-menu);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+#studio-view .studio-tries-menu .glass-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  color: var(--text-1);
+  font: 500 14.5px/1 var(--font-ui);
+}
+#studio-view .studio-tries-menu .glass-menu-item svg:first-child {
+  width: 8px;
+  height: 8px;
+  color: var(--text-3);
+}
+#studio-view .studio-tries-menu .glass-menu-item svg:last-child:not(:first-child) {
+  width: 12px;
+  height: 12px;
+  margin-left: auto;
+  padding-left: 14px;
+  box-sizing: content-box;
+  color: var(--text-2);
+}
+#studio-view .studio-tries-menu .glass-menu-item.is-on {
+  background: rgba(238, 232, 222, 0.1);
+}

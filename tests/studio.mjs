@@ -3479,6 +3479,83 @@ test('(0.6.253) « Générer » greyed still answers: pressed or its keys, its r
   }
 });
 
+test('(0.6.254) « × 3 »: three takes one after the other, the same settings and a new seed for each, « 1 SUR 3 » on « Générer »; one again on another page of the Studio; a failure ends the series', async () => {
+  const image = { id: 'w', name: 'Image', roles: {}, limits: sizes, direct: true, size: { width: 1024, height: 1024 }, settings: [], seeded: true };
+  let made = 0,
+    fails = 0;
+  const labels = [];
+  const page = await studioPage(
+    { create_image: [image], create_video: [wanStudio()] },
+    {
+      'tools/action': () => ({ requestId: 'q' + (made + 1), plan: { parameters: {} } }),
+      'tools/execute': () => {
+        // What « Générer » says while this one is made.
+        labels.push(page.body.find('studio-go-label')[0]?.textContent);
+        if (fails && made + 1 === fails) return { id: 'j', state: 'error', error: 'rien' };
+        const record = { id: 'r' + ++made, conversationId: 'c1', prompt: 'un phare', outputs: [{ originalUrl: `/r${made}.png`, take: made }] };
+        page.runs.unshift(record);
+        return { id: 'j', state: 'done', record };
+      },
+    },
+    { runs: [] },
+  );
+  const { body, asked, restore } = page;
+  const tries = () => body.find('studio-tries')[0],
+    menu = () => body.find('studio-tries-menu')[0],
+    sent = () => asked.filter(([route]) => route === 'tools/action').map(([, action]) => action.arguments),
+    choose = count => {
+      tries().onclick();
+      menu().children[count - 1].onclick();
+    };
+  try {
+    // Its list: × 1 to × 4, the one chosen checked.
+    assert.deepEqual(
+      menu().children.map(item => [item.attributes.role, item.attributes['aria-checked'], item.attributes['aria-label'], item.find('studio-tries-count')[0].textContent]),
+      [
+        ['menuitemradio', 'true', '1 essai', '1'],
+        ['menuitemradio', 'false', '2 essais', '2'],
+        ['menuitemradio', 'false', '3 essais', '3'],
+        ['menuitemradio', 'false', '4 essais', '4'],
+      ],
+    );
+    assert.equal(menu().children[0].children.at(-1).glyph, 'check');
+    choose(3);
+    assert.deepEqual([tries().attributes['aria-label'], menu().children[2].attributes['aria-checked']], ['Essais : 3', 'true']);
+    // A seed named: the first take has it, the two others one each of their own.
+    body.find('studio-more-pill')[0].onclick();
+    const seed = body.find('studio-seed')[0].children[1];
+    seed.value = '42';
+    seed.oninput();
+    page.prompt().value = 'un phare';
+    page.prompt().oninput();
+    await body.find('studio-go')[0].onclick();
+    await settle();
+    const seeds = sent().map(args => args.seed);
+    assert.deepEqual([made, sent().map(args => args.prompt), seeds[0]], [3, ['un phare', 'un phare', 'un phare'], 42]);
+    assert.ok(seeds.slice(1).every(value => Number.isSafeInteger(value) && value >= 0 && value !== 42), String(seeds));
+    assert.notEqual(seeds[1], seeds[2]);
+    assert.deepEqual(labels, ['1 SUR 3', '2 SUR 3', '3 SUR 3']);
+    // Three takes in the Sortie; the count stays for the next « Générer ».
+    assert.deepEqual([page.runs.map(record => record.id), tries().attributes['aria-label']], [['r3', 'r2', 'r1'], 'Essais : 3']);
+    // A failure: the series ends there, its reason said.
+    fails = made + 2;
+    await body.find('studio-go')[0].onclick();
+    await settle();
+    assert.deepEqual([made, sent().length, body.find('studio-error')[0]?.textContent], [4, 5, 'rien']);
+    // Another page of the Studio, and back: one try again.
+    page.mode(1);
+    assert.equal(tries().attributes['aria-label'], 'Essais : 1');
+    page.mode(0);
+    assert.equal(tries().attributes['aria-label'], 'Essais : 1');
+    // Chosen again, the same page chosen again: kept (only a visit).
+    choose(2);
+    page.mode(0);
+    assert.equal(tries().attributes['aria-label'], 'Essais : 2');
+  } finally {
+    restore();
+  }
+});
+
 test('(0.6.253) while the chat answers, « Générer » waits greyed with its reason, and comes back at its end; Moodix AI stays at hand', async () => {
   const image = { id: 'w', name: 'Image', roles: {}, limits: sizes, direct: true, size: { width: 1024, height: 1024 }, settings: [], seeded: true };
   const reason = 'Attendez la fin de la réponse en cours.';
