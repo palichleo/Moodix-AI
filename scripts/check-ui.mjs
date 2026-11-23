@@ -848,9 +848,10 @@ try {
           view.scrollHeight <= view.clientHeight + 1 &&
           // (0.6.101) The empty screen does not tell to « laisser Moodix AI régler le Studio » while it
           // does so; the label of its pointer was whole in the window all along. (0.6.200) Nor where the
-          // take comes, under the prompt it wrote.
-          view.querySelector('.studio-frame.is-empty .studio-blank-title')?.hidden === true &&
-          !view.querySelector('.studio-blank-text:not([hidden])') &&
+          // take comes, under the prompt it wrote. (0.6.253, generer-maquette.md, A00) No sentence there at all any
+          // more: the format and the size to come, alone.
+          !!view.querySelector('.studio-frame.is-empty .studio-blank-size:not([hidden])') &&
+          !view.querySelector('.studio-blank > :not(.studio-blank-size)') &&
           window.__label.seen > 0 && window.__label.left >= 0 && window.__label.right <= innerWidth;
       })()`),
     { within: 15000 },
@@ -863,6 +864,28 @@ try {
   // (Refused in the Studio, the turn ends there, without a word of the model: 16/11.)
   await run('refuser la proposition', () => click('#studio-view .studio-decline'), () =>
     js(`!document.querySelector('#studio-view .studio-explain') && !document.querySelector('#studio-view .studio-prompt-more') && !document.querySelector('#studio-view .studio-decline') && !document.getElementById('agent-open').classList.contains('is-thinking')`), { within: 3000 });
+  // (0.6.253, generer-maquette.md, A01) « Générer » greyed and pressed: its reason in its bubble at once, the prompt
+  // lit, the cursor in it; nothing is made. Moodix AI beside it, named, in a glass of its own, 8 px away.
+  await run(
+    'Générer grisé, cliqué',
+    async () => {
+      await js(`(() => { const field = document.getElementById('studio-prompt'); if (!field) return false; field.value = ''; field.dispatchEvent(new Event('input', { bubbles: true })); field.blur(); return true; })()`);
+      await wait(150);
+      return click('#studio-view .studio-go');
+    },
+    () =>
+      js(`(() => {
+        const bubble = document.getElementById('help-bubble'), go = document.querySelector('#studio-view .studio-go'),
+          glass = document.querySelector('#studio-view .studio-go-glass')?.getBoundingClientRect(),
+          agent = document.querySelector('#studio-view .studio-go-group > .studio-agent')?.getBoundingClientRect();
+        return !bubble.hidden && /^Décrivez d’abord votre (image|vidéo)\\.$/.test(bubble.textContent) && go.getAttribute('aria-disabled') === 'true' &&
+          go.getAttribute('role') !== 'progressbar' && document.activeElement?.id === 'studio-prompt' &&
+          document.querySelector('#studio-view .studio-prompt-field')?.classList.contains('is-called') &&
+          document.querySelector('#studio-view .studio-agent-word')?.textContent === 'Moodix AI' &&
+          !!glass && !!agent && Math.round(agent.left - glass.right) === 8 && Math.round(glass.height) === 46 && Math.round(agent.height) === 46;
+      })()`),
+    { within: 1500 },
+  );
   // (0.6.101) The empty screen in every format, in a window of 720 px (a frame of 9:16 is 150 px wide
   // there): no part of it out of its frame, no word wider than its line. Each frame eases to its
   // format in 0.55 s before it is measured.
@@ -900,7 +923,11 @@ try {
             continue;
           }
           const edge = frame.getBoundingClientRect();
-          if (frame.querySelector('.studio-blank-title')?.hidden !== false) wrong.push(format + ' sans titre');
+          // (0.6.253, A00) The format and the size to come, in mono, 12 px at least, no sentence.
+          const said = frame.querySelector('.studio-blank-size');
+          if (said?.hidden !== false || !said.textContent.startsWith(format + ' · ')) wrong.push(format + ' sans sa taille');
+          else if (parseFloat(getComputedStyle(said).fontSize) < 12) wrong.push(format + ' taille sous 12 px');
+          if (frame.querySelector('.studio-blank > :not(.studio-blank-size)')) wrong.push(format + ' avec une phrase');
           for (const part of frame.querySelectorAll('.studio-blank > *')) {
             if (getComputedStyle(part).display === 'none') continue;
             const box = part.getBoundingClientRect();

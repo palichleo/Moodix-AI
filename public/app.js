@@ -5086,6 +5086,8 @@ const studioUI = setupStudio({
   openStudio: () => showStudio(),
   // A take of its Chat being made (0.6.96): in the Studio of that conversation, its screen and its settings.
   making: () => (state.work?.take && shownHere(state.work.conversationId) ? state.work.take : null),
+  // (0.6.253) « Générer » greyed and pressed: its bubble at once.
+  sayTip: element => helpTips.show(element),
 });
 state.studio = studioUI;
 const generationUI = setupGenerationUI({

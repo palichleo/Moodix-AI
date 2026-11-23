@@ -20089,3 +20089,235 @@ body[data-view='bobine'] .chat-panel {
     transition: none;
   }
 }
+
+/* ------------------------------------------------------------------ (0.6.253) Générer and Moodix AI, two buttons */
+/* generer-maquette.md, decided on 23/11: [« × 1 ⌄ » | « ▶ Générer »] in one glass, then [« ◐ Moodix AI »], 8 px
+   apart, centred under the screen (no longer the Double verre). Sober: no glow; the ▶ small and full in the accent. */
+#studio-view .studio-go-group:not(.is-checking) {
+  gap: 8px;
+  height: auto;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+#studio-view .studio-go-glass,
+#studio-view .studio-go-group:not(.is-checking) > .studio-agent {
+  position: relative;
+  box-sizing: border-box;
+  height: 46px;
+  border-radius: 10px;
+  background: rgba(238, 232, 222, 0.09);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+#studio-view .studio-go-glass {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+}
+/* Its edge over what lights inside it (a half hovered): 1 px of ivory at 24 %. */
+#studio-view .studio-go-glass::after,
+#studio-view .studio-go-group:not(.is-checking) > .studio-agent::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgba(238, 232, 222, 0.24);
+  pointer-events: none;
+}
+#studio-view .studio-go-glass .studio-tries {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0 10px 0 15px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-1);
+  font: 500 14.5px/1 var(--font-ui);
+  cursor: pointer;
+}
+#studio-view .studio-tries svg:first-child {
+  width: 8px;
+  height: 8px;
+  color: var(--text-3);
+}
+#studio-view .studio-tries svg:last-child {
+  width: 11px;
+  height: 11px;
+  margin-left: 2px;
+  color: var(--text-4);
+}
+#studio-view .studio-go-glass .studio-go-rule {
+  width: 1px;
+  height: 20px;
+  background: rgba(238, 232, 222, 0.16);
+}
+#studio-view .studio-go-group:not(.is-checking) .studio-go-glass .studio-go {
+  min-width: 140px;
+  height: 100%;
+  padding: 0 22px 0 18px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-1);
+  font: 500 15px/1 var(--font-ui);
+  gap: 10px;
+  cursor: pointer;
+}
+#studio-view .studio-go-glass .studio-go svg {
+  width: 10px;
+  height: 10px;
+  color: var(--accent);
+}
+/* Only the half under the pointer lights up. */
+#studio-view .studio-go-glass :is(.studio-tries, .studio-go, .studio-stop):is(:hover, :focus-visible) {
+  background: rgba(238, 232, 222, 0.08);
+}
+#studio-view .studio-go-glass :is(.studio-tries, .studio-go, .studio-stop):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -3px;
+}
+/* Greyed, it still answers (studio.mjs, greyable): its reason in its bubble, what lacks lit. */
+#studio-view .studio-go-glass .studio-go[aria-disabled='true']:not([role='progressbar']) :is(.studio-go-label, svg) {
+  color: rgba(238, 232, 222, 0.45);
+}
+#studio-view .studio-go-glass .studio-go[aria-disabled='true']:not([role='progressbar']) svg {
+  color: var(--text-3);
+  opacity: 0.5;
+}
+#studio-view .studio-go-glass .studio-go[aria-disabled='true']:not([role='progressbar']):hover {
+  background: transparent;
+  cursor: default;
+}
+/* Under way, the glass of « Générer » is the bar that fills (206 px), « 46 % » in mono, « Arrêter » at its right. */
+#studio-view .studio-go-glass.is-working {
+  width: 206px;
+}
+#studio-view .studio-go-group:not(.is-checking) .studio-go-glass.is-working .studio-go {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  cursor: default;
+}
+#studio-view .studio-go-glass.is-working .studio-go:hover {
+  background: transparent;
+}
+#studio-view .studio-go-group .studio-go-glass .studio-go[role='progressbar'] .studio-go-label {
+  font: 500 12.5px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: none;
+}
+#studio-view .studio-go-group .studio-go-glass .studio-go-bar {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 16%, transparent),
+    color-mix(in srgb, var(--accent) 30%, transparent)
+  );
+}
+#studio-view .studio-go-glass.is-working .studio-go-rule {
+  height: 22px;
+  background: rgba(238, 232, 222, 0.2);
+}
+#studio-view .studio-go-group:not(.is-checking) .studio-go-glass .studio-stop {
+  flex: none;
+  width: 54px;
+  height: 100%;
+}
+#studio-view .studio-go-glass .studio-stop svg {
+  width: 15px;
+  height: 15px;
+}
+/* Moodix AI: always named, its Éclipse of 21 px, 10 px, « Moodix AI » in Jost 14.5. */
+#studio-view .studio-go-group:not(.is-checking) > .studio-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: auto;
+  padding: 0 18px 0 15px;
+  border: 0;
+  color: var(--text-1);
+  font: 500 14.5px/1 var(--font-ui);
+}
+#studio-view .studio-go-group:not(.is-checking) > .studio-agent:is(:hover, :focus-visible) {
+  background: rgba(238, 232, 222, 0.14);
+}
+#studio-view .studio-go-group .studio-agent :is(svg, .eclipse) {
+  flex: none;
+  width: 21px;
+  height: 21px;
+}
+#studio-view .studio-go-group .studio-agent-word {
+  display: inline;
+  white-space: nowrap;
+}
+/* Its Éclipse legible: the ring at 70 % and 2 units of 32 (1.3 px at 21 px), as in the top bar since the 18/11:
+   at 22 % it went, and the Éclipse looked like a loading. */
+#studio-view .studio-go-group .studio-agent .eclipse-ring {
+  stroke-opacity: 0.7;
+  stroke-width: 1.3px;
+}
+/* Moodix AI writes: a light runs along its foot, in the accent. */
+#studio-view .studio-go-group .studio-agent-light {
+  left: 10px;
+  right: 10px;
+  height: 1.5px;
+  border-radius: 2px;
+}
+#studio-view .studio-go-group .studio-agent-light::after {
+  width: 40%;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+}
+/* Its proposal: « Refuser » at the left of the two buttons, Moodix AI tinted with the accent (16 %). */
+#studio-view .studio-go-group.is-proposal > .studio-agent {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+/* What « Générer » greyed and pressed lights: the prompt, an accent ring that pulses twice, the cursor in it; or
+   the case of the image that is missing. */
+#studio-view .studio-prompt-field.is-called,
+#studio-view .studio-slot.is-called .studio-slot-pick {
+  animation: studio-called 0.7s ease-in-out 2;
+}
+@keyframes studio-called {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 70%, transparent),
+      0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 70%, transparent),
+      0 0 0 5px color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #studio-view .studio-prompt-field.is-called,
+  #studio-view .studio-slot.is-called .studio-slot-pick {
+    animation: none;
+    box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 70%, transparent);
+  }
+}
+/* The empty screen: the format and the size alone, in mono, in the middle (A00). */
+#studio-view .studio-blank-size {
+  margin: 0;
+  color: var(--text-4);
+  font: 400 12px/1.4 var(--font-mono);
+  letter-spacing: 0.12em;
+}
+/* Where the screen is narrow (a window of 1280 px), the actions of the take still in the bar: the two buttons
+   centred in the room at their right, no longer over them (« × 1 » made them wider). */
+@media (max-width: 1399px) {
+  #studio-view .studio-actionbar:has(> .output-actions > .output-action) {
+    grid-template-columns: auto minmax(0, 1fr) 0;
+  }
+  #studio-view .studio-actionbar:has(> .output-actions > .output-action) > .studio-go-group {
+    justify-self: center;
+  }
+}

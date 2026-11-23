@@ -159,12 +159,42 @@ function missingInput(workflow, role, spec) {
  * keys), request() says it.
  */
 function inputMissing(workflow, inputs, extending) {
+  const role = missingRole(workflow, inputs, extending);
+  return role ? missingInput(workflow, role, workflow.roles[role]) : '';
+}
+/** (0.6.253) The role of that input: its case lights up when « Générer » greyed is pressed. */
+function missingRole(workflow, inputs, extending) {
   for (const [role, spec] of Object.entries(workflow?.roles ?? {})) {
     if (extending && role === 'source') continue;
-    if (spec.required && spec.count && !(inputs[role] ?? []).some(item => item?.source))
-      return missingInput(workflow, role, spec);
+    if (spec.required && spec.count && !(inputs[role] ?? []).some(item => item?.source)) return role;
   }
   return '';
+}
+/**
+ * (0.6.253, generer-maquette.md) What the bubble of « Générer » says without a prompt: what to describe first,
+ * by the page (« Écrivez un prompt pour générer » before).
+ */
+const BLANK_WHY = {
+  image: 'Décrivez d’abord votre image.',
+  video: 'Décrivez d’abord votre vidéo.',
+  audio: 'Décrivez d’abord votre son.',
+};
+/**
+ * (0.6.253) A button greyed that still answers: its `disabled` is its own, said by `aria-disabled`, so the
+ * browser still gives it the clicks, the focus and the keys (a disabled button said nothing without a hover).
+ */
+function greyable(control) {
+  let off = false;
+  Object.defineProperty(control, 'disabled', {
+    configurable: true,
+    get: () => off,
+    set: value => {
+      off = Boolean(value);
+      if (off) control.setAttribute('aria-disabled', 'true');
+      else control.removeAttribute('aria-disabled');
+    },
+  });
+  return control;
 }
 // What the values of a setting on a bar do, said under it (measured on Krea 2, 17/11).
 const BAR_HELP = { denoise: '0,6 garde la composition et change l’ambiance ; 0,7 laisse la composition changer.' };
@@ -439,6 +469,8 @@ export function setupStudio({
   // The take of the Chat being made in the conversation shown (0.6.96): { request, running, label,
   // fraction, preview, ended }, or null. Its other view, the Studio follows it (watch).
   making = () => null,
+  // (0.6.253) Shows at once the bubble of a control (public/help-tips.mjs): « Générer » greyed and pressed says why.
+  sayTip = () => {},
 }) {
   const $ = id => document.getElementById(id);
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms * pace));
@@ -472,7 +504,7 @@ export function setupStudio({
     laidOut = false, // the stage was in sight at the last look: its screen eases to a new shape
     live = null, // { frame, preview } : the picture so far, in the frame now on the page
     flux = null, // { frame, flux }: the Flux of the take being made, in the frame now on the page
-    blankLines = null, // (0.6.200) { title, text }: the words of the empty screen now on the page (sayBlank)
+    blankLines = null, // (0.6.253) { size }: the format and the size in the middle of the empty screen (sayBlank)
     proposal = null, // a proposal of Moodix AI waiting for « Générer »
     checking = null, // { record, resolve }: the character Moodix AI made, waiting for the user
     ai = null, // { stopped, active, touched } while the pointer sets the Studio
@@ -635,18 +667,21 @@ export function setupStudio({
   // « Agent », left of « Générer » (moodix-design.md 15 bis): the chat of Moodix AI opens from it as
   // it did from the band at the foot. Made once and moved from one drawing to the next: the move
   // between the chat and the Studio folds the chat into it (view transition, moodix.css).
+  // (0.6.253, generer-maquette.md, decided on 23/11) A button of its own, 8 px right of « Générer »: no longer the
+  // half of a Double verre. Always named, its Éclipse and « Moodix AI » (« Agent » before, hidden by the CSS), and
+  // « Demander à Moodix AI » under the pointer. It still opens the chat.
+  const AGENT_TIP = 'Demander à Moodix AI';
   const agent = button('studio-agent', '', () => openAgent(), mark ? null : 'eclipse');
   if (mark) agent.append(mark());
   agent.id = 'agent-open';
-  agent.title = 'Moodix AI · ouvrir le chat';
-  agent.setAttribute('aria-label', 'Moodix AI · ouvrir le chat');
+  agent.title = AGENT_TIP;
+  agent.setAttribute('aria-label', AGENT_TIP);
   agent.setAttribute('aria-controls', 'chat-panel');
-  // Its word leaves when the bar is just too narrow for one line (moodix.css): its name stays. No
-  // colour along its foot (moodix-design.md 7 bis 22: the colour goes to Générer); a light runs
-  // there while Moodix AI writes with the chat folded.
+  // No colour along its foot (moodix-design.md 7 bis 22: the colour goes to Générer); a light runs there while
+  // Moodix AI writes with the chat folded.
   const light = node('span', 'studio-agent-light');
   light.setAttribute('aria-hidden', 'true');
-  agent.append(node('span', 'studio-agent-word', 'Agent'), light);
+  agent.append(node('span', 'studio-agent-word', 'Moodix AI'), light);
   // The actions of the take on the screen, at the left of the bar (studio-maquette.md): the same
   // icons and the same help as in the conversation (output-actions.mjs), without « Ouvrir ».
   const takeActions = outputActions({
@@ -3098,6 +3133,8 @@ export function setupStudio({
   function readout() {
     const text = document.querySelector?.('.studio-readout');
     if (text) text.textContent = readoutText();
+    // (0.6.253) The format and the size in the middle of the empty screen follow too.
+    sayBlank();
     paintSave();
   }
   /** (0.6.200) Whether an image, a clip or a sound is put in a case of the model in hand. */
@@ -3114,12 +3151,21 @@ export function setupStudio({
    */
   function sayBlank() {
     if (!blankLines) return;
-    const taken = runs.some(record => record.outputs?.length),
-      begun = mode === 'audio' || Boolean(drafts[mode].prompt.trim() || failure || extending) || inputGiven();
-    // (0.6.198) « première » only in a project without takes: above those of the Sortie, the next one.
-    blankLines.title.textContent = taken ? 'Votre prochaine prise apparaîtra ici.' : 'Votre première prise apparaîtra ici.';
-    blankLines.title.hidden = begun;
-    blankLines.text.hidden = begun || taken || Boolean(ai || answering());
+    // (0.6.253, A00) « 1:1 · 1024 × 1024 »: the format and the size of what will be made, a prompt written or not.
+    // A sound has neither (its bars are the screen); a model that sets its own size, its format alone. Not over a
+    // clip continued or refilmed (its banner says what is made, its size is the clip's), nor under an error.
+    if (extending || refilming() || failure) {
+      blankLines.size.textContent = '';
+      blankLines.size.hidden = true;
+      return;
+    }
+    // The size the bar « Résolution » shows: the one of the draft, which the form sets (sizing) before the screen.
+    const workflow = current(),
+      chosen = mode !== 'audio' && workflow?.limits && /^\d+x\d+$/.test(drafts[mode].size ?? '') ? drafts[mode].size : '',
+      size = chosen ? chosen.replace('x', ' × ') : '',
+      shape = mode === 'audio' ? null : shapeOf();
+    blankLines.size.textContent = [shape?.label, size].filter(Boolean).join(' · ');
+    blankLines.size.hidden = !blankLines.size.textContent;
   }
   /** The room the frame has: its stage, less a margin; a default before the stage is laid out. */
   function room(frame) {
@@ -3207,24 +3253,13 @@ export function setupStudio({
     } else if (last) {
       frame.append(result(last));
     } else if (!working) {
-      // Nothing made in this mode yet (etats-maquette.md, 55): the Éclipse small, where the first take
-      // will come, how to begin. (0.6.200) Their words only while nothing is begun (sayBlank); never the
-      // format and its size under them, which Format and Résolution say at the right.
-      const blank = node('div', 'studio-blank'),
-        sign = mark?.();
-      if (sign) {
-        sign.classList?.add('studio-blank-mark');
-        blank.append(sign);
-      }
-      blankLines = {
-        title: node('p', 'studio-blank-title'),
-        text: node(
-          'p',
-          'studio-blank-text',
-          'Écrivez un prompt à gauche, ou laissez Moodix AI régler le Studio avec la moitié droite du bouton.',
-        ),
-      };
-      blank.append(blankLines.title, blankLines.text);
+      // Nothing made in this mode yet (etats-maquette.md, 55). (0.6.253, generer-maquette.md, A00) No sentence of
+      // help any more, nor the Éclipse: the format and the size of what will be made, in mono, in the middle
+      // (sayBlank). A sound keeps its bars.
+      const blank = node('div', 'studio-blank');
+      blankLines = { size: node('p', 'studio-blank-size') };
+      blankLines.size.setAttribute('aria-hidden', 'true');
+      blank.append(blankLines.size);
       sayBlank();
       frame.append(blank);
     } else frame.setAttribute('aria-hidden', 'true');
@@ -3519,12 +3554,83 @@ export function setupStudio({
     // again and its tooltip said « Générer » (its click was refused all the same).
     if (!go || working || enriching || answering() || checking || current()?.unavailable || gpuBlocked() || elsewhere())
       return;
+    // (0.6.253) Nor while the chat answers: greyed by the form with that reason (`chatBusy`).
+    if (!ai && blocked()) return;
     const blank = !drafts[mode].prompt.trim() && !refilming(),
       // (0.6.188) Nor lit by the prompt alone while an input its model cannot do without is missing.
       missing = blank ? '' : inputMissing(current(), drafts[mode].inputs, extending);
     go.disabled = blank || Boolean(missing);
     go.classList.toggle('is-blank', blank);
-    go.title = blank ? 'Écrivez un prompt pour générer' : missing || `Générer (${MODIFIER}+Entrée)`;
+    go.title = blank ? blankWhy() : missing || `Générer (${MODIFIER}+Entrée)`;
+  }
+  /** (0.6.253) What « Générer » says without a prompt: what to describe first (the continuation, in Vidéo). */
+  // A character put in a video: its wand writes the prompt, as request() says it.
+  const blankWhy = () =>
+    current()?.follows
+      ? 'Écrivez un prompt, ou cliquez sur la baguette : il sera écrit d’après la vidéo et le personnage.'
+      : extending && mode === 'video'
+        ? 'Décrivez d’abord la suite.'
+        : BLANK_WHY[mode];
+  /**
+   * (0.6.253) Why « Générer » is greyed now, and what lacks for it: the prompt, or the case of an input
+   * (`start_image`…), lit when it is pressed. In the order the form says it (`form`): the model that cannot run
+   * here, a creation of another conversation, a camera the model does not make, an input missing, the prompt.
+   */
+  function greyedWhy() {
+    const workflow = current(),
+      draft = drafts[mode];
+    // A take made, the card held: « Générer » is the bar of the work, or « Libérer la carte »; generate() answers.
+    if (!workflow || working || gpuBlocked()) return null;
+    if (workflow.unavailable) return { text: workflow.unavailable };
+    // A proposal of Moodix AI, the character it made: answered here, whatever the prompt.
+    const free = !answering() && !checking,
+      busy = free ? elsewhere() : '';
+    if (busy) return { text: busy };
+    if (enriching) return { text: 'Moodix AI enrichit votre texte…' };
+    const chat = free && !ai ? blocked() : '';
+    if (chat) return { text: chat };
+    if (refilming()) {
+      const held = refilmRefusal(workflow);
+      if (held) return { text: held };
+    }
+    if (!free) return null;
+    if (!draft.prompt.trim() && !refilming()) return { text: blankWhy(), light: 'prompt' };
+    const role = missingRole(workflow, draft.inputs, extending);
+    return role ? { text: inputMissing(workflow, draft.inputs, extending), light: role } : null;
+  }
+  let called = null, // (0.6.253) { element, timer }: what was lit by a press on « Générer » greyed
+    goButton = null; // (0.6.253) « Générer » as form() last drew it: its keys press it
+  /**
+   * (0.6.253, generer-maquette.md, « Générer grisé, cliqué ») A press on « Générer » greyed, or its keys: its
+   * reason in its bubble, and what lacks lights up, the prompt with the cursor in it (an accent ring that pulses
+   * twice, moodix.css), or the case of the image that is missing. Nothing is made. Lit, it generates. What greys it
+   * is read from the Studio (greyedWhy), as form() greys it: not from the button, which may be of a drawing before.
+   */
+  function pressGo(go = goButton) {
+    const why = away() ? null : greyedWhy();
+    if (!why) return generate();
+    if (!go) return;
+    go.title = why.text;
+    if (called) {
+      clearTimeout(called.timer);
+      called.element.classList?.remove?.('is-called');
+    }
+    const target =
+      why.light === 'prompt'
+        ? document.querySelector?.('#studio-view .studio-prompt-field')
+        : why.light
+          ? document.querySelector?.(`#studio-view .studio-slot[data-slot="${why.light}-0"]`)
+          : null;
+    if (target) {
+      // Taken away first, so that a second press pulses again.
+      target.classList?.remove?.('is-called');
+      void target.offsetWidth;
+      target.classList?.add?.('is-called');
+      called = { element: target, timer: setTimeout(() => target.classList?.remove?.('is-called'), 1600) };
+      if (why.light === 'prompt') document.querySelector?.('#studio-prompt')?.focus?.();
+    }
+    // After the focus, which shows the bubble of the prompt; after the title is taken by the bubbles too.
+    queueMicrotask(() => sayTip(go));
   }
   function improvable() {
     const go = document.querySelector?.('#studio-view .studio-enrich-go');
@@ -3685,6 +3791,18 @@ export function setupStudio({
     }
     row.append(make);
     return row;
+  }
+
+  // ------------------------------------------------------------------ the tries (« × 1 »)
+  let tries = 1; // (0.6.253) how many takes « Générer » makes at once, 1 to 4 (generer-maquette.md)
+  /** (0.6.253) « × 1 ⌄ », at the left of the glass of « Générer »: a fine grey ×, the count in Jost, its arrow. */
+  function triesButton() {
+    const pick = node('button', 'studio-tries');
+    pick.type = 'button';
+    pick.append(icon('tries-x'), node('span', 'studio-tries-count', String(tries)), icon('tries-down'));
+    pick.title = 'Essais : combien en faire d’un coup';
+    pick.setAttribute('aria-label', `Essais : ${tries}`);
+    return pick;
   }
 
   // ------------------------------------------------------------------ generation
@@ -4111,7 +4229,8 @@ export function setupStudio({
       go.classList.toggle('is-indeterminate', !known);
       go.style.setProperty('--studio-progress', known ? String(percent / 100) : '0');
       const label = go.querySelector('.studio-go-label');
-      if (label) label.textContent = known ? `En cours · ${percent} %` : 'En cours…';
+      // (0.6.253, A10 « En cours ») « 46 % » alone in the bar that fills (« En cours · 46 % » before).
+      if (label) label.textContent = known ? `${percent} %` : 'En cours…';
       go.setAttribute('aria-valuenow', known ? String(percent) : '');
       go.title = workTip();
     }
@@ -5066,7 +5185,10 @@ export function setupStudio({
     // (0.6.175) The Bobine greys « Créer » by the same works: it is told too, wherever the Studio is.
     montage.busyChanged();
     if (away() || !info || !$('studio-body')) return;
-    const now = !working && !(gpuBlocked() && !working) && !answering() && !checking ? elsewhere() : '';
+    const free = !working && !(gpuBlocked() && !working) && !answering() && !checking,
+      elsewhereNow = free ? elsewhere() : '',
+      // (0.6.253) The chat that answers greys « Générer » too (form, `chatBusy`).
+      now = elsewhereNow + '|' + (free && !ai && !elsewhereNow ? blocked() : '');
     if (now !== busyDrawn) render();
   }
   /** A generation approved here, run by the chat turn: its progress comes from there, with its time. */
@@ -6158,6 +6280,8 @@ export function setupStudio({
       // A work goes on in another conversation (0.6.81): nothing is made here until its end, said
       // on the line of the step (a proposal of Moodix AI answered here is this conversation's own).
       busyElsewhere = !working && !heldGpu && !answering() && !checking ? elsewhere() : '',
+      // (0.6.253) The chat answers (or an operation of the page goes on): « Générer » waits, greyed (A10).
+      chatBusy = !working && !heldGpu && !answering() && !checking && !ai && !busyElsewhere ? blocked() : '',
       step = node(
         'p',
         'studio-progress' + (heldGpu ? ' is-alert' : ''),
@@ -6172,7 +6296,7 @@ export function setupStudio({
       // What Moodix AI understood, while its pointer sets the Studio and while its proposal waits
       // (0.6.95, studio-explain.mjs): in the place of « Moodix AI règle le Studio », its words.
       explain = (answering() || ai) && proposal?.explain ? proposal.explain : null;
-    busyDrawn = busyElsewhere;
+    busyDrawn = busyElsewhere + '|' + chatBusy;
     // The line of a proposal answered, or replaced, is let go (it watched its width).
     if (explaining && explaining !== proposal?.explain) explaining.dispose();
     explaining = proposal?.explain ?? null;
@@ -6212,19 +6336,23 @@ export function setupStudio({
       if (row.inert) row.classList.add('is-held');
       bar.append(row);
     } else bar.append(node('div', 'output-actions is-empty'));
-    const go = aiTarget(button('primary studio-go', '', generate, 'play'), 'generate'),
+    // (0.6.253) Greyed, it still answers (greyable): its reason in its bubble, and what lacks lights up (pressGo).
+    const go = aiTarget(greyable(button('primary studio-go', '', () => pressGo(go), 'go')), 'generate'),
       label = node('span', 'studio-go-label', working ? 'En cours…' : refilming() ? 'Changer la caméra' : extending ? 'Générer la suite' : 'Générer'),
       fill = node('span', 'studio-go-bar');
+    goButton = go;
     fill.setAttribute('aria-hidden', 'true');
     // The triangle and its word, centred (moodix-design.md 7 bis 22); the keys are in its tooltip.
     // While the creation is made, « Génération · 42 % » alone, over the bar that fills the button.
     go.append(label, fill);
     go.title = (answering() ? 'Générer la proposition de Moodix AI' : 'Générer') + ` (${MODIFIER}+Entrée)`;
-    // Nothing to make without a prompt (55): greyed, said in its tooltip; the half Agent stays.
+    // Nothing to make without a prompt (55): greyed, said in its tooltip; Moodix AI stays.
     const blank = !draft.prompt.trim() && !answering() && !checking && !refilming();
-    go.disabled = enriching || Boolean(working) || Boolean(workflow.unavailable) || blank || Boolean(busyElsewhere);
+    // (0.6.253, A10 « Moodix AI écrit ») Nor while the chat answers (`blocked`, which generate refuses): « Générer »
+    // waits, greyed, and says why. Not under a proposal it waits on, which is answered here.
+    go.disabled = enriching || Boolean(working) || Boolean(workflow.unavailable) || blank || Boolean(busyElsewhere) || Boolean(chatBusy);
     if (blank && !working) {
-      go.title = 'Écrivez un prompt pour générer';
+      go.title = blankWhy();
       go.classList.add('is-blank');
     }
     // (0.6.188, capture 96) Nor without an input its model cannot do without (the start image of Wan 2.2, the video
@@ -6259,6 +6387,10 @@ export function setupStudio({
       go.title = busyElsewhere;
       go.classList.add('is-unavailable');
     }
+    if (chatBusy && !workflow.unavailable) {
+      go.title = chatBusy;
+      go.classList.add('is-unavailable');
+    }
     // A take of the Chat of this conversation, followed here (watch, 0.6.96): one creation at a time.
     // (0.6.200) Any other take made: the words of the line of its step and its time, which progress() puts
     // in its bubble at the end of each drawing (workTip).
@@ -6269,21 +6401,24 @@ export function setupStudio({
       go.setAttribute('aria-valuemax', '100');
       go.setAttribute('aria-label', 'Génération en cours');
     }
-    // The Double verre (studio-maquette.md): « ▶ Générer » | the Agent; « Arrêter » in place of the
-    // Agent while a take is made.
+    // (0.6.253, generer-maquette.md, decided on 23/11) Two buttons, 8 px apart, centred: [« × 1 ⌄ » | « ▶ Générer »],
+    // one glass, then [« ◐ Moodix AI »] (the Double verre « ▶ Générer » | the Éclipse before). While a take is made,
+    // the glass of « Générer » is the bar that fills, « Arrêter » in it at its right, after a rule; Moodix AI stays.
     const group = node('div', 'studio-go-group'),
+      glass = node('div', 'studio-go-glass' + (working ? ' is-working' : '')),
       rule = node('span', 'studio-go-rule');
     rule.setAttribute('aria-hidden', 'true');
     if (working) {
       const halt = button('studio-stop', '', stop, 'stop');
       halt.setAttribute('aria-label', 'Arrêter la génération');
       halt.title = 'Arrêter la génération';
-      group.append(go, rule, halt);
-    } else {
-      // Its Éclipse breathes while Moodix AI proposes: from its first setting to the user's answer.
-      agent.classList?.toggle('is-thinking', Boolean(answering() || ai));
-      group.append(go, rule, agent);
-    }
+      glass.append(go, rule, halt);
+    } else glass.append(triesButton(), rule, go);
+    // Its Éclipse breathes while Moodix AI proposes: from its first setting to the user's answer.
+    agent.classList?.toggle('is-thinking', Boolean(!working && (answering() || ai)));
+    // (0.6.253) Pressed, it opens the chat, a creation under way or not: the chat can be opened meanwhile (0.6.81),
+    // where the take is followed too. So it stays lit (the maquette grey it at 45 %: said in the report).
+    group.append(glass, agent);
     // The character Moodix AI made, on the screen: kept, made again, or everything stopped.
     if (checking && mode === 'image' && !working) {
       // The question on a line of its own above its three answers: on one line with them, « OK »
@@ -7079,7 +7214,8 @@ export function setupStudio({
     if (event.target?.id === 'prompt') return;
     if (event.key === 'Enter') {
       event.preventDefault();
-      void generate();
+      // (0.6.253) « Générer » greyed: its keys say why and light what lacks, as a press on it does.
+      void pressGo();
     } else if (String(event.key).toLowerCase() === 'e' && !event.shiftKey && mode !== 'audio' && info?.enabled) {
       // « Enrichir le prompt » (moodix-design.md 17): Ctrl+E, ⌘+E on a Mac.
       event.preventDefault();

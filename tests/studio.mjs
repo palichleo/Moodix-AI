@@ -271,11 +271,12 @@ test('a character replaced in a video: its model among the videos, a video and a
     assert.equal(wand().title, 'Ajoutez d’abord la vidéo et le personnage');
     await wand().onclick();
     assert.equal(enriched().length, 0);
-    // What the model cannot do without is asked for in plain words, nothing is sent.
+    // What the model cannot do without is asked for in plain words, nothing is sent. (0.6.253) In the bubble of
+    // « Générer » greyed and pressed (generer-maquette.md), no longer on a line under it.
     page.prompt().value = 'Une femme en haut blanc mange une pomme dans un verger.';
     page.prompt().oninput();
     await generate();
-    assert.match(body.find('studio-error')[0].textContent, /Ajoutez la vidéo à suivre/);
+    assert.match(page.said.at(-1), /Ajoutez la vidéo à suivre/);
     assert.equal(sent().length, 0);
     // An image is not a video: the slot says so and stays empty.
     await drop(0, { name: 'photo.png', type: 'image/png' });
@@ -285,7 +286,7 @@ test('a character replaced in a video: its model among the videos, a video and a
     // Kept as a reference of the project of the conversation (Conversations here).
     assert.equal(importedInto.at(-1), 'inbox');
     await generate();
-    assert.match(body.find('studio-error')[0].textContent, /Ajoutez l’image du personnage/);
+    assert.match(page.said.at(-1), /Ajoutez l’image du personnage/);
     await drop(1, { name: 'clip.mp4', type: 'video/mp4' });
     assert.match(notices.at(-1), /attend une image/);
     await drop(1, { name: 'perso.png', type: 'image/png' });
@@ -334,7 +335,8 @@ test('a character replaced in a video: its model among the videos, a video and a
     assert.equal(wand().disabled, false);
     assert.match(wand().title, /^Écrire le prompt d’après la vidéo et le personnage/);
     await generate();
-    assert.match(body.find('studio-error')[0].textContent, /cliquez sur la baguette/);
+    // (0.6.253) In the bubble of « Générer » greyed and pressed, no longer on a line under it.
+    assert.match(page.said.at(-1), /cliquez sur la baguette/);
     await wand().onclick();
     await settle();
     assert.deepEqual(enriched().at(-1)[1], {
@@ -1080,7 +1082,8 @@ async function studioPage(tools, routes = {}, options = {}) {
   const { setupStudio } = await import('../public/studio.mjs');
   const asked = [],
     notices = [],
-    revealed = [];
+    revealed = [],
+    said = [];
   let imported = 0;
   const runs = options.runs ?? [];
   const studio = setupStudio({
@@ -1135,6 +1138,8 @@ async function studioPage(tools, routes = {}, options = {}) {
     ...(options.run ? { run: options.run } : {}),
     ...(options.openAgent ? { openAgent: options.openAgent } : {}),
     ...(options.openStudio ? { openStudio: options.openStudio } : {}),
+    // (0.6.253) The bubble shown at once by « Générer » greyed and pressed: what it says then.
+    sayTip: element => said.push(element.title),
     // What else a test gives it (0.6.81: onWork, elsewhere, nameOf).
     ...(options.extra ?? {}),
   });
@@ -1146,6 +1151,7 @@ async function studioPage(tools, routes = {}, options = {}) {
     asked,
     notices,
     revealed,
+    said,
     pageKeys,
     pagePointers,
     runs,
@@ -2984,7 +2990,7 @@ test('a model this computer cannot run is greyed in the list with its reason, an
     // « Générer » waits for a prompt only (55), not for the model greyed in the list.
     assert.deepEqual(
       [studio.body.find('studio-go')[0].disabled, studio.body.find('studio-go')[0].title],
-      [true, 'Écrivez un prompt pour générer'],
+      [true, 'Décrivez d’abord votre image.'],
     );
     studio.prompt().value = 'un phare';
     studio.prompt().oninput();
@@ -3008,7 +3014,8 @@ test('a model this computer cannot run is greyed in the list with its reason, an
     await go.onclick();
     await settle();
     assert.equal(started(studio.asked), 0);
-    assert.equal(studio.notices.at(-1), reason);
+    // (0.6.253) In the bubble of « Générer » greyed, at once, as generer-maquette.md has it (a notice before).
+    assert.equal(studio.said.at(-1), reason);
   } finally {
     studio.restore();
   }
@@ -3085,7 +3092,7 @@ test('« Générer » is greyed while an input its model cannot do without is mi
     { 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }) },
     { querySelector: laidOutGo },
   );
-  const { body, asked, restore } = page;
+  const { body, asked, said, restore } = page;
   const go = () => body.find('studio-go')[0],
     shown = () => [go().disabled, go().title],
     ready = /^Générer \((Ctrl|⌘)\+Entrée\)$/,
@@ -3101,8 +3108,9 @@ test('« Générer » is greyed while an input its model cannot do without is mi
   try {
     page.mode(1);
     assert.equal(body.find('studio-model-pick')[0].value, 'wan');
-    // Nothing typed: the prompt is asked for first, as request() asks for it (55).
-    assert.deepEqual(shown(), [true, 'Écrivez un prompt pour générer']);
+    // Nothing typed: the prompt is asked for first, as request() asks for it (55). (0.6.253) « Décrivez d’abord
+    // votre vidéo. » (generer-maquette.md), no longer « Écrivez un prompt pour générer ».
+    assert.deepEqual(shown(), [true, 'Décrivez d’abord votre vidéo.']);
     // Typed, it stays greyed while the start image is missing, and says so: as typed (goable, which lit it from the
     // prompt alone), drawn again, and one key more.
     type('Le vieux pêcheur lève lentement les yeux vers le large');
@@ -3111,11 +3119,12 @@ test('« Générer » is greyed while an input its model cannot do without is mi
     assert.deepEqual(shown(), [true, 'Ajoutez l’image de début.']);
     type('Le vieux pêcheur lève lentement les yeux vers le large.');
     assert.deepEqual(shown(), [true, 'Ajoutez l’image de début.']);
-    // Asked all the same (Ctrl + Entrée): nothing starts, the sentence is said as before (request).
+    // Asked all the same (Ctrl + Entrée): nothing starts, the sentence is said. (0.6.253) In the bubble of « Générer »
+    // at once, as a press on it says it (generer-maquette.md), no longer on a line under it (request).
     page.page['studio-view'].onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
     await settle();
     assert.equal(started(), 0);
-    assert.equal(body.find('studio-error')[0].textContent, 'Ajoutez l’image de début.');
+    assert.deepEqual([said.at(-1), body.find('studio-error')], ['Ajoutez l’image de début.', []]);
     // The image dropped on its case (the Studio is drawn again): lit, and typing keeps it so. Taken back: greyed again.
     await drop(0, { name: 'pecheur.png', type: 'image/png' });
     assert.match(body.find('studio-slot')[0].className, /is-filled/);
@@ -3298,28 +3307,30 @@ test('Ctrl + Entrée generates from anywhere in the Studio, and the button says 
       'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }),
     },
   );
-  const { page, body, asked, pageKeys, restore } = studio;
+  const { page, body, asked, said, pageKeys, restore } = studio;
   try {
     const key = (overrides = {}) => ({ key: 'Enter', ctrlKey: true, preventDefault() {}, ...overrides }),
       started = () => asked.filter(([route]) => route === 'tools/action').length;
-    // The triangle and « Générer »; the keys in its tooltip, no more « Ctrl ↵ » in the button.
+    // The triangle and « Générer »; the keys in its tooltip, no more « Ctrl ↵ » in the button. (0.6.253) Its
+    // triangle with rounded corners (`i-go`, generer-maquette.md), no longer the one of a player.
     const go = body.find('studio-go')[0];
-    assert.equal(go.children[0].glyph, 'play');
+    assert.equal(go.children[0].glyph, 'go');
     assert.equal(go.children[1].textContent, 'Générer');
     assert.equal(body.find('studio-go-key').length, 0);
     // Nothing typed, it is greyed and says why (55); a prompt typed, the keys are in its tooltip.
-    assert.deepEqual([go.disabled, go.title], [true, 'Écrivez un prompt pour générer']);
+    assert.deepEqual([go.disabled, go.title], [true, 'Décrivez d’abord votre image.']);
     studio.prompt().value = 'un phare';
     studio.prompt().oninput();
     studio.studio.render();
     assert.match(body.find('studio-go')[0].title, /^Générer \((Ctrl|⌘)\+Entrée\)$/);
     studio.prompt().value = '';
     studio.prompt().oninput();
-    // Nothing typed: a prompt is asked for, nothing starts.
+    // Nothing typed: a prompt is asked for, nothing starts. (0.6.253) In the bubble of « Générer », as a press on
+    // it greyed says it, no longer on a line under it.
     page['studio-view'].onkeydown(key());
     await settle();
     assert.equal(started(), 0);
-    assert.match(body.find('studio-error')[0].textContent, /Écrivez un prompt/);
+    assert.deepEqual([said.at(-1), body.find('studio-error')], ['Décrivez d’abord votre image.', []]);
     studio.prompt().value = 'un phare';
     studio.prompt().oninput();
     // Entrée alone is a line in the prompt.
@@ -3352,7 +3363,7 @@ test('Ctrl + Entrée generates from anywhere in the Studio, and the button says 
   }
 });
 
-test('« Agent », right of « Générer » in the Double verre, opens the chat as the band at the foot did', async () => {
+test('« Moodix AI » (« Agent » before), right of « Générer », opens the chat as the band at the foot did', async () => {
   const image = {
     id: 'w',
     name: 'Image',
@@ -3370,12 +3381,18 @@ test('« Agent », right of « Générer » in the Double verre, opens the chat 
       [agent] = body.find('studio-agent'),
       go = body.find('studio-go')[0];
     assert.equal(agent.id, 'agent-open');
-    // The Double verre (studio-maquette.md): « ▶ Générer », a rule, the Agent.
-    assert.deepEqual([group.children[0], group.children[2]], [go, agent], 'Générer then the Agent, in one group');
-    assert.equal(agent.find('studio-agent-word')[0].textContent, 'Agent');
+    // The Double verre (studio-maquette.md): « ▶ Générer », a rule, the Agent. (0.6.253, generer-maquette.md) Two
+    // buttons: [« × 1 ⌄ » | « ▶ Générer »] in one glass, then « Moodix AI » in its own.
+    const [glass] = body.find('studio-go-glass'),
+      [tries] = body.find('studio-tries');
+    assert.deepEqual(group.children, [glass, agent], 'the glass of Générer then Moodix AI, in one group');
+    assert.deepEqual([glass.children[0], glass.children[1].className, glass.children[2]], [tries, 'studio-go-rule', go]);
+    assert.equal(tries.attributes['aria-label'], 'Essais : 1');
+    assert.deepEqual(tries.find('studio-tries-count').map(count => count.textContent), ['1']);
+    assert.equal(agent.find('studio-agent-word')[0].textContent, 'Moodix AI');
     // An icon, its word, its name for screen readers and in its tooltip.
-    assert.equal(agent.attributes['aria-label'], 'Moodix AI · ouvrir le chat');
-    assert.equal(agent.title, 'Moodix AI · ouvrir le chat');
+    assert.equal(agent.attributes['aria-label'], 'Demander à Moodix AI');
+    assert.equal(agent.title, 'Demander à Moodix AI');
     assert.equal(agent.attributes['aria-controls'], 'chat-panel');
     // No colour along its foot (moodix-design.md 7 bis 22), only the light of its work.
     assert.equal(agent.find('studio-agent-rule').length, 0);
@@ -3398,6 +3415,107 @@ test('« Agent », right of « Générer » in the Double verre, opens the chat 
     assert.equal(opened, 2);
   } finally {
     empty.restore();
+  }
+});
+
+test('(0.6.253) « Générer » greyed still answers: pressed or its keys, its reason in its bubble, the prompt lit with the cursor in it, or the case of the image missing; nothing is made', async () => {
+  const image = { id: 'w', name: 'Image', roles: {}, limits: sizes, direct: true, size: { width: 1024, height: 1024 }, settings: [], seeded: true };
+  // What a press lights: the field of the prompt, the case of the start image; where the cursor goes.
+  const lit = [],
+    focused = [],
+    element = name => ({
+      classList: { add: name2 => lit.push([name, name2]), remove() {} },
+      focus: () => focused.push(name),
+      offsetWidth: 0,
+    }),
+    field = element('prompt'),
+    slot = element('start_image'),
+    cursor = element('cursor'),
+    querySelector = selector =>
+      selector === '#studio-view .studio-prompt-field'
+        ? field
+        : selector === '#studio-view .studio-slot[data-slot="start_image-0"]'
+          ? slot
+          : selector === '#studio-prompt'
+            ? cursor
+            : null;
+  const page = await studioPage(
+    { create_image: [image], create_video: [wanStudio()] },
+    { 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }), 'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }) },
+    { querySelector },
+  );
+  const { body, asked, said, restore } = page;
+  const go = () => body.find('studio-go')[0],
+    started = () => asked.filter(([route]) => route === 'tools/action').length;
+  try {
+    // Nothing typed: greyed for the eye and screen readers (aria-disabled), not for the pointer: it still answers.
+    assert.deepEqual([go().disabled, go().attributes['aria-disabled'], go().title], [true, 'true', 'Décrivez d’abord votre image.']);
+    await go().onclick();
+    await settle();
+    assert.equal(started(), 0);
+    assert.deepEqual([said, lit, focused], [['Décrivez d’abord votre image.'], [['prompt', 'is-called']], ['cursor']]);
+    // Vidéo, its own words; a prompt typed, the start image missing: its keys light its case, not the prompt.
+    page.mode(1);
+    assert.equal(go().title, 'Décrivez d’abord votre vidéo.');
+    page.prompt().value = 'Le vieux pêcheur lève les yeux.';
+    page.prompt().oninput();
+    lit.length = focused.length = 0;
+    page.page['studio-view'].onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
+    await settle();
+    assert.equal(started(), 0);
+    assert.deepEqual([said.at(-1), lit, focused], ['Ajoutez l’image de début.', [['start_image', 'is-called']], []]);
+    // A prompt in Image: lit, it generates, nothing said in a bubble.
+    page.mode(0);
+    page.prompt().value = 'un phare';
+    page.prompt().oninput();
+    page.studio.render();
+    assert.deepEqual([go().disabled, go().attributes?.['aria-disabled']], [false, undefined]);
+    const before = said.length;
+    await go().onclick();
+    await settle();
+    assert.deepEqual([started(), said.length], [1, before]);
+  } finally {
+    restore();
+  }
+});
+
+test('(0.6.253) while the chat answers, « Générer » waits greyed with its reason, and comes back at its end; Moodix AI stays at hand', async () => {
+  const image = { id: 'w', name: 'Image', roles: {}, limits: sizes, direct: true, size: { width: 1024, height: 1024 }, settings: [], seeded: true };
+  const reason = 'Attendez la fin de la réponse en cours.';
+  let busy = reason,
+    opened = 0;
+  const page = await studioPage(
+    { create_image: [image] },
+    { 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }), 'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }) },
+    { openAgent: () => opened++, extra: { blocked: () => busy } },
+  );
+  const { body, asked, said, notices, restore } = page;
+  const go = () => body.find('studio-go')[0],
+    started = () => asked.filter(([route]) => route === 'tools/action').length;
+  try {
+    page.prompt().value = 'un phare';
+    page.prompt().oninput();
+    page.studio.render();
+    assert.deepEqual([go().disabled, go().title], [true, reason]);
+    await go().onclick();
+    await settle();
+    assert.deepEqual([started(), said.at(-1), notices], [0, reason, []]);
+    body.find('studio-agent')[0].onclick();
+    assert.equal(opened, 1);
+    // The answer ended: told by the page (busyChanged), the Studio is drawn again, « Générer » lit.
+    busy = '';
+    page.studio.busyChanged();
+    assert.equal(go().disabled, false);
+    assert.match(go().title, /^Générer \((Ctrl|⌘)\+Entrée\)$/);
+    await go().onclick();
+    await settle();
+    assert.equal(started(), 1);
+    // The chat answers again (a message sent from the Chat, the Studio drawn): greyed again, at once.
+    busy = reason;
+    page.studio.busyChanged();
+    assert.deepEqual([go().disabled, go().title], [true, reason]);
+  } finally {
+    restore();
   }
 });
 
@@ -4686,6 +4804,8 @@ test('the screen is the conversation’s, the Sortie the project’s: a new conv
   const { body, studio, restore, runs } = page;
   const items = () => body.find('studio-item').map(tile => tile.dataset.id),
     onScreen = () => screenOf(body.find('studio-frame-result')[0])?.src ?? null,
+    // (0.6.253) What the empty screen says, line by line.
+    blankSaid = () => body.find('studio-blank').flatMap(blank => blank.children.filter(line => !line.hidden).map(line => line.textContent)),
     go = async (to, into = project) => {
       conversation = to;
       project = into;
@@ -4703,7 +4823,8 @@ test('the screen is the conversation’s, the Sortie the project’s: a new conv
     assert.deepEqual(items(), ['b', 'a']);
     assert.equal(body.find('studio-frame')[0].className.includes('is-empty'), true);
     // (0.6.198) Not « Votre première prise » above the takes of its project: the next one will be the PRISE 5.
-    assert.equal(body.find('studio-blank-title')[0].textContent, 'Votre prochaine prise apparaîtra ici.');
+    // (0.6.253, generer-maquette.md, A00) No sentence any more, first or next: the format and the size to come.
+    assert.deepEqual(blankSaid(), ['1:1 · 1024 × 1024']);
     // Another conversation of the project: its own take above, the same Sortie.
     await go('c2');
     assert.deepEqual(items(), ['b', 'a']);
@@ -4712,7 +4833,7 @@ test('the screen is the conversation’s, the Sortie the project’s: a new conv
     await go('c9', 'p2');
     assert.deepEqual(items(), []);
     assert.equal(body.find('studio-frame')[0].className.includes('is-empty'), true);
-    assert.equal(body.find('studio-blank-title')[0].textContent, 'Votre première prise apparaîtra ici.');
+    assert.deepEqual(blankSaid(), ['1:1 · 1024 × 1024']);
   } finally {
     restore();
   }
@@ -5862,14 +5983,22 @@ test('when Moodix AI wrote nothing the Studio says the proposal in a sentence of
 });
 
 test('the empty screen says how to begin, but not while Moodix AI sets the Studio nor while its proposal waits (0.6.101)', async () => {
-  // It said « laissez Moodix AI régler le Studio avec la moitié droite du bouton » as it did so.
+  // It said « laissez Moodix AI régler le Studio avec la moitié droite du bouton » as it did so. (0.6.253,
+  // generer-maquette.md, A00) It says how to begin no more at all, nor where the take comes: the format and the size
+  // to come, alone, in place. A hint is now a line of the empty screen other than that one.
   const recorded = await recordedProposal(),
     { tools, runs } = replayStudio(),
     said = [],
     hints = [];
   let page = null;
   // (0.6.200) What is shown of it: its lines are drawn hidden, and shown again in place (sayBlank).
-  const shownHints = () => (page ? page.body.find('studio-blank-text').filter(line => !line.hidden).length : null);
+  const shownHints = () =>
+    page
+      ? page.body
+          .find('studio-blank')
+          .flatMap(blank => blank.children)
+          .filter(line => line.className !== 'studio-blank-size' && !line.hidden).length
+      : null;
   Object.defineProperty(said, 'push', {
     value(label) {
       hints.push(shownHints());
@@ -5888,33 +6017,29 @@ test('the empty screen says how to begin, but not while Moodix AI sets the Studi
     }),
     querySelector = selector =>
       selector === '#studio-view [data-ai="prompt"]'
-        ? Object.defineProperty(target(), 'value', { set: () => typed.push(!page.body.find('studio-blank-title')[0]?.hidden) })
+        ? Object.defineProperty(target(), 'value', { set: () => typed.push(page.body.find('studio-blank-size')[0] ?? null) })
         : target();
   page = await studioPage(tools, {}, { runs, cursor: said, querySelector });
   const { body, studio, restore } = page;
+  const size = () => body.find('studio-blank-size').map(line => [line.textContent, line.hidden]);
   try {
     const answer = studio.propose(structuredClone(recorded.request), new AbortController().signal, { said: recorded.content });
     await until(() => said.includes('attend votre accord'));
-    // (0.6.200) Said before its first letter, no more from it on: the Studio is not drawn again at each one.
-    assert.deepEqual([typed.length > 1, typed[0], typed.slice(1).some(Boolean)], [true, true, false]);
-    // At each step of the pointer, then while it waits: where the take comes, nothing more (what is proposed
-    // is said at the top of the screen).
+    // (0.6.200) The Studio is not drawn again at each letter: (0.6.253) the same line of the size at each one.
+    assert.deepEqual([typed.length > 1, typed[0] !== null, new Set(typed).size], [true, true, 1]);
+    // At each step of the pointer, then while it waits: nothing more than the size (what is proposed is said at
+    // the top of the screen).
     assert.deepEqual(hints, [0, 0, 0, 0, 0, 0, 0]);
-    // (0.6.198) « prochaine »: its project has a take already (the portrait, PRISE 1). (0.6.200) Not said under
-    // the prompt the pointer wrote; nor the format and its size, which Format and Résolution say.
-    const [title] = body.find('studio-blank-title');
-    assert.deepEqual([title.textContent, title.hidden], ['Votre prochaine prise apparaîtra ici.', true]);
-    assert.deepEqual(body.find('studio-blank-size'), []);
+    // (0.6.253) The format and the size Moodix AI set, under the prompt the pointer wrote: what will be made.
+    assert.deepEqual(size(), [['9:16 · 448 × 768', false]]);
     studio.decline();
     assert.equal(await answer, 'deny');
-    // The Studio the user's again, its prompt and its start image kept: nothing said; both taken away, where the
-    // next take comes, alone (how to begin is said in a project without takes).
-    assert.deepEqual([body.find('studio-blank-title')[0].hidden, shownHints()], [true, 0]);
+    // The Studio the user's again, its prompt and its start image kept, then both taken away: the size alone.
+    assert.deepEqual(shownHints(), 0);
     page.prompt().value = '';
     page.prompt().oninput();
-    assert.deepEqual([body.find('studio-blank-title')[0].hidden, shownHints()], [true, 0]);
     body.find('studio-slot-remove')[0].onclick();
-    assert.deepEqual([body.find('studio-blank-title')[0].hidden, shownHints()], [false, 0]);
+    assert.deepEqual([shownHints(), size().length], [0, 1]);
   } finally {
     restore();
   }
@@ -5932,7 +6057,9 @@ test('(0.6.200) in a project without takes, how to begin is not said either whil
   delete request.plan.references;
   request.call.function.arguments = JSON.stringify(call);
   let page = null;
-  const shownHints = () => (page ? page.body.find('studio-blank-text').filter(line => !line.hidden).length : null);
+  // (0.6.253) How to begin is said no more (generer-maquette.md, A00): what the empty screen says, line by line.
+  const shownHints = () =>
+    page ? page.body.find('studio-blank').flatMap(blank => blank.children.filter(line => !line.hidden).map(line => line.textContent)) : null;
   Object.defineProperty(said, 'push', {
     value(label) {
       hints.push(shownHints());
@@ -5944,22 +6071,25 @@ test('(0.6.200) in a project without takes, how to begin is not said either whil
   page = await studioPage({ create_image: [image], ...tools }, {}, { runs: [], cursor: said, targets: true });
   const { body, studio, restore } = page;
   try {
-    assert.deepEqual([body.dataset.mode, shownHints()], ['image', 1]);
+    assert.deepEqual([body.dataset.mode, shownHints()], ['image', ['1:1 · 1024 × 1024']]);
     const answer = studio.propose(request, new AbortController().signal, { said: recorded.content });
     await until(() => said.includes('attend votre accord'));
-    assert.ok(hints.length > 2 && hints.every(count => count === 0), hints.join(' '));
-    // Refused, its prompt taken away: where the first take comes, and how to begin, again.
+    // At each step, the format and the size alone (those Moodix AI sets), no sentence.
+    assert.ok(hints.length > 2 && hints.every(lines => lines.length === 1 && / × /.test(lines[0])), JSON.stringify(hints));
+    // Refused, its prompt taken away: the format and the size of the Studio of the user.
     studio.decline();
     assert.equal(await answer, 'deny');
     page.prompt().value = '';
     page.prompt().oninput();
-    assert.deepEqual([body.find('studio-blank-title')[0].hidden, shownHints()], [false, 1]);
+    // (In Vidéo, where the proposal was: what its bar « Résolution » shows.)
+    const resolution = body.find('studio-bar-line').find(line => line.children[0].textContent === 'Résolution');
+    assert.deepEqual([body.dataset.mode, shownHints()], ['video', ['9:16 · ' + resolution.children[2].textContent]]);
   } finally {
     restore();
   }
 });
 
-test('(0.6.200) the empty screen says where the take comes only while nothing is begun: the first one with how to begin, the next one alone', async () => {
+test('(0.6.200) the empty screen says where the take comes only while nothing is begun: the first one with how to begin, the next one alone; (0.6.253) the format and the size to come, alone, but over a clip continued, a sound, an error', async () => {
   // (Check of 21/11, overload, problem 1: the title, how to begin and « 16:9 · 512 × 288 » in 11 px stayed under a
   // prompt written, an image given, a clip continued, an error, over the wave of a sound.) Shown and taken away
   // in place: a key does not draw the Studio again.
@@ -5978,13 +6108,16 @@ test('(0.6.200) the empty screen says where the take comes only while nothing is
     // (A model without a case for it: what is put in its case for another is not given to this one.)
     plain = { ...image, id: 'p', name: 'Image simple', roles: {}, inputs: {} },
     sound = { id: 's', name: 'Bruitages', roles: {}, settings: [{ key: 'seconds', type: 'number', min: 1, max: 30, default: 10 }] },
+    // (0.6.253, generer-maquette.md, A00) Every line of the empty screen: no sentence any more, the format and the
+    // size to come, in mono (12 px, no longer 11), a prompt written or an image given; not under an error, over a
+    // sound, over a clip continued.
     shown = body =>
       body
         .find('studio-blank')
         .flatMap(blank => blank.children)
-        .filter(line => /^studio-blank-(title|text)$/.test(line.className) && !line.hidden)
+        .filter(line => !line.hidden)
         .map(line => line.textContent),
-    FIRST = ['Votre première prise apparaîtra ici.', 'Écrivez un prompt à gauche, ou laissez Moodix AI régler le Studio avec la moitié droite du bouton.'];
+    FIRST = ['1:1 · 1024 × 1024'];
   let page = await studioPage(
     { create_image: [image, plain], create_audio: [sound] },
     { 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }), 'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }) },
@@ -5996,20 +6129,20 @@ test('(0.6.200) the empty screen says where the take comes only while nothing is
         page.prompt().value = words;
         page.prompt().oninput();
       };
-    // A project without takes, nothing written, nothing given: where the first one comes, and how to begin.
-    assert.deepEqual(shown(body), FIRST);
-    assert.deepEqual(body.find('studio-blank-size'), []);
-    // A prompt written: nothing, from the first key, in place (the same screen, the same field).
+    // A project without takes, nothing written, nothing given: (0.6.253) the format and the size to come, alone.
+    assert.deepEqual([shown(body), body.find('studio-blank-size').length], [FIRST, 1]);
+    // A prompt written: the same, in place (the same screen, the same field, the same line), from the first key.
     const frame = body.find('studio-frame')[0],
-      field = page.prompt();
+      field = page.prompt(),
+      line = body.find('studio-blank-size')[0];
     type('U');
-    assert.deepEqual(shown(body), []);
+    assert.deepEqual([shown(body), body.find('studio-blank-size')[0] === line], [FIRST, true]);
     type('');
     assert.deepEqual([shown(body), body.find('studio-frame')[0] === frame, page.prompt() === field], [FIRST, true, true]);
-    // An image given to modify: nothing; taken back, said again.
+    // An image given to modify, another model, the image taken back: what will be made, each time.
     body.find('studio-slot')[0].ondrop({ preventDefault() {}, stopPropagation() {}, dataTransfer: { files: [{ name: 'phare.png', type: 'image/png' }], setData() {} } });
     await settle();
-    assert.deepEqual(shown(body), []);
+    assert.deepEqual(shown(body), FIRST);
     const pick = model => {
       body.find('studio-model-pick')[0].value = model;
       body.find('studio-model-pick')[0].onchange();
@@ -6017,7 +6150,7 @@ test('(0.6.200) the empty screen says where the take comes only while nothing is
     pick('p');
     assert.deepEqual(shown(body), FIRST);
     pick('k');
-    assert.deepEqual(shown(body), []);
+    assert.deepEqual(shown(body), FIRST);
     body.find('studio-slot-remove')[0].onclick();
     assert.deepEqual(shown(body), FIRST);
     // A creation that failed: nothing while its reason is said under « Générer », its prompt taken away or not.
@@ -6033,13 +6166,13 @@ test('(0.6.200) the empty screen says where the take comes only while nothing is
   } finally {
     page.restore();
   }
-  // A project with takes, in a conversation without any: where the next one comes, alone. A clip of it
-  // continued (« Prolonger »), its prompt not written yet: nothing (its banner says what is made).
+  // A project with takes, in a conversation without any: (0.6.253) the size alone, « Votre prochaine prise » no more.
+  // A clip of it continued (« Prolonger »), its prompt not written yet: nothing (its banner says what is made).
   const more = continuing();
   for (const record of more.runs) record.conversationId = 'c0';
   page = await studioPage(more.tools, {}, { runs: more.runs });
   try {
-    assert.deepEqual(shown(page.body), ['Votre prochaine prise apparaîtra ici.']);
+    assert.deepEqual(shown(page.body).map(said => / × /.test(said)), [true]);
     prolonger(page.body).onclick();
     assert.deepEqual(
       [page.body.dataset.mode, page.body.find('studio-frame')[0].className.includes('is-empty'), prolonged(page.body).length, shown(page.body)],
@@ -9223,8 +9356,9 @@ test('(0.6.240) « Changer la caméra » d’une vidéo faite : son bouton sur u
     assert.deepEqual([go().disabled, go().title, pane()], [true, 'Trop près de la caméra de la vidéo : à si peu d’écart, le modèle se comporte mal.', window]);
     const before = count();
     await generate();
-    // (Its window stays open, and the screen says the same.)
-    assert.deepEqual([count(), body.find('studio-orbit-window').length, body.find('studio-error')[0].textContent], [before, 1, 'Trop près de la caméra de la vidéo : à si peu d’écart, le modèle se comporte mal.']);
+    // (Its window stays open, and the screen says the same.) (0.6.253) In the bubble of « Générer » greyed and
+    // pressed (generer-maquette.md), no longer on a line under it.
+    assert.deepEqual([count(), body.find('studio-orbit-window').length, page.said.at(-1), body.find('studio-error')], [before, 1, 'Trop près de la caméra de la vidéo : à si peu d’écart, le modèle se comporte mal.', []]);
     const again = pane();
     bar('Hauteur').value = '10';
     bar('Hauteur').oninput();

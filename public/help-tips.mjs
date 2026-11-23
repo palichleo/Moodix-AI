@@ -165,6 +165,11 @@ export function setupHelpTips(root, { id = 'help-bubble', host = root, delay = 1
   );
   return {
     hide,
+    /** (0.6.253) Shows the bubble of `target` at once: « Générer » greyed and pressed says why. */
+    show: target => {
+      adopt(target);
+      show(target);
+    },
     /** Shows again the help of an element whose text has just changed, if it is the one shown. */
     refresh(target) {
       if (target === current && textOf(target)) show(target);
