@@ -15,8 +15,9 @@ Three stages, in one creation:
 Its rules are the family's (`refilm` in runner/families/ltx25_refilm.json), the ones the server and the
 Studio hold too (lib/refilm.mjs, public/camera-orbit.mjs), in the same words: what is refused is said in
 words before the card is asked for, never as a failed video. Only what cannot be made is refused (0.6.248):
-a large or long clip takes longer, which the Studio says from the times measured (`times` of the family).
-Measured on 22/11 (the fisherman, 121 frames, cold, from the start to the file): 132 s at 768 × 448, 223 s
+a large or long clip takes longer, which the Studio says from what this computer took before (0.6.249:
+`made`, from the history of times of the application; the time depends on the computer). Measured on 22/11
+on a card of 12 GB (the fisherman, 121 frames, cold, from the start to the file): 132 s at 768 × 448, 223 s
 at 1024 × 576, 354 s at 1280 × 704; 1600 × 896 took 67 s a step (some 12 minutes in all). The memory held
 at every size (8.0 to 8.8 GiB at most): the larger the clip, the fewer weights stay on the card, the slower
 each step.
@@ -410,7 +411,7 @@ def check(job, family):
     """The rules of a refilm beyond the manifest: one clip, a whole camera, a pivot named whole, a camera
     the model holds, and a size the clip is filmed at that its own allows, when the server names the clip's
     (`source_width` × `source_height`; its file is read by preflight). No size nor length is refused for the
-    time it takes (0.6.248): the Studio says it before (`times` of the family)."""
+    time it takes (0.6.248): the Studio says it before, from what this computer took (0.6.249)."""
     parameters = job['parameters']
     if sum(ref['role'] == ROLE for ref in job['references']) != 1:
         raise ValueError('A camera is changed on one video exactly')

@@ -200,19 +200,14 @@ class CameraTests(unittest.TestCase):
 
 
 class FormatTests(unittest.TestCase):
-    def test_the_times_measured_and_no_limit_for_the_time_it_takes(self):
-        # (0.6.248, the user's choice) No size nor length is refused for the time it takes: the Studio warns from the
-        # times measured on 22/11 (cold, for 5 s), the last one foreseen from its first steps.
-        self.assertNotIn('limits', BOUNDS)
-        self.assertEqual(
-            [(row['pixels'], row['takes'], row.get('planned', False)) for row in BOUNDS['times']],
-            [(344064, 132, False), (589824, 223, False), (901120, 354, False), (1433600, 696, True)],
-        )
-        for row in BOUNDS['times']:
-            with self.subTest(size=row['size']):
-                width, height = (int(side) for side in row['size'].split(' × '))
-                self.assertEqual(width * height, row['pixels'])
-        self.assertEqual((BOUNDS['seconds'], BOUNDS['patience'], BOUNDS['shape']), (5, 60, 0.1))
+    def test_no_limit_for_the_time_it_takes_and_no_time_measured_elsewhere(self):
+        # (0.6.248, the user's choice) No size nor length is refused for the time it takes: the Studio warns. (0.6.249)
+        # From what this computer took (the history of times of the application), never from times measured on
+        # another one: the family only says the size advised (1024 × 576) and the patience.
+        for key in ('limits', 'times', 'seconds'):
+            with self.subTest(key=key):
+                self.assertNotIn(key, BOUNDS)
+        self.assertEqual((BOUNDS['advised'], BOUNDS['patience'], BOUNDS['shape']), (1024 * 576, 60, 0.1))
         for width, height in ((1024, 576), (1280, 704), (704, 1280), (1600, 896), (896, 1600), (4096, 2304)):
             with self.subTest(width=width, height=height):
                 self.assertEqual(rf.output_format(width, height, 121, 24, BOUNDS)['frames'], 121)

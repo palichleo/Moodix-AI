@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { family } from '../lib/families.mjs';
+import { ProgressHistory, timingKey } from '../lib/generation-progress.mjs';
 import { ownSettings, resolveNativeWorkflow, validateNativeWorkflow } from '../lib/native-workflows.mjs';
 import {
   REFILM_SAID,
@@ -57,13 +59,18 @@ const call = args => ({ id: 'refilm-call', type: 'function', function: { name: '
 /** What the Studio sends (public/studio.mjs): the take, the camera of its tool, the intention. */
 const asked = camera => ({ source: { output: SOURCE }, ...camera, intention: INTENTION });
 const held = pose => asked({ camera: pose });
+/** A take of 1600 × 896 and 10 s, larger than the size advised. */
+const LARGE = {
+  outputs: [{ width: 1600, height: 896 }],
+  parameters: { pipeline: 'ltx25', width: 1600, height: 896, frames: 241, fps: 24 },
+};
 
 /**
  * A runtime over the shipped workflows, whose jobs are resolved as the catalog of Moodix resolves them, and a
  * take of LTX 2.5 to film again (`clip`: what its record says otherwise). What the engine is given is in `jobs`,
  * the takes kept in `saved`, the progress shown while it runs in `shown`.
  */
-function runtimeFor({ clip = {}, own = {}, offerOf, jobs = [], saved = [], shown = [] } = {}) {
+function runtimeFor({ clip = {}, own = {}, offerOf, timing, jobs = [], saved = [], shown = [] } = {}) {
   const valid = validateNativeWorkflow(plain),
     list = listed(own),
     assets = { resolve: async asset => ({ path: join(tmpdir(), asset) }), read: async () => null };
@@ -98,6 +105,7 @@ function runtimeFor({ clip = {}, own = {}, offerOf, jobs = [], saved = [], shown
     engineConfig: () => ({}),
     sourceMedia: async () => ({ mime: 'video/mp4', name: 'pecheur.mp4', handle: { close: async () => {} } }),
     ...(offerOf ? { offerOf } : {}),
+    ...(timing ? { timing } : {}),
     clientFactory: () => ({
       status: async () => ({ idle: true }),
       stage: async media => {
@@ -149,22 +157,15 @@ test('« Changer la caméra » is a verb of the user’s hand, shipped as a mode
   assert.deepEqual(bounds, { ...orbitBounds(manifest.refilm), sourceFps: { min: 12, max: 120 }, mostFrames: 481, shape: 0.1 });
   assert.equal(bounds.distance.unavailable, 'La distance ne marche pas encore avec ce modèle : son auteur le dit.');
   assert.equal(refilmBounds(family('ltx25')), null);
-  // (0.6.248) No limit for the time it takes: the times measured, which the Studio warns with.
+  // (0.6.248) No limit for the time it takes; (0.6.249) and no time measured on another computer: the Studio says
+  // the time this one took (`made`, from its history of times), or starts from the size advised.
   assert.deepEqual(bounds.limits, []);
-  assert.equal(manifest.refilm.limits, undefined);
-  assert.deepEqual(
-    manifest.refilm.times.map(({ pixels, takes, planned }) => ({ pixels, takes, ...(planned ? { planned } : {}) })),
-    [
-      { pixels: 344064, takes: 132 },
-      { pixels: 589824, takes: 223 },
-      { pixels: 901120, takes: 354 },
-      { pixels: 1433600, takes: 696, planned: true },
-    ],
-  );
-  assert.deepEqual([manifest.refilm.seconds, manifest.refilm.patience], [5, 60]);
-  // Its description says the size advised and that larger is longer, never a size it stops at.
+  for (const key of ['limits', 'times', 'seconds']) assert.equal(manifest.refilm[key], undefined, key);
+  assert.deepEqual([manifest.refilm.advised, manifest.refilm.patience], [1024 * 576, 60]);
+  // Its description says the size advised and that larger is longer, in no minutes and with no size it stops at.
   assert.match(plain.description, /Taille conseillée : 1024 × 576/);
-  assert.doesNotMatch(plain.description, /jusqu’à/);
+  assert.match(plain.description, /le Studio dit le temps que cet ordinateur a mis la dernière fois/);
+  assert.doesNotMatch(plain.description, /jusqu’à|minute/);
 });
 
 test('the Studio shows it with the bounds of its camera, greyed without its files, and Moodix AI never has it (0.6.242)', async () => {
@@ -173,8 +174,8 @@ test('the Studio shows it with the bounds of its camera, greyed without its file
   assert.equal(tools.refilm_video.length, 1);
   const [tool] = tools.refilm_video;
   assert.equal(tool.id, REFILM_ID);
-  assert.deepEqual(tool.refilm, manifest.refilm);
-  assert.deepEqual(tool.refilm.times, manifest.refilm.times);
+  // (0.6.249) With what this computer took for it: nothing made here yet.
+  assert.deepEqual(tool.refilm, { ...manifest.refilm, made: [] });
   // No setting: those of its model are on the page of the model; no size and no length: the clip's.
   assert.deepEqual(tool.settings, []);
   assert.equal(tool.follows, true);
@@ -265,8 +266,7 @@ test('a clip is filmed again from the camera placed in the Studio, and its take 
 test('a clip is filmed at a smaller size chosen in the Studio, never refused for its size or its length (0.6.248)', async () => {
   const jobs = [],
     saved = [];
-  const large = { outputs: [{ width: 1600, height: 896 }], parameters: { pipeline: 'ltx25', width: 1600, height: 896, frames: 241, fps: 24 } };
-  const { runtime, ask } = runtimeFor({ clip: large, jobs, saved });
+  const { runtime, ask } = runtimeFor({ clip: LARGE, jobs, saved });
   const fine = { azimuth: 30, elevation: 10, distance: 1 };
   const run = async proposal => {
     await runtime.execute({ requestId: proposal.requestId, permission: 'once', approvalToken: proposal.approvalToken });
@@ -322,6 +322,63 @@ test('a clip is filmed at a smaller size chosen in the Studio, never refused for
     [[1024, 576], REFILM_SAID.size],
   ])
     await assert.rejects(ask({ ...held(fine), size }), { message: said }, JSON.stringify(size));
+});
+
+test('the Studio says what this computer took to film a clip again, one line per size and length made here (0.6.249)', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'moodix-refilm-timing-'));
+  try {
+    const history = new ProgressHistory(join(folder, 'generation-timing.json')),
+      timeline = seconds => [
+        { mark: 'unloading', at: 0 },
+        { mark: 'sampling video#1', at: seconds / 2 },
+        { mark: 'done', at: seconds },
+      ],
+      key = (width, height, frames) => timingKey(REFILM_ID, { width, height, frames }, 1);
+    // Nothing made here: nothing to say.
+    assert.deepEqual(await history.made(REFILM_ID), []);
+    await history.save(key(1024, 576, 121), timeline(251.4));
+    await history.save(key(768, 448, 241), timeline(260));
+    await history.save(key(768, 448, 121), timeline(161.25));
+    // Made again: its last time only, whatever its inputs.
+    await history.save(key(768, 448, 121), timeline(158.5));
+    await history.save(timingKey(REFILM_ID, { width: 1024, height: 576, frames: 121 }, 2), timeline(240.2));
+    await history.save(key(1024, 576, 121), timeline(251.4));
+    // Another model's, and a timeline that did not end, are not this one's.
+    await history.save(timingKey('another-model', { width: 768, height: 448, frames: 121 }, 1), timeline(30));
+    await history.save(key(1280, 704, 121), [{ mark: 'unloading', at: 0 }]);
+    const made = [
+      { pixels: 344064, frames: 121, seconds: 158.5 },
+      { pixels: 344064, frames: 241, seconds: 260 },
+      { pixels: 589824, frames: 121, seconds: 251.4 },
+    ];
+    assert.deepEqual(await history.made(REFILM_ID), made);
+    // /api/studio gives it beside the bounds of its family; the other tools have none.
+    const tools = await new ToolCatalog({ list: async () => listed() }, { timing: history }).studio();
+    assert.deepEqual(tools.refilm_video[0].refilm, { ...manifest.refilm, made });
+    assert.ok(tools.create_video.every(entry => entry.refilm === undefined));
+    // A history that cannot be read says nothing: the Studio still opens.
+    const broken = { made: async () => Promise.reject(new Error('unreadable')) };
+    const [tool] = (await new ToolCatalog({ list: async () => listed() }, { timing: broken }).studio()).refilm_video;
+    assert.deepEqual(tool.refilm.made, []);
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
+test('the time of a clip filmed again is kept under the size it was made at and its frames (0.6.249)', async () => {
+  const saves = [],
+    timing = {
+      reference: async () => null,
+      save: async (key, timeline) => saves.push([key, timeline.at(-1).mark]),
+      made: async () => [],
+    };
+  const { runtime, ask } = runtimeFor({ clip: LARGE, timing });
+  const fine = { azimuth: 30, elevation: 10, distance: 1 };
+  const proposal = await ask({ ...held(fine), size: { width: 1024, height: 576 } });
+  await runtime.execute({ requestId: proposal.requestId, permission: 'once', approvalToken: proposal.approvalToken });
+  await runtime.finished;
+  assert.equal(runtime.status().state, 'done', runtime.status().error);
+  assert.deepEqual(saves, [[`${REFILM_ID}||1024x576x241|refs1`, 'done']]);
 });
 
 test('what is not made is said in words before anything is proposed (0.6.242)', async () => {

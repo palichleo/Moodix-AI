@@ -251,17 +251,11 @@
     },
     "near": 5,
     "shape": 0.1,
-    "times": [
-      { "pixels": 344064, "takes": 132, "size": "768 × 448", "measured": "22/11, dans l’application : 132 s pour le moteur (160 s en tout, avec la sortie du modèle de chat), 8,0 à 8,8 Gio de mémoire vidéo au plus haut" },
-      { "pixels": 589824, "takes": 223, "size": "1024 × 576", "measured": "22/11, le moteur seul : 8,6 Gio de mémoire vidéo au plus haut" },
-      { "pixels": 901120, "takes": 354, "size": "1280 × 704", "measured": "22/11, le moteur seul : 8,0 Gio de mémoire vidéo au plus haut" },
-      { "pixels": 1433600, "takes": 696, "planned": true, "size": "1600 × 896", "measured": "22/11, le moteur seul, arrêté après 2 étapes de 67 s : 671 s prévues à la fin des 8 étapes, puis le décodage et l’écriture (environ 26 s, à l’échelle de 1280 × 704) ; 8,8 Gio au plus haut" }
-    ],
-    "seconds": 5,
+    "advised": 589824,
     "patience": 60,
     "fps": [24],
     "sourceFps": { "min": 12, "max": 120 },
-    "note": "Bornes de l’auteur (README de CrossView-Warp v2) : sûr à 45° d’azimut, 30° au-dessus et 20° en dessous ; possible à 90°, 45° et 35° ; chaque zone est une ellipse sur l’azimut et la hauteur. La caméra tourne souvent moins que demandé. Aucune taille ni durée n’est refusée pour le temps qu’elle prend (0.6.248, le choix de l’utilisateur) : la vidéo se refilme à sa taille, ou à une plus petite choisie dans le Studio, qui garde son format à shape près ; seule une durée au-delà de ce que le modèle filme (20 s) est refusée. times : à chaque taille (pixels = largeur × hauteur), le temps en secondes pour refilmer une vidéo de seconds secondes, du début du moteur au fichier, modèles chargés du disque (à froid) ; mesuré sur une carte de 12 Go avec le pêcheur, 121 images, sans repli lent ; planned : prévu d’après ses premières étapes, pas fini. Dans l’application, la première création ajoute la sortie du modèle de chat local s’il est sur la carte (28 s ce jour-là). patience : le seuil de l’utilisateur, en secondes d’attente par seconde de vidéo (« 5s j’accepte 5min max »)."
+    "note": "Bornes de l’auteur (README de CrossView-Warp v2) : sûr à 45° d’azimut, 30° au-dessus et 20° en dessous ; possible à 90°, 45° et 35° ; chaque zone est une ellipse sur l’azimut et la hauteur. La caméra tourne souvent moins que demandé. Aucune taille ni durée n’est refusée pour le temps qu’elle prend (0.6.248, le choix de l’utilisateur) : la vidéo se refilme à sa taille, ou à une plus petite choisie dans le Studio, qui garde son format à shape près ; seule une durée au-delà de ce que le modèle filme (20 s) est refusée. Le temps dépend de l’ordinateur (0.6.249, « la durée ne sera pas la même en fonction des pc ») : le Studio le dit d’après ce que cet ordinateur a déjà refilmé (made, que /api/studio ajoute depuis l’historique des temps de l’application) ; sans rien de fait ici, il part de advised, le nombre de pixels de la taille conseillée (1024 × 576). patience : les secondes de travail par seconde de vidéo au-delà desquelles le Studio avertit (son seuil : « 5s j’accepte 5min max »). Mesures du 22/11 sur une carte de 12 Go, pour nous, que rien ne lit : 5 s (121 images) refilmées par le moteur à froid, du début au fichier, en 132 s à 768 × 448 (160 s dans l’application, avec la sortie du modèle de chat), 223 s à 1024 × 576 et 354 s à 1280 × 704 ; à 1600 × 896, arrêté après 2 étapes de 67 s, environ 696 s prévues ; 8,0 à 8,8 Gio de mémoire vidéo au plus haut, sans repli lent."
   },
   "template": {
     "name": "Change the camera of a video",
