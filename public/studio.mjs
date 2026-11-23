@@ -4038,6 +4038,9 @@ export function setupStudio({
             // Made from what was looked at: those settings are the user's now, nothing to come back to.
             endLook();
           }
+          // (0.6.251) A clip filmed again: the server has learnt what this computer took for it (`refilm.made`),
+          // which the tools read before do not say. Read again at the next change of camera.
+          if (record?.parameters?.refilm) toolsStale = true;
           settledHere();
         }
       } finally {
@@ -5369,6 +5372,14 @@ export function setupStudio({
           pieceOpen = { role: 'orbit', index: 0 };
           pieceFocus = true;
           render();
+          // (0.6.251) After a change of camera made here: its tools read again, for the time it took (the bar
+          // of the size says it), then drawn with them while the clip is still the one in hand.
+          if (toolsStale)
+            void load()
+              .then(() => {
+                if (refilming() && extending?.id === record.id && !working) render();
+              })
+              .catch(() => {});
           $('studio-view')?.scrollTo?.({ top: 0, behavior: 'smooth' });
         },
       });

@@ -6386,6 +6386,48 @@ test('(0.6.207) a continuation whose model takes an end image keeps that case at
   }
 });
 
+test('(0.6.251) après un changement de caméra fait ici, la barre de la taille dit le temps que cet ordinateur vient de mettre', async () => {
+  // (Essai réel du 23/11 : la barre ne disait rien avant que le Studio soit rouvert, ses outils n'étant pas relus.)
+  const { tools, runs } = continuing(),
+    refilm = { made: [] },
+    film = { id: 'r', name: 'Changer la caméra (LTX 2.5)', verb: 'refilm_video', family: 'ltx25_refilm', roles: { source: { count: 1, media: ['video'], required: true } }, settings: [], refilm },
+    made = { id: 'again', conversationId: 'c1', mediaType: 'video', workflowId: 'r', prompt: 'un renard court', parameters: { width: 1024, height: 576, frames: 121, fps: 24, refilm: { camera: { azimuth: 30, elevation: 10, distance: 1 } } }, outputs: [{ originalUrl: '/again.mp4', thumbUrl: '/again.jpg', take: 5 }] },
+    page = await studioPage(
+      { ...tools, refilm_video: [film] },
+      {
+        'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }),
+        // (The server keeps what the creation took: its next reading of the tools says it.)
+        'tools/execute': () => (page.runs.unshift(made), refilm.made.push({ pixels: 1024 * 576, frames: 121, seconds: 272 }), { id: 'j', state: 'done', record: made }),
+      },
+      { runs },
+    );
+  const { body, asked } = page,
+    second = () => body.find('studio-item').find(tile => tile.dataset.id === 'film').find('studio-item-second')[0],
+    said = () => body.find('studio-refilm-said')[0],
+    read = () => asked.filter(([route]) => route === 'studio').length;
+  try {
+    page.mode(1);
+    second().onclick();
+    await settle();
+    // Never made here: nothing to say, and its tools are not read again for it.
+    assert.deepEqual([said().hidden, read()], [true, 1]);
+    page.page['studio-view'].onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
+    await settle();
+    assert.deepEqual([body.find('studio-refilm').length, read()], [0, 1]);
+    // The camera of that clip changed again: its tools are read again, and the bar says what it took here.
+    second().onclick();
+    await settle();
+    assert.deepEqual([read(), said().hidden, said().textContent, said().dataset.warn], [2, false, 'Environ 4 min 30 sur cet ordinateur.', 'false']);
+    // (Read once: not again at each change of camera.)
+    body.find('studio-orbit-window')[0].find('studio-window-foot')[0].children.at(-1).onclick();
+    second().onclick();
+    await settle();
+    assert.equal(read(), 2);
+  } finally {
+    page.restore();
+  }
+});
+
 test('(0.6.244) a continuation Moodix AI proposes of the clip whose camera was being changed is a continuation', async () => {
   // (Before: the clip stayed « À refilmer », its camera beside it, under a proposal that continues it.)
   const said = [],
