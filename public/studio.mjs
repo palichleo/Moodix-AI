@@ -3690,7 +3690,7 @@ export function setupStudio({
       node(
         'span',
         'studio-frame-label' + (numbered ? ' is-take' : coming ? ' is-take is-coming' : start ? ' is-take is-start' : ''),
-        numbered ? 'PRISE ' + take : coming ? 'PRISE ' + coming : start ? 'DÉBUT' : next.label,
+        numbered ? 'PRISE ' + take : coming ? 'PRISE ' + coming : start ? WORDS.start_image.toUpperCase() : next.label,
       ),
     );
     blankLines = null;
