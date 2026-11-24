@@ -281,6 +281,30 @@ class KeptModelTests(unittest.TestCase):
             finally:
                 kept._kept.clear()
 
+    def test_the_share_left_on_the_card_is_weighed_whole_with_what_it_lent(self):
+        from types import SimpleNamespace
+
+        from runner.pipelines.ltx25 import fits
+
+        GiB = 1024**3
+        # 7 GiB left on the card by the last video, 3.3 of them lent to the reading of a new prompt.
+        share = SimpleNamespace(gpu={'layer': None}, bytes=int(3.7 * GiB), lent=int(3.3 * GiB), limit=7 * GiB)
+        self.assertTrue(fits(share, 7))
+        # Another program took 3 GiB of the card since: what is left on it would fit, the share
+        # whole does not, and taken back it ran out of memory (24/11). It is built anew.
+        self.assertFalse(fits(share, 4))
+        # A quarter of a gigabyte over is within what the steps are given to spare.
+        self.assertTrue(fits(share, 6.8))
+        self.assertFalse(fits(share, 6.7))
+        # Half a gigabyte under is what the page-locked RAM covers; more room than that: built anew.
+        self.assertTrue(fits(share, 7.5))
+        self.assertFalse(fits(share, 7.6))
+        # Nothing lent: the share as it is (a prompt already read).
+        self.assertTrue(fits(SimpleNamespace(gpu={'layer': None}, bytes=7 * GiB, lent=0, limit=7 * GiB), 7))
+        self.assertFalse(fits(SimpleNamespace(gpu={'layer': None}, bytes=7 * GiB, lent=0, limit=7 * GiB), 4))
+        # Nothing on the card: nothing to take back.
+        self.assertFalse(fits(SimpleNamespace(gpu={}, bytes=0, lent=0, limit=7 * GiB), 7))
+
     def test_a_model_file_named_without_comfyuis_prefix_is_read_the_same(self):
         # The INT8 files name their tensors « model.diffusion_model.… », the « fp8 scaled » ones
         # without it (0.6.107: such a file was refused, « Unsupported LTX2.5 connectors tensor »).
@@ -306,6 +330,103 @@ class KeptModelTests(unittest.TestCase):
         self.assertIn('video_connector.transformer_blocks.0.attn1.norm_q.weight', names('')[1])
         self.assertIn('video_connector.learnable_registers', names('')[1])
         self.assertIn('audio_connector.transformer_blocks.3.attn1.norm_k.weight', names('')[1])
+
+
+class Share:
+    """The share of the model a video left on the card for the next: 7 GiB in layers of 0.1, lent as
+    WeightPool lends (its last layers first, its limit kept)."""
+
+    LAYER = int(0.1 * 1024**3)
+
+    def __init__(self):
+        self.gpu = dict.fromkeys(range(70), self.LAYER)
+        self.bytes = self.limit = 70 * self.LAYER
+        self.lent, self.stats, self.order = 0, {}, []
+
+    def lend(self, gib):
+        wanted, freed = int(gib * 1024**3), 0
+        for location in reversed(list(self.gpu)):
+            if freed >= wanted:
+                break
+            freed += self.gpu.pop(location)
+        self.bytes -= freed
+        self.lent += freed
+        return freed
+
+    def applied(self):
+        return {}
+
+    def streamed(self, margin_gib=0, onward=False):
+        return {}
+
+
+class Reached(Exception):
+    """Raised where the share is kept for the video: its fate is decided, nothing further runs."""
+
+
+class LentShareTests(unittest.TestCase):
+    """A new prompt read beside the share of the model the last video left on the card (24/11: with
+    3 GiB of the card taken by another program since, the share, weighed without what it lent, was
+    taken back whole and ran out of memory)."""
+
+    def generate(self, free_gib):
+        """Runs the generation up to the share's fate, `free_gib` free on the card beside the share
+        (what it lends is free once lent). Returns the share."""
+        from contextlib import ExitStack, nullcontext
+        from types import SimpleNamespace
+        from unittest import mock
+
+        import torch
+
+        from runner import hardware
+        from runner.models import conditioning, headers, ltx25 as model, ltx25_text, residency
+        from runner.pipelines import ltx25 as pipeline
+
+        GiB = 1024**3
+        share = Share()
+        # The convolutions of the VAEs, on the card beside the share during the steps.
+        beside = int(0.13 * GiB)
+        parameters = dict(prompt='a new prompt', seed=1, width=512, height=512, frames=25, fps=24, audio=True, stage='draft')
+        components = dict(model='model', textEncoder='encoder', vae='vae', audioVae='audio')
+        job = dict(parameters=parameters, components=components, loras=[], references=[])
+        loaded = pipeline.Loaded('key')
+        loaded.hot, loaded.transformer = share, SimpleNamespace()
+        loaded.stores['model'] = SimpleNamespace(keep=mock.Mock(side_effect=Reached), part=None, pinned=True)
+        layout = {name: object() for name in ('vae', 'audioVae', 'connectors')}
+        with ExitStack() as stack:
+            enter = stack.enter_context
+            for name, value in (('is_available', True), ('reset_peak_memory_stats', None), ('empty_cache', None)):
+                enter(mock.patch.object(torch.cuda, name, return_value=value))
+            for name in ('memory_reserved', 'memory_allocated'):
+                enter(mock.patch.object(torch.cuda, name, lambda: share.bytes + beside))
+            enter(mock.patch.object(hardware, 'free_bytes', lambda _torch: int(free_gib * GiB) + share.lent))
+            enter(mock.patch.object(headers, 'header', return_value={}))
+            enter(mock.patch.object(conditioning, 'stamp', side_effect=str))
+            enter(mock.patch.object(conditioning, 'load', return_value=None))
+            enter(mock.patch.object(ltx25_text, 'encode', lambda *_: (torch.zeros(1, 4, 8), torch.ones(1, 4))))
+            enter(mock.patch.object(model, 'validate_layout', return_value=(dict(layout), dict.fromkeys(layout, {}))))
+            enter(mock.patch.object(model, 'WeightPool', lambda *_: SimpleNamespace(clear=lambda: None, used=lambda: 0)))
+            enter(mock.patch.object(model, 'load_streamed', return_value=object()))
+            enter(mock.patch.object(residency, 'open_store', lambda *_: nullcontext(SimpleNamespace())))
+            try:
+                pipeline._generate(job, {}, lambda **data: None, 'key', [loaded])
+            finally:
+                self.share = share
+
+    def test_a_share_that_lent_is_built_anew_when_the_card_no_longer_holds_it_whole(self):
+        from runner.pipelines import ltx25 as pipeline
+
+        GiB = 1024**3
+        # Another program took 3 GiB of the card since the last video: 0.1 GiB free beside the share.
+        # It lends the 3.3 GiB the encoder needs, and could not take them back: built anew.
+        with self.assertRaises(pipeline.Refit):
+            self.generate(0.1)
+        self.assertEqual((round(self.share.lent / GiB, 1), self.share.limit), (3.4, 70 * Share.LAYER))
+        # The card as the last video left it (3.3 GiB free, measured): the share lends 1.1 GiB and is
+        # kept for this video, at its size (what it lent comes back before the first step: fill).
+        with self.assertRaises(Reached):
+            self.generate(3.3)
+        self.assertEqual((round(self.share.lent / GiB, 1), self.share.limit), (1.1, 70 * Share.LAYER))
 
 
 if __name__ == '__main__':

@@ -186,6 +186,22 @@ class Refit(Exception):
     rest of the series). Dropped and built again, it is a first video, as before it was kept."""
 
 
+def fits(pool, budget):
+    """Whether the share of the model the last generation left on the card is this video's, for
+    the `budget` (GiB) this video leaves it: about that much (a quarter of a gigabyte over is
+    within what the steps are given to spare; half a gigabyte under is what the page-locked RAM
+    was built to cover). Weighed whole, what it lent to the reading of a new prompt included: it
+    takes that back before the first step (see `fill`).
+
+    Weighed without it, a share that had lent seemed smaller than it is. On 24/11, with 3 GiB of
+    the card taken by another program between two videos and a new prompt, it was taken back
+    whole and ran out of memory; the steps then ran with half of it, 1.56 s each instead of 0.50,
+    from other noise than the seed's."""
+    whole = pool.bytes + pool.lent
+    near = (budget - LOCK_MARGIN_GIB) * 1024**3 <= pool.limit
+    return bool(pool.gpu) and near and whole <= (budget + 0.25) * 1024**3
+
+
 def generate(job, config, progress):
     """One video. The model the last generation left on the GPU is taken back when it is the
     one this job asks for (same file, same LoRAs) for a video of the same shape, and left there
@@ -432,12 +448,10 @@ def _generate(job, config, progress, key, holder, finish=None):
             # of the model. Left out, a video from an image ran its steps with 45 MiB free.
             beside = max(0, torch.cuda.memory_allocated() - hot.bytes) / 1024**3
             budget = share(*(first or (p['width'], p['height'])))
-            # The share the last generation left is this one's when it is about what this video
-            # leaves the model (a quarter of a gigabyte over is within what the steps are given
-            # to spare; half a gigabyte under is what the page-locked RAM was built to cover):
-            # nothing to read again. Else it is filled anew at this video's size.
-            near = (budget - LOCK_MARGIN_GIB) * 1024**3 <= hot.limit
-            ready = bool(hot.gpu) and near and hot.bytes <= (budget + 0.25) * 1024**3
+            # The share the last generation left is this one's when it fits what this video leaves
+            # the model, what it lent included (fits): nothing to read again. Else it is filled
+            # anew at this video's size.
+            ready = fits(hot, budget)
             if ready:
                 budget = hot.limit / 1024**3
             else:
