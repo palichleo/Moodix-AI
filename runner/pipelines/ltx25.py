@@ -702,8 +702,11 @@ def _generate(job, config, progress, key, holder, finish=None, read=None):
             if video is None:
                 # The steps needed more than was set aside for them (working_gib): once again
                 # with half the weights kept, rather than a failure after the model was read.
+                # (0.6.268) From the seed again: the attempt drew its noise before memory ran
+                # short, and the video went on from there (24/11: another sound than the seed's).
                 budget /= 2
                 due[:] = [budget]
+                generator.manual_seed(p['seed'])
                 progress(stage='sampling video', gpu_cache_limit_gib=round(budget, 3))
                 video, _audio = sample(*passes[0], 0)
             if first:
@@ -725,6 +728,9 @@ def _generate(job, config, progress, key, holder, finish=None, read=None):
                 del video, _audio
                 due.append(budget)
                 progress(stage='refining video')
+                # Where the first pass left the noise: the second starts there, and so does its
+                # retry below (0.6.268), not where its failed attempt left it.
+                state = generator.get_state()
                 try:
                     video, _audio = sample(*passes[1], len(passes[0][1]), refine=refine)
                 except torch.OutOfMemoryError:
@@ -734,6 +740,7 @@ def _generate(job, config, progress, key, holder, finish=None, read=None):
                     # none kept (each a little slower) cost far less than starting over.
                     due.clear()
                     hot.resize(0)
+                    generator.set_state(state)
                     progress(stage='refining video', gpu_cache_limit_gib=0)
                     video, _audio = sample(*passes[1], len(passes[0][1]), refine=refine)
                     budget = 0
