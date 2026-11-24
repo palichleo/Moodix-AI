@@ -43,6 +43,13 @@ RAM_RESERVE_GIB = 4
 LOCK_MARGIN_GIB = 0.5
 # Video memory the decoder needs, lent by the share of the model when the card lacks it.
 DECODE_GIB = 2.0
+# A prompt read beside the model the last image left on the card (runner.pipelines.ltx25): the
+# encoder keeps on the card what fits and streams the rest, and streaming needs its room under the
+# ceiling the engine sets 1 GiB below what was free (runner.engine._vram_ceiling). Its reserve then
+# counts that gigabyte beside its own (runner.models.qwen_image_text.RESERVE_GIB). The share lends
+# what is missing for it, all of itself if the encoder still runs out, and takes it back before the
+# steps. (24/11: with the encoder's 1.5 GiB alone, the second pose of the bench ran out.)
+BESIDE_RESERVE_GIB = 2.5
 # comfy-kitchen's INT8 attention in place of cuDNN's: faster, not yet measured on this model.
 INT8_ATTENTION = False
 NAME = 'qwen_image_edit'
@@ -247,9 +254,39 @@ def modulations(config, loaded, timesteps, progress):
     return mods, False
 
 
-def texts(config, job, images, progress):
-    """The prompt read with the images (runner.models.qwen_image_text), kept on the disk."""
+def fits(pool, budget):
+    """Whether the share the last image left on the card suits this image's `budget` (GiB), as in
+    runner.pipelines.ltx25: about the share this image leaves the model (a quarter of a gigabyte
+    over is within what the steps are given to spare; half a gigabyte under is what the page-locked
+    RAM was built to cover). Counted whole, what it lent to the prompt or to the VAE with it: lent,
+    it seems smaller than it is, and taken back where the card had been filled by another program
+    since, it ran out of memory (24/11, 3 GiB taken between two images)."""
+    whole = pool.bytes + pool.lent
+    return whole <= (budget + 0.25) * GiB and (budget - LOCK_MARGIN_GIB) * GiB <= pool.limit
+
+
+def kept_share(loaded, budget, progress):
+    """The model the last image left, for this image when its share fits `budget` (see fits), what
+    it lent taken back; else dropped, to be built anew at this image's size (runner.pipelines.ltx25,
+    Refit). Returns it, or None."""
+    if not fits(loaded.pool, budget):
+        loaded.drop()
+        return None
+    if loaded.pool.lent:
+        progress(stage='transformer weights taken back', lent_gib=round(loaded.pool.lent / GiB, 2))
+        loaded.pool.preload()
+    return loaded
+
+
+def texts(config, job, images, progress, beside=None):
+    """The prompt read with the images (runner.models.qwen_image_text), kept on the disk. `beside`:
+    the model the last image left on the card, whose share lends the encoder its room (see
+    BESIDE_RESERVE_GIB); the caller takes it back."""
+    import torch
+
     from runner.models import conditioning, qwen_image_text
+    from runner.models.ladder import smaller
+    from runner.models.pool import room
 
     views = [qwen_image_text.seen(image) for image in images]
     paths = job['components']
@@ -261,7 +298,26 @@ def texts(config, job, images, progress):
         progress(stage='encoding prompt', conditioning='kept from an earlier generation')
         return found[0]['value'], True
     progress(stage='loading text encoder')
-    value = qwen_image_text.encode(paths['textEncoder'], paths['tokenizer'], images, [prompt], progress)[0]
+
+    def read(reserve_gib):
+        return qwen_image_text.encode(
+            paths['textEncoder'], paths['tokenizer'], images, [prompt], progress, reserve_gib=reserve_gib
+        )[0]
+
+    attempts = [lambda: read(qwen_image_text.RESERVE_GIB)]
+    pool = beside.pool if beside is not None else None
+    if pool is not None and pool.gpu:
+        gc.collect()
+        torch.cuda.empty_cache()
+        pool.lend(BESIDE_RESERVE_GIB - room(0))
+
+        def alone():
+            # Beside the share it still ran out: the share leaves the card whole, its layers built.
+            pool.lend(pool.bytes / GiB + 1)
+            return read(qwen_image_text.RESERVE_GIB)
+
+        attempts = [lambda: read(BESIDE_RESERVE_GIB), alone]
+    value = smaller(attempts, torch)
     conditioning.save(config, entry, {'value': value})
     return value, False
 
@@ -284,9 +340,10 @@ def load_vae(path):
     return vae
 
 
-def given_latents(config, job, paths, images, held, progress):
+def given_latents(config, job, paths, images, held, progress, before=None):
     """The latents of each image given, [1, 16, height / 8, width / 8] in float32 normalised, each
-    at a megapixel of its own ratio; kept on the disk, told by what the file holds."""
+    at a megapixel of its own ratio; kept on the disk, told by what the file holds. `before` is
+    called once before the VAE first encodes (to make it room)."""
     import torch
 
     from runner.models import conditioning
@@ -306,6 +363,8 @@ def given_latents(config, job, paths, images, held, progress):
         from diffusers.image_processor import VaeImageProcessor
 
         if held.get('vae') is None:
+            if before is not None:
+                before()
             progress(stage='loading VAE')
             held['vae'] = load_vae(vae_path)
         vae = held['vae']
@@ -406,10 +465,16 @@ def _generate(job, config, report, key, loras, holder):
     held = dict(vae=None)
     with torch.inference_mode():
         # 1. The prompt read with the images, then the latents of each image (both kept on the disk).
-        text, text_kept = texts(config, job, images, progress)
+        # Beside the model the last image left, its share lends them the card, and takes it back.
+        text, text_kept = texts(config, job, images, progress, beside=holder[0])
         text = text.to(**bf16)
         progress(stage='encoding references')
-        found, images_kept = given_latents(config, job, paths, images, held, progress)
+
+        def vae_room():
+            if holder[0] is not None:
+                holder[0].pool.lend(max(0.0, DECODE_GIB - hardware.free_bytes(torch) / GiB))
+
+        found, images_kept = given_latents(config, job, paths, images, held, progress, before=vae_room)
         given = torch.cat([qwen_image.pack(value) for value in found], dim=1).to(**bf16)
         grid = qwen_image.shapes((height // 8, width // 8), [tuple(value.shape[2:]) for value in found])
         del found
@@ -421,16 +486,17 @@ def _generate(job, config, report, key, loras, holder):
         sigmas, timesteps = schedule(p.get('steps', STEPS))
         loaded = holder[0]
         again = loaded is not None
+        # (What the share lent to the prompt or to the VAE is free again here, and counted with what is free.)
         free = (hardware.free_bytes(torch) + torch.cuda.memory_reserved()) / GiB
         budget = max(0.0, free - reserve - AHEAD_GIB)
         if 'cacheGiB' in config:
             budget = min(budget, config['cacheGiB'])
-        if again and not (loaded.pool.bytes <= (budget + 0.25) * GiB and (budget - LOCK_MARGIN_GIB) * GiB <= loaded.pool.limit):
-            # A share of another size than this image leaves it: built anew (runner.pipelines.ltx25, Refit).
-            loaded.drop()
-            loaded = holder[0] = None
-            again = False
-            free_card()
+        if again:
+            loaded = holder[0] = kept_share(loaded, budget, progress)
+            if loaded is None:
+                # A share of another size than this image leaves it: built anew.
+                again = False
+                free_card()
         generator = torch.Generator('cpu').manual_seed(p['seed'])
         noise = qwen_image.pack(torch.randn((1, 16, height // 8, width // 8), generator=generator)).cuda()
         latents = prediction = None

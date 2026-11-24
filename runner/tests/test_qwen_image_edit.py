@@ -154,7 +154,7 @@ class TextCacheTests(unittest.TestCase):
             red, blue = Image.new('RGB', (64, 48), 'red'), Image.new('RGB', (64, 48), 'blue')
             calls = []
 
-            def encode(path, tokenizer, images, prompts, progress):
+            def encode(path, tokenizer, images, prompts, progress, reserve_gib=None):
                 calls.append(prompts)
                 return [torch.full((1, 5, 3584), float(len(calls)), dtype=torch.bfloat16)]
 
@@ -170,6 +170,121 @@ class TextCacheTests(unittest.TestCase):
                 other = job(parameters=dict(given['parameters'], prompt='<sks> back view eye-level shot medium shot'))
                 qwen_image_edit.texts(config, dict(given, parameters=other['parameters']), [red], quiet)
             self.assertEqual(len(calls), 3)
+
+
+class Share:
+    """A share of 6 GiB on the card, lent as WeightPool lends it: its last layers (of 1 GiB) first."""
+
+    def __init__(self):
+        self.gpu = {index: qwen_image_edit.GiB for index in range(6)}
+        self.bytes = self.limit = 6 * qwen_image_edit.GiB
+        self.lent = 0
+        self.asked = []
+
+    def lend(self, gib):
+        self.asked.append(round(gib, 2))
+        wanted, freed = int(gib * qwen_image_edit.GiB), 0
+        if wanted <= 0:
+            return 0
+        for location in reversed(list(self.gpu)):
+            if freed >= wanted:
+                break
+            freed += self.gpu.pop(location)
+        self.bytes -= freed
+        self.lent += freed
+        return freed
+
+    def preload(self):
+        self.asked.append('preload')
+        self.gpu = {index: qwen_image_edit.GiB for index in range(6)}
+        self.bytes, self.lent = self.limit, 0
+
+
+class BesideTests(unittest.TestCase):
+    """A new prompt read beside the model the last image left on the card (24/11, on the card:
+    the second pose of the bench ran out of video memory in the encoder)."""
+
+    def read(self, failures, share):
+        from PIL import Image
+
+        from runner.models import pool
+
+        reserves = []
+
+        def encode(path, tokenizer, images, prompts, progress, reserve_gib):
+            reserves.append(reserve_gib)
+            if len(reserves) <= failures:
+                raise torch.OutOfMemoryError('no room')
+            return [torch.zeros(1, 5, 3584, dtype=torch.bfloat16)]
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for name in ('qwen_vl.safetensors', 'tokenizer.json'):
+                (root / name).write_bytes(b'x')
+            given = job(components=dict(job()['components'], textEncoder=str(root / 'qwen_vl.safetensors'), tokenizer=str(root)))
+            beside = SimpleNamespace(pool=share) if share is not None else None
+            # 1 GiB free beside the share.
+            with patch.object(qwen_image_text, 'encode', encode), patch.object(pool, 'room', lambda reserve: 1.0 - reserve):
+                qwen_image_edit.texts(
+                    dict(cacheRoot=str(root / 'cache')), given, [Image.new('RGB', (64, 48), 'red')], lambda **_: None, beside=beside
+                )
+        return reserves
+
+    def test_the_share_lends_the_encoder_its_room_then_all_of_itself(self):
+        from runner import engine
+
+        beside = qwen_image_edit.BESIDE_RESERVE_GIB
+        # Its streaming has room under the ceiling the engine sets below what was free.
+        self.assertGreaterEqual(beside, qwen_image_text.RESERVE_GIB + engine.VRAM_MARGIN / qwen_image_edit.GiB)
+        share = Share()
+        self.assertEqual(self.read(0, share), [beside])
+        # 1 GiB was free: what the encoder's reserve lacked is lent, two layers of the share.
+        self.assertEqual((share.asked, len(share.gpu), share.lent), ([round(beside - 1.0, 2)], 4, 2 * qwen_image_edit.GiB))
+        # Still out of memory beside it: the share leaves the card whole, the encoder runs alone.
+        share = Share()
+        self.assertEqual(self.read(1, share), [beside, qwen_image_text.RESERVE_GIB])
+        self.assertEqual((share.gpu, share.lent), ({}, 6 * qwen_image_edit.GiB))
+        # No model on the card: one reading, with the encoder's own reserve, nothing lent.
+        self.assertEqual(self.read(0, None), [qwen_image_text.RESERVE_GIB])
+        idle = Share()
+        idle.gpu.clear()
+        self.assertEqual((self.read(0, idle), idle.asked), ([qwen_image_text.RESERVE_GIB], []))
+
+    def test_the_share_is_weighed_whole_before_it_is_taken_back(self):
+        # 4 GiB on the card and 2 lent to the prompt: a share of 6, kept for an image that leaves it 6.
+        share = Share()
+        share.lend(2)
+        self.assertEqual((share.bytes, share.lent), (4 * qwen_image_edit.GiB, 2 * qwen_image_edit.GiB))
+        self.assertTrue(qwen_image_edit.fits(share, 6))
+        # Another program took 2 GiB of the card since: what is on it would fit, the share whole
+        # does not, and taken back it ran out of memory (24/11). It is built anew.
+        self.assertFalse(qwen_image_edit.fits(share, 4))
+        # More room than when it was built: built anew at this image's size.
+        self.assertFalse(qwen_image_edit.fits(share, 7))
+
+    def test_what_was_lent_comes_back_only_to_a_share_that_fits(self):
+        class Loaded:
+            def __init__(self):
+                self.pool, self.dropped = Share(), False
+
+            def drop(self):
+                self.dropped = True
+
+        stages = []
+        loaded = Loaded()
+        loaded.pool.lend(2)
+        self.assertIs(qwen_image_edit.kept_share(loaded, 6, lambda **data: stages.append(data)), loaded)
+        self.assertEqual((loaded.pool.asked[-1], loaded.pool.lent, loaded.dropped), ('preload', 0, False))
+        self.assertEqual(stages, [dict(stage='transformer weights taken back', lent_gib=2.0)])
+        # The card filled by another program since: dropped as it is, nothing taken back first.
+        loaded, stages = Loaded(), []
+        loaded.pool.lend(2)
+        self.assertIsNone(qwen_image_edit.kept_share(loaded, 4, lambda **data: stages.append(data)))
+        self.assertEqual((loaded.pool.asked, loaded.dropped, stages), ([2], True, []))
+        # Nothing lent: kept as it is.
+        loaded = Loaded()
+        self.assertIs(qwen_image_edit.kept_share(loaded, 6, lambda **data: stages.append(data)), loaded)
+        self.assertEqual((loaded.pool.asked, stages), ([], []))
 
 
 class ModulationCacheTests(unittest.TestCase):

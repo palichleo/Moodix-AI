@@ -64,8 +64,13 @@ Measured in November 2026 on the development RTX 4070 Super (12 GB), with INT8 C
 | LTX 2.5 distilled | 896×1600, 121 frames with sound, start image, two passes | 192 s | under the 12 GB of the card |
 | LTX 2.5 distilled | 896×1600, 193 frames (8 s) with sound, start image, two passes (17 Nov, 0.6.74) | 184 s | 8.76 GiB |
 | LTX 2.5 distilled | 896×1600, 121 frames with sound, from text, two passes (17 Nov, 0.6.74) | 96 s | 8.67 GiB |
+| Qwen-Image-Edit 2511 | 768×1344, 8 steps (Lightning), the angles LoRA, one image given: the first image of the engine (24 Nov, 0.6.265) | 35.5 to 36.9 s | 7.87 GiB |
+| Qwen-Image-Edit 2511 | Same, the model kept on the card: a new angle (its prompt read beside it) | 19.0 to 21.8 s | 8.71 GiB |
+| Qwen-Image-Edit 2511 | Same, the same angle again (prompt, image and modulations kept on the disk) | 14.4 to 14.9 s | 7.87 GiB |
 
 Startup, the state of the disk cache and the first compilation of the kernels change the total time.
+
+The Qwen-Image-Edit lines compare with the trial of 23 November: diffusers as it is, with the same files, angles, seed and 8 steps, gave 34.4 s for its first image and then 23 s an image (2.6 to 2.9 s a step, against 1.67 s here), with its prompts already read. The engine's images keep the trial's framing and subjects, their details differ (PSNR 22 to 34 dB to the trial's), and they are the same from one run to the next. comfy-kitchen's INT8 attention (`INT8_ATTENTION`) takes a step to 1.29 to 1.35 s (11.8 to 12.0 s for the last line, 14.8 to 17.4 s for a new angle), but its images are further from the trial's (PSNR 20 to 28 dB): it stays off until they are judged.
 
 The two lines of 17 November were measured once the embedding of a timestep was kept once per different timestep instead of once per token (`runner/models/ltx25_block.py`): before it, the copies of these embeddings took 7.5 GiB for the 35 000 tokens of the 8-second video, whose refining pass ran out of the memory of the card.
 
