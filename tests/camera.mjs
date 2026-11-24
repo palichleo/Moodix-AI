@@ -269,7 +269,13 @@ test('(0.6.257) the ball of the camera: the camera three quarters in front of th
   const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n'),
     part = css.slice(css.indexOf('/* ------------------------------------------------------------------ la caméra avant (0.6.257) */'));
   assert.ok(part.length > 1000);
-  assert.match(part, /\.camera-ball\.is-playing:not\(\.is-dim\) \.camera-ball-line,\n\.camera-menu-option:is\(:hover, :focus-visible\):not\(\.is-off\) \.camera-ball-line \{\n  animation: camera-ball-draw 2\.8s infinite;/);
+  assert.match(part, /:root:not\(\[data-motion='fige'\], \[data-generating='true'\]\) \.camera-ball\.is-playing:not\(\.is-dim\) \.camera-ball-line,\n:root:not\(\[data-motion='fige'\]\) \.camera-menu-option:is\(:hover, :focus-visible\):not\(\.is-off\) \.camera-ball-line \{\n  animation: camera-ball-draw 2\.8s infinite;/);
+  // (0.6.263) As the grain of the room: never under « Figé », the ball of the block not while a generation runs (each
+  // of its four rules), resting the page hidden or a window open (check-ui reads what the page makes of them).
+  assert.equal([...part.matchAll(/^:root:not\(\[data-motion='fige'\], \[data-generating='true'\]\) \.camera-ball\.is-playing:not\(\.is-dim\) /gm)].length, 4);
+  assert.equal([...part.matchAll(/^:root:not\(\[data-motion='fige'\]\) \.camera-menu-option:is\(:hover, :focus-visible\):not\(\.is-off\) /gm)].length, 4);
+  assert.doesNotMatch(part, /^\.camera-(?:ball\.is-playing|menu-option:is\(:hover)/m);
+  assert.match(part, /:root\[data-page-hidden='true'\] :is\(\.camera-ball, \.camera-menu-option\) :is\(\.camera-ball-line, \.camera-ball-head, \.camera-ball-cam\),\nbody:has\(dialog\[open\]\) :is\(\.camera-ball, \.camera-menu-option\) :is\(\.camera-ball-line, \.camera-ball-head, \.camera-ball-cam\) \{\n  animation-play-state: paused !important;/);
   assert.match(part, /\.camera-ball-cam\[data-way='line'\][^{]*\{\n  animation: camera-ball-go 2\.8s infinite;/);
   assert.match(part, /@keyframes camera-ball-go \{[\s\S]*?transform: translate\(var\(--dx\), var\(--dy\)\);/);
   assert.match(part, /@media \(prefers-reduced-motion: reduce\) \{\n  \.camera-ball \.camera-ball-line,[\s\S]*?animation: none !important;/);

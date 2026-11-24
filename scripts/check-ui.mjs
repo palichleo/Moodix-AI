@@ -239,6 +239,42 @@ const STUDIO_LAYOUT = `(async () => {
         const input = cameraBlock().closest('.studio-block');
         if (input && input.scrollHeight > input.clientHeight + 1) found.push(name + ' : la colonne Entrée défile de ' + (input.scrollHeight - input.clientHeight) + ' px avec le bloc Caméra');
         if (!drawing || getComputedStyle(drawing).animationName !== 'camera-ball-draw') found.push(name + ' : le mouvement de la Caméra ne se dessine pas en boucle');
+        // (0.6.263) As the grain of the room: still while a generation runs and under « Figé », drawn as when it does
+        // not play; resting where it is, the page hidden or a window open over it; looping again after.
+        else {
+          const root = document.documentElement,
+            cam = cameraBlock().querySelector(".camera-ball-cam:is([data-way='line'], [data-way='shake'])"),
+            before = { generating: root.dataset.generating, motion: root.dataset.motion, pageHidden: root.dataset.pageHidden },
+            put = (key, value) => (value === undefined ? delete root.dataset[key] : (root.dataset[key] = value)),
+            looks = () => {
+              const line = getComputedStyle(drawing);
+              return [line.animationName, line.animationPlayState, line.strokeDasharray === 'none' ? 'trait' : 'pointillé', cam ? getComputedStyle(cam).animationName : 'none'].join(' ');
+            },
+            seen = {};
+          for (const [key, value, what] of [['generating', 'true', 'pendant une génération'], ['motion', 'fige', 'en « Figé »'], ['pageHidden', 'true', 'la page cachée']]) {
+            put(key, value);
+            seen[what] = looks();
+            put(key, before[key]);
+          }
+          const dialog = document.createElement('dialog');
+          document.body.append(dialog);
+          dialog.setAttribute('open', '');
+          seen['une fenêtre ouverte'] = looks();
+          dialog.remove();
+          seen['après'] = looks();
+          // Still, its line is its own (dashed for « Suivi », whole otherwise); playing, it is drawn by its dashes.
+          const own = drawing.getAttribute('stroke-dasharray') ? 'pointillé' : 'trait',
+            going = cam ? (cam.dataset.way === 'shake' ? 'camera-ball-shake' : 'camera-ball-go') : 'none',
+            wanted = {
+              'pendant une génération': 'none running ' + own + ' none',
+              'en « Figé »': 'none running ' + own + ' none',
+              'la page cachée': 'camera-ball-draw paused pointillé ' + going,
+              'une fenêtre ouverte': 'camera-ball-draw paused pointillé ' + going,
+              'après': 'camera-ball-draw running pointillé ' + going,
+            };
+          for (const [what, state] of Object.entries(seen))
+            if (state !== wanted[what]) found.push(name + ' : la boule de la Caméra ' + what + ' : « ' + state + ' », attendu « ' + wanted[what] + ' »');
+        }
         cameraBlock().querySelector('.camera-block-ball')?.click();
         await new Promise(resolve => setTimeout(resolve, 0));
         const pane = document.querySelector('#studio-view .camera-menu:popover-open'),

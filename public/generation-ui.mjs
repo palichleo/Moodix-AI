@@ -804,11 +804,17 @@ export function setupGenerationUI({
       progress.hidden = true;
       label.classList.remove('sr-only');
       label.textContent = 'Image générée';
+      // (0.6.263) Its Flux rests out of sight as that of any card: the watch of `mount` is kept. This one took its
+      // place, and in a long conversation each card put back and not yet seen went on drawing (21 loops, some
+      // 470 images a second, on 24 takes). Its take is asked for once, the first time it is seen; the watch ends
+      // with its picture (`image`) or what failed (`settle`, `failed`).
+      const rest = watched.get(figure);
+      let asked = false;
       watch(figure, visible => {
-        if (visible) {
-          unwatch(figure);
-          void card.load(conversationId, runId);
-        }
+        rest?.(visible);
+        if (!visible || asked) return;
+        asked = true;
+        void card.load(conversationId, runId);
       });
       return card;
     },

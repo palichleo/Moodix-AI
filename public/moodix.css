@@ -20810,22 +20810,24 @@ body[data-view='bobine'] .chat-panel {
 }
 /* The movement in a loop of 2.8 s: still at its start a moment, drawn to its end, held there; the camera goes
    along with it. Under the pointer for a small ball of the menu; never for who asks for less motion (the drawing
-   is then whole, the camera at its start). */
-.camera-ball.is-playing:not(.is-dim) .camera-ball-line,
-.camera-menu-option:is(:hover, :focus-visible):not(.is-off) .camera-ball-line {
+   is then whole, the camera at its start). (0.6.263) Nor under the motion « Figé », and the ball of the block not
+   while a generation runs, as the grain of the room (part 4): it is then drawn as when it does not play. Its loop
+   cost some 165 ms of the page every 3 s and 150 layouts a second (the camera of the SVG moved at each image). */
+:root:not([data-motion='fige'], [data-generating='true']) .camera-ball.is-playing:not(.is-dim) .camera-ball-line,
+:root:not([data-motion='fige']) .camera-menu-option:is(:hover, :focus-visible):not(.is-off) .camera-ball-line {
   animation: camera-ball-draw 2.8s infinite;
   stroke-dasharray: 1 1;
 }
-.camera-ball.is-playing:not(.is-dim) .camera-ball-head,
-.camera-menu-option:is(:hover, :focus-visible):not(.is-off) .camera-ball-head {
+:root:not([data-motion='fige'], [data-generating='true']) .camera-ball.is-playing:not(.is-dim) .camera-ball-head,
+:root:not([data-motion='fige']) .camera-menu-option:is(:hover, :focus-visible):not(.is-off) .camera-ball-head {
   animation: camera-ball-head 2.8s infinite;
 }
-.camera-ball.is-playing:not(.is-dim) .camera-ball-cam[data-way='line'],
-.camera-menu-option:is(:hover, :focus-visible):not(.is-off) .camera-ball-cam[data-way='line'] {
+:root:not([data-motion='fige'], [data-generating='true']) .camera-ball.is-playing:not(.is-dim) .camera-ball-cam[data-way='line'],
+:root:not([data-motion='fige']) .camera-menu-option:is(:hover, :focus-visible):not(.is-off) .camera-ball-cam[data-way='line'] {
   animation: camera-ball-go 2.8s infinite;
 }
-.camera-ball.is-playing:not(.is-dim) .camera-ball-cam[data-way='shake'],
-.camera-menu-option:is(:hover, :focus-visible):not(.is-off) .camera-ball-cam[data-way='shake'] {
+:root:not([data-motion='fige'], [data-generating='true']) .camera-ball.is-playing:not(.is-dim) .camera-ball-cam[data-way='shake'],
+:root:not([data-motion='fige']) .camera-menu-option:is(:hover, :focus-visible):not(.is-off) .camera-ball-cam[data-way='shake'] {
   animation: camera-ball-shake 0.7s steps(1) infinite;
 }
 @keyframes camera-ball-draw {
@@ -20891,6 +20893,12 @@ body[data-view='bobine'] .chat-panel {
   .camera-block-knob {
     transition: none;
   }
+}
+/* (0.6.263) The page hidden or a window open over it, the ball rests where it is, as the grain (it goes on from
+   there when they are gone). */
+:root[data-page-hidden='true'] :is(.camera-ball, .camera-menu-option) :is(.camera-ball-line, .camera-ball-head, .camera-ball-cam),
+body:has(dialog[open]) :is(.camera-ball, .camera-menu-option) :is(.camera-ball-line, .camera-ball-head, .camera-ball-cam) {
+  animation-play-state: paused !important;
 }
 /* (K01) Its menu, opaque, at the right of the block: « Au choix du modèle » at its head, the movements by family in
    two columns, each a small ball of 70 px and its short name, the speed at its foot and what is added to the

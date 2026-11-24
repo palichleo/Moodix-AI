@@ -892,6 +892,65 @@ test('a creation of the Studio being made is drawn in the conversation as the ot
   assert.match(sheet, /\.generation-frame\.is-paused > \.generation-progress > span,\s*\.generation-frame\.is-paused > \.generation-progress > span::after \{\s*animation-play-state: paused;/);
 });
 
+test('(0.6.263) a take restored out of sight: its Flux rests until it is seen, then its take is asked for', async t => {
+  // In a long conversation the Flux of each restored card went on out of sight: the watch of `restore` took the place
+  // of the one every card has (`mount`), which rests it; 21 loops, some 470 images a second, measured on 24 takes.
+  class Canvas extends Element {
+    getContext() {
+      return new Proxy({ createRadialGradient: () => ({ addColorStop() {} }) }, { get: (pen, key) => pen[key] ?? (() => {}) });
+    }
+  }
+  const frames = [],
+    cancelled = [];
+  const page = {
+    document: { createElement: () => Object.assign(new Canvas('canvas'), { width: 0, height: 0 }), documentElement: { dataset: {} } },
+    devicePixelRatio: 1,
+    performance: { now: () => 0 },
+    matchMedia: () => ({ matches: false }),
+    setTimeout: () => 0,
+    clearTimeout() {},
+    requestAnimationFrame: callback => frames.push(callback),
+    cancelAnimationFrame: id => cancelled.push(id),
+  };
+  const before = { window: globalThis.window, IntersectionObserver: globalThis.IntersectionObserver };
+  let observed;
+  globalThis.IntersectionObserver = class {
+    constructor(callback) {
+      this.callback = callback;
+      observed = this;
+    }
+    observe() {}
+    unobserve() {}
+  };
+  globalThis.window = page;
+  t.after(() => Object.assign(globalThis, before));
+  const asked = [],
+    ui = setupGenerationUI({
+      node: (tag, cls = '', text = '') => (tag === 'canvas' ? new Canvas(tag, cls, text) : new Element(tag, cls, text)),
+      openOutput() {},
+      api: async route => {
+        asked.push(route);
+        return new Promise(() => {});
+      },
+    }),
+    container = new Element();
+  ui.restore(container, 'conversation', 'run');
+  const [figure] = container.children,
+    [frame] = figure.children;
+  // While it waits, the Flux on the colours of the room, as any wait: one image asked for.
+  assert.deepEqual([frame.classList.contains('has-flux'), frames.length], [true, 1]);
+  // Out of sight: it rests, the image asked for given back; nothing is asked of the gallery.
+  observed.callback([{ target: figure, isIntersecting: false }]);
+  assert.deepEqual([cancelled, frame.classList.contains('is-paused'), asked], [[1], true, []]);
+  // In sight: it goes on, the frame moving again, and its take is asked for, once.
+  observed.callback([{ target: figure, isIntersecting: true }]);
+  observed.callback([{ target: figure, isIntersecting: false }]);
+  observed.callback([{ target: figure, isIntersecting: true }]);
+  await new Promise(setImmediate);
+  assert.deepEqual([frames.length, cancelled, frame.classList.contains('is-paused'), asked], [3, [1, 2], false, ['gallery/conversation/run']]);
+  ui.clear();
+});
+
 test('under a take made with LoRAs of the user: their number beside its format, their names to read', () => {
   const record = {
     mediaType: 'image',
