@@ -234,6 +234,10 @@ const STUDIO_LAYOUT = `(async () => {
           column = cameraBlock().closest('.studio-block')?.getBoundingClientRect(),
           drawing = cameraBlock().querySelector('.camera-ball-line');
         if (column && (own.left < column.left - 1 || own.right > column.right + 1)) found.push(name + ' : le bloc Caméra sort de sa colonne');
+        // (0.6.262) With it, the column « Entrée » holds without scrolling (by 52 px at 1280 × 720 under LTX 2.5, its
+        // block on a row of 120 px; on one line there now).
+        const input = cameraBlock().closest('.studio-block');
+        if (input && input.scrollHeight > input.clientHeight + 1) found.push(name + ' : la colonne Entrée défile de ' + (input.scrollHeight - input.clientHeight) + ' px avec le bloc Caméra');
         if (!drawing || getComputedStyle(drawing).animationName !== 'camera-ball-draw') found.push(name + ' : le mouvement de la Caméra ne se dessine pas en boucle');
         cameraBlock().querySelector('.camera-block-ball')?.click();
         await new Promise(resolve => setTimeout(resolve, 0));
@@ -244,6 +248,11 @@ const STUDIO_LAYOUT = `(async () => {
         else {
           if (box.left < 0 || box.top < 0 || box.right > innerWidth || box.bottom > innerHeight) found.push(name + ' : le menu de la Caméra sort de la fenêtre');
           if (go && box.left < go.right && box.right > go.left && box.top < go.bottom && box.bottom > go.top) found.push(name + ' : le menu de la Caméra passe sur « Générer »');
+          // (0.6.262) Never above its column: taller than the room, it went 30 px over the bar of the conversation at
+          // 1280 × 720.
+          const bar = document.getElementById('thread')?.getBoundingClientRect();
+          if (column && box.top < column.top - 1) found.push(name + ' : le menu de la Caméra monte ' + Math.round(column.top - box.top) + ' px au-dessus de sa colonne');
+          if (bar && box.left < bar.right && box.right > bar.left && box.top < bar.bottom && box.bottom > bar.top) found.push(name + ' : le menu de la Caméra passe sur la barre de la conversation');
           if (pane.scrollHeight > pane.clientHeight + 1) found.push(name + ' : le menu de la Caméra défile');
           const options = [...pane.querySelectorAll('.camera-menu-option[data-move]')],
             greyed = options.filter(option => option.classList.contains('is-off'));
@@ -853,6 +862,33 @@ try {
         return wanted.length === 0;
       },
     );
+    // (0.6.262) Near the left edge of the image: whole above the page (popover="manual"), still centred on the pointer,
+    // past the frame. In the frame, the frame, the stage and the block of the screen cut it: at 12 px from the edge,
+    // 92 px of its 200 were gone, and the image of before with them.
+    await run(
+      'Studio : la loupe au bord de l’image, entière au-dessus de la page',
+      async () => {
+        await look();
+        if (!seen.image) return false;
+        await pointer(Math.round(seen.image[0] + 12), middle().y);
+        await until(() => js(lens), 2000);
+      },
+      async () => {
+        const [open, left, top, width, frameLeft] = JSON.parse(
+          await js(`(() => {
+            const loupe = document.querySelector('#studio-view .studio-loupe'), box = loupe?.getBoundingClientRect();
+            return JSON.stringify([Boolean(loupe?.matches(':popover-open')), box?.left, box?.top, box?.width, document.querySelector('#studio-view .studio-frame')?.getBoundingClientRect().left]);
+          })()`),
+        );
+        const x = Math.round(seen.image[0] + 12),
+          wanted = [];
+        if (!open) wanted.push('la loupe n’est pas au-dessus de la page (popover)');
+        if (Math.abs(left + width / 2 - x) > 2 || Math.abs(top + width / 2 - middle().y) > 2) wanted.push('la loupe n’est pas centrée sur le pointeur au bord de l’image');
+        if (!(left < frameLeft)) wanted.push('la loupe ne passe pas le bord du cadre');
+        for (const what of wanted) problems.push([step, 'état', what]);
+        return wanted.length === 0;
+      },
+    );
     await run(
       'Studio : « Comparer » relâché, plus de loupe',
       async () => {
@@ -874,6 +910,166 @@ try {
     );
     await rail();
     await run('Chat (image agrandie)', () => click('#chat-open'), view('chat'));
+  }
+  /**
+   * (0.6.262) The menu of the camera at the keys, at 1440 × 900 under LTX 2.5: Entrée on its ball opens it, the focus
+   * in it; the arrows go from a movement to the next; Maj+Tab before its first control closes it, the focus back on
+   * the ball; Tab past its last closes it, the focus on « Lente » of the block, what follows the ball. It was the last
+   * of the block: Maj+Tab went to « Rapide » of the block, Tab to Image, Vidéo, Son, under it.
+   */
+  async function cameraKeys() {
+    const at = async () =>
+      JSON.parse(
+        await js(`(() => {
+          const now = document.activeElement, menu = now?.closest('.camera-menu');
+          return JSON.stringify([
+            menu ? 'menu:' + (now.dataset.move ?? now.dataset.speed ?? 'model') : now?.classList.contains('camera-block-ball') ? 'ball' : now?.closest('.camera-block-speeds') ? 'block:' + now.dataset.speed : String(now?.className || now?.tagName),
+            Boolean(document.querySelector('#studio-view .camera-menu:popover-open')),
+            Boolean(now?.matches(':focus-visible')),
+          ]);
+        })()`),
+      );
+    await run(
+      'Studio : le menu de la Caméra ouvert par Entrée sur sa boule, le focus dans lui (1440 × 900)',
+      async () => {
+        await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+        const ready = await js(`(async () => {
+          document.querySelector('#studio-kinds .kind-tab[aria-label="Vidéo"]')?.click();
+          const pick = document.querySelector('#studio-view .studio-model-pick'),
+            ltx = [...(pick?.options ?? [])].find(option => option.textContent.trim() === 'LTX 2.5');
+          if (!ltx) return false;
+          pick.value = ltx.value;
+          pick.onchange();
+          await new Promise(resolve => setTimeout(resolve, 200));
+          const toggle = document.querySelector('#studio-view .studio-camera-block:not(.is-off) .camera-block-switch');
+          toggle?.focus();
+          return Boolean(toggle);
+        })()`);
+        if (!ready) return false;
+        // From its switch to its ball by Tab: a focus of the keyboard, as a person gives it.
+        await key('Tab', 'Tab', 9);
+        if ((await at())[0] !== 'ball') return false;
+        await press('Enter', 'Enter', 13, '\r');
+      },
+      async () => {
+        const [where, open, visible] = await at();
+        return where === 'menu:model' && open && visible;
+      },
+      { within: 1500 },
+    );
+    await run(
+      'Studio : les flèches vont d’un mouvement à l’autre dans le menu de la Caméra',
+      async () => {
+        await key('ArrowDown', 'ArrowDown', 40);
+        await key('ArrowDown', 'ArrowDown', 40);
+        await key('ArrowUp', 'ArrowUp', 38);
+      },
+      async () => {
+        const [where, open] = await at();
+        return where === 'menu:dolly_in' && open;
+      },
+      { within: 1000 },
+    );
+    await run(
+      'Studio : Maj+Tab avant le premier du menu de la Caméra le ferme, le focus revenu sur sa boule',
+      () => key('Tab', 'Tab', 9, 8),
+      async () => {
+        const [where, open] = await at();
+        return where === 'ball' && !open;
+      },
+      { within: 1000 },
+    );
+    await run(
+      'Studio : Tab après « Rapide » du menu de la Caméra le ferme, le focus sur « Lente » du bloc',
+      async () => {
+        await press('Enter', 'Enter', 13, '\r');
+        await wait(200);
+        if ((await at())[0] !== 'menu:model') return false;
+        for (let step = 0; step < 4; step++) await key('Tab', 'Tab', 9);
+      },
+      async () => {
+        const [where, open] = await at();
+        return where === 'block:slow' && !open;
+      },
+      { within: 1000 },
+    );
+  }
+  /**
+   * (0.6.262) Pieces kept for another model: Début, Fin and two subjects given under LTX 2.5, the camera on, then Wan
+   * 2.2 (it takes Début alone). Their line under the plateau, the block « Caméra » on one row, its ball at the left,
+   * and the column « Entrée » does not scroll at 1912 × 948 nor at 1440 × 900 (by 40 and 44 px before; at 1280 × 720
+   * the plateau itself is too tall with them, since 0.6.202). Then Wan 2.1 SCAIL-2, which takes no camera: the block
+   * kept is one line (it was 326 px high, the column scrolled by 183 and 187 px).
+   */
+  async function cameraKept() {
+    const over = async shape => {
+      const seen = [];
+      for (const [width, height] of [
+        [1912, 948],
+        [1440, 900],
+      ]) {
+        await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+        await wait(300);
+        seen.push(
+          await js(`(() => {
+            const column = document.querySelector('#studio-view .studio-block.is-input'),
+              block = document.querySelector('#studio-view .studio-camera-block.${shape}');
+            return column && block && document.querySelector('#studio-view .studio-plateau-note') ? column.scrollHeight - column.clientHeight : 'sans bloc ${shape}';
+          })()`),
+        );
+      }
+      if (seen.some(value => !(value <= 1))) problems.push([step, 'état', 'colonne Entrée : ' + seen.join(' et ') + ' (px de trop à 1912 × 948 et 1440 × 900)']);
+      return seen.every(value => value <= 1);
+    };
+    await run(
+      'Studio : Fin et sujets gardés sous Wan 2.2, la Caméra sur une rangée, la colonne Entrée sans défilement',
+      async () => {
+        await send('Emulation.setDeviceMetricsOverride', { width: 1912, height: 948, deviceScaleFactor: 1, mobile: false });
+        return js(`(async () => {
+          const pause = ms => new Promise(resolve => setTimeout(resolve, ms)),
+            pick = () => document.querySelector('#studio-view .studio-model-pick'),
+            choose = name => {
+              const option = [...(pick()?.options ?? [])].find(item => item.textContent.trim() === name);
+              if (!option) return false;
+              pick().value = option.value;
+              pick().onchange();
+              return true;
+            };
+          if (!choose('LTX 2.5')) return false;
+          await pause(200);
+          const canvas = Object.assign(document.createElement('canvas'), { width: 64, height: 36 });
+          canvas.getContext('2d').fillRect(0, 0, 64, 36);
+          const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png')),
+            filled = slot => document.querySelector('#studio-view .studio-slot[data-slot="' + slot + '"].is-filled');
+          for (const slot of ['start_image-0', 'end_image-0', 'reference-0', 'reference-1']) {
+            const tile = document.querySelector('#studio-view .studio-slot[data-slot="' + slot + '"]');
+            if (!tile) return false;
+            const given = new DataTransfer();
+            given.items.add(new File([blob], slot + '.png', { type: 'image/png' }));
+            tile.dispatchEvent(new DragEvent('drop', { dataTransfer: given, bubbles: true, cancelable: true }));
+            for (let tries = 0; tries < 50 && !filled(slot); tries++) await pause(100);
+            if (!filled(slot)) return false;
+          }
+          const toggle = () => document.querySelector('#studio-view .studio-camera-block .camera-block-switch');
+          if (toggle()?.getAttribute('aria-checked') !== 'true') toggle()?.click();
+          return choose('Wan 2.2');
+        })()`);
+      },
+      () => over('is-row'),
+    );
+    await run(
+      'Studio : la Caméra gardée sous Wan 2.1 SCAIL-2, sur une ligne, la colonne Entrée sans défilement',
+      () =>
+        js(`(() => {
+          const pick = document.querySelector('#studio-view .studio-model-pick'),
+            option = [...(pick?.options ?? [])].find(item => item.textContent.trim() === 'Wan 2.1 SCAIL-2');
+          if (!option) return false;
+          pick.value = option.value;
+          pick.onchange();
+          return true;
+        })()`),
+      () => over('is-off'),
+    );
   }
   /**
    * (0.6.261) The column of the actions, on an image in 16:9 at 1280 × 720 (no room at the right of its frame):
@@ -1462,6 +1658,8 @@ try {
         return found.length === 0;
       },
     );
+  await cameraKeys();
+  await cameraKept();
   // (0.6.258) With the tools of the Studio still given: the loupe of an image made larger, in its own conversation.
   await loupe();
   await send('Fetch.disable');

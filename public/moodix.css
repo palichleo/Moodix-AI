@@ -21056,8 +21056,50 @@ body[data-view='bobine'] .chat-panel {
     padding: 12px 16px;
   }
 }
+/* (0.6.262) With pieces kept for another model (their line under the plateau): the block on one row, its ball of 96 px
+   at the left of its name and its speed, so that the column does not scroll (40 to 46 px too many at 1912 × 948 and
+   1440 × 900 with its ball of 180 and 132 px, under Wan 2.2 and MiniMax H3). */
+#studio-view .studio-camera-block.is-row {
+  display: grid;
+  grid-template-areas:
+    'ball head'
+    'ball name'
+    'ball why'
+    'ball speeds';
+  grid-template-columns: 96px minmax(0, 1fr);
+  grid-template-rows: auto auto auto 1fr;
+  column-gap: 12px;
+  align-items: start;
+}
+#studio-view .studio-camera-block.is-row > .camera-block-head {
+  grid-area: head;
+}
+#studio-view .studio-camera-block.is-row > .camera-block-ball {
+  grid-area: ball;
+  width: 96px;
+  margin: 0;
+}
+#studio-view .studio-camera-block.is-row > .camera-block-name {
+  grid-area: name;
+  margin-top: 4px;
+  text-align: left;
+}
+#studio-view .studio-camera-block.is-row > .camera-block-why {
+  grid-area: why;
+  text-align: left;
+}
+#studio-view .studio-camera-block.is-row > .camera-block-speeds {
+  grid-area: speeds;
+  align-self: end;
+  margin-top: 8px;
+}
+#studio-view .studio-camera-block.is-row > .camera-block-speeds > .studio-camera-speed {
+  height: 26px;
+  padding: 0 4px;
+  font-size: 12px;
+}
 /* A short one (1280 × 800, 1280 × 720): three columns of two families, smaller balls; and the block itself on one
-   row, its ball at the left of its name and its speed, so that the column does not scroll. */
+   line (0.6.262; on one row of 120 px before, its ball of 96 px: 52 px too many at 1280 × 720 under LTX 2.5). */
 @media (max-height: 820px) {
   .camera-menu-cols {
     grid-template-columns: auto auto auto;
@@ -21091,45 +21133,104 @@ body[data-view='bobine'] .chat-panel {
   #studio-view .glass-menu.camera-menu {
     width: auto;
   }
-  #studio-view .studio-camera-block {
+  /* Its small ball, « Caméra », the movement and the switch; why under them; its speed in its menu. */
+  #studio-view .studio-camera-block:not(.is-off) {
     display: grid;
     grid-template-areas:
-      'ball head'
-      'ball name'
-      'ball why'
-      'ball speeds';
-    grid-template-columns: 96px minmax(0, 1fr);
-    grid-template-rows: auto auto auto 1fr;
-    column-gap: 12px;
-    align-items: start;
+      'ball title name switch'
+      'why why why why';
+    grid-template-columns: 32px auto minmax(0, 1fr) auto;
+    column-gap: 10px;
+    align-items: center;
+    padding-top: 10px;
+    padding-bottom: 10px;
   }
-  .camera-block-head {
-    grid-area: head;
+  #studio-view .studio-camera-block:not(.is-off) > .camera-block-head {
+    display: contents;
   }
-  #studio-view .camera-block-ball {
+  #studio-view .studio-camera-block:not(.is-off) .camera-block-title {
+    grid-area: title;
+  }
+  #studio-view .studio-camera-block:not(.is-off) .camera-block-switch {
+    grid-area: switch;
+  }
+  #studio-view .studio-camera-block:not(.is-off) > .camera-block-ball {
     grid-area: ball;
-    width: 96px;
+    width: 32px;
     margin: 0;
   }
-  .camera-block-name {
+  #studio-view .studio-camera-block:not(.is-off) > .camera-block-name {
     grid-area: name;
-    margin-top: 4px;
+    margin: 0;
+    overflow: hidden;
     text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .camera-block-why {
+  #studio-view .studio-camera-block:not(.is-off) > .camera-block-why {
     grid-area: why;
     text-align: left;
   }
-  #studio-view .camera-block-speeds {
-    grid-area: speeds;
-    align-self: end;
+  #studio-view .studio-camera-block:not(.is-off) > .camera-block-speeds {
+    display: none;
+  }
+}
+/* (0.6.262) Shorter still (1280 × 720): its small balls of 44 px, its head and its foot closer, so that it holds between
+   the top of the column and « Générer » (338 px there; 373 before, raised 30 px over the bar of the conversation). */
+@media (max-height: 760px) {
+  #studio-view .glass-menu.camera-menu {
+    padding: 10px 16px;
+  }
+  #studio-view .camera-menu-option .camera-ball {
+    width: 44px;
+  }
+  #studio-view .camera-menu-option.is-model .camera-ball {
+    width: 28px;
+  }
+  .camera-menu-group {
+    gap: 4px;
+    margin-top: 5px;
+  }
+  .camera-menu-pace {
     margin-top: 8px;
+    padding-top: 8px;
   }
-  #studio-view .camera-block-speeds > .studio-camera-speed {
-    height: 26px;
-    padding: 0 4px;
-    font-size: 12px;
-  }
+}
+/* (0.6.262) Kept for a model that takes it, under one that does not: « Caméra », its movement and its × on one line,
+   why under them; no ball and no speed (nothing of it can be set under this model). It was 326 px high under
+   Wan 2.1 SCAIL-2: the column scrolled by 183 px at 1912 × 948. */
+#studio-view .studio-camera-block.is-off {
+  display: grid;
+  grid-template-areas:
+    'title name remove'
+    'why why why';
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 10px;
+  align-items: center;
+}
+#studio-view .studio-camera-block.is-off > .camera-block-head {
+  display: contents;
+}
+#studio-view .studio-camera-block.is-off .camera-block-title {
+  grid-area: title;
+}
+#studio-view .studio-camera-block.is-off .camera-block-remove {
+  grid-area: remove;
+}
+#studio-view .studio-camera-block.is-off > .camera-block-name {
+  grid-area: name;
+  margin: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#studio-view .studio-camera-block.is-off > .camera-block-why {
+  grid-area: why;
+  text-align: left;
+}
+#studio-view .studio-camera-block.is-off > :is(.camera-block-ball, .camera-block-speeds) {
+  display: none;
 }
 /* ------------------------------------------------------------------ (0.6.258) The loupe of an image made larger */
 /* Lot 6 (captures A06, B10): over an image made larger (SeedVR2, Real-ESRGAN), its size at its bottom right, in mono;
@@ -21155,11 +21256,15 @@ body[data-view='bobine'] .chat-panel {
 #studio-view .studio-frame > .studio-loupe[hidden] {
   display: none;
 }
+/* (0.6.262) Above the page (popover="manual"): placed in the window, never cut by the frame, the stage or the block of
+   the screen (studio.mjs, magnifier). */
 #studio-view .studio-frame > .studio-loupe {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 3;
+  position: fixed;
+  inset: 0 auto auto 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
   width: 200px;
   height: 200px;
   overflow: hidden;

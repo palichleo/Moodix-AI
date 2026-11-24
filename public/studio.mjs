@@ -2185,14 +2185,19 @@ export function setupStudio({
    * nor under a proposal of Moodix AI (its pieces are its own); none in Image and in Son (no model takes one).
    * A model that reads the camera itself (Wan 2.2 Caméra) keeps its piece « Caméra », from « Ajouter ».
    */
-  function cameraBlock(workflow, { kept = false } = {}) {
+  function cameraBlock(workflow, { kept = false, row = false } = {}) {
     cameraParts = null;
     if (mode !== 'video' || answering() || extending || (workflow.camera !== true && !kept)) return null;
     const draft = drafts.video,
       off = kept ? `Caméra gardée : ${workflow.name} ne la prend pas.` : '',
       held = off ? '' : working ? whyNot() || BUSY_HERE : '';
     if (off || held) cameraMenu = false;
-    const block = node('section', 'studio-input-block studio-camera-block' + (off ? ' is-off' : '') + (cameraMenu ? ' is-open' : '')),
+    // (0.6.262) `row`: pieces are kept for another model, their line under the plateau; the block on one row, its
+    // ball at the left (moodix.css), so that the column does not scroll. Kept itself, it is one line (is-off).
+    const block = node(
+      'section',
+      'studio-input-block studio-camera-block' + (off ? ' is-off' : row ? ' is-row' : '') + (cameraMenu ? ' is-open' : ''),
+    ),
       head = node('div', 'camera-block-head'),
       ball = greyable(
         button('camera-block-ball', '', () => {
@@ -2240,18 +2245,20 @@ export function setupStudio({
     aiTarget(ball, 'camera-move');
     aiTarget(speeds, 'camera-speed');
     why.setAttribute('aria-live', 'polite');
-    block.append(head, ball, name, why, speeds);
     cameraParts = { workflow, block, toggle, ball, face, art, subject, name, why, speeds, off, held, menu: null };
-    if (cameraMenu) {
-      const menu = cameraMenuPane(workflow);
+    // (0.6.262) Its menu just after the ball, in the order of the page: Maj+Tab from its first control goes back to the
+    // ball, Tab from its last to what follows the ball. Last of the block, Maj+Tab went to « Rapide » of the block and
+    // Tab to Image, Vidéo, Son, at 1912 × 948 and 1440 × 900.
+    const menu = cameraMenu ? cameraMenuPane(workflow) : null;
+    block.append(head, ball, ...(menu ? [menu.pane] : []), name, why, speeds);
+    if (menu) {
       cameraParts.menu = menu;
-      block.append(menu.pane);
       const focus = cameraFocus;
       cameraFocus = false;
       globalThis.queueMicrotask?.(() => {
         if (!menu.pane.isConnected || !cameraMenu) return;
         placeCameraMenu(menu.pane, block, ball);
-        if (focus) (menu.options.get(drafts.video.camera?.move) ?? menu.model).focus?.();
+        if (focus) menu.first.focus?.();
       });
     }
     paintCamera();
@@ -2276,7 +2283,8 @@ export function setupStudio({
       added = node('p', 'camera-menu-added'),
       adds = node('span', 'camera-menu-adds'),
       sentence = node('span', 'camera-menu-sentence'),
-      options = new Map();
+      options = new Map(),
+      refused = new Set();
     pane.setAttribute('role', 'dialog');
     pane.setAttribute('aria-label', WORDS.camera);
     pane.hidden = true;
@@ -2305,7 +2313,10 @@ export function setupStudio({
         option.setAttribute('role', 'radio');
         option.setAttribute('aria-label', why ? `${name}, ${CAMERA_OFF_NOTE}. ${why}` : name);
         option.title = why || name;
-        if (why) option.setAttribute('aria-disabled', 'true');
+        if (why) {
+          option.setAttribute('aria-disabled', 'true');
+          refused.add(option);
+        }
         option.append(ballFace(move, 70, { dim: Boolean(why) }).face, node('span', 'camera-menu-name', cameraShort(move)));
         if (why) option.append(node('span', 'camera-menu-note', CAMERA_OFF_NOTE));
         options.set(move, option);
@@ -2317,14 +2328,44 @@ export function setupStudio({
     added.setAttribute('aria-live', 'polite');
     added.append(adds, sentence);
     pane.append(head, cols, pace, added);
-    // Échap closes it, the focus back on the ball (the page's own listener does the same from anywhere else).
+    // (0.6.262) « Au choix du modèle » and the movements not greyed, by the arrows (Home and End too), as our lists of
+    // glass (glass-menu.mjs): only one of them in the order of Tab, the one chosen, so that Tab goes from them to the
+    // speed. The four arrows did nothing: 15 Tab to reach « Fixe ». The greyed ones are passed over.
+    const ring = [model, ...options.values()].filter(option => !refused.has(option)),
+      rove = held => {
+        for (const option of [model, ...options.values()]) option.tabIndex = option === held ? 0 : -1;
+      };
+    const chosen = options.get(drafts.video.camera?.move),
+      first = chosen && ring.includes(chosen) ? chosen : model;
+    rove(first);
+    pane.addEventListener('focusin', event => {
+      const option = event.target?.closest?.('.camera-menu-option');
+      if (option && ring.includes(option)) rove(option);
+    });
     pane.onkeydown = event => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      event.stopPropagation();
-      closeCameraMenu({ refocus: true });
+      // Échap closes it, the focus back on the ball (the page's own listener does the same from anywhere else).
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        return closeCameraMenu({ refocus: true });
+      }
+      const list = ring,
+        at = list.indexOf(globalThis.document?.activeElement),
+        step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
+      if (at >= 0 && (step || event.key === 'Home' || event.key === 'End')) {
+        event.preventDefault();
+        const next = step ? list[(at + step + list.length) % list.length] : event.key === 'Home' ? list[0] : list.at(-1);
+        rove(next);
+        return next.focus?.();
+      }
+      // (0.6.262) Tab past its last control, or Maj+Tab before its first, closes it (it stayed open over Image, Vidéo,
+      // Son, the focus going under it); the focus goes on where the keys take it.
+      if (event.key === 'Tab') {
+        const stops = [...list.filter(option => option.tabIndex === 0), ...speeds.children];
+        if (globalThis.document?.activeElement === (event.shiftKey ? stops[0] : stops.at(-1))) closeCameraMenu();
+      }
     };
-    return { pane, model, options, speeds, adds, sentence };
+    return { pane, model, options, speeds, adds, sentence, first };
   }
   /** What the block and its menu say, set again in place after a choice (drawn again, the focus would be lost). */
   function paintCamera() {
@@ -2373,18 +2414,21 @@ export function setupStudio({
   }
   /** The menu of the block opened, or closed when it was open; one thing open at a time. */
   function toggleCameraMenu() {
-    cameraMenu = !cameraMenu;
-    cameraFocus = cameraMenu;
-    if (cameraMenu) {
-      addOpen = false;
-      pieceOpen = null;
-      advanced = false;
-    }
+    // (0.6.262) Open: closed in place, the focus kept on the ball (the Studio drawn again, it fell on the page after a
+    // click on the ball; and nothing else had to be drawn again).
+    if (cameraMenu) return closeCameraMenu({ refocus: true });
+    cameraMenu = true;
+    cameraFocus = true;
+    addOpen = false;
+    pieceOpen = null;
+    advanced = false;
     render();
   }
   /**
-   * The menu against its block: at its right, its top level with the block's; raised when it would reach « Générer »
-   * (K01: it never hides it), never above the top of the column.
+   * The menu against its block: at its right, its top level with the block's; raised to the top of the column when it
+   * would reach « Générer » (K01: it never hides it). (0.6.262) Never above the column: taller than the room left,
+   * it went up to 8 px from the top of the window, over the bar of the conversation (30 px of it at 1280 × 720); it
+   * is short enough there now (moodix.css, max-height: 760px).
    */
   function placeCameraMenu(pane, block, ball) {
     openPopup(pane, ball, { beside: block });
@@ -2392,15 +2436,15 @@ export function setupStudio({
       go = document.querySelector?.('#studio-view .studio-go-group')?.getBoundingClientRect?.(),
       column = block.closest?.('.studio-block')?.getBoundingClientRect?.();
     if (!box || !go || !column) return;
-    if (box.left < go.right && box.right > go.left && box.bottom > go.top - 8)
-      pane.style.top = Math.round(Math.max(Math.min(column.top, go.top - 8 - box.height), 8)) + 'px';
+    if (box.left < go.right && box.right > go.left && box.bottom > go.top - 8) pane.style.top = Math.round(column.top) + 'px';
   }
   /** Closed without drawing the Studio again (a press beside it, Échap): the focus back on the ball when asked. */
   function closeCameraMenu({ refocus = false } = {}) {
     cameraMenu = false;
-    const block = document.querySelector?.('#studio-view .studio-camera-block'),
-      pane = block?.querySelector?.('.camera-menu'),
-      ball = block?.querySelector?.('.camera-block-ball');
+    // (0.6.262) The block drawn last first (cameraParts), the page else.
+    const block = cameraParts?.block ?? document.querySelector?.('#studio-view .studio-camera-block'),
+      pane = cameraParts?.menu?.pane ?? block?.querySelector?.('.camera-menu'),
+      ball = cameraParts?.ball ?? block?.querySelector?.('.camera-block-ball');
     if (pane) closePopup(pane);
     block?.classList?.remove?.('is-open');
     ball?.setAttribute?.('aria-expanded', 'false');
@@ -2670,7 +2714,9 @@ export function setupStudio({
     // A model this computer can run first: « choisissez-le dans Modèle » names one that can be chosen there.
     for (const other of [...offered()].sort((a, b) => Boolean(a.unavailable) - Boolean(b.unavailable)))
       for (const piece of other.id === workflow.id ? [] : kindsOf(other)) {
-        if (seen.has(piece.kind)) continue;
+        // (0.6.262) Never the camera of Wan 2.2 Caméra (« Caméra · avec Wan 2.2 Caméra », greyed): since 0.6.257 it
+        // is a block of its own, under the images of the models that take it, not a piece of another model.
+        if (seen.has(piece.kind) || piece.kind === 'camera') continue;
         seen.add(piece.kind);
         const { name, serves } = PIECES[piece.kind],
           short = shortModel(other);
@@ -2811,7 +2857,7 @@ export function setupStudio({
     if (off.length) plateau.append(offLine(workflow, off));
     // (0.6.204) The plateau alone: « Qui est qui » left the column for the windows of its two pieces.
     // (0.6.257, K00) Under it, the block « Caméra » of a model that takes one; greyed when it is kept from one.
-    const blocks = [plateau, cameraBlock(workflow, { kept: off.some(piece => piece.role === 'camera') })].filter(Boolean);
+    const blocks = [plateau, cameraBlock(workflow, { kept: off.some(piece => piece.role === 'camera'), row: off.length > 0 })].filter(Boolean);
     if (!blocks.length) return null;
     // Another model: a light line around them for a moment, which fades (nothing blinks). Drawn
     // again meanwhile, they keep it until the moment is over.
@@ -3926,13 +3972,20 @@ export function setupStudio({
   }
   /** (0.6.258, lot 6) An image made larger (SeedVR2, Real-ESRGAN): the loupe and its size are on it. */
   const enlarged = record => mediaOf(record) === 'image' && transformOf(record) === 'AGRANDIE';
-  /** (0.6.258) The image it was made larger from, when it is still in the Sortie: the address of its file. */
+  /**
+   * (0.6.258) The image it was made larger from, when it is still in the Sortie: the address of its file. (0.6.262) Or
+   * still among the references of the project (a photo of the computer put on the screen, then made larger: its
+   * source is a reference, `resource_id`): its size alone was said, no « Comparer ».
+   */
   function enlargedFrom(record) {
     if (!enlarged(record)) return null;
     const reference = record.parameters?.references?.find(ref => ref.role === 'source_image'),
-      original = reference && runs.find(item => item.id === reference.output_id),
-      url = original?.outputs?.[reference.output_index ?? 0]?.originalUrl ?? original?.outputs?.[0]?.originalUrl;
-    return url ? { record: original, url } : null;
+      original = reference?.output_id ? runs.find(item => item.id === reference.output_id) : null,
+      resource = !original && reference?.resource_id ? assets.resource?.(reference.resource_id) : null,
+      url = original
+        ? (original.outputs?.[reference.output_index ?? 0]?.originalUrl ?? original.outputs?.[0]?.originalUrl)
+        : resource?.originalUrl || resource?.previewUrl;
+    return url ? { url } : null;
   }
   /** (0.6.258) Its size: that of its file once it is read, else that of its output (never of what it was asked). */
   function enlargedSize(record, picture) {
@@ -3973,13 +4026,28 @@ export function setupStudio({
     after.append(now);
     loupe.append(before, after, node('span', 'studio-loupe-line'));
     loupe.setAttribute('aria-hidden', 'true');
+    // (0.6.262) Above the page (a popover, as our lists of glass): in the frame, the frame, the stage and the block of
+    // the screen cut it, the image 8 px from the edges of its frame. Not round 92 px from an edge of the image (62 %
+    // of it at 1912 × 948, 93 % at 1280 × 720), the image of before nearly gone at its left. Placed in the window.
+    loupe.setAttribute('popover', 'manual');
     loupe.hidden = true;
-    const hide = () => void (loupe.hidden = true);
+    const lift = shown => {
+      try {
+        const open = Boolean(loupe.matches?.(':popover-open'));
+        if (shown && !open) loupe.showPopover?.();
+        else if (!shown && open) loupe.hidePopover?.();
+      } catch {
+        // Not in the page any more (drawn again meanwhile): nothing to show.
+      }
+    };
+    const hide = () => {
+      loupe.hidden = true;
+      lift(false);
+    };
     frame.onpointermove = event => {
       if (!comparing || event.pointerType === 'touch') return hide();
-      const box = picture.getBoundingClientRect?.(),
-        room = frame.getBoundingClientRect?.();
-      if (!box?.width || !box.height || !room) return hide();
+      const box = picture.getBoundingClientRect?.();
+      if (!box?.width || !box.height) return hide();
       const x = (event.clientX - box.left) / box.width,
         y = (event.clientY - box.top) / box.height;
       if (x < 0 || x > 1 || y < 0 || y > 1) return hide();
@@ -3988,7 +4056,8 @@ export function setupStudio({
         width = Math.max(size?.width ?? 0, box.width),
         height = (width * box.height) / box.width;
       loupe.hidden = false;
-      loupe.style.transform = `translate(${Math.round(event.clientX - room.left - LOUPE / 2)}px, ${Math.round(event.clientY - room.top - LOUPE / 2)}px)`;
+      lift(true);
+      loupe.style.transform = `translate(${Math.round(event.clientX - LOUPE / 2)}px, ${Math.round(event.clientY - LOUPE / 2)}px)`;
       for (const image of [was, now]) {
         image.style.width = Math.round(width) + 'px';
         image.style.height = Math.round(height) + 'px';

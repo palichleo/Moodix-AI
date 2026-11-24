@@ -9537,7 +9537,10 @@ test('(0.6.257) the camera before a video: its block under the images, its switc
     ltx = { ...shape, id: 'l', name: 'LTX 2.5', family: 'ltx25', camera: true, roles: { start_image: image, end_image: image, reference: { count: 3, media: ['image'] } } },
     wan = { ...shape, id: 'w', name: 'Wan 2.2', family: 'wan22', camera: true, roles: { start_image: image } },
     omni = { ...shape, id: 'o', name: 'MiniMax H3 Omni', family: 'minimax_h3', roles: { reference: { count: 2, media: ['image'] } } },
-    still ={ id: 'i', name: 'Krea 2', family: 'krea2', roles: {}, limits: sizes, size: { width: 1024, height: 1024 }, settings: [] },
+    // (0.6.262) A model that reads the camera itself, its piece « Caméra » still among its own: never named by « Ajouter »
+    // under the others (« Caméra · avec Wan 2.2 Caméra », greyed, while the block was just under it).
+    reads = { ...shape, id: 'c', name: 'Wan 2.2 Caméra', family: 'wan22_camera', camera: { moves: ['dolly_in', 'pan_left'], speed: true }, roles: { start_image: image } },
+    still = { id: 'i', name: 'Krea 2', family: 'krea2', roles: {}, limits: sizes, size: { width: 1024, height: 1024 }, settings: [] },
     // A take made with a camera, as its record keeps it: its prompt as written, the choice and the sentence beside it.
     made = {
       id: 'r1',
@@ -9550,10 +9553,11 @@ test('(0.6.257) the camera before a video: its block under the images, its switc
       outputs: [{ take: 4, originalUrl: '/v/4.mp4', thumbUrl: '/t/4.webp' }],
     },
     plain = { ...made, id: 'r2', prompt: 'La mer.', parameters: { width: 768, height: 448, frames: 121, fps: 24, seed: 8 }, outputs: [{ take: 5, originalUrl: '/v/5.mp4', thumbUrl: '/t/5.webp' }] };
-  // The parts of the block and of its menu, found again after each drawing.
+  // The parts of the block and of its menu, found again after each drawing. (0.6.262) Its menu closed in place stays in
+  // the block until the Studio is drawn again: the one its ball says open only.
   const parts = body => {
     const block = body.find('studio-camera-block')[0],
-      pane = body.find('camera-menu')[0];
+      pane = block?.find('camera-block-ball')[0]?.attributes?.['aria-expanded'] === 'true' ? body.find('camera-menu')[0] : undefined;
     return {
       block,
       pane,
@@ -9573,7 +9577,7 @@ test('(0.6.257) the camera before a video: its block under the images, its switc
   const pressed = speeds => speeds.children.filter(item => item.attributes['aria-pressed'] === 'true').map(item => item.dataset.speed),
     greyed = speeds => speeds.children.map(item => item.disabled);
   const page = await studioPage(
-    { create_image: [still], create_video: [ltx, wan, omni] },
+    { create_image: [still], create_video: [ltx, wan, omni, reads] },
     { 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }), 'tools/execute': () => new Promise(() => {}) },
     { runs: [] },
   );
@@ -9711,23 +9715,78 @@ test('(0.6.257) the camera before a video: its block under the images, its switc
     // (His précision) On again: the last movement chosen comes back, with its speed.
     now().toggle.onclick();
     assert.deepEqual([now().ball.attributes['aria-label'], now().options.find(item => item.className.includes('is-chosen')).dataset.move, sentence()], ['Caméra · Panoramique gauche, lent', 'pan_left', '« The camera slowly pans to the left. »']);
-    // The ball closes it, and opens it again; a press beside its block closes it, Échap too.
+    // (0.6.262) Just after the ball in the order of the page, so that Maj+Tab from its first control goes back to the
+    // ball and Tab from its last to what follows it (last of the block, they went to « Rapide » of the block and to
+    // Image, Vidéo, Son). By the arrows, as our lists of glass: one stop in the order of Tab, the movement chosen; the
+    // greyed ones passed over; Home and End. Tab past « Rapide », or Maj+Tab before the stop, closes it.
+    const menus = () => (now().pane ? 1 : 0),
+      stop = () => [now().model, ...now().options].filter(item => item.tabIndex === 0).map(item => item.dataset.move ?? 'model'),
+      focused = () => globalThis.document.activeElement,
+      keys = (pane, list) =>
+        list.map(([key, shiftKey = false]) => {
+          let prevented = false;
+          pane.onkeydown({ key, shiftKey, preventDefault: () => (prevented = true), stopPropagation() {} });
+          return [focused().dataset.move ?? focused().dataset.speed ?? 'model', prevented];
+        }),
+      // Its controls take the focus; it says when it is taken out of the top layer (glass-menu.mjs, closePopup).
+      watched = open => {
+        for (const item of [open.model, ...open.options, ...open.menuSpeeds.children]) item.focus = () => (globalThis.document.activeElement = item);
+        const seen = { closed: 0 };
+        open.pane.matches = selector => selector === ':popover-open' && !seen.closed;
+        open.pane.hidePopover = () => seen.closed++;
+        return seen;
+      };
+    let open = now(),
+      seen = watched(open);
+    assert.deepEqual(open.block.children.map(part => part.className.split(' ').at(-1)), [
+      'camera-block-head', 'camera-block-ball', 'camera-menu', 'camera-block-name', 'camera-block-why', 'camera-block-speeds',
+    ]);
+    assert.deepEqual(stop(), ['pan_left']);
+    globalThis.document.activeElement = open.options.find(item => item.dataset.move === 'pan_left');
+    assert.deepEqual(keys(open.pane, [['ArrowRight'], ['ArrowDown'], ['ArrowDown'], ['ArrowDown'], ['ArrowUp'], ['ArrowLeft'], ['End'], ['ArrowDown'], ['Home'], ['ArrowUp']]), [
+      ['pan_right', true], ['tilt_up', true], ['tilt_down', true], ['static', true], ['tilt_down', true], ['tilt_up', true], ['follow', true], ['model', true], ['model', true], ['follow', true],
+    ]);
+    // The arrows move the focus only: « Suivi » is the stop now, « Panoramique gauche » is still the one chosen.
+    assert.deepEqual([stop(), now().options.filter(item => item.attributes['aria-checked'] === 'true').map(item => item.dataset.move)], [['follow'], ['pan_left']]);
+    // Tab from the stop goes to the speeds, the menu open; Maj+Tab from « Lente » too. Past « Rapide »: closed.
+    assert.deepEqual([keys(open.pane, [['Tab']]), menus(), seen.closed], [[['follow', false]], 1, 0]);
+    globalThis.document.activeElement = open.menuSpeeds.children[0];
+    assert.deepEqual([keys(open.pane, [['Tab', true]]), menus(), seen.closed], [[['slow', false]], 1, 0]);
+    globalThis.document.activeElement = open.menuSpeeds.children[2];
+    keys(open.pane, [['Tab']]);
+    assert.deepEqual([menus(), now().ball.attributes['aria-expanded'], seen.closed], [0, 'false', 1]);
+    // Open again on the movement chosen; Maj+Tab before it closes it.
     now().ball.onclick();
-    assert.deepEqual([body.find('camera-menu').length, now().ball.attributes['aria-expanded']], [0, 'false']);
+    open = now();
+    seen = watched(open);
+    assert.deepEqual(stop(), ['pan_left']);
+    globalThis.document.activeElement = open.options.find(item => item.tabIndex === 0);
+    keys(open.pane, [['Tab', true]]);
+    assert.deepEqual([menus(), now().ball.attributes['aria-expanded'], seen.closed], [0, 'false', 1]);
+    // The ball closes it in place, the focus kept on it (0.6.262: the Studio was drawn again, the focus fell on the
+    // page), and opens it again; a press beside its block closes it, Échap too.
     now().ball.onclick();
-    assert.equal(body.find('camera-menu').length, 1);
+    seen = watched(now());
+    const opener = now().ball,
+      screen = body.find('studio-frame')[0];
+    let refocused = 0;
+    opener.focus = () => refocused++;
+    opener.onclick();
+    assert.deepEqual([menus(), now().ball === opener, opener.attributes['aria-expanded'], refocused, seen.closed, body.find('studio-frame')[0] === screen], [0, true, 'false', 1, 1, true]);
+    now().ball.onclick();
+    assert.equal(menus(), 1);
     pagePointers.forEach(listener => listener({ target: { closest: () => null } }));
     studio.render();
-    assert.equal(body.find('camera-menu').length, 0);
+    assert.equal(menus(), 0);
     now().ball.onclick();
     now().pane.onkeydown({ key: 'Escape', preventDefault() {}, stopPropagation() {} });
     studio.render();
-    assert.equal(body.find('camera-menu').length, 0);
+    assert.equal(menus(), 0);
     // « Ajouter » or « Plus de réglages » opened: one thing at a time.
     now().ball.onclick();
     add().children[0].onclick();
     studio.render();
-    assert.equal(body.find('camera-menu').length, 0);
+    assert.equal(menus(), 0);
     add().children[0].onclick();
 
     // « Générer »: the prompt as it is written, the movement and its speed beside it. The server adds the sentence.
@@ -9748,7 +9807,7 @@ test('(0.6.257) the camera before a video: its block under the images, its switc
 
   // Another Studio, nothing being made: what goes with each model, what is kept, a take looked at.
   const next = await studioPage(
-    { create_image: [still], create_video: [ltx, wan, omni] },
+    { create_image: [still], create_video: [ltx, wan, omni, reads] },
     { 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }), 'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }) },
     { runs: [made, plain] },
   );
@@ -9841,6 +9900,23 @@ test('(0.6.257) the camera before a video: its block under the images, its switc
     assert.deepEqual([next.prompt().value, now().toggle.attributes['aria-checked']], ['Le phare s’allume.', 'false']);
     await generate();
     assert.deepEqual([sent().prompt, 'camera' in sent(), 'camera_speed' in sent()], ['Le phare s’allume.', false, false]);
+    // (0.6.262) A piece kept for another model (the end image of LTX 2.5, under Wan 2.2): its line under the plateau,
+    // and the block on one row, its ball at the left (moodix.css), so that the column does not scroll (40 to 46 px too
+    // many at 1912 × 948 and 1440 × 900). Kept itself, under MiniMax H3 Omni, the block is its one line (is-off).
+    model('l');
+    now().toggle.onclick();
+    add().children[0].onclick();
+    menu().children.find(item => item.children?.[0]?.textContent === 'Image de fin').onclick();
+    const picker = next.page['studio-view'].children.find(child => child.tag === 'input');
+    picker.files = [{ name: 'fin.png', type: 'image/png' }];
+    await picker.onchange();
+    await settle();
+    const shape = () => [now().block.className.includes('is-row'), now().block.className.includes('is-off'), body.find('studio-plateau-note').map(line => line.children[1].textContent)];
+    assert.deepEqual(shape(), [false, false, []]);
+    model('w');
+    assert.deepEqual(shape(), [true, false, ['L’image de fin ne partira pas avec Wan 2.2.']]);
+    model('o');
+    assert.deepEqual(shape(), [false, true, ['L’image de fin et la caméra ne partiront pas avec MiniMax H3 Omni.']]);
   } finally {
     next.restore();
   }
@@ -10359,7 +10435,14 @@ test('(0.6.258) an image made larger: its size at its bottom right, a loupe of 2
     const [size] = body.find('studio-frame-size');
     assert.deepEqual([size.textContent, size.hidden], ['2048 × 2048', false]);
     // The loupe, hidden until the pointer comes: the image it was made from at the left, the one made larger at the right.
-    assert.deepEqual([loupe().hidden, loupe().attributes['aria-hidden']], [true, 'true']);
+    // (0.6.262) Above the page (popover), never cut by the frame: placed in the window.
+    assert.deepEqual([loupe().hidden, loupe().attributes['aria-hidden'], loupe().attributes.popover], [true, 'true', 'manual']);
+    let lifted = false;
+    Object.assign(loupe(), {
+      matches: selector => selector === ':popover-open' && lifted,
+      showPopover: () => void (lifted = true),
+      hidePopover: () => void (lifted = false),
+    });
     assert.deepEqual(
       loupe().find('studio-loupe-half').map(half => half.className),
       ['studio-loupe-half is-before', 'studio-loupe-half is-after'],
@@ -10373,13 +10456,13 @@ test('(0.6.258) an image made larger: its size at its bottom right, a loupe of 2
     assert.match(compare().attributes['aria-label'], /l’originale à gauche, l’agrandie à droite/);
     // Under the pointer, at the middle of the image and a quarter of its height: centred on it, at 100 % (2048 px).
     move(300, 150);
-    assert.equal(loupe().hidden, false);
-    assert.equal(loupe().style.transform, 'translate(108px, 8px)');
+    assert.deepEqual([loupe().hidden, lifted], [false, true]);
+    assert.equal(loupe().style.transform, 'translate(200px, 50px)');
     for (const item of images())
       assert.deepEqual([item.style.width, item.style.height, item.style.transform], ['2048px', '2048px', 'translate(-924px, -412px)']);
     // Out of the image (its frame around it): hidden; by touch, none.
     move(96, 150);
-    assert.equal(loupe().hidden, true);
+    assert.deepEqual([loupe().hidden, lifted], [true, false]);
     move(300, 150, 'touch');
     assert.equal(loupe().hidden, true);
     // « Comparer » released: no loupe, said in place (the focus stays on it); pressed again, it comes back.
@@ -10402,17 +10485,30 @@ test('(0.6.258) an image made larger: its size at its bottom right, a loupe of 2
     restore();
   }
   // The image it was made from gone from the Sortie: its size alone, no loupe, no « Comparer ». Another image: none.
-  for (const [runs, wanted] of [
+  // (0.6.262) A photo of the computer made larger (put on the screen, kept as a reference: its source is the
+  // reference): compared with it while it is in the project; its size alone once it is not.
+  const fromFile = {
+    id: 'f',
+    conversationId: 'c1',
+    prompt: '',
+    parameters: { pipeline: 'seedvr2', width: 1024, height: 1024, references: [{ role: 'source_image', resource_id: 'r9' }] },
+    outputs: [{ originalUrl: '/f.png', take: 3, width: 2048, height: 2048 }],
+  };
+  for (const [runs, wanted, resource = undefined, before = undefined] of [
     [[larger('v', 'gone', '/v.png')], [1, 0, false]],
     [[original], [0, 0, false]],
+    [[fromFile], [1, 1, true], id => (id === 'r9' ? { id, originalUrl: '/ref/r9.png', previewUrl: '/preview/r9.webp' } : null), '/ref/r9.png'],
+    [[fromFile], [1, 0, false], () => null],
   ]) {
-    const other = await studioPage({ create_image: [image], upscale: [seedvr] }, { 'tools/actions': () => ({ upscale: ['image'] }) }, { runs });
+    const other = await studioPage({ create_image: [image], upscale: [seedvr] }, { 'tools/actions': () => ({ upscale: ['image'] }) }, { runs, ...(resource ? { resource } : {}) });
     try {
       await settle();
       assert.deepEqual(
         [other.body.find('studio-frame-size').length, other.body.find('studio-loupe').length, Boolean(other.body.find('studio-rail')[0]?.find('output-action-compare')[0])],
         wanted,
       );
+      if (before)
+        assert.deepEqual(other.body.find('studio-loupe-half').map(half => half.children[0].src), [before, '/f.png'], 'the reference at the left, the image made larger at the right');
     } finally {
       other.restore();
     }
