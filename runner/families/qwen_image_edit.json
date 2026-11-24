@@ -1,0 +1,224 @@
+{
+  "family": "qwen_image_edit",
+  "label": "Qwen-Image-Edit",
+  "mediaType": "image",
+  "model": {
+    "name": "Qwen-Image-Edit",
+    "does": "Retoucher une image avec des mots, d’après une à trois images.",
+    "group": "image",
+    "order": 3,
+    "names": [
+      { "match": "2511", "name": "2511" }
+    ]
+  },
+  "tasks": ["create_image"],
+  "engine": "internal",
+  "hardware": { "cuda": true },
+  "requires": ["torch", "diffusers", "transformers", "accelerate", "safetensors", "PIL", "comfy_kitchen"],
+  "components": {
+    "model": {
+      "label": "Modèle",
+      "folder": "diffusion_models",
+      "required": true,
+      "reads": ["INT8", "BF16", "FP16", "FP32"],
+      "note": "Qwen-Image-Edit-2511. Un fichier fait pour ComfyUI le dit par un tenseur « __index_timestep_zero__ » : les images données y sont lues au pas 0, comme 2511 a été entraîné.",
+      "signature": [
+        {
+          "key": "^(?:model\\.diffusion_model\\.)?img_in\\.weight$",
+          "shape": [3072, 64]
+        },
+        {
+          "key": "^(?:model\\.diffusion_model\\.)?txt_in\\.weight$",
+          "shape": [3072, 3584]
+        }
+      ]
+    },
+    "textEncoder": {
+      "label": "Encodeur de texte",
+      "folder": "text_encoders",
+      "required": true,
+      "note": "Qwen2.5-VL-7B : il lit le prompt avec les images.",
+      "signature": [
+        {
+          "key": "^model\\.embed_tokens\\.weight$",
+          "shape": [null, 3584]
+        },
+        {
+          "key": "^visual\\.merger\\.mlp\\.2\\.weight$",
+          "shape": [3584, 5120]
+        }
+      ]
+    },
+    "tokenizer": {
+      "label": "Tokenizer",
+      "folder": "text_encoders",
+      "required": true,
+      "format": "tokenizer",
+      "policies": ["fixed"],
+      "picker": "tokenizer",
+      "vocabularyOf": "textEncoder",
+      "help": "Dossier qui découpe le prompt en tokens pour l’encodeur de texte (qwen25_tokenizer, celui de Krea 2 : tokenizer_config.json, vocab.json…). Proposé automatiquement d’après l’encodeur."
+    },
+    "vae": {
+      "label": "VAE",
+      "folder": "vae",
+      "required": true,
+      "note": "Le VAE de Qwen-Image, le même fichier que celui de Krea 2.",
+      "signature": [
+        {
+          "key": "^encoder\\.conv1\\.weight$",
+          "shape": [null, 3, null, null, null]
+        },
+        {
+          "key": "^decoder\\.conv1\\.weight$",
+          "shape": [null, 16, null, null, null]
+        }
+      ]
+    },
+    "stepLora": {
+      "label": "LoRA d’étapes",
+      "folder": "loras",
+      "required": true,
+      "note": "Lightning de lightx2v pour Qwen-Image-Edit-2511 : avec lui, huit étapes sans guidage suffisent.",
+      "signature": [
+        {
+          "key": "(?:^|\\.)transformer_blocks\\.0\\.attn\\.add_q_proj\\.lora_(?:down|A)\\.weight$",
+          "shape": [null, 3072]
+        }
+      ]
+    }
+  },
+  "parameters": {
+    "prompt": {
+      "type": "string",
+      "maxLength": 8000,
+      "nonempty": true
+    },
+    "seed": {
+      "type": "integer",
+      "min": 0,
+      "max": 9007199254740991
+    },
+    "width": {
+      "type": "integer",
+      "min": 256,
+      "max": 2048,
+      "multipleOf": 16,
+      "note": "Sans largeur ni hauteur, l’image faite a le format de l’image à modifier, à un mégapixel environ."
+    },
+    "height": {
+      "type": "integer",
+      "min": 256,
+      "max": 2048,
+      "multipleOf": 16
+    },
+    "steps": {
+      "type": "integer",
+      "min": 1,
+      "max": 50
+    },
+    "cfg": {
+      "type": "number",
+      "choices": [1]
+    }
+  },
+  "requiredParameters": ["prompt", "seed", "steps"],
+  "implicitParameters": {
+    "cfg": 1
+  },
+  "roles": {
+    "edit_image": {
+      "as": "source",
+      "media": "image",
+      "max": 1,
+      "label": "Image à modifier"
+    },
+    "reference_image": {
+      "as": "reference",
+      "media": "image",
+      "max": 2,
+      "label": "Autre image"
+    }
+  },
+  "loras": {
+    "max": 8,
+    "strength": {
+      "type": "number",
+      "min": -4,
+      "max": 4
+    },
+    "signature": [
+      {
+        "key": "(?:^|\\.)transformer_blocks\\.\\d+\\.attn\\.to_q\\.lora_(?:A|down)\\.weight$",
+        "shape": [null, 3072]
+      }
+    ]
+  },
+  "template": {
+    "name": "Qwen-Image-Edit 2511",
+    "description": "Retouch an image with the selected local Qwen-Image-Edit-2511 assets, from one to three images.",
+    "components": {
+      "model": {
+        "policy": "fixed",
+        "asset": "select-local-model"
+      },
+      "textEncoder": {
+        "policy": "fixed",
+        "asset": "select-local-text-encoder"
+      },
+      "tokenizer": {
+        "policy": "fixed",
+        "asset": "select-local-tokenizer"
+      },
+      "vae": {
+        "policy": "fixed",
+        "asset": "select-local-vae"
+      },
+      "stepLora": {
+        "policy": "fixed",
+        "asset": "select-local-step-lora"
+      }
+    },
+    "parameters": {
+      "prompt": {
+        "policy": "model",
+        "type": "string",
+        "maxLength": 8000
+      },
+      "seed": {
+        "policy": "random",
+        "type": "integer"
+      },
+      "steps": {
+        "policy": "fixed",
+        "value": 8
+      },
+      "cfg": {
+        "policy": "fixed",
+        "value": 1
+      }
+    },
+    "loras": [],
+    "references": [
+      {
+        "id": "source",
+        "role": "edit_image",
+        "name": "Image à modifier",
+        "required": true
+      },
+      {
+        "id": "reference-1",
+        "role": "reference_image",
+        "name": "Autre image 1",
+        "required": false
+      },
+      {
+        "id": "reference-2",
+        "role": "reference_image",
+        "name": "Autre image 2",
+        "required": false
+      }
+    ]
+  },
+  "preference": -1
+}

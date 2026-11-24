@@ -281,7 +281,7 @@ test('a family without LoRAs refuses one on save: the editor offers none (tests/
   ];
   assert.throws(() => validateNativeWorkflow(upscale), /Too many LoRAs/);
   for (const manifest of Object.values(families()))
-    assert.equal(manifest.loras?.max > 0, ['krea2', 'ltx25'].includes(manifest.family), manifest.family);
+    assert.equal(manifest.loras?.max > 0, ['krea2', 'ltx25', 'qwen_image_edit'].includes(manifest.family), manifest.family);
 });
 
 test('the LoRA of the subject images of LTX ignores its default and its description: on with them, off without', async () => {

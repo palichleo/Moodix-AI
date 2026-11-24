@@ -471,6 +471,8 @@ test('the page « Modèles » is given one line a model, in its order, and a cho
     [
       ['image', 'Krea 2', 'Photos, illustrations, retouche d’une image.'],
       ['image', 'MOSS Image', 'Affiches, mises en page, texte dans l’image.'],
+      // (0.6.264) In Moodix's own engine since 24/11.
+      ['image', 'Qwen-Image-Edit', 'Retoucher une image avec des mots, d’après une à trois images.'],
       ['video', 'LTX 2.5', 'Vidéos et prolongations.'],
       ['video', 'MiniMax H3', 'Vidéos de 5 à 15 s, avec le son.'],
       ['video', 'Wan 2.1 SCAIL-2', 'Remplacer un personnage dans une vidéo.'],

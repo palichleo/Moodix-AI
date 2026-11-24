@@ -258,20 +258,24 @@ const WAN22 = { 'patch_embedding.weight': [5120, 36, 1, 2, 2], 'blocks.39.self_a
 // (0.6.213) Wan 2.2 Fun Camera: every tensor of Wan 2.2's, and the adapter that reads the camera
 // (the headers of its two files, read on Hugging Face on 22/11).
 const WAN22_CAMERA = { ...WAN22, 'control_adapter.conv.weight': [5120, 1536, 2, 2], 'control_adapter.residual_blocks.0.conv1.weight': [5120, 5120, 3, 3] };
-const OWN = { ltx25: LTX, minimax_h3: MINIMAX, krea2: KREA, seedvr2: SEEDVR, wan_scail2: SCAIL, wan22: WAN22, wan22_camera: WAN22_CAMERA };
+// (0.6.264) Qwen-Image-Edit-2511 (the header of Comfy-Org's INT8 file): 64 channels in, the text of Qwen2.5-VL-7B.
+const QWEN_EDIT = { 'img_in.weight': [3072, 64], 'txt_in.weight': [3072, 3584], 'transformer_blocks.59.attn.to_q.weight': [3072, 3072] };
+const OWN = { ltx25: LTX, minimax_h3: MINIMAX, krea2: KREA, seedvr2: SEEDVR, wan_scail2: SCAIL, wan22: WAN22, wan22_camera: WAN22_CAMERA, qwen_image_edit: QWEN_EDIT };
 const prefixed = (shapes, prefix) => Object.fromEntries(Object.entries(shapes).map(([name, shape]) => [prefix + name, shape]));
 const which = shapes => modelsOf({ shapes });
 
 test('a file is a version of one model, told by what it holds and not by its name (0.6.116)', () => {
   // The families whose versions are files, and the component those files are.
   const versioned = Object.values(families()).filter(versionComponent);
-  assert.deepEqual(versioned.map(manifest => manifest.family), ['krea2', 'ltx25', 'minimax_h3', 'seedvr2', 'wan22', 'wan22_camera', 'wan_scail2']);
+  assert.deepEqual(versioned.map(manifest => manifest.family), ['krea2', 'ltx25', 'minimax_h3', 'qwen_image_edit', 'seedvr2', 'wan22', 'wan22_camera', 'wan_scail2']);
   for (const manifest of versioned) {
     const { role, spec } = versionComponent(manifest);
     assert.equal(role, 'model', manifest.family);
     // (0.6.134) No FP8 file of Wan 2.2 was tried: none is promised (tests/wan22.mjs). (0.6.213) Nor of
-    // Fun Camera: its « fp8 scaled » files are written again as INT8 first (runner/convert.py).
-    const formats = ['INT8', 'FP8', 'BF16', 'FP16', 'FP32'].filter(format => format !== 'FP8' || !manifest.family.startsWith('wan22'));
+    // Fun Camera: its « fp8 scaled » files are written again as INT8 first (runner/convert.py). (0.6.264)
+    // Nor of Qwen-Image-Edit: only Comfy-Org's INT8 file was tried.
+    const untried = manifest.family.startsWith('wan22') || manifest.family === 'qwen_image_edit';
+    const formats = ['INT8', 'FP8', 'BF16', 'FP16', 'FP32'].filter(format => format !== 'FP8' || !untried);
     assert.deepEqual(spec.reads, formats, manifest.family);
     assert.equal(spec.folder, 'diffusion_models');
   }

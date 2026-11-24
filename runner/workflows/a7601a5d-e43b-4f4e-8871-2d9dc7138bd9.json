@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "id": "a7601a5d-e43b-4f4e-8871-2d9dc7138bd9",
+  "enabled": false,
+  "pipeline": "qwen_image_edit",
+  "mediaType": "image",
+  "name": "Qwen-Image-Edit",
+  "description": "Retoucher une image avec des mots, d’après une à trois images : changer un objet, une couleur, un décor, ou réunir les sujets de plusieurs images.",
+  "components": {
+    "model": {
+      "policy": "fixed",
+      "asset": "fb7a28e4-8296-43df-90b8-450d46b82646",
+      "file": "qwen_image_edit_2511_int8_convrot.safetensors"
+    },
+    "textEncoder": {
+      "policy": "fixed",
+      "asset": "58e131b4-9b51-442f-9dc6-d46a04427a12",
+      "file": "qwen_2.5_vl_7b_fp8_scaled.safetensors"
+    },
+    "tokenizer": {
+      "policy": "fixed",
+      "asset": "61f2418c-3561-49cb-971e-a34c34f13b6a",
+      "file": "qwen25_tokenizer"
+    },
+    "vae": {
+      "policy": "fixed",
+      "asset": "80f32d47-16c0-4aea-a6db-123922dde91f",
+      "file": "krea2RealVae_v10.safetensors"
+    },
+    "stepLora": {
+      "policy": "fixed",
+      "asset": "e7e89f6e-a35b-4587-b02b-148842b03bc7",
+      "file": "Qwen-Image-Edit-2511-Lightning-8steps-V1.0-bf16.safetensors"
+    }
+  },
+  "parameters": {
+    "prompt": {
+      "policy": "model",
+      "type": "string",
+      "maxLength": 8000
+    },
+    "seed": {
+      "policy": "random",
+      "type": "integer"
+    },
+    "steps": {
+      "policy": "fixed",
+      "value": 8
+    },
+    "cfg": {
+      "policy": "fixed",
+      "value": 1
+    }
+  },
+  "loras": [],
+  "references": [
+    {
+      "id": "source",
+      "role": "edit_image",
+      "name": "Image à modifier",
+      "required": true
+    },
+    {
+      "id": "reference-1",
+      "role": "reference_image",
+      "name": "Autre image 1",
+      "required": false
+    },
+    {
+      "id": "reference-2",
+      "role": "reference_image",
+      "name": "Autre image 2",
+      "required": false
+    }
+  ]
+}

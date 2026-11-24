@@ -96,9 +96,11 @@ test('a model this computer cannot run is shown greyed with its reason, others n
   // The ready model first (it is the one in hand), the greyed one after it with its reason.
   assert.deepEqual(images, [
     ['moss', undefined],
+    // (0.6.264) Behind the others: its preference is below theirs, as Wan 2.2's.
+    ['qwen_image_edit', undefined],
     ['krea2', reason],
   ]);
-  assert.ok(tools.create_image[1].limits, 'described as the others, for the page to draw it');
+  assert.ok(tools.create_image.find(item => item.family === 'krea2').limits, 'described as the others, for the page to draw it');
   // Not ready for another reason: left out, as before.
   assert.deepEqual(
     tools.create_video.map(item => item.family),

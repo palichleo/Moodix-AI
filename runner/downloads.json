@@ -489,6 +489,39 @@
       "url": "https://spdx.org/licenses/Apache-2.0.html"
     }
   },
+  "qwen_image_edit_2511_int8_convrot.safetensors": {
+    "repo": "Comfy-Org/Qwen-Image-Edit",
+    "revision": "f68ace85e60b4a02a323e394253731947657b7d2",
+    "path": "split_files/diffusion_models/qwen_image_edit_2511_int8_convrot.safetensors",
+    "size": 20499083824,
+    "sha256": "11b5af5ac601821d73930c84846c9a158e67177356daf927ce1c8d10f3963829",
+    "license": {
+      "name": "Apache-2.0",
+      "url": "https://spdx.org/licenses/Apache-2.0.html"
+    }
+  },
+  "qwen_2.5_vl_7b_fp8_scaled.safetensors": {
+    "repo": "Comfy-Org/Qwen-Image",
+    "revision": "1f12b17be14c89b026c51a91d67c32f84bb047bc",
+    "path": "split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+    "size": 9384670680,
+    "sha256": "cb5636d852a0ea6a9075ab1bef496c0db7aef13c02350571e388aea959c5c0b4",
+    "license": {
+      "name": "Apache-2.0",
+      "url": "https://spdx.org/licenses/Apache-2.0.html"
+    }
+  },
+  "Qwen-Image-Edit-2511-Lightning-8steps-V1.0-bf16.safetensors": {
+    "repo": "lightx2v/Qwen-Image-Edit-2511-Lightning",
+    "revision": "107d238d68b8387e32843d0b4a2e24ceb0d3ad86",
+    "path": "Qwen-Image-Edit-2511-Lightning-8steps-V1.0-bf16.safetensors",
+    "size": 849608296,
+    "sha256": "a9e81a58a78f260f67b337a6f615e8fa4cd3bc79847c77b7d61a581b789b1ba8",
+    "license": {
+      "name": "Apache-2.0",
+      "url": "https://spdx.org/licenses/Apache-2.0.html"
+    }
+  },
   "clip_tokenizer": {
     "repo": "openai/clip-vit-large-patch14",
     "revision": "32bd64288804d66eefd0ccbe215aa642df71cc41",

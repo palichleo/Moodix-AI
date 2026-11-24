@@ -168,7 +168,7 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(direct, [])
         models = sorted((ROOT / 'models').glob('*.py'))
         users = [path.name for path in models if 'attention8.attend(' in path.read_text(encoding='utf-8')]
-        self.assertEqual(users, ['minimax_h3.py', 'moss_image.py', 'wan_block.py', 'wan_scail2.py'])
+        self.assertEqual(users, ['minimax_h3.py', 'moss_image.py', 'qwen_image.py', 'wan_block.py', 'wan_scail2.py'])
 
 
 @unittest.skipUnless(kernel_ready(), 'the INT8 attention kernel runs on the GPU')

@@ -12,6 +12,7 @@ A family (`runner/families/*.json`) describes a model: its components, its setti
 | --- | --- | --- |
 | Krea 2 | images, edits of an image | yes |
 | MOSS Image | images: posters, layouts, written text | yes |
+| Qwen-Image-Edit (`qwen_image_edit`; 0.6.264: Qwen-Image-Edit-2511 and its Lightning LoRA, 8 steps; in the Studio, offered to Moodix AI only once « Proposé à Moodix AI » is switched on) | an image modified with words, from one to three images | yes |
 | LTX 2.5 | videos with sound, continuations | yes |
 | MiniMax H3 | videos with sound, continuations | yes |
 | Wan 2.1 SCAIL-2 | a character replaced in a video; the character of an image animated by a video (`mode: animate`, 0.6.185: the engine only, not asked by the application yet) | yes |

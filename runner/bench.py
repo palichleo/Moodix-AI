@@ -16,6 +16,10 @@ each phase cost, what stayed on the GPU and what was kept in RAM.
         [--lora IC_LORA:1 --reference reference_video=GUIDE --reference reference_video=VIDEO]
     python -s -m runner.bench moss --model M.safetensors --text-encoder T.safetensors \\
         --vae V.safetensors --tokenizer TOKENIZER_FOLDER --out FOLDER [--cfg 3] [--negative "..."]
+    python -s -m runner.bench qwen_image_edit --model M.safetensors --text-encoder T.safetensors \\
+        --vae V.safetensors --tokenizer TOKENIZER_FOLDER --step-lora LIGHTNING.safetensors \\
+        --reference edit_image=FILE [--reference reference_image=FILE] --out FOLDER \\
+        [--lora ANGLES.safetensors:1 --prompt "<sks> right side view eye-level shot medium shot"]
     python -s -m runner.bench wan22 --model HIGH.safetensors --model-low LOW.safetensors \\
         --text-encoder T.safetensors --vae V.safetensors --reference start_image=FILE --out FOLDER \\
         [--step-lora HIGH_LORA --step-lora-low LOW_LORA: four steps] [--frames 81] [--size 768x448]
@@ -233,6 +237,36 @@ def wan_scail2_job(args, run):
     )
 
 
+def qwen_image_edit_job(args, run):
+    """Qwen-Image-Edit-2511 as the application ships it: its step LoRA (8 steps, no guidance), the
+    image to modify, up to two others; a LoRA of the user's (the angles of fal) with --lora. Without
+    --size the picture takes the ratio of the image to modify, at a megapixel."""
+    _need(args, 'model', 'text_encoder', 'vae', 'tokenizer', 'step_lora')
+    references = [
+        dict(input=role, role=role, path=path) for role, _, path in (item.partition('=') for item in args.reference)
+    ]
+    if not any(ref['role'] == 'edit_image' for ref in references):
+        raise SystemExit('missing: --reference edit_image=FILE')
+    parameters = dict(prompt=_prompt(args, run), seed=args.seed + run - 1, steps=args.steps or 8, cfg=1)
+    if args.size:
+        parameters['width'], parameters['height'] = _size(args, args.size)
+    return dict(
+        id=str(uuid.uuid4()),
+        pipeline='qwen_image_edit',
+        mediaType='image',
+        parameters=parameters,
+        components=dict(
+            model=args.model,
+            textEncoder=args.text_encoder,
+            vae=args.vae,
+            tokenizer=args.tokenizer,
+            stepLora=args.step_lora,
+        ),
+        loras=_loras(args),
+        references=references,
+    )
+
+
 def wan22_job(args, run):
     _need(args, 'model', 'model_low', 'text_encoder', 'vae')
     references = [
@@ -292,6 +326,7 @@ FAMILIES = {
     'ltx25': ('runner.pipelines.ltx25', ltx25_job),
     'minimax_h3': ('runner.pipelines.minimax_h3', minimax_h3_job),
     'moss': ('runner.pipelines.moss', moss_job),
+    'qwen_image_edit': ('runner.pipelines.qwen_image_edit', qwen_image_edit_job),
     'wan22': ('runner.pipelines.wan22', wan22_job),
     'wan22_camera': ('runner.pipelines.wan22', wan22_camera_job),
     'wan_scail2': ('runner.pipelines.wan_scail2', wan_scail2_job),
