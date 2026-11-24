@@ -1,4 +1,4 @@
-import { FORMATS, formatOf, nearestFormat, nearestSize, sizeFits, sizesFor } from './formats.mjs';
+import { FORMATS, formatOf, formatsFor, nearestFormat, nearestSize, sizeFits, sizesFor } from './formats.mjs';
 import { healThumbnail, thumbnailOf } from './thumbnails.mjs';
 import { livePreview } from './live-preview.mjs';
 import { fluxStart, takeFlux } from './take-flux.mjs';
@@ -210,6 +210,11 @@ const FINISH = {
     once: 'Interpoler fait une seule prise : la même vidéo interpolée deux fois donne la même vidéo.',
   },
 };
+/** (0.6.261) A number rounded as Python does (the engine): a half to the even one (4680.5 → 4680, 4681.5 → 4682). */
+export function roundHalfEven(value) {
+  const near = Math.round(value);
+  return Math.abs(value % 1) === 0.5 && near % 2 !== 0 ? near - 1 : near;
+}
 /**
  * (0.6.253) A button greyed that still answers: its `disabled` is its own, said by `aria-disabled`, so the
  * browser still gives it the clicks, the focus and the keys (a disabled button said nothing without a hover).
@@ -755,9 +760,24 @@ export function setupStudio({
     onDetails: null,
     onAction: (record, index, id) => takeAction(record, id),
     rail: true,
+    // (0.6.261) Greyed, it answers with its reason in its bubble, as « Générer » does (pressGo).
+    greyable,
+    onGreyed: button => queueMicrotask(() => sayTip(button)),
   });
   // (0.6.255) What the column of the actions takes at the right of the frame: 16 px, then its buttons of 54.
   const RAIL_ROOM = 70;
+  // (0.6.261) Its buttons unfolded: 112 px wide, as tall as folded (54), so that nothing moves under the pointer.
+  const RAIL_OPEN = 112;
+  /**
+   * (0.6.261) How far the column unfolded goes to the left, over the frame: what the stage lacks at its right for
+   * its 58 px more (never more: the button keeps the place it had folded under the pointer).
+   */
+  function railShift(frame, size) {
+    const width = frame.parentElement?.clientWidth ?? 0,
+      right = (width - size.width) / 2 - RAIL_ROOM,
+      more = RAIL_OPEN - (RAIL_ROOM - 16);
+    return width > 0 ? Math.max(0, Math.min(more, Math.ceil(more - right))) : 0;
+  }
   // Image · Vidéo · Son: drawn in the head of the screen, put back above it when there is none.
   let kindsEl = null;
   const kindsBar = () => (kindsEl ??= $('studio-kinds'));
@@ -1432,12 +1452,14 @@ export function setupStudio({
     pick.setAttribute('aria-haspopup', 'dialog');
     pick.setAttribute('aria-expanded', String(opened));
     pick.disabled = Boolean(working);
-    preview.src = output.thumbUrl || output.originalUrl || '';
+    // (0.6.261) Tested before it is given, as in finishPiece: an empty `src` reads as the address of the page.
+    const seen = output.thumbUrl || output.originalUrl || '';
+    if (seen) preview.src = seen;
     preview.alt = '';
     preview.draggable = false;
     mark.setAttribute('aria-hidden', 'true');
     mark.append(icon(refilmed ? 'camera' : 'forward'));
-    pick.append(preview.src ? preview : icon('video'), mark);
+    pick.append(seen ? preview : icon('video'), mark);
     tile.append(pick);
     if (!byAi) {
       const remove = button('studio-slot-remove', '', leave, 'close');
@@ -1501,12 +1523,15 @@ export function setupStudio({
     pick.title = said;
     pick.setAttribute('aria-label', said);
     pick.disabled = Boolean(working);
-    preview.src = output.thumbUrl || (mediaOf(record) === 'image' ? output.originalUrl : '') || '';
+    // (0.6.261) Its address tested before it is given: an empty `src` reads as the address of the page, and a clip
+    // without its miniature showed a broken image in place of the sign of a clip.
+    const seen = output.thumbUrl || (mediaOf(record) === 'image' ? output.originalUrl : '') || '';
+    if (seen) preview.src = seen;
     preview.alt = '';
     preview.draggable = false;
     mark.setAttribute('aria-hidden', 'true');
     mark.append(icon(FINISH[verb].glyph));
-    pick.append(preview.src ? preview : icon(mediaOf(record) === 'video' ? 'video' : 'image'), mark);
+    pick.append(seen ? preview : icon(mediaOf(record) === 'video' ? 'video' : 'image'), mark);
     leave.setAttribute('aria-label', verb === 'upscale' ? 'Ne plus agrandir cette prise' : 'Ne plus interpoler cette prise');
     leave.title = 'Retirer';
     leave.disabled = Boolean(working);
@@ -1546,10 +1571,15 @@ export function setupStudio({
         result.textContent = `${value} fois plus grande`;
         return;
       }
-      // Held by the largest side the model makes (Real-ESRGAN for a clip: 3840).
-      const largest = Math.max(source.width, source.height) * value,
-        cut = spec.maxSide && largest > spec.maxSide ? spec.maxSide / largest : 1;
-      result.textContent = `${Math.round(source.width * value * cut)} × ${Math.round(source.height * value * cut)}`;
+      // Held by the largest side the model makes (Real-ESRGAN for a clip: 3840; SeedVR2: 8192). (0.6.261) Reduced,
+      // each side as its engine rounds it (Python: a half to the even): an even one for Real-ESRGAN, at least 16.
+      const wide = source.width * value,
+        high = source.height * value,
+        largest = Math.max(wide, high);
+      if (!(spec.maxSide && largest > spec.maxSide)) return void (result.textContent = `${Math.round(wide)} × ${Math.round(high)}`);
+      const ratio = spec.maxSide / largest,
+        side = length => (spec.even ? Math.max(2, roundHalfEven((length * ratio) / 2) * 2) : Math.max(16, roundHalfEven(length * ratio)));
+      result.textContent = `${side(wide)} × ${side(high)}`;
     };
     head.append(node('span', 'studio-label', FINISH[finish.verb].line));
     if (spec.key && spec.choices.length > 1) {
@@ -3655,6 +3685,9 @@ export function setupStudio({
       element.style.width = size.width + 'px';
       element.style.height = size.height + 'px';
     }
+    // (0.6.261) The column of the actions unfolded (112 px) where the stage has no room at its right (a frame in 16:9
+    // at 1280 × 720 or 1440 × 900: cut by 41 px, « Agra », « Ani »): drawn over the frame by what lacks.
+    over?.style.setProperty?.('--rail-shift', railShift(frame, size) + 'px');
     drawn = size;
     readout();
   }
@@ -4796,8 +4829,6 @@ export function setupStudio({
       ...(wanted.finish ? { finish: wanted.finish } : {}),
       ...(onTake?.montage?.onProgress ? { tell: () => working && onTake.montage.onProgress(working.label, working.fraction, working.preview, working.time) } : {}),
     };
-    // (0.6.256) A video made from the picture « Animer » put: once made, its screen shows the take, not the picture.
-    if (asked === 'video') animated = null;
     // Its conversation from its first instant (0.6.81): the page may show another meanwhile, the
     // creation is still this one's, and the page follows it there.
     const conversationId = former ? info.legacyId : await ensureConversation();
@@ -4900,6 +4931,10 @@ export function setupStudio({
         made = job.record.id;
       }
       if (extending) extending = null;
+      // (0.6.256) A video made from the picture « Animer » put: its screen shows the take, not the picture. (0.6.261)
+      // Once made only: refused or stopped, the picture stays under « DÉBUT » (it went as the video left). Not a take of
+      // the Bobine, which has nothing to do with it.
+      if (asked === 'video' && !onTake?.montage) animated = null;
     } catch (error) {
       halted ||= controller.signal.aborted;
       const said = halted ? 'Génération arrêtée.' : error.message;
@@ -5818,8 +5853,9 @@ export function setupStudio({
     if (!modelsOf(target).length) return null;
     mode = target;
     formatsOpen = false;
-    // An action on a take (Agrandir, Interpoler), a model the Studio has not: its mode alone.
-    if (!workflow) {
+    // An action on a take (Agrandir, Interpoler), a model the Studio has not: its mode alone. (0.6.261) Nor one it has
+    // (lot 4: the Studio lists them): shown as a creation of its mode, the prompt of Image was emptied the whole take.
+    if (!workflow || FINISH[verb]) {
       if (target !== 'video') extending = null;
       return null;
     }
@@ -6198,8 +6234,11 @@ export function setupStudio({
     const clash = exclusiveWith(video, 'start_image');
     if (clash.length) return notice(`Ne se combine pas avec : ${clash.map(other => ROLES[other]).join(', ')}`);
     animated = record.id;
+    // (0.6.261) Its format, or the nearest one the model makes (1280 × 800: 3:2), never the one of before: kept, a
+    // picture in landscape was animated in 9:16, its format greyed « Le format suit l’image de début. ».
     const input = creationInput(record),
-      format = input.width && input.height ? formatOf(input.width, input.height) : null;
+      made = formatsFor(video.limits ?? {}, video.family),
+      format = input.width && input.height ? nearestFormat(input.width, input.height, made.length ? made : FORMATS) : null;
     // Its format, whatever was chosen before: the video starts from the picture.
     if (format) Object.assign(draft, { format: format.id, size: null, formatChosen: false });
     (draft.inputs.start_image ??= [])[0] = input;
@@ -6209,11 +6248,16 @@ export function setupStudio({
     fly(from, input.preview);
     globalThis.queueMicrotask?.(() => globalThis.document?.querySelector?.('#studio-prompt')?.focus?.({ preventScroll: true }));
   }
-  /** (0.6.256) The start image « Animer » put, while it is still the one of Vidéo: shown on its screen. */
+  /**
+   * (0.6.256) The start image « Animer » put, while it is still the one of Vidéo: shown on its screen. (0.6.261) A
+   * file of the computer put on the screen too (kept as a reference: its source is the reference, resourceRecord).
+   */
   function animatedStart() {
     if (!animated || mode !== 'video' || working || extending || finishOn() || answering()) return null;
-    const start = drafts.video.inputs.start_image?.[0];
-    return start?.source?.output === animated && start.preview ? start : null;
+    const start = drafts.video.inputs.start_image?.[0],
+      from = start?.source,
+      same = from?.resource !== undefined ? 'file:' + from.resource === animated : from?.output === animated;
+    return same && start.preview ? start : null;
   }
   /** (0.6.256) Where the picture of « Animer » leaves from: the take on the screen, measured before Vidéo is drawn. */
   function flightStart() {
@@ -7981,6 +8025,9 @@ export function setupStudio({
     for (const kind of Object.keys(kept)) if (kept[kind].id !== pinned) delete kept[kind];
     if (!pinned && modelsOf(mediaOf(own[0])).length) mode = mediaOf(own[0]);
     extending = null;
+    // (0.6.261) The page Agrandir (Interpoler) of a take no longer on its screen: left, as Prolonger is. It still said
+    // « À agrandir · PRISE 1 » and made it larger with the take of the Chat shown, « PRISE 2 ».
+    if (finishing && kept[mediaOf(finishing.record)]?.id !== finishing.record.id) finishing = null;
     // What could not be put back as the take had it, said: the settings shown are not all its own.
     failure = [
       lost > 1

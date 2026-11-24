@@ -365,7 +365,8 @@ try {
       pending.delete(message.id);
     } else if (message.method === 'Fetch.requestPaused' && laidOut)
       // The tools of the Studio, while the steps that lay it out are under way (shippedStudio); the
-      // steps that simulate the answers of a model have their own (paused, below).
+      // steps that simulate the answers of a model have their own (paused, below). (0.6.261) What the
+      // actions of a take can do, for the steps of the loupe and of the column: Agrandir, not Animer.
       socket.send(
         JSON.stringify({
           id: ++id,
@@ -374,7 +375,7 @@ try {
             requestId: message.params.requestId,
             responseCode: 200,
             responseHeaders: [{ name: 'Content-Type', value: 'application/json; charset=utf-8' }],
-            body: Buffer.from(JSON.stringify(shippedStudio)).toString('base64'),
+            body: Buffer.from(JSON.stringify(message.params.request.url.includes('/api/tools/actions') ? { upscale: ['image', 'video'] } : shippedStudio)).toString('base64'),
           },
         }),
       );
@@ -684,26 +685,28 @@ try {
    */
   async function loupe() {
     const drawn = await js(`(() => {
-      const draw = size => {
-        const canvas = Object.assign(document.createElement('canvas'), { width: size, height: size }),
+      const draw = (size, high = size) => {
+        const canvas = Object.assign(document.createElement('canvas'), { width: size, height: high }),
           context = canvas.getContext('2d');
         context.fillStyle = '#c98f7a';
-        context.fillRect(0, 0, size, size);
+        context.fillRect(0, 0, size, high);
         context.fillStyle = '#221e24';
         context.beginPath();
-        context.arc(size * 0.42, size * 0.4, size * 0.12, 0, 7);
+        context.arc(size * 0.42, high * 0.4, high * 0.12, 0, 7);
         context.fill();
         return canvas.toDataURL('image/png').split(',')[1] || null;
       };
-      const small = draw(96), large = draw(1536);
-      return small && large ? { small, large } : null;
+      const small = draw(96), large = draw(1536), wide = draw(1344, 768);
+      return small && large && wide ? { small, large, wide } : null;
     })()`).catch(() => null);
     if (!drawn) return void console.log('Loupe sautée : ce navigateur ne dessine pas d’image.');
     const conversation = randomUUID(),
       takes = { small: randomUUID(), large: randomUUID() },
       gallery = new Gallery({ historyDir: join(data, 'history') });
+    // (0.6.261) What the actions of a take can do, said by this page (above): Agrandir, not Animer.
+    await send('Fetch.enable', { patterns: [{ urlPattern: '*/api/studio', requestStage: 'Request' }, { urlPattern: '*/api/tools/actions', requestStage: 'Request' }] });
     await mkdir(join(data, 'output', 'image'), { recursive: true });
-    for (const name of ['small', 'large'])
+    for (const name of ['small', 'large', 'wide'])
       await writeFile(join(data, 'output', 'image', `verification-${name}.png`), Buffer.from(drawn[name], 'base64'));
     for (const [name, side, take] of [['small', 96, 1], ['large', 1536, 2]])
       await gallery.put(
@@ -740,6 +743,39 @@ try {
         }),
       });
     if (!response.ok) throw new Error(`history/save : ${response.status} ${await response.text()}`);
+    // (0.6.261) An image in 16:9 in a conversation of its own: at 1280 × 720 its frame leaves no room at its right. Made
+    // by a model the Studio has (Krea 2, shipped): its settings put back, its frame in 16:9 (else in the format of
+    // before, the image inside it).
+    const landscape = randomUUID(),
+      wideTake = randomUUID();
+    await gallery.put(
+      {
+        id: wideTake,
+        conversationId: landscape,
+        provider: 'native',
+        mediaType: 'image',
+        workflowId: 'fefb88eb-8311-4409-b636-6efbb42e952c',
+        workflowName: 'Krea 2',
+        prompt: 'Une image en paysage',
+        parameters: { width: 1344, height: 768 },
+        createdAt: new Date(Date.now() + 3000).toISOString(),
+        outputs: [{ source: { filename: 'verification-wide.png', subfolder: 'image', type: 'output' }, take: 3, width: 1344, height: 768 }],
+      },
+      { persist: true },
+    );
+    const savedWide = await fetch(app.url + '/api/history/save', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: landscape,
+        messages: [
+          { role: 'user', content: 'Une image en paysage à regarder' },
+          { role: 'assistant', content: '', tool_calls: [{ id: 'call_wide', type: 'function', function: { name: 'create_image', arguments: '{}' } }] },
+          { role: 'tool', tool_call_id: 'call_wide', content: JSON.stringify({ status: 'done', run_id: wideTake, studio: true }) },
+        ],
+      }),
+    });
+    if (!savedWide.ok) throw new Error(`history/save : ${savedWide.status} ${await savedWide.text()}`);
     const opened = title => () =>
       click('#thread-conversation').then(() => wait(200)).then(() =>
         js(`(() => { const line = [...document.querySelectorAll('.thread-menu .thread-choice')].find(item => item.textContent.includes(${JSON.stringify(title)})); line?.click(); return !!line; })()`));
@@ -836,7 +872,146 @@ try {
       },
       async () => (await look()) && !seen.loupe && seen.compare?.[0] === 'true',
     );
+    await rail();
     await run('Chat (image agrandie)', () => click('#chat-open'), view('chat'));
+  }
+  /**
+   * (0.6.261) The column of the actions, on an image in 16:9 at 1280 × 720 (no room at the right of its frame):
+   * unfolded, whole in the stage (over the frame by what lacks), each button where it was folded, under the pointer
+   * that came on it. At the keys: « Agrandir » pressed with Entrée keeps the focus (the Studio drawn again gave it to
+   * the page), Entrée again leaves its page; « Animer », greyed, is reached by Tab and says why.
+   */
+  async function rail() {
+    // What cuts the column: the boxes of all that holds it and does not let what passes over it be seen (the stage,
+    // the block of the screen), as the pointer and the eye meet it.
+    const measure = `(() => {
+      const box = element => { const b = element.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; },
+        frame = document.querySelector('#studio-view .studio-frame'),
+        rail = document.querySelector('#studio-view .studio-frame-over > .studio-rail'),
+        buttons = rail ? [...rail.children].filter(child => child.matches('.output-action')) : [],
+        cuts = [];
+      for (let parent = rail?.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+        const style = getComputedStyle(parent);
+        if (style.overflowX !== 'visible' || style.overflowY !== 'visible') cuts.push(box(parent));
+      }
+      const room = cuts.reduce((inner, [left, top, right, bottom]) => [Math.max(inner[0], left), Math.max(inner[1], top), Math.min(inner[2], right), Math.min(inner[3], bottom)], [-1e9, -1e9, 1e9, 1e9]);
+      return frame && buttons.length ? JSON.stringify({ stage: room, frame: box(frame), buttons: buttons.map(box), names: buttons.map(button => button.className) }) : null;
+    })()`;
+    const ready = `(() => { const image = document.querySelector('#studio-view .studio-frame-result'); return Boolean(image?.complete && image.naturalWidth === 1344 && document.querySelectorAll('#studio-view .studio-rail > .output-action').length >= 2); })()`;
+    let rest = null;
+    await run(
+      'Studio : une image en 16:9, sa colonne au repos (1280 × 720)',
+      async () => {
+        await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false });
+        // Its menu lists the conversations once it has read them: opened if it is not, its line clicked once it is there.
+        const line = await until(
+          () =>
+            js(`(() => {
+              const menu = document.querySelector('.thread-menu');
+              if (!menu) {
+                document.getElementById('thread-conversation')?.click();
+                return false;
+              }
+              const line = [...menu.querySelectorAll('.thread-choice')].find(item => item.textContent.includes('Une image en paysage'));
+              line?.click();
+              return Boolean(line);
+            })()`),
+          5000,
+        );
+        if (!line) return false;
+        await until(() => js(ready), 4000);
+        await wait(500);
+      },
+      async () => {
+        rest = JSON.parse((await js(measure)) ?? 'null');
+        const wanted = [];
+        if (!rest) return false;
+        // In 16:9 (its format, 1344 × 768 near it), with no room at its right for the column unfolded (else this step
+        // proves nothing).
+        const [left, top, right, bottom] = rest.frame,
+          shape = (right - left) / (bottom - top);
+        if (Math.abs(shape - 16 / 9) > 0.02) wanted.push(`le cadre n’est pas en 16:9 (${Math.round(right - left)} × ${Math.round(bottom - top)})`);
+        if (rest.stage[2] - rest.buttons[0][0] >= 112) wanted.push('la scène a la place de la colonne dépliée à droite du cadre : rien à vérifier');
+        if (!rest.buttons.every(([from, , to]) => Math.round(to - from) === 54)) wanted.push('la colonne au repos n’a pas ses boutons de 54 px');
+        for (const what of wanted) problems.push([step, 'état', what]);
+        return wanted.length === 0;
+      },
+    );
+    if (!rest) return;
+    const pointer = (x, y) => send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }),
+      centre = ([left, top, right, bottom]) => ({ x: Math.round((left + right) / 2), y: Math.round((top + bottom) / 2) }),
+      last = rest.buttons.length - 1;
+    await run(
+      'Studio : la colonne dépliée tient dans la scène, chaque bouton sous le pointeur venu sur lui',
+      async () => {
+        const { x, y } = centre(rest.buttons[last]);
+        await pointer(rest.frame[2] - 40, y);
+        await pointer(x, y);
+        await wait(500);
+      },
+      async () => {
+        const open = JSON.parse((await js(measure)) ?? 'null'),
+          wanted = [];
+        if (!open) return false;
+        const [left, top, right, bottom] = open.stage;
+        open.buttons.forEach((button, index) => {
+          if (Math.round(button[2] - button[0]) !== 112) wanted.push(`le bouton ${index + 1} déplié fait ${Math.round(button[2] - button[0])} px de large`);
+          if (button[0] < left - 0.5 || button[1] < top - 0.5 || button[2] > right + 0.5 || button[3] > bottom + 0.5) wanted.push(`le bouton ${index + 1} déplié sort de la scène`);
+          if (Math.abs(button[1] - rest.buttons[index][1]) > 0.5 || Math.abs(button[3] - rest.buttons[index][3]) > 0.5) wanted.push(`le bouton ${index + 1} a bougé en hauteur en se dépliant`);
+        });
+        // What the pointer meets at the middle of each button folded, now unfolded: that button.
+        const met = await js(`JSON.stringify(${JSON.stringify(rest.buttons.map(centre))}.map(({ x, y }, index) => {
+          const hit = document.elementFromPoint(x, y)?.closest('.output-action'),
+            all = [...document.querySelectorAll('#studio-view .studio-frame-over > .studio-rail > .output-action')];
+          return hit === all[index];
+        }))`);
+        JSON.parse(met).forEach((same, index) => same || wanted.push(`sous le pointeur venu sur le bouton ${index + 1}, un autre bouton une fois déplié`));
+        for (const what of wanted) problems.push([step, 'état', what]);
+        return wanted.length === 0;
+      },
+    );
+    const focused = `(() => { const element = document.activeElement; return JSON.stringify([element?.className ?? '', element?.getAttribute?.('aria-pressed') ?? null, Boolean(element?.matches?.(':focus-visible')), Boolean(document.querySelector('#studio-view .studio-finish'))]); })()`;
+    await run(
+      'Studio : Entrée sur « Agrandir » au clavier, sa page, le focus resté sur lui',
+      async () => {
+        await pointer(5, 715);
+        // On it by the keys (Maj+Tab, then Tab): a focus of the keyboard (:focus-visible), as a person gives it.
+        await js(`document.querySelector('#studio-view .studio-rail > .output-action-upscale').focus()`);
+        await key('Tab', 'Tab', 9, 8);
+        await key('Tab', 'Tab', 9);
+        const [name, , visible] = JSON.parse(await js(focused));
+        if (!name.includes('output-action-upscale') || !visible) return false;
+        await press('Enter', 'Enter', 13, '\r');
+        await wait(400);
+      },
+      async () => {
+        const [name, pressed, visible, page] = JSON.parse(await js(focused));
+        return name.includes('output-action-upscale') && pressed === 'true' && visible && page;
+      },
+    );
+    await run(
+      'Studio : Entrée de nouveau, la page Agrandir quittée, le focus resté sur lui',
+      async () => {
+        await press('Enter', 'Enter', 13, '\r');
+        await wait(400);
+      },
+      async () => {
+        const [name, pressed, visible, page] = JSON.parse(await js(focused));
+        return name.includes('output-action-upscale') && pressed !== 'true' && visible && !page;
+      },
+    );
+    await run(
+      'Studio : « Animer » grisé, atteint par Tab, dit pourquoi',
+      async () => {
+        await key('Tab', 'Tab', 9);
+        await wait(400);
+      },
+      async () => {
+        const said = await js(`(() => { const element = document.activeElement, bubble = document.getElementById('help-bubble'); return JSON.stringify([element?.className ?? '', element?.getAttribute?.('aria-disabled'), bubble && !bubble.hidden ? bubble.textContent : '', element?.getAttribute?.('aria-describedby') ?? '']); })()`);
+        const [name, greyed, text, described] = JSON.parse(said);
+        return name.includes('output-action-animate') && greyed === 'true' && text === 'Aucun modèle vidéo ne part d’une image.' && described === 'help-bubble';
+      },
+    );
   }
 
   await send('Runtime.enable');

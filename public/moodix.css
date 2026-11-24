@@ -20363,8 +20363,9 @@ body[data-view='bobine'] .chat-panel {
 /* ------------------------------------------------------------------ (0.6.255) The actions, a column at the right */
 /* Lot 3 (captures A03, B00 to B06; RAIL_CSS of outil/gen_actions.py): the actions of the take on the screen in a
    column 16 px after the right edge of the frame, at the height of its top, whatever its format. At rest, buttons of
-   54 × 54; the column under the pointer (or the focus of the keyboard) unfolds at once, each button 112 × 82 with its
-   name under its icon. No bubble: their names are said (aria-label); a greyed one says why in its own. */
+   54 × 54; the column under the pointer (or the focus of the keyboard) unfolds at once, each button 112 wide with its
+   name under its icon (82 high before 0.6.261). No bubble: their names are said (aria-label); a greyed one says why in
+   its own. */
 #studio-view .studio-frame-over > .studio-rail {
   position: absolute;
   top: 0;
@@ -20379,6 +20380,12 @@ body[data-view='bobine'] .chat-panel {
   border: 0;
   background: none;
   pointer-events: auto;
+  transition: transform 0.2s ease;
+}
+/* (0.6.261) Unfolded where the stage has no room at its right: over the frame by what lacks (--rail-shift, set with
+   the size of the frame), never cut by the stage. */
+#studio-view .studio-frame-over > .studio-rail:is(:hover, :focus-within) {
+  transform: translateX(calc(-1 * var(--rail-shift, 0px)));
 }
 #studio-view .studio-rail > .output-action {
   box-sizing: border-box;
@@ -20422,28 +20429,35 @@ body[data-view='bobine'] .chat-panel {
   font: 400 12px/1.25 var(--font-ui);
   letter-spacing: 0;
   text-align: center;
-  white-space: normal;
+  /* (0.6.261) On one line: the longest, « Changer la caméra », is 97 px for 100. */
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   transition:
     max-height 0.2s ease,
     opacity 0.15s ease,
     margin 0.2s ease;
 }
+/* (0.6.261) Unfolded in its width only, its name under its icon: as tall as folded, nothing moves under the pointer
+   (at 82 px, the pointer come on « Agrandir » found « Interpoler » under it, and the column of a clip in 9:16 went
+   out of the stage at 1280 × 720, « Agrandir » out of reach). */
 #studio-view .studio-rail:is(:hover, :focus-within) > .output-action {
   width: 112px;
-  height: 82px;
 }
 #studio-view .studio-rail:is(:hover, :focus-within) > .output-action > span {
-  max-height: 32px;
-  margin-top: 8px;
+  max-height: 15px;
+  margin-top: 3px;
   opacity: 1;
 }
-#studio-view .studio-rail > .output-action:is(:hover, :focus-visible):not(:disabled),
+#studio-view .studio-rail > .output-action:is(:hover, :focus-visible):not(:disabled, [aria-disabled='true']),
 #studio-view .studio-rail > .output-action.is-on {
   background: rgba(238, 232, 222, 0.13);
   box-shadow: inset 0 0 0 1px rgba(238, 232, 222, 0.36);
   transform: none;
 }
-#studio-view .studio-rail > .output-action:is(:hover, :focus-visible):not(:disabled) > span,
+#studio-view .studio-rail > .output-action:is(:hover, :focus-visible):not(:disabled, [aria-disabled='true']) > span,
 #studio-view .studio-rail > .output-action.is-on > span {
   color: var(--text-1);
 }
@@ -20451,7 +20465,8 @@ body[data-view='bobine'] .chat-panel {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
-#studio-view .studio-rail > .output-action:disabled {
+/* (0.6.261) Greyed by aria-disabled: still reached by the keys, its reason in its bubble (output-actions.mjs). */
+#studio-view .studio-rail > .output-action:is(:disabled, [aria-disabled='true']) {
   opacity: 0.4;
   cursor: default;
 }
@@ -20460,6 +20475,7 @@ body[data-view='bobine'] .chat-panel {
   opacity: 0.38;
 }
 @media (prefers-reduced-motion: reduce) {
+  #studio-view .studio-frame-over > .studio-rail,
   #studio-view .studio-rail > .output-action,
   #studio-view .studio-rail > .output-action > span {
     transition: none;

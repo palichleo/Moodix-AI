@@ -69,11 +69,13 @@ export function formatOf(width, height) {
 
 /**
  * The format of a size, and for a ratio none is close to (16:10, a panorama) the nearest of them
- * (0.6.92): the Studio shows the size a take was made at whatever its ratio.
+ * (0.6.92): the Studio shows the size a take was made at whatever its ratio. (0.6.261) Among `list` only when given
+ * (the formats a model makes: « Animer » an image of 1280 × 800 with LTX 2.5).
  */
-export function nearestFormat(width, height) {
-  if (!(width > 0 && height > 0)) return null;
+export function nearestFormat(width, height, list = null) {
+  if (!(width > 0 && height > 0) || list?.length === 0) return null;
   const distance = format => Math.abs(Math.log(width / height / format.ratio));
+  if (list) return list.reduce((best, item) => (distance(item) < distance(best) ? item : best));
   return formatOf(width, height) ?? FORMATS.reduce((best, item) => (distance(item) < distance(best) ? item : best));
 }
 

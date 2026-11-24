@@ -120,15 +120,16 @@ test('(0.6.256) the Studio is told the models of Agrandir and Interpoler with th
   const tools = await new ToolCatalog({ list: async () => workflows }).studio();
   const shown = verb => tools[verb].map(item => [item.family, item.media, item.finish, item.settings, Boolean(item.follows), item.roles.source.required]);
   assert.deepEqual(shown('upscale'), [
-    ['seedvr2', 'image', { key: 'scale', choices: [2, 4], standard: 2 }, [], false, true],
-    ['realesrgan_video', 'video', { factor: 2, maxSide: 3840 }, [], false, true],
-    ['realesrgan_image', 'image', { factor: 4 }, [], false, true],
+    // (0.6.261) SeedVR2 held to 8192 even at 0, as its engine; Real-ESRGAN reduces to an even side.
+    ['seedvr2', 'image', { key: 'scale', choices: [2, 4], standard: 2, maxSide: 8192 }, [], false, true],
+    ['realesrgan_video', 'video', { factor: 2, maxSide: 3840, even: true }, [], false, true],
+    ['realesrgan_image', 'image', { factor: 4, even: true }, [], false, true],
   ]);
   assert.deepEqual(shown('interpolate'), [['rife', 'video', { key: 'multiplier', choices: [2, 4], standard: 2 }, [], false, true]]);
   // A name that says no factor: the size is the model's.
   const plain = workflows.find(item => item.pipeline === 'realesrgan_image');
   const [own] = (await new ToolCatalog({ list: async () => [{ ...plain, name: 'Agrandir' }] }).studio()).upscale;
-  assert.deepEqual(own.finish, { factor: 4 }, 'its family says « ×4 Plus »');
+  assert.deepEqual(own.finish, { factor: 4, even: true }, 'its family says « ×4 Plus »');
 });
 
 test('the Studio is told, per verb, the ready workflows with their inputs, sizes, lengths and settings', async () => {
@@ -1006,6 +1007,15 @@ async function studioPage(tools, routes = {}, options = {}) {
     constructor(tag = '', className = '', textContent = '') {
       Object.assign(this, { tag, className, textContent, children: [], style: {}, dataset: {} });
       this.classList = { toggle() {}, add() {}, remove() {} };
+      // (0.6.261) An image as a browser has it (options.pageAddress): an empty address reads as the address of the page.
+      if (tag === 'img' && options.pageAddress) {
+        let address;
+        Object.defineProperty(this, 'src', {
+          enumerable: true,
+          get: () => (address === undefined ? '' : address === '' ? options.pageAddress : address),
+          set: value => (address = String(value)),
+        });
+      }
     }
     append(...nodes) {
       this.children.push(...nodes);
@@ -3483,6 +3493,12 @@ test('(0.6.255) the actions of the take stand in a column at the right of the fr
     ]);
     // Its words are still said to a screen reader.
     assert.equal(buttons()[0].attributes['aria-label'], 'Agrandir et affiner ce résultat');
+    // (0.6.261) Greyed, it still answers, as « Générer »: by aria-disabled (Tab reaches it), its reason in its bubble
+    // at its click, nothing done (« Animer » went to Vidéo meanwhile).
+    assert.deepEqual([buttons()[1].attributes['aria-disabled'], buttons()[0].attributes['aria-disabled']], ['true', undefined]);
+    buttons()[1].onclick();
+    await settle();
+    assert.deepEqual([page.said, body.dataset.mode], [['Aucun modèle vidéo ne part d’une image.'], 'image']);
     // Held while a take is made, lit again at its end.
     page.prompt().value = 'un phare';
     page.prompt().oninput();
@@ -3620,9 +3636,20 @@ test('(0.6.256) « Animer » always starts the video from the image: its Début 
   const image = { id: 'w', name: 'Image', roles: {}, limits: sizes, direct: true, size: { width: 1024, height: 1024 }, settings: [], seeded: true },
     // The first video model takes subjects only: the picture goes to the next one, which starts from it.
     subjects = { id: 'h3', name: 'MiniMax H3', verb: 'create_video', limits: sizes, size: { width: 768, height: 448 }, settings: [], seeded: true, roles: { reference: { count: 3, media: ['image'], many: true } } };
+  // (0.6.261) Refused the first time, made the second.
+  let tried = 0;
   const page = await studioPage(
     { create_image: [image], create_video: [subjects, wanStudio()] },
-    { 'tools/actions': () => ({ animate: ['image'] }), 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }), 'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }) },
+    {
+      'tools/actions': () => ({ animate: ['image'] }),
+      'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }),
+      'tools/execute': () => {
+        if (!tried++) return { id: 'j', state: 'error', error: 'rien' };
+        const record = { id: 'v', conversationId: 'c1', mediaType: 'video', workflowId: 'wan', prompt: 'la mer monte', outputs: [{ originalUrl: '/v.mp4', thumbUrl: '/v.jpg', take: 2 }] };
+        page.runs.unshift(record);
+        return { id: 'j', state: 'done', record };
+      },
+    },
     { runs: [{ id: 'a', conversationId: 'c1', prompt: 'un phare', outputs: [{ originalUrl: '/a.png', take: 1, width: 768, height: 1344 }] }] },
   );
   const { body, restore } = page;
@@ -3654,6 +3681,11 @@ test('(0.6.256) « Animer » always starts the video from the image: its Début 
     page.mode(0);
     body.find('studio-rail')[0].find('output-action-animate')[0].onclick();
     assert.equal(page.prompt().value, 'la mer monte');
+    // (0.6.261) Refused: the picture stays on the screen under « DÉBUT », its format greyed (it went as the video left).
+    await body.find('studio-go')[0].onclick();
+    await settle();
+    assert.deepEqual([body.find('studio-frame-start').length, body.find('studio-frame-label')[0]?.textContent, body.find('studio-error')[0]?.textContent], [1, 'DÉBUT', 'rien']);
+    assert.equal(formats().find(chip => chip.attributes['aria-checked'] === 'true')?.disabled, true);
     // Made: the screen is the take's again (the picture stays its Début).
     await body.find('studio-go')[0].onclick();
     await settle();
@@ -3698,6 +3730,171 @@ test('(0.6.256) « Interpoler » prepares its page as Agrandir: « À interpoler
     assert.deepEqual([action.name, action.arguments], ['interpolate', { source: { output: 'c' }, workflow: 'rife', intention: 'Rendre la vidéo plus fluide.', multiplier: 4 }]);
     // Not made: its page stays, its reason said.
     assert.deepEqual([body.find('studio-finish').length, body.find('studio-error')[0]?.textContent], [1, 'rien']);
+  } finally {
+    restore();
+  }
+});
+
+test('(0.6.261) the size the page Agrandir says is the one its engine makes: SeedVR2 held to 8192, Real-ESRGAN reduced to an even side, a half rounded as Python does', async () => {
+  const { roundHalfEven } = await import('../public/studio.mjs');
+  assert.deepEqual([4680.5, 4681.5, 803.5, 2.4, 2.6].map(roundHalfEven), [4680, 4682, 804, 2, 3]);
+  const finishing = (id, name, media, finish) => ({ id, name, media, verb: 'upscale', roles: { source: { count: 1, media: [media], required: true } }, settings: [], finish }),
+    seedvr = finishing('sv', 'Upscale SeedVR2', 'image', { key: 'scale', choices: [2, 4], standard: 2, maxSide: 8192 }),
+    clips = finishing('ev', 'Upscale vidéo (Real-ESRGAN ×2)', 'video', { factor: 2, maxSide: 3840, even: true });
+  const page = await studioPage(
+    { create_image: [still], create_video: [wanStudio()], upscale: [clips, seedvr] },
+    { 'tools/actions': () => ({ upscale: ['image', 'video'] }) },
+    {
+      runs: [
+        { id: 'a', conversationId: 'c1', prompt: 'un phare', outputs: [{ originalUrl: '/a.png', take: 1, width: 2688, height: 1536 }] },
+        { id: 'c', conversationId: 'c1', mediaType: 'video', workflowId: 'wan', prompt: 'la mer', outputs: [{ originalUrl: '/c.mp4', thumbUrl: '/c.jpg', take: 2, width: 3440, height: 1440 }] },
+      ],
+    },
+  );
+  const { body, restore } = page;
+  const size = () => body.find('studio-finish-result')[0]?.textContent,
+    upscale = () => body.find('studio-rail')[0].find('output-action-upscale')[0].onclick();
+  try {
+    await settle();
+    upscale();
+    // × 2: 5376 × 3072, under 8192, as it is; × 4: 10752 × 6144 held to 8192 (8192 × 4681.14…), as SeedVR2 makes it.
+    assert.equal(size(), '5376 × 3072');
+    body.find('studio-finish-chip')[1].onclick();
+    assert.equal(size(), '8192 × 4681');
+    // A clip of 3440 × 1440, × 2, held to 3840: 1607.4 brought to an even side, 1608 (1607 said before).
+    page.mode(1);
+    await settle();
+    upscale();
+    assert.equal(size(), '3840 × 1608');
+  } finally {
+    restore();
+  }
+});
+
+test('(0.6.261) « Animer »: the nearest format the model makes for a picture of none of the list, « DÉBUT » for a file put on the screen too', async () => {
+  const be = value => {
+      const bytes = Buffer.alloc(4);
+      bytes.writeUInt32BE(value);
+      return bytes;
+    },
+    chunk = (type, data) => Buffer.concat([be(data.length), Buffer.from(type, 'ascii'), data, be(0)]),
+    photo = new File([Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', Buffer.alloc(13)), chunk('IEND', Buffer.alloc(0))])], 'photo.png', { type: 'image/png' });
+  const page = await studioPage(
+    { create_image: [still], create_video: [wanStudio()] },
+    {
+      'tools/actions': () => ({ animate: ['image'] }),
+      'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }),
+      'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }),
+    },
+    { runs: [{ id: 'a', conversationId: 'c1', prompt: 'un phare', outputs: [{ originalUrl: '/a.png', take: 1, width: 1280, height: 800 }] }], project: () => 'p1' },
+  );
+  const { body, asked, restore } = page;
+  const chips = () => body.find('studio-format').filter(chip => !chip.className.includes('is-more')),
+    animate = () => body.find('studio-rail')[0].find('output-action-animate')[0].onclick(),
+    // (The size chosen in the Studio goes with its changes to the plan.)
+    sentSize = () => asked.findLast(([route]) => route === 'tools/revise')?.[1].edits ?? {};
+  try {
+    await settle();
+    // Vidéo in 9:16 before.
+    page.mode(1);
+    chips().find(chip => chip.children[0].textContent === '9:16').onclick();
+    page.mode(0);
+    // A picture of 1280 × 800 (16:10, none of the list): the nearest format the model makes, 3:2 (9:16 kept before).
+    animate();
+    assert.equal(body.dataset.mode, 'video');
+    page.prompt().value = 'la mer monte';
+    page.prompt().oninput();
+    await body.find('studio-go')[0].onclick();
+    await settle();
+    const sent = sentSize();
+    assert.equal(sent.width / sent.height, 3 / 2, JSON.stringify(sent));
+    // A file of the computer put on the screen of Image (kept as a reference of the project): « DÉBUT » as for a take.
+    page.mode(0);
+    body.find('studio-stage')[0].ondrop({ preventDefault() {}, stopPropagation() {}, dataTransfer: { files: [photo], types: ['Files'] } });
+    for (let tries = 0; tries < 40 && screenOf(body.find('studio-frame-result')[0])?.src !== '/preview/photo.png'; tries++) await settle();
+    assert.equal(screenOf(body.find('studio-frame-result')[0])?.src, '/preview/photo.png');
+    animate();
+    assert.deepEqual(
+      [body.dataset.mode, body.find('studio-frame-start')[0]?.src, body.find('studio-frame-label')[0]?.textContent, body.find('studio-rail').length, page.prompt().placeholder],
+      ['video', '/preview/photo.png', 'DÉBUT', 0, 'Décrivez le mouvement…'],
+    );
+    // Its format, 16:9 (the file is of 1280 × 720), greyed and why.
+    const checked = chips().find(chip => chip.attributes['aria-checked'] === 'true');
+    assert.deepEqual([checked?.children[0].textContent, checked?.disabled, checked?.title], ['16:9', true, 'Le format suit l’image de début.']);
+  } finally {
+    restore();
+  }
+});
+
+test('(0.6.261) a take of the Chat made larger keeps the draft of Image as it is; the page Agrandir of a take is left once another take comes on its screen', async () => {
+  const seedvr = { id: 'sv', name: 'Upscale SeedVR2', media: 'image', verb: 'upscale', roles: { source: { count: 1, media: ['image'], required: true } }, settings: [], finish: { key: 'scale', choices: [2, 4], standard: 2 } };
+  let take = null;
+  const page = await studioPage(
+    { create_image: [still], upscale: [seedvr] },
+    { 'tools/actions': () => ({ upscale: ['image'] }) },
+    { runs: [{ id: 'a', conversationId: 'c1', workflowId: 'w', prompt: 'un phare', outputs: [{ originalUrl: '/a.png', take: 1, width: 1024, height: 1024 }] }], extra: { making: () => take } },
+  );
+  const { body, studio, restore } = page;
+  globalThis.document.body.dataset = { view: 'studio' };
+  const source = () => body.find('studio-slot').find(tile => tile.dataset.slot === 'source_image-0' && tile.className.includes('is-filled'));
+  try {
+    await settle();
+    page.prompt().value = 'mon brouillon';
+    page.prompt().oninput();
+    // Asked in the Chat, followed here: Image, its draft as it was (lot 4 emptied its prompt for the whole take).
+    const request = {
+      requestId: 'q',
+      approvalToken: 't',
+      tool: 'upscale',
+      mediaType: 'image',
+      workflowName: 'Upscale SeedVR2',
+      call: { id: 'call', type: 'function', function: { name: 'upscale', arguments: '{}' } },
+      plan: { parameters: { scale: 2 }, references: [{ role: 'source_image', output_id: 'a' }], editable: { parameters: [], references: [] } },
+    };
+    take = chatTakeOf(request, { label: 'Agrandissement…' });
+    studio.watch();
+    assert.equal(studio.busy(), true);
+    assert.deepEqual([body.dataset.mode, page.prompt().value, source()], ['image', 'mon brouillon', undefined]);
+    Object.assign(take, { running: false, ended: { type: 'failed', record: null, message: 'rien' } });
+    studio.watch();
+    assert.equal(studio.busy(), false);
+    // The page Agrandir of the take 1 open, a take of the Chat comes on the screen (PRISE 2): the page is left.
+    body.find('studio-rail')[0].find('output-action-upscale')[0].onclick();
+    assert.equal(body.find('studio-finish').length, 1);
+    const made = { id: 'b', conversationId: 'c1', workflowId: 'w', prompt: 'un bateau', outputs: [{ originalUrl: '/b.png', take: 2, width: 1024, height: 1024 }] };
+    take = chatTakeOf({ ...request, requestId: 'q2', tool: 'create_image', workflowName: 'Autre' }, { label: 'Génération…' });
+    studio.watch();
+    page.runs.unshift(made);
+    Object.assign(take, { running: false, ended: { type: 'done', record: made, message: '' } });
+    studio.watch();
+    for (let tries = 0; studio.screenTake()?.take !== 2 && tries < 40; tries++) await settle();
+    assert.deepEqual(studio.screenTake(), { take: 2, media: 'image' });
+    assert.deepEqual([body.find('studio-finish').length, body.find('studio-go-label')[0].textContent], [0, 'Générer']);
+  } finally {
+    restore();
+  }
+});
+
+test('(0.6.261) the case of a clip without its miniature shows the sign of a clip, not a broken image (« À interpoler », « À prolonger »)', async () => {
+  const rife = { id: 'rife', name: 'Interpoler (RIFE 4.26)', media: 'video', verb: 'interpolate', roles: { source: { count: 1, media: ['video'], required: true } }, settings: [], finish: { key: 'multiplier', choices: [2, 4], standard: 2 } };
+  const page = await studioPage(
+    { create_image: [], create_video: [wanStudio()], interpolate: [rife], extend_video: [{ ...wanStudio(), verb: 'extend_video' }] },
+    { 'tools/actions': () => ({ interpolate: ['video'], extend_video: ['video'] }) },
+    {
+      runs: [{ id: 'c', conversationId: 'c1', mediaType: 'video', workflowId: 'wan', prompt: 'la mer', parameters: { fps: 24 }, outputs: [{ take: 4 }] }],
+      pageAddress: 'http://127.0.0.1:8787/',
+    },
+  );
+  const { body, restore } = page;
+  const shown = piece => body.find(piece)[0].find('studio-slot-pick')[0].children.map(child => child.glyph ?? child.tag);
+  try {
+    page.mode(1);
+    await settle();
+    body.find('studio-rail')[0].find('output-action-interpolate')[0].onclick();
+    assert.deepEqual(shown('studio-finish'), ['video', 'span']);
+    body.find('studio-finish')[0].find('studio-slot-remove')[0].onclick();
+    body.find('studio-rail')[0].find('output-action-extend')[0].onclick();
+    assert.deepEqual(shown('studio-prolong'), ['video', 'span']);
   } finally {
     restore();
   }
@@ -9340,7 +9537,7 @@ test('(0.6.257) the camera before a video: its block under the images, its switc
     ltx = { ...shape, id: 'l', name: 'LTX 2.5', family: 'ltx25', camera: true, roles: { start_image: image, end_image: image, reference: { count: 3, media: ['image'] } } },
     wan = { ...shape, id: 'w', name: 'Wan 2.2', family: 'wan22', camera: true, roles: { start_image: image } },
     omni = { ...shape, id: 'o', name: 'MiniMax H3 Omni', family: 'minimax_h3', roles: { reference: { count: 2, media: ['image'] } } },
-    still = { id: 'i', name: 'Krea 2', family: 'krea2', roles: {}, limits: sizes, size: { width: 1024, height: 1024 }, settings: [] },
+    still ={ id: 'i', name: 'Krea 2', family: 'krea2', roles: {}, limits: sizes, size: { width: 1024, height: 1024 }, settings: [] },
     // A take made with a camera, as its record keeps it: its prompt as written, the choice and the sentence beside it.
     made = {
       id: 'r1',

@@ -86,16 +86,20 @@ const tipOf = (action, reason = '') => (reason ? `${action.tip}\n${reason}` : ac
  * le Studio `onShow(record, index)` (absent: not offered, as in the Studio itself). Without
  * `onDetails`, no « Ouvrir » (the Studio: a click on the take on its screen opens it).
  */
-export function outputActions({ api, node, onDetails, onAction, onShow = null, icon: drawIcon = null, rail = false }) {
+export function outputActions({ api, node, onDetails, onAction, onShow = null, icon: drawIcon = null, rail = false, greyable = null, onGreyed = null }) {
   let available = null,
-    loaded = 0;
+    loaded = 0,
+    // (0.6.261) What the server said last: a row drawn again (the Studio draws itself again at each change) starts
+    // from it, not greyed until its answer comes back (a click in between was lost, a focus given back fell on grey).
+    known = null;
   function load() {
     if (!available || Date.now() - loaded > CACHE_MS) {
       loaded = Date.now();
       available = Promise.resolve()
         .then(() => api('tools/actions'))
         .then(response => response.json())
-        .catch(() => ({}));
+        .catch(() => ({}))
+        .then(verbs => (known = verbs));
     }
     return available;
   }
@@ -118,21 +122,26 @@ export function outputActions({ api, node, onDetails, onAction, onShow = null, i
     for (const action of ACTIONS.filter(item => item.media.includes(media))) {
       if ((action.id === 'studio' && !onShow) || (action.id === 'details' && !onDetails)) continue;
       const button = node('button', 'output-action output-action-' + action.id);
+      // (0.6.261) In the column of the Studio, a greyed one still answers (`greyable`: its `disabled` said by
+      // aria-disabled), as « Générer »: the keys reach it, its reason is shown at its focus and said (`onGreyed`) at
+      // its click. Disabled, Tab passed it by and a screen reader heard its name alone.
+      if (rail && greyable) greyable(button);
       button.type = 'button';
       button.setAttribute('aria-label', action.tip);
       // (0.6.255) In the column of the Studio (`rail`), its name under its icon when the column unfolds, and no
       // bubble: only one greyed says why in its own.
       if (!rail) button.title = tipOf(action);
       button.append(icon(action.icon), node('span', '', rail ? (action.name ?? action.label) : action.label));
-      button.onclick = () =>
-        action.id === 'details'
-          ? onDetails(record, index)
-          : action.id === 'studio'
-            ? onShow(record, index)
-            : onAction(record, index, action.id);
+      button.onclick = () => {
+        if (button.disabled) return void onGreyed?.(button);
+        if (action.id === 'details') onDetails(record, index);
+        else if (action.id === 'studio') onShow(record, index);
+        else onAction(record, index, action.id);
+      };
       if (action.verb) {
-        // Disabled until the server says an active workflow can do it.
-        button.disabled = true;
+        // Disabled until the server says an active workflow can do it (what it said last, when it did).
+        button.disabled = !(known?.[action.verb] || []).includes(media);
+        if (known && button.disabled) button.title = rail ? action.missing(media) : tipOf(action, action.missing(media));
         buttons.push([button, action]);
       }
       row.append(button);
