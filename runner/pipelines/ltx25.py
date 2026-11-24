@@ -227,16 +227,18 @@ def _run(job, config, progress, name='ltx25', finish=None):
     shape.append('upscaler' in job['components'])
     key = [[conditioning.stamp(path) for path in files], [item['strength'] for item in job['loras']], shape]
     holder = [kept.take(name, key)]
+    # What the attempt a Refit ends read of the prompt, for the next (see _generate).
+    read = {}
     try:
         try:
-            result = _generate(job, config, progress, key, holder, finish=finish)
+            result = _generate(job, config, progress, key, holder, finish=finish, read=read)
         except Refit:
             result = None
         if result is None:
             # Out of the handler: the error would keep what the first attempt held until here.
             stale, holder[0] = holder[0], None
             stale.drop()
-            result = _generate(job, config, progress, key, holder, finish=finish)
+            result = _generate(job, config, progress, key, holder, finish=finish, read=read)
     except BaseException:
         # Whatever state the failure left it in, it is not one to start the next video from.
         if holder[0] is not None:
@@ -254,7 +256,7 @@ def _run(job, config, progress, name='ltx25', finish=None):
     return result
 
 
-def _generate(job, config, progress, key, holder, finish=None):
+def _generate(job, config, progress, key, holder, finish=None, read=None):
     import torch
     from runner.models import conditioning
     from runner.models.headers import header
@@ -350,6 +352,11 @@ def _generate(job, config, progress, key, holder, finish=None):
 
     if found:
         progress(stage='video prompt encoded', conditioning='kept from an earlier generation')
+    elif read:
+        # Read by the attempt a Refit ended, for this same video (`read`, see below): not read a
+        # second time. On 24/11, read again, it made such a video 6 s longer (36.2 s, not 30.2).
+        embeds, mask = read.pop('prompt')
+        progress(stage='video prompt encoded', conditioning='read by the attempt before')
     else:
         beside = left is not None and left.gpu
         embeds, mask = smaller([lambda: encode(job, headers, progress), *([alone] if beside else [])], torch)
@@ -457,7 +464,11 @@ def _generate(job, config, progress, key, holder, finish=None):
             else:
                 if again and hot.gpu:
                     # A share of another size than this video leaves it (halved for want of
-                    # memory, or the card filled by something else since): see Refit.
+                    # memory, or the card filled by something else since): see Refit. What the
+                    # encoder gave this attempt goes to the next (`read`, see _run); a prompt the
+                    # disk kept is read there again, and is not held in RAM twice.
+                    if read is not None and not found:
+                        read['prompt'] = embeds, mask
                     raise Refit
                 hot.limit = int(budget * 1024**3)
             # What will not stay on the GPU goes to page-locked RAM once, for every step and the

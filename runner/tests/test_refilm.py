@@ -603,7 +603,7 @@ class DispatchTests(unittest.TestCase):
         job = dict(components={'model': 'model'}, loras=[], references=[], parameters=parameters)
         given = []
 
-        def run(_job, _config, _progress, key, holder, finish=None):
+        def run(_job, _config, _progress, key, holder, finish=None, read=None):
             given.append(finish)
             holder[0] = SimpleNamespace(key=key, locked=True, allocated=0, drop=lambda: None)
             return 'video'

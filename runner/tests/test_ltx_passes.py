@@ -236,16 +236,18 @@ class KeptModelTests(unittest.TestCase):
             parameters = dict(width=width, height=512, frames=121)
             return dict(components={'model': 'model'}, loras=[], references=list(references), parameters=parameters)
 
-        given, dropped = [], []
+        given, dropped, seen = [], [], []
 
-        def run(_job, _config, _progress, key, holder, finish=None):
+        def run(_job, _config, _progress, key, holder, finish=None, read=None):
             given.append(holder[0])
+            seen.append(dict(read))
             if holder[0] is None:
                 holder[0] = SimpleNamespace(
                     key=key, fits=True, locked=True, allocated=0, drop=lambda: dropped.append(key[2][0])
                 )
                 holder[0].locked = key[2][0] != 1024
             elif not holder[0].fits:
+                read['prompt'] = 'what the encoder gave'
                 raise pipeline.Refit
             return 'video'
 
@@ -258,10 +260,12 @@ class KeptModelTests(unittest.TestCase):
                 first = kept._kept['ltx25']
                 self.assertEqual(pipeline.generate(job(), {}, None), 'video')
                 self.assertEqual((given, dropped), ([None, first], []))
-                # Its share no longer suits this video: dropped, and the video starts over without it.
+                # Its share no longer suits this video: dropped, and the video starts over without it,
+                # with what the first attempt read of the prompt.
                 first.fits = False
                 self.assertEqual(pipeline.generate(job(), {}, None), 'video')
                 self.assertEqual((given[2:], dropped), ([first, None], [288]))
+                self.assertEqual(seen, [{}, {}, {}, {'prompt': 'what the encoder gave'}])
                 second = kept._kept['ltx25']
                 self.assertIsNot(second, first)
                 # Another size, or an image to start from: another share, the model is not taken back.
@@ -369,9 +373,13 @@ class LentShareTests(unittest.TestCase):
     3 GiB of the card taken by another program since, the share, weighed without what it lent, was
     taken back whole and ran out of memory)."""
 
-    def generate(self, free_gib):
+    def generate(self, free_gib, read=None, found=(), after_refit=False):
         """Runs the generation up to the share's fate, `free_gib` free on the card beside the share
-        (what it lends is free once lent). Returns the share."""
+        (what it lends is free once lent); `after_refit`: the attempt after a Refit, the model dropped,
+        up to the model's layout. `read`: what the attempt before read of the prompt (see _run).
+        `found`: what the disk keeps of the prompt, as conditioning.load answers in turn (else
+        nothing). The share is left in `self.share`, the encoder in `self.encode`, the stages
+        reported in `self.stages`."""
         from contextlib import ExitStack, nullcontext
         from types import SimpleNamespace
         from unittest import mock
@@ -393,6 +401,10 @@ class LentShareTests(unittest.TestCase):
         loaded.hot, loaded.transformer = share, SimpleNamespace()
         loaded.stores['model'] = SimpleNamespace(keep=mock.Mock(side_effect=Reached), part=None, pinned=True)
         layout = {name: object() for name in ('vae', 'audioVae', 'connectors')}
+        answers = iter(found)
+        self.encode = mock.Mock(return_value=(torch.zeros(1, 4, 8), torch.ones(1, 4)))
+        self.stages = []
+        laid = dict(side_effect=Reached) if after_refit else dict(return_value=(dict(layout), dict.fromkeys(layout, {})))
         with ExitStack() as stack:
             enter = stack.enter_context
             for name, value in (('is_available', True), ('reset_peak_memory_stats', None), ('empty_cache', None)):
@@ -402,14 +414,15 @@ class LentShareTests(unittest.TestCase):
             enter(mock.patch.object(hardware, 'free_bytes', lambda _torch: int(free_gib * GiB) + share.lent))
             enter(mock.patch.object(headers, 'header', return_value={}))
             enter(mock.patch.object(conditioning, 'stamp', side_effect=str))
-            enter(mock.patch.object(conditioning, 'load', return_value=None))
-            enter(mock.patch.object(ltx25_text, 'encode', lambda *_: (torch.zeros(1, 4, 8), torch.ones(1, 4))))
-            enter(mock.patch.object(model, 'validate_layout', return_value=(dict(layout), dict.fromkeys(layout, {}))))
+            enter(mock.patch.object(conditioning, 'load', lambda *_: next(answers, None)))
+            enter(mock.patch.object(ltx25_text, 'encode', self.encode))
+            enter(mock.patch.object(model, 'validate_layout', **laid))
             enter(mock.patch.object(model, 'WeightPool', lambda *_: SimpleNamespace(clear=lambda: None, used=lambda: 0)))
             enter(mock.patch.object(model, 'load_streamed', return_value=object()))
             enter(mock.patch.object(residency, 'open_store', lambda *_: nullcontext(SimpleNamespace())))
             try:
-                pipeline._generate(job, {}, lambda **data: None, 'key', [loaded])
+                holder = [None] if after_refit else [loaded]
+                pipeline._generate(job, {}, lambda **data: self.stages.append(data), 'key', holder, read=read)
             finally:
                 self.share = share
 
@@ -427,6 +440,39 @@ class LentShareTests(unittest.TestCase):
         with self.assertRaises(Reached):
             self.generate(3.3)
         self.assertEqual((round(self.share.lent / GiB, 1), self.share.limit), (1.1, 70 * Share.LAYER))
+
+    def test_the_prompt_read_by_an_attempt_a_refit_ends_is_not_read_again(self):
+        import torch
+
+        from runner.pipelines import ltx25 as pipeline
+
+        read = {}
+        # The share kept for this video: the prompt read is this attempt's alone.
+        with self.assertRaises(Reached):
+            self.generate(3.3, read=read)
+        self.assertEqual((self.encode.call_count, read), (1, {}))
+        # Built anew (above): what the encoder gave goes to the next attempt, which _run starts
+        # with the model dropped.
+        with self.assertRaises(pipeline.Refit):
+            self.generate(0.1, read=read)
+        self.assertEqual(self.encode.call_count, 1)
+        for carried, given in zip(read['prompt'], self.encode.return_value, strict=True):
+            self.assertIs(carried, given)
+        # That attempt takes it there, and does not read the prompt again (6.1 s of 17 on 24/11).
+        with self.assertRaises(Reached):
+            self.generate(0.1, read=read, after_refit=True)
+        self.assertEqual((self.encode.call_count, read), (0, {}))
+        self.assertIn('read by the attempt before', [stage.get('conditioning') for stage in self.stages])
+        # Without it, the prompt is read as before.
+        with self.assertRaises(Reached):
+            self.generate(0.1, read={}, after_refit=True)
+        self.assertEqual(self.encode.call_count, 1)
+        # What the disk kept of the prompt as the encoder gave it (earlier versions) is read there
+        # again by the next attempt: not held in RAM in the meantime.
+        kept = [dict(embeds=torch.zeros(1, 4, 8), mask=torch.ones(1, 4))]
+        with self.assertRaises(pipeline.Refit):
+            self.generate(0.1, read=read, found=(None, kept))
+        self.assertEqual((self.encode.call_count, read), (0, {}))
 
 
 if __name__ == '__main__':
