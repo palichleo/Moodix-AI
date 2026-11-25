@@ -228,4 +228,32 @@ test('what an update or « Redémarrer » keeps of the page: the revision read, 
   // With the history, the one set aside is on the disk: not kept twice.
   state.saveHistory = true;
   assert.equal(context.sessionOfPage().aside, undefined);
+
+  // (0.6.293) The draft goes whole: the videos joined, the numbers of its images, the project it is in. A
+  // conversation not sent yet is in no list of the history: it came back in « Sans projet », without its videos.
+  const video = { id: 'e5555555-5555-4555-8555-555555555555', label: '#ref3', name: 'plage.mp4' },
+    image = { name: 'chat.png', url: 'data:image/png;base64,iVBORw0KGgo=', ref: '#ref4' };
+  Object.assign(state, { saveHistory: false, videos: [video], images: [image], projectId: 'voyage-2' });
+  aside.draft.videos = [{ ...video, label: '#ref7' }];
+  const whole = JSON.parse(JSON.stringify(context.sessionOfPage()));
+  assert.deepEqual([whole.videos, whole.projectId, whole.images[0].ref], [[video], 'voyage-2', '#ref4']);
+  assert.deepEqual(whole.aside.videos, [{ ...video, label: '#ref7' }]);
+  // Before any project is chosen, and for a page that never joined a video: « Sans projet », none.
+  Object.assign(state, { videos: undefined, projectId: undefined });
+  const bare = JSON.parse(JSON.stringify(context.sessionOfPage()));
+  assert.deepEqual([bare.videos, bare.projectId], [[], 'inbox']);
+
+  // A page of an older version reloaded keeps the same in its tab (keepForReload), its project too (0.6.293).
+  const stored = new Map(),
+    reloading = {
+      state: { ...state, videos: [video], images: [{ ...image, source: {} }], projectId: 'voyage-2', historyItems: [], view: 'chat' },
+      $: id => fields[id],
+      sessionStorage: { setItem: (key, value) => stored.set(key, value) },
+      RESUME: 'reprise',
+    },
+    start = source.indexOf('function keepForReload(');
+  runInNewContext(source.slice(start, source.indexOf('/**', start)) + ';this.keepForReload=keepForReload;', reloading);
+  reloading.keepForReload();
+  const tab = JSON.parse(stored.get('reprise'));
+  assert.deepEqual([tab.projectId, tab.videos, tab.images], ['voyage-2', [video], [image]]);
 });

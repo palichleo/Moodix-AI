@@ -3128,3 +3128,55 @@ test('an image joined after « Modifier » leaves those of the message as the hi
   await unread.context.addFiles([chosen('abîmée.png')]);
   assert.deepEqual([unread.notices.filter(Boolean), told(unread).length], [['Image illisible.'], 1]);
 });
+
+test('the draft comes back whole after « Redémarrer »: its videos, its project, the numbers of its images (0.6.293)', () => {
+  const video = { id: 'e5555555-5555-4555-8555-555555555555', label: '#ref3', name: 'plage.mp4' },
+    image = { name: 'chat.png', url: 'data:image/png;base64,iVBORw0KGgo=', ref: '#ref4', resource: 'c3333333-3333-4333-8333-333333333333' },
+    projects = [
+      { id: 'inbox', name: 'Conversations' },
+      { id: 'voyage', name: 'Voyage' },
+    ],
+    exchange = [
+      { role: 'user', content: 'Un renard' },
+      { role: 'assistant', content: 'Le voici.' },
+    ],
+    // What the server gives back to the page (updateSession): the conversation and its draft.
+    kept = (more = {}) => ({
+      conversationId: null,
+      messages: [],
+      archiveSnapshot: null,
+      prompt: 'Anime #ref4 comme #ref3',
+      images: [image],
+      videos: [video],
+      projectId: 'voyage',
+      thinking: true,
+      title: '',
+      ...more,
+    }),
+    back = (state, session) => {
+      const shown = page({ state });
+      shown.context.restoreSession(session);
+      return shown.state;
+    };
+  // A conversation not sent yet, in a project: no list of the history has it. It came back in « Sans projet »
+  // without its video, its « #ref » read among the references of another project.
+  const fresh = back({ projects }, kept());
+  assert.deepEqual(plain([fresh.projectId, fresh.videos, fresh.images.map(item => item.ref)]), ['voyage', [video], ['#ref4']]);
+  // Its project deleted meanwhile, or a session of a version before (no project, no videos): « Sans projet », none.
+  assert.equal(back({ projects: projects.slice(0, 1) }, kept()).projectId, 'inbox');
+  assert.equal(back({}, kept()).projectId, 'inbox');
+  assert.equal(back({ projects }, kept({ projectId: 'inbox' })).projectId, 'inbox');
+  const former = back({ projects }, kept({ projectId: undefined, videos: undefined }));
+  assert.deepEqual(plain([former.projectId, former.videos]), ['inbox', []]);
+  // One the history has is where the history says, whatever the page before held.
+  const listed = back(
+    { projects: [...projects, { id: 'autre', name: 'Autre' }], historyItems: [{ id: ID, projectId: 'autre', title: 'Un renard' }] },
+    kept({ conversationId: ID, messages: exchange }),
+  );
+  assert.equal(listed.projectId, 'autre');
+  // The videos of the conversation shown are its own, not those of the one taken back before it.
+  const both = page({ state: { saveHistory: false, projects } });
+  both.context.restoreAside(kept({ conversationId: ELSEWHERE, messages: exchange, title: 'Un renard' }));
+  both.context.restoreSession(kept({ conversationId: ID, messages: exchange, videos: [] }));
+  assert.deepEqual(plain([both.state.aside.draft.videos, both.state.videos]), [[video], []]);
+});

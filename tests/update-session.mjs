@@ -115,6 +115,39 @@ test('a conversation of more than a hundred messages goes through an update or a
   assert.equal(updateSession({ ...base, messages: snapshot.messages.slice(0, 120), archiveSnapshot: snapshot }).archiveSnapshot.messages.length, 121);
 });
 
+test('the draft goes through a restart whole: the videos joined, the numbers of its images, its project (0.6.293)', () => {
+  const PIXELS = 'data:image/png;base64,iVBORw0KGgo=',
+    base = { messages: [], conversationId: null, prompt: 'Anime #ref4 comme #ref3', images: [], title: '', thinking: true },
+    video = { id: 'e5555555-5555-4555-8555-555555555555', label: '#ref3', name: 'plage.mp4' },
+    // As the page holds it: the file chosen is not sent, its size is not kept.
+    image = { name: 'chat.png', url: PIXELS, resource: 'c3333333-3333-4333-8333-333333333333', ref: '#ref4', width: 64, source: {} };
+  const kept = updateSession({ ...base, images: [image], videos: [video], projectId: 'voyage-2' });
+  assert.deepEqual(kept.images, [{ name: 'chat.png', url: PIXELS, resource: image.resource, ref: '#ref4' }]);
+  assert.deepEqual([kept.videos, kept.projectId], [[video], 'voyage-2']);
+  assert.equal(updateSession({ ...base, projectId: 'inbox' }).projectId, 'inbox');
+
+  // What is not what the page makes of them is left out, the rest stays: a draft never refuses a restart.
+  const odd = updateSession({
+    ...base,
+    images: [{ ...image, ref: '<b>' }, { ...image, ref: 4 }, { ...image, ref: '#ref0' }],
+    videos: [video, { ...video, id: '../x' }, { ...video, label: 'ref3' }, null, 'x', { ...video, name: 7 }, { id: video.id }],
+    projectId: '../autre',
+  });
+  assert.deepEqual(odd.images.map(item => 'ref' in item), [false, false, false]);
+  assert.deepEqual(odd.videos, [video, { ...video, name: '' }]);
+  assert.equal('projectId' in odd, false);
+  // A page of a version before sends none of this; what is no list is none; a message holds 64 at most.
+  assert.deepEqual([updateSession(base).videos, 'projectId' in updateSession(base)], [[], false]);
+  assert.deepEqual(updateSession({ ...base, videos: 'plage.mp4' }).videos, []);
+  assert.equal(updateSession({ ...base, videos: Array(70).fill(video) }).videos.length, 64);
+
+  // The conversation set aside (kept without the history) the same.
+  const ASIDE = 'b2222222-2222-4222-8222-222222222222',
+    aside = updateSession({ ...base, aside: { ...base, conversationId: ASIDE, images: [image], videos: [video], projectId: 'voyage-2' } }).aside;
+  assert.deepEqual([aside.videos, aside.projectId, aside.images[0].ref], [[video], 'voyage-2', '#ref4']);
+  assert.equal(updateSession({ ...base, aside: { ...base, conversationId: ASIDE, projectId: '../x' } }).aside.projectId, 'inbox');
+});
+
 test('a copy this version refuses is put aside, once; one the disk does not give for now stays (0.6.287)', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'moodix-session-'));
   try {

@@ -317,6 +317,8 @@ function keepForReload() {
     // Without the files given (they are not written): their copy, as after « Redémarrer ».
     images: (state.images || []).map(({ source, ...image }) => image),
     videos: state.videos || [],
+    // (0.6.293) Its project: a conversation not kept yet is in no list to find it in.
+    projectId: state.projectId || 'inbox',
     thinking: state.thinking,
     title: $('conversation-title').textContent,
     view: state.view,
@@ -347,6 +349,9 @@ function sessionOfPage() {
     conversationInstructions: state.conversationInstructions,
     prompt: $('prompt').value,
     images: state.images,
+    // (0.6.293) The videos joined and the project too: the draft came back with its « #ref » and neither.
+    videos: state.videos || [],
+    projectId: state.projectId || 'inbox',
     thinking: state.thinking,
     title: $('conversation-title').textContent,
     ...(Number.isInteger(revision) ? { revision } : {}),
@@ -360,6 +365,7 @@ function sessionOfPage() {
             projectId: aside.projectId || 'inbox',
             prompt: aside.draft?.text ?? '',
             images: (aside.draft?.images ?? []).map(({ source, ...image }) => image),
+            videos: aside.draft?.videos ?? [],
             thinking: state.thinking,
             title: aside.title || '',
           }),
@@ -1066,7 +1072,7 @@ function restoreAside(saved) {
     archiveSnapshot: state.archiveSnapshot,
     historyDirty: false,
     title: saved.title || '',
-    draft: { text: saved.prompt || '', images: saved.images || [], videos: [] },
+    draft: { text: saved.prompt || '', images: saved.images || [], videos: saved.videos || [] },
     nodes,
   };
   state.messages = [];
@@ -1125,6 +1131,8 @@ function restoreSession(saved) {
   state.archiveSnapshot = saved.archiveSnapshot;
   state.historyDirty = false;
   state.images = saved.images;
+  // (0.6.293) The videos joined to its draft come back with it (its text kept their « #ref », not their chip).
+  state.videos = saved.videos || [];
   state.thinking = saved.thinking;
   $('prompt').value = saved.prompt;
   generationUI.clear(state.aside?.nodes);
@@ -1134,8 +1142,11 @@ function restoreSession(saved) {
   // (Its message unsent said where the thread ends, 0.6.103.)
   unsentNote();
   setConversationTitle(saved.title || UNTITLED);
-  const restored = state.historyItems.find(item => item.id === state.conversationId);
-  state.projectId = restored?.projectId || 'inbox';
+  const restored = state.historyItems.find(item => item.id === state.conversationId),
+    // (0.6.293) Not kept yet (a new conversation, or without the history), it is in no list: the project the
+    // page before had it in, when it is still one. It came back in « Sans projet », its « #ref » read there.
+    former = saved.projectId === 'inbox' || state.projects?.some(project => project.id === saved.projectId);
+  state.projectId = restored?.projectId || (former ? saved.projectId : 'inbox');
   state.view = 'chat';
   renderAttachments();
   resizePrompt();
