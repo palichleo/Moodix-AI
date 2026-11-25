@@ -10953,3 +10953,57 @@ test('a proposal stopped with its turn gives back its seed and its clip, as decl
     sending.restore();
   }
 });
+
+/** « Changer la caméra » as the catalog gives it (`follows`, lib/tool-catalog.mjs), and its page opened on a clip. */
+const refilmer = {
+  id: 'r',
+  name: 'Changer la caméra (LTX 2.5)',
+  verb: 'refilm_video',
+  family: 'ltx25_refilm',
+  follows: true,
+  roles: { source: { count: 1, media: ['video'], required: true } },
+  settings: [],
+};
+const refilmOn = (page, id = 'film') => {
+  page.mode(1);
+  page.body.find('studio-item').find(tile => tile.dataset.id === id).find('studio-item-second')[0].onclick();
+};
+
+test('Ctrl+E rewrites no hidden prompt: neither on « Agrandir » nor on « Changer la caméra » (0.6.317)', async () => {
+  // (Report 4, point 4. On « Agrandir » the key sent the prompt of Image, hidden behind the page, and wrote it again;
+  // on « Changer la caméra » it said « Ajoutez d’abord la vidéo et le personnage. », as the title of its wand.)
+  const { seedvr, editor, image } = reviewed,
+    sent = [],
+    routes = { 'studio/enrich': body => (sent.push(body), { prompt: 'A lighthouse in the fog, enriched.' }) },
+    ctrlE = page => page.page['studio-view'].onkeydown({ key: 'e', ctrlKey: true, preventDefault() {}, target: {} });
+  const growing = await studioPage(
+    { create_image: [editor], upscale: [seedvr] },
+    { ...routes, 'tools/actions': () => ({ upscale: ['image'] }) },
+    { runs: [image('a', 1)] },
+  );
+  try {
+    const { body } = growing;
+    await settle();
+    growing.prompt().value = 'un phare dans la brume';
+    growing.prompt().oninput();
+    body.find('studio-rail')[0].find('output-action-upscale')[0].onclick();
+    ctrlE(growing);
+    await settle();
+    body.find('studio-finish')[0].find('studio-slot-remove')[0].onclick();
+    assert.deepEqual([sent.length, growing.prompt().value], [0, 'un phare dans la brume']);
+  } finally {
+    growing.restore();
+  }
+  const { tools, runs } = continuing(),
+    filming = await studioPage({ ...tools, refilm_video: [refilmer] }, routes, { runs });
+  try {
+    const { body } = filming;
+    refilmOn(filming);
+    assert.deepEqual([body.find('studio-refilm').length, body.find('studio-enrich-go').length], [1, 0]);
+    ctrlE(filming);
+    await settle();
+    assert.deepEqual([sent.length, body.find('studio-error').map(line => line.textContent)], [0, []]);
+  } finally {
+    filming.restore();
+  }
+});

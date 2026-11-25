@@ -4360,7 +4360,9 @@ export function setupStudio({
   }
   /** The chat model rewrites what is typed as a full prompt; what was typed can be taken back. */
   async function enrich() {
-    if (enriching || working) return;
+    // (0.6.317) Never on a page whose prompt is not shown (Agrandir, Interpoler, Changer la caméra): Ctrl+E sent
+    // the prompt of Image hidden behind « Agrandir », and wrote it again.
+    if (enriching || working || finishOn() || refilming()) return;
     const draft = drafts[mode],
       text = draft.prompt.trim(),
       scene = sceneInputs();
@@ -7183,14 +7185,16 @@ export function setupStudio({
     const promptField = node(
       'div',
       'studio-field studio-prompt-field is-wide' +
-        (mode !== 'audio' && !finish ? ' has-enrich' : '') +
+        (mode !== 'audio' && !finish && !refilming() ? ' has-enrich' : '') +
         (folded && !folded.open ? ' is-folded' : ''),
     );
     promptField.append(prompt);
     if (finish) {
       promptField.className += ' is-needless';
       promptField.title = prompt.title = FINISH[finish.verb].needless;
-    } else if (mode !== 'audio') promptField.append(enrichRow());
+      // (0.6.317) Nor on « Changer la caméra », which has nothing to write: its wand, greyed, said « Ajoutez
+      // d’abord la vidéo et le personnage » (the model reads the clip it is given, as one that puts a character).
+    } else if (mode !== 'audio' && !refilming()) promptField.append(enrichRow());
     if (enriching) promptField.classList.add('is-improving');
     measurePrompt = folded
       ? foldPrompt({ node, icon, field: promptField, box: prompt, state: folded, onToggle: () => render() })
