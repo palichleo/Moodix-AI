@@ -6192,6 +6192,18 @@ export function setupStudio({
     transformOf(record)
       ? record.parameters?.references?.find(ref => ref.role === 'source_video' || ref.role === 'source_image')?.output_id
       : undefined;
+  /** (0.6.300) The cases of these drafts (one a mode) that hold the take `id`, emptied: whether one was. */
+  function withoutTake(set, id) {
+    let found = false;
+    for (const draft of Object.values(set ?? {}))
+      for (const list of Object.values(draft?.inputs ?? {}))
+        (list ?? []).forEach((input, index) => {
+          if (input?.source?.output !== id) return;
+          list[index] = null;
+          found = true;
+        });
+    return found;
+  }
   /**
    * A take leaves its conversation (its file stays in output): the one deletion of the page, that of
    * the Sortie and of the Pellicule (0.6.147, take-delete.mjs). Whether it went: refused, it says why.
@@ -6208,6 +6220,15 @@ export function setupStudio({
       if (extending?.id === record.id) extending = null;
       if (finishing?.record.id === record.id) finishing = null;
       for (const key of Object.keys(kept)) if (kept[key].id === record.id) delete kept[key];
+      // (0.6.300) Nor anything else of it. Looked at (« Afficher dans le Studio »), it kept the Studio on it:
+      // the next take of the Chat no longer chose the mode. Laid in a case (« Animer », « Modifier », dropped
+      // there), its case stayed filled, and « Générer » sent a take that was gone, refused by the server.
+      if (pinned === record.id) pinned = null;
+      // (In the drafts in hand, in those the page goes back to after a look, in those of the other conversations.)
+      const emptied = [drafts, looked?.drafts, ...[...leftDrafts.values()].map(left => left.drafts)].map(set =>
+        withoutTake(set, record.id),
+      );
+      if (emptied[0]) notice('La prise supprimée a été retirée de sa case.');
       // (0.6.147) The newest take of a conversation left, whose Studio is kept as it was left: it comes
       // back so, not with the settings of the take before it (as settledHere does for the one in hand).
       const left = leftDrafts.get(where);

@@ -10747,3 +10747,102 @@ test('a file dropped or pasted on the column never goes to a case the page does 
     going.restore();
   }
 });
+
+test('a take deleted leaves nothing of it in the Studio: neither the take it looked at nor a case it filled (0.6.300)', async () => {
+  // (Report 4, point 8.) Laid at the start of a video by « Animer », then deleted: its case stayed filled, and
+  // « Générer » sent a take that was gone.
+  const { clip, image } = reviewed,
+    deleting = all => ({ 'studio/delete': body => (all.splice(all.findIndex(item => item.id === body.id), 1), {}) }),
+    start = body => body.find('studio-slot').find(slot => slot.dataset.slot === 'start_image-0');
+  const all = [image('a', 1)];
+  const laid = await studioPage(
+    { create_image: [still], create_video: [wanStudio()] },
+    { ...deleting(all), 'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }), 'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }) },
+    { runs: all },
+  );
+  try {
+    const { body, studio, asked, notices } = laid;
+    await settle();
+    body.find('studio-item').find(tile => tile.dataset.id === 'a').find('studio-item-main')[0].onclick();
+    assert.deepEqual([body.dataset.mode, start(body).className.includes('is-filled')], ['video', true]);
+    await studio.remove(all[0]);
+    await settle();
+    assert.deepEqual([start(body).className.includes('is-filled'), notices.at(-1)], [false, 'La prise supprimée a été retirée de sa case.']);
+    laid.prompt().value = 'la mer monte';
+    laid.prompt().oninput();
+    await body.find('studio-go')[0].onclick();
+    await settle();
+    // (Whether the model can go without it or asks for another image first: the one that is gone is never sent.)
+    const sent = asked.filter(([route]) => route === 'tools/action').map(([, asking]) => asking.arguments?.start_image?.output);
+    assert.equal(sent.includes('a'), false);
+  } finally {
+    laid.restore();
+  }
+
+  // Looked at (« Afficher dans le Studio »), then deleted: the next take made in the Chat chooses the mode again.
+  const modeAfter = async looked => {
+    const takes = [image('a', 1)];
+    const page = await studioPage(
+      { create_image: [still], create_video: [{ ...wanStudio(), id: 'wan' }] },
+      deleting(takes),
+      { runs: takes },
+    );
+    try {
+      await settle();
+      if (looked) {
+        page.studio.show(takes[0]);
+        await page.studio.remove(takes[0]);
+      }
+      takes.unshift({ ...clip, id: 'v1' });
+      page.studio.invalidate();
+      await page.studio.open();
+      await settle();
+      return page.body.dataset.mode;
+    } finally {
+      page.restore();
+    }
+  };
+  assert.deepEqual([await modeAfter(false), await modeAfter(true)], ['video', 'video']);
+
+  // Deleted from another conversation of the project, or while another take is looked at: the case it filled is
+  // empty when the Studio comes back to it.
+  const animate = body => body.find('studio-item').find(tile => tile.dataset.id === 'a').find('studio-item-main')[0].onclick();
+  let conversation = 'c1';
+  // (A clip made after it stays in its conversation: the Studio comes back to it as it was left.)
+  const takes = [clip, image('a', 1)],
+    elsewhere = await studioPage(
+      { create_image: [still], create_video: [{ ...wanStudio(), id: 'wan' }] },
+      deleting(takes),
+      { runs: takes, conversation: () => conversation, project: () => 'p1' },
+    );
+  try {
+    const { body, studio } = elsewhere;
+    await settle();
+    animate(body);
+    assert.equal(start(body).className.includes('is-filled'), true);
+    conversation = 'c2';
+    studio.conversationChanged();
+    await settle();
+    await studio.remove({ ...takes[1] });
+    conversation = 'c1';
+    studio.conversationChanged();
+    await settle();
+    assert.deepEqual([body.dataset.mode, start(body).className.includes('is-filled')], ['video', false]);
+  } finally {
+    elsewhere.restore();
+  }
+  const pair = [image('b', 2), image('a', 1)],
+    looking = await studioPage({ create_image: [still], create_video: [wanStudio()] }, deleting(pair), { runs: pair });
+  try {
+    const { body, studio } = looking;
+    await settle();
+    animate(body);
+    studio.show(pair[0]);
+    await studio.remove(pair[1]);
+    await settle();
+    body.find('studio-look-back')[0].onclick();
+    assert.deepEqual([body.dataset.mode, start(body).className.includes('is-filled')], ['video', false]);
+  } finally {
+    looking.restore();
+  }
+});
