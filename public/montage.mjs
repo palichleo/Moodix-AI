@@ -1538,7 +1538,9 @@ export function setupMontage({
   function pickImage(plan, side, anchor) {
     const menu = node('div', 'glass-menu bobine-piece-menu bobine-pick'),
       grid = node('div', 'bobine-pick-grid'),
-      images = (runs() ?? []).filter(record => trackOf(record) === 'image').slice(0, 40),
+      // (0.6.349) All of them, as « Prises » shows them: its grid scrolls (moodix.css). Beyond the 40 newest,
+      // the older ones were left out without a word.
+      images = (runs() ?? []).filter(record => trackOf(record) === 'image'),
       now = plan.photos?.[side],
       items = [];
     menu.setAttribute('role', 'dialog');

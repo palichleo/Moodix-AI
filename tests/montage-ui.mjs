@@ -4388,3 +4388,17 @@ test('the model of a take is not looked for once it is made: the answer of the s
   await turns();
   assert.deepEqual([f.ui.state().montage.plans.map(plan => Boolean(plan.todo)), asked], [[false, true], 1]);
 });
+
+test('« Créations du projet » offers every image of the project, not the first 40 alone (0.6.349)', async () => {
+  // Its grid scrolls (moodix.css, .bobine-pick-grid); beyond 40 images, the others were left out without a word.
+  const images = Array.from({ length: 45 }, (_, at) => take(100 + at, 'image')),
+    plan = { id: id(961), kind: 'video', todo: { prompt: 'Le phare s’allume.' }, from: 0, to: 5, frame: 'fit' },
+    stored = { schemaVersion: 1, id: id(960), name: 'Le phare', format: '16:9', width: 1344, height: 768, fps: 24 },
+    bobine = { ...stored, sounds: [], plans: [plan] },
+    f = await setup({ stored: [bobine], create: async () => null, base: false, extra: images }).open();
+  await settle();
+  f.adder(0).onclick({ stopPropagation() {} });
+  f.choose('Image de fin');
+  const picks = f.get('bobine-pick-item');
+  assert.deepEqual([picks.length, picks.at(-1).attributes['aria-label']], [45, 'Prendre : Prise 144']);
+});
