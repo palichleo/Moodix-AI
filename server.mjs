@@ -895,9 +895,16 @@ export async function createApplication({
     Object.assign(job, { state: 'switching', step: 'Mise en service dès que le modèle est libre…' });
     const until = Date.now() + 15 * 60000;
     while (chat.busy || runtime.active || savingSettings || ['loading', 'stopping'].includes(engine.state)) {
-      if (closing || Date.now() > until)
+      if (closing || leaving || Date.now() > until)
         throw Object.assign(job, { state: 'error', error: 'Le modèle est resté occupé : llama.cpp n’a pas été mis en service.' });
       await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    // (0.6.389) The application closing: nothing is put in service, and above all nothing written. Closed, the
+    // model is free: this went on, and wrote the settings as it knew them over those of the version just
+    // installed by an update.
+    if (closing || leaving) {
+      const error = 'Application fermée : llama.cpp n’a pas été mis en service.';
+      throw Object.assign(job, { state: 'error', error });
     }
     const former = config.enginePath,
       restart = engine.state === 'ready';
@@ -1644,20 +1651,29 @@ export async function createApplication({
       }
       if (applyingUpdate) throw problem('Installation de la mise à jour en cours.', 409);
       if (!body || typeof body !== 'object' || Array.isArray(body)) throw problem('Un objet JSON est attendu.');
-      // Nothing running that a relaunch would cut short.
-      const occupied = () =>
-        closing ||
-        relaunching ||
-        chat.busy ||
+      // What a relaunch, a closing « if idle » or an update would cut short. (0.6.389) One list for the three:
+      // the relaunch counted neither the references being imported nor the history being turned off.
+      const working = () =>
+        resources.busy ||
         runtime.active ||
-        savingSettings ||
+        chat.busy ||
         saving ||
+        savingSettings ||
         savingGeneration ||
-        pickingFile ||
         savingPreferences ||
         clearingHistory ||
+        disablingHistory ||
         persistingGallery ||
+        pickingFile ||
         ['loading', 'stopping'].includes(engine.state);
+      // Nothing running that a relaunch would cut short.
+      const occupied = () => closing || relaunching || working();
+      // (0.6.389) Nor an installation of llama.cpp: the instance closed by an update went on downloading, then
+      // wrote its copy of the settings over those of the new version. Said by its name: it lasts minutes.
+      const llamaFirst = (before, extra = {}) => {
+        if (llamaInstalling)
+          throw Object.assign(problem(`Attendez la fin de l’installation de llama.cpp avant ${before}.`, 409), extra);
+      };
       if (path === '/api/relaunch') {
         // Loads the files of this folder as they are now, without a hand on the launcher: the
         // launcher is started again in its own window, stops this instance (only if idle, see
@@ -1665,6 +1681,7 @@ export async function createApplication({
         // `always` (« Redémarrer » in the settings): even when nothing changed; the open
         // conversation, its draft and its images are kept for the page to take back, as after an
         // update (a session too large or too long is left: the conversation is in the history).
+        llamaFirst('de relancer l’application');
         if (occupied())
           throw problem('Termine l’opération en cours avant de relancer l’application.', 409);
         const always = body.always === true;
@@ -1697,6 +1714,7 @@ export async function createApplication({
         if (body.onlyIfIdle === true) {
           if (body.installationId !== sources.installationId || body.sourceRevision !== sources.sourceRevision)
             throw problem('L’instance à relancer a changé.', 409);
+          llamaFirst('de relancer l’application');
           if (occupied())
             throw problem(
               'Termine l’opération en cours, puis relance l’application pour charger les derniers fichiers.',
@@ -1938,20 +1956,8 @@ export async function createApplication({
       if (path === '/api/updates/install') {
         const available = await updates;
         if (!available.available || !updateInstaller) throw problem('Aucune mise à jour installable.', 409);
-        if (
-          resources.busy ||
-          runtime.active ||
-          chat.busy ||
-          saving ||
-          savingSettings ||
-          savingGeneration ||
-          savingPreferences ||
-          clearingHistory ||
-          disablingHistory ||
-          persistingGallery ||
-          pickingFile ||
-          ['loading', 'stopping'].includes(engine.state)
-        )
+        llamaFirst('la mise à jour', { busy: true });
+        if (working())
           // Busy: the page asks again (installFromButton) instead of dropping the click.
           throw Object.assign(problem('Attendez la fin de l’opération en cours avant la mise à jour.', 409), {
             busy: true,
@@ -3152,7 +3158,9 @@ export async function createApplication({
   if (managed && chat.state === 'stopped' && (!chat.local || (config.enginePath && config.modelPath)))
     void chat.start(config).catch(error => console.error('Démarrage automatique du modèle :', error.message));
   let closing,
-    relaunching = false;
+    relaunching = false,
+    // (0.6.389) Asked to stop, before `closing`: what is waited for first must know it (useLlama).
+    leaving = false;
   if (managed) {
     controlTimer = setTimeout(() => {
       void stopApplication().catch(console.error);
@@ -3186,6 +3194,10 @@ export async function createApplication({
     })());
   }
   async function stopApplication() {
+    // (0.6.389) Said before anything is waited for: the build of llama.cpp just installed waited for the model
+    // to be free without knowing of the stop, a creation long (15 minutes at most), the port still held while
+    // the page said « Application arrêtée ».
+    leaving = true;
     installController.abort();
     llamaBuilds.cancel();
     await installTask;
