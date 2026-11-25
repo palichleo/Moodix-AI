@@ -130,7 +130,16 @@ function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed =
       const answer = downloads(route, body);
       return { json: async () => answer };
     }
-    if (route === 'montages/' + project) return { json: async () => ({ montages: [...kept.values()].map(({ id, name }) => ({ id, name, updatedAt: '2026-11-20T03:00:00.000Z' })) }) };
+    if (route === 'montages/' + project) {
+      // (0.6.352) One whose file cannot be read is listed as such, as the server says it.
+      const said = ({ id, name, unreadable }) => ({
+        id,
+        name,
+        updatedAt: '2026-11-20T03:00:00.000Z',
+        ...(unreadable && { unreadable }),
+      });
+      return { json: async () => ({ montages: [...kept.values()].map(said) }) };
+    }
     if (route === 'montages/save') {
       const saved = { ...body.montage, createdAt: '2026-11-20T03:00:00.000Z', updatedAt: '2026-11-20T03:00:01.000Z' };
       kept.set(saved.id, saved);
@@ -4426,4 +4435,64 @@ test('the page left while a take is pressed lets it go: the hand moves nothing a
     await f.later();
     assert.equal(f.ui.state().past - before, 2, moved ? 'moved, then left' : 'left before it moved');
   }
+});
+
+test('an unreadable bobine is in the menu, never opened on its own, set aside if asked (0.6.352)', async () => {
+  const kept = { schemaVersion: 1, id: id(900), name: 'Le pêcheur à l’aube', format: '16:9', plans: [], sounds: [] },
+    broken = { id: id(901), name: 'Le phare (illisible)', unreadable: true },
+    why = 'Son fichier est abîmé ; il est gardé tel quel.',
+    names = f => f.get('montage-pick')[0].children.map(option => option.textContent);
+  // The last changed, it comes first in the list of the project: the one opened is the other.
+  const f = await setup({ stored: [broken, kept], fail: { ['montages/inbox/' + id(901)]: why } }).open();
+  assert.deepEqual(f.calls.map(call => call.route), ['montages/inbox', 'montages/inbox/' + id(900)]);
+  assert.deepEqual([f.ui.state().montage.id, f.ui.state().status], [id(900), '']);
+  assert.deepEqual(names(f).slice(0, 2), ['Le pêcheur à l’aube', 'Le phare (illisible)']);
+  // Chosen: why it does not open, then what can be done with it; « Garder » leaves it.
+  f.pick(id(901));
+  await settle();
+  assert.deepEqual(
+    [f.ui.state().montage.id, f.ui.state().status, f.said('bobine-ask')],
+    [id(900), 'Bobine illisible : ' + why, ['Supprimer « Le phare (illisible) » ?']],
+  );
+  f.button('Garder').onclick();
+  assert.deepEqual([f.get('bobine-ask').length, f.calls.some(call => call.route === 'montages/remove')], [0, false]);
+  // « Supprimer »: its file alone goes; the bobine open stays, the list is not read again. Pressed twice, it
+  // never takes out the bobine open.
+  f.pick(id(901));
+  await settle();
+  const go = f.button('Supprimer');
+  go.onclick();
+  go.onclick();
+  await settle();
+  assert.deepEqual(
+    f.calls.filter(call => call.route === 'montages/remove').map(call => call.body),
+    [{ project: 'inbox', id: id(901) }],
+  );
+  assert.deepEqual(
+    [f.notices, f.ui.state().montage.id, f.ui.state().stored],
+    [['Bobine mise de côté.'], id(900), true],
+  );
+  assert.deepEqual(names(f), [
+    'Le pêcheur à l’aube',
+    '+ Nouvelle bobine',
+    'Renommer la bobine',
+    'Supprimer la bobine',
+  ]);
+  assert.deepEqual([f.calls.filter(call => call.route === 'montages/inbox').length, f.ui.state().status], [1, '']);
+  // The one open is taken out as before, by its own question.
+  f.pick('remove');
+  assert.deepEqual(f.said('bobine-ask'), ['Supprimer « Le pêcheur à l’aube » ?']);
+  // Refused: said, and back in the menu.
+  const g = await setup({
+    stored: [broken, kept],
+    fail: { ['montages/inbox/' + id(901)]: why, 'montages/remove': 'Fichier tenu par un autre programme.' },
+  }).open();
+  g.pick(id(901));
+  await settle();
+  g.button('Supprimer').onclick();
+  await settle();
+  assert.deepEqual(
+    [g.ui.state().status, names(g).slice(0, 2)],
+    ['Suppression impossible : Fichier tenu par un autre programme.', ['Le pêcheur à l’aube', 'Le phare (illisible)']],
+  );
 });

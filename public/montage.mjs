@@ -478,7 +478,9 @@ export function setupMontage({
       if (project() !== place) return void (reading === mine && (reading = null));
       list = found;
       // (0.6.154) The one opened from the Archives, else the last changed.
-      const wanted = found.some(item => item.id === wantedId) ? wantedId : found[0]?.id;
+      // (0.6.352) Never one whose file cannot be read (listed as such by the server): it is in the menu alone.
+      const openable = found.filter(item => !item.unreadable),
+        wanted = openable.some(item => item.id === wantedId) ? wantedId : openable[0]?.id;
       wantedId = null;
       if (wanted) await open(wanted);
     } catch (error) {
@@ -767,6 +769,28 @@ export function setupMontage({
     }
     await read();
   }
+  /**
+   * (0.6.352) A bobine whose file cannot be read, put in the corbeille as the user asks it from the menu: it opens
+   * nothing, so « Supprimer la bobine » could not reach it. Its file alone goes; the bobine open stays as it is,
+   * nothing read again. Out of the menu at once (a second press finds nothing), back in it if it could not go.
+   */
+  async function discard(id) {
+    const known = list.find(item => item.id === id),
+      place = readFor ?? project();
+    asking = null;
+    list = list.filter(item => item !== known);
+    fil();
+    if (!known) return;
+    try {
+      await api('montages/remove', { project: place, id });
+      if (status.startsWith('Bobine illisible')) status = '';
+      notice('Bobine mise de côté.');
+    } catch (error) {
+      if (readFor === place && !list.some(item => item.id === id)) list = [...list, known];
+      status = 'Suppression impossible : ' + error.message;
+    }
+    fil();
+  }
   async function choose(wanted) {
     await keep();
     stop();
@@ -786,6 +810,9 @@ export function setupMontage({
         await open(wanted);
       } catch (error) {
         status = 'Bobine illisible : ' + error.message;
+        // (0.6.352) One the server lists as unreadable: what can be done with it, set it aside, is asked at once.
+        const item = list.find(known => known.id === wanted && known.unreadable);
+        if (item) asking = { kind: 'remove', id: item.id, name: item.name };
       }
     draw();
   }
@@ -1081,15 +1108,19 @@ export function setupMontage({
       };
       parts.push(pick);
     }
-    if (asking?.kind === 'remove')
+    if (asking?.kind === 'remove') {
+      // (0.6.352) Bound to the bobine it names: one whose file cannot be read (`id`, chosen in the menu), else the one
+      // open; a second press, once the question is gone, never takes out the other.
+      const { id: target = null, name = montage.name } = asking;
       parts.push(
-        node('span', 'bobine-ask', `Supprimer « ${montage.name} » ?`),
-        button('bobine-ask-go', 'Supprimer', () => void remove()),
+        node('span', 'bobine-ask', `Supprimer « ${name} » ?`),
+        button('bobine-ask-go', 'Supprimer', () => void (target ? discard(target) : remove())),
         button('bobine-ask-no', 'Garder', () => {
           asking = null;
           fil();
         }),
       );
+    }
     // (0.6.154) Annuler, Rétablir (the arrow of « Annuler » turned round), « Enregistrer », « Exporter ⌄ ».
     const state = node('span', 'montage-status'),
       undo = button('bobine-step', '', () => travel(true), 'undo', 'Annuler (Ctrl+Z)'),

@@ -145,9 +145,13 @@ test('the montages of a project are files of it: kept, listed, read, and set asi
   );
   assert.deepEqual(await montages.read(project, id(900)), again);
   // A file that is no montage (left by a copy, a hand) hides nothing of the others.
+  // (0.6.352) One of a bobine that cannot be read is said as such; a file of another name is no bobine.
   await writeFile(join(dir, project, id(902) + '.json'), '{ not json');
   await writeFile(join(dir, project, 'notes.json'), '{}');
-  assert.equal((await montages.list(project)).length, 2);
+  assert.deepEqual(
+    (await montages.list(project)).map(item => item.name).sort(),
+    ['Autre nom', 'Bobine illisible', 'Sans titre'],
+  );
   // Another project sees none of them; « inbox » is a project as the others.
   assert.deepEqual(await montages.list('inbox'), []);
   await assert.rejects(montages.read('inbox', id(900)), { status: 404 });
@@ -155,7 +159,7 @@ test('the montages of a project are files of it: kept, listed, read, and set asi
   await assert.rejects(montages.read(project, '../' + id(900)), /identifiant invalide/);
   // Removed: out of the list, its file set aside, never deleted.
   assert.deepEqual(await montages.remove(project, id(900)), { removed: id(900) });
-  assert.deepEqual((await montages.list(project)).map(item => item.id), [id(901)]);
+  assert.deepEqual((await montages.list(project)).filter(item => !item.unreadable).map(item => item.id), [id(901)]);
   await assert.rejects(montages.read(project, id(900)), { status: 404 });
   const aside = await readdir(join(dir, project, 'corbeille'));
   assert.equal(aside.length, 1);
@@ -195,7 +199,7 @@ test('the montages of a project that goes follow its takes, as they are, and wri
   assert.equal(await readFile(join(dir, 'inbox', id(900) + '.json'), 'utf8'), archived);
   assert.deepEqual((await montages.list('inbox')).find(item => item.id === id(900)).archived, card);
   // The one whose identifier was taken: both are there, the one that came under another identifier.
-  assert.deepEqual(await names('inbox'), ['Déjà là', 'La seconde', 'Le pêcheur, changé depuis']);
+  assert.deepEqual(await names('inbox'), ['Bobine illisible', 'Déjà là', 'La seconde', 'Le pêcheur, changé depuis']);
   assert.equal((await montages.read('inbox', id(901))).name, 'Déjà là');
   const came = (await montages.list('inbox')).find(item => item.name === 'La seconde');
   assert.notEqual(came.id, id(901));
@@ -216,7 +220,7 @@ test('the montages of a project that goes follow its takes, as they are, and wri
   assert.deepEqual(await montages.moveProject(project, 'inbox'), { moved: 0 });
   assert.deepEqual(await montages.moveProject('inbox', 'inbox'), { moved: 0 });
   assert.deepEqual(await montages.moveProject('33333333-3333-4333-8333-333333333333', 'inbox'), { moved: 0 });
-  assert.equal((await montages.list('inbox')).length, 3);
+  assert.equal((await montages.list('inbox')).length, 4);
   await assert.rejects(montages.moveProject('../autre', 'inbox'), /Projet invalide/);
   // A project that held bobines only leaves no folder behind.
   const other = '44444444-4444-4444-8444-444444444444';
@@ -536,4 +540,35 @@ test('an unreadable bobine is not written over, and goes to the corbeille as it 
   await assert.rejects(montages.remove(project, '../' + id(900)), { status: 400, message: /identifiant invalide/ });
   // Its place free, the bobine the page holds is kept there anew.
   assert.equal((await montages.save(project, film())).name, 'Le pêcheur à l’aube');
+});
+
+test('an unreadable bobine is listed as such, by its name, not gone without a word (0.6.352)', async t => {
+  const { stat } = await import('node:fs/promises');
+  const dir = await mkdtemp(join(tmpdir(), 'moodix-montages-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const montages = new Montages({ dir }),
+    project = '22222222-2222-4222-8222-222222222222',
+    path = n => join(dir, project, id(n) + '.json'),
+    bytes = () => Promise.all([901, 902, 903].map(n => readFile(path(n), 'utf8')));
+  await montages.save(project, film(), { archive: true });
+  // Cut short (a disk), refused by a rule of today, without a name it still says; then a file of no bobine.
+  await writeFile(path(901), `{"schemaVersion": 1, "id": "${id(901)}", "name": "L\\u2019aube", "plans": [`);
+  await writeFile(path(902), JSON.stringify({ ...film({ id: id(902), name: 'Ancienne règle' }), format: '2.39:1' }));
+  await writeFile(path(903), '{ not json');
+  await writeFile(join(dir, project, 'notes.json'), '{}');
+  const before = await bytes(),
+    listed = await montages.list(project);
+  assert.deepEqual(listed.map(({ id, name, unreadable = false }) => [id, name, unreadable]).sort(), [
+    [id(900), 'Le pêcheur à l’aube', false],
+    [id(901), 'L’aube (illisible)', true],
+    [id(902), 'Ancienne règle (illisible)', true],
+    [id(903), 'Bobine illisible', true],
+  ]);
+  // Said with the date of its file; no card of the Archives; nothing of it touched.
+  assert.equal(listed.find(item => item.id === id(903)).updatedAt, (await stat(path(903))).mtime.toISOString());
+  assert.deepEqual(
+    listed.filter(item => item.archived).map(item => item.id),
+    [id(900)],
+  );
+  assert.deepEqual(await bytes(), before);
 });
