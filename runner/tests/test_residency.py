@@ -541,6 +541,42 @@ class ReaderTest(unittest.TestCase):
         finally:
             reader.close()
 
+    def test_a_tensor_read_ahead_and_asked_for_again_is_read_at_once(self):
+        # (0.6.367) Taken from what was read ahead, its key was not noted as passed: asked for again, the caller
+        # waited for the thread to come to it, which it never does (it reads the others meanwhile).
+        import threading
+
+        from runner.models import residency
+
+        gate = threading.Event()
+
+        class Held(residency.Reader):
+            def _read(self, handle, offset, size):
+                # The thread reads the first tensor, then is held on the next one (a slow disk).
+                if threading.current_thread() is getattr(self, 'thread', None) and offset != self.plan['a'][0]:
+                    gate.wait(10)
+                return super()._read(handle, offset, size)
+
+        reader = Held(self.path, list('abcdef'), ahead=2500)
+        try:
+            self.assertEqual(bytes(reader.take('a').numpy().tobytes()), self.tensors['a'])
+            self.assertEqual(reader.summary()['direct_gib'], 0, 'the first one came from what was read ahead')
+            again = []
+            asked = threading.Thread(target=lambda: again.append(reader.take('a')), daemon=True)
+            asked.start()
+            asked.join(3)
+            waited = asked.is_alive()
+            gate.set()
+            asked.join(10)
+            self.assertFalse(waited, 'asked for again, it is read by the caller without waiting for the thread')
+            self.assertEqual(bytes(again[0].numpy().tobytes()), self.tensors['a'])
+            # The others still come ahead of their use.
+            for name in 'bcdef':
+                self.assertEqual(bytes(reader.take(name).numpy().tobytes()), self.tensors[name], name)
+        finally:
+            gate.set()
+            reader.close()
+
     def test_a_store_follows_its_file_only_when_it_is_not_kept_in_ram(self):
         try:
             import psutil  # noqa: F401

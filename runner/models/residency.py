@@ -747,6 +747,9 @@ class Reader:
                     data = self.ready.pop(key)
                     self.held -= size
                     self.stats['ahead_gib'] += size / GiB
+                    # (0.6.367) Passed, as one the caller read itself: asked for again, it waited for the
+                    # thread to come to a key it had read already. (No caller asks twice today.)
+                    self.taken.add(key)
                     break
                 # The thread is on it or will come to it: wait, unless it is held up by a full
                 # window (what is ready is asked for later), or has passed this key already.
