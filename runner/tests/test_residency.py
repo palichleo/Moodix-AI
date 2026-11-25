@@ -804,3 +804,53 @@ class GatheredTest(unittest.TestCase):
                 whole.close()
         finally:
             residency.RESIDENCY.clear()
+
+
+class ArenaRefusedTest(unittest.TestCase):
+    def test_memory_the_system_itself_refuses_falls_back_to_the_mapping(self):
+        # (0.6.366) The RAM is there, and Windows has no more to commit (its paging file is full, programs that
+        # reserve without touching): the buffer of the arena is refused in the words of the allocator of torch,
+        # « DefaultCPUAllocator: not enough memory », and the creation failed on them. The part of a file kept
+        # (partial) and what is gathered of it took that refusal already: the file is read through its mapping.
+        import torch
+        from safetensors.torch import save_file
+        from unittest import mock
+
+        from runner.models import residency
+
+        saved = residency.RESERVE
+        residency.RESERVE = 0
+        real = torch.empty
+
+        def refused(*args, **kwargs):
+            # (The buffer of an arena alone: bytes, one dimension.)
+            if kwargs.get('dtype') is torch.uint8 and len(args) == 1 and args[0] > 1024:
+                raise RuntimeError(
+                    '[enforce fail at alloc_cpu.cpp:114] data. DefaultCPUAllocator: not enough memory: '
+                    f'you tried to allocate {args[0]} bytes.'
+                )
+            return real(*args, **kwargs)
+
+        try:
+            with tempfile.TemporaryDirectory() as folder:
+                path = os.path.join(folder, 'weights.safetensors')
+                weights = torch.randn(64, 64)
+                save_file({'w': weights}, path)
+                skipped = residency.RESIDENCY.stats['skipped']
+                with mock.patch.object(torch, 'empty', refused):
+                    self.assertIsNone(residency.RESIDENCY.arena(path))
+                    store = residency.open_store(path)
+                self.assertIsNone(store.arena)
+                self.assertIsNotNone(store.mapping)
+                self.assertEqual(residency.RESIDENCY.stats['skipped'], skipped + 2)
+                # What it reads is the file all the same.
+                self.assertTrue(torch.equal(store.get_tensor('w'), weights))
+                store.close()
+                # Nothing is kept of the refusal: the memory given again, the file has its arena.
+                again = residency.open_store(path)
+                self.assertIsNotNone(again.arena)
+                self.assertTrue(torch.equal(again.get_tensor('w'), weights))
+                again.close()
+        finally:
+            residency.RESERVE = saved
+            residency.RESIDENCY.clear()

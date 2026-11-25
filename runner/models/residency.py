@@ -223,7 +223,14 @@ class Residency:
                 self.stats['skipped'] += 1
                 return None
             started = time.perf_counter()
-            data = torch.empty(size, dtype=torch.uint8)
+            # (0.6.366) The system refused the memory itself (its paging file is full), though the RAM is
+            # there: taken as partial() and _gathered take it. The file is read through its mapping then;
+            # the creation failed on the words of the allocator of torch.
+            try:
+                data = torch.empty(size, dtype=torch.uint8)
+            except (MemoryError, RuntimeError):
+                self.stats['skipped'] += 1
+                return None
             _fill(path, memoryview(data.numpy()), [(base, 0, size)])
             pinned = self._pin(data) if pin else 0
             arena = Arena(path, stamp, header, base, data, pinned)
