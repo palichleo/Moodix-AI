@@ -270,3 +270,24 @@ test(
     });
   },
 );
+
+test('a take named by its number is that take, whatever else its source says of a place (0.6.311)', async () => {
+  const A = uid(1),
+    B = uid(2),
+    [SERIES, ALONE] = [uid(3), uid(4)];
+  // Two pictures made in one go: the takes 12 and 13 are the two outputs of the same run.
+  const takes = async () => [
+    { take: 12, id: SERIES, index: 0, conversationId: A },
+    { take: 13, id: SERIES, index: 1, conversationId: A },
+    { take: 14, id: ALONE, index: 0, conversationId: B },
+  ];
+  const source = async given => JSON.parse(await takesToOutputs(JSON.stringify({ start_image: given }), takes, A)).start_image;
+  // « index: 1 » beside the take 12 gave the take 13, without a word (a capable model may send both).
+  assert.deepEqual(await source({ take: 12, index: 1 }), { output: SERIES });
+  assert.deepEqual(await source({ take: 13, index: 0 }), { output: SERIES, index: 1 });
+  // An index its run does not have, another run, another conversation: the take alone says where it is.
+  assert.deepEqual(await source({ take: 14, index: 1 }), { output: ALONE, conversation: B });
+  assert.deepEqual(await source({ take: 12, output: ALONE, conversation: B }), { output: SERIES });
+  // What says something else than a place is kept.
+  assert.deepEqual(await source({ take: 13, frame: 'last', index: 0 }), { frame: 'last', output: SERIES, index: 1 });
+});
