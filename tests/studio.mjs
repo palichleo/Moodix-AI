@@ -11189,3 +11189,49 @@ test('a continuation of the Chat is never « À refilmer » while followed; that
   assert.deepEqual(going, { during: [0, ['À prolonger · PRISE 1 · 05.04 S']], after: refilmed });
   assert.deepEqual(still.after, refilmed);
 });
+
+test('« Arrêter » before the server has answered cancels there the request it was making (0.6.324)', async () => {
+  // (Report 4, point 11. Pressed during « Préparation… », before tools/action answered: the request stayed waiting on
+  // the server for its 15 minutes, among the 32 it keeps. Pressed during tools/revise: the one the revision made.)
+  let answer;
+  const later = () => new Promise(resolve => (answer = resolve)),
+    asking = { requestId: 'q', approvalToken: 't', plan: { parameters: {} } },
+    sent = asked =>
+      asked.filter(([route]) => route.startsWith('tools/')).map(([route, body]) => [route, body.requestId ?? null]),
+    stopped = async (page, given) => {
+      page.prompt().value = 'un phare';
+      page.prompt().oninput();
+      const going = page.body.find('studio-go')[0].onclick();
+      await settle();
+      page.body.find('studio-stop')[0].onclick();
+      answer(given);
+      await going;
+      await settle();
+      return sent(page.asked);
+    };
+  const acting = await studioPage({ create_image: [still] }, { 'tools/action': later, 'tools/cancel': () => ({}) });
+  try {
+    assert.deepEqual(await stopped(acting, asking), [['tools/action', null], ['tools/cancel', 'q']]);
+  } finally {
+    acting.restore();
+  }
+  // (A seed « Fixe » changed by the user goes as a change of the request: tools/revise.)
+  const revising = await studioPage(
+    { create_image: [{ ...still, id: 'f', seeded: false, seedFixed: 7 }] },
+    { 'tools/action': () => asking, 'tools/revise': later, 'tools/cancel': () => ({}) },
+  );
+  try {
+    revising.body.find('studio-more-pill')[0].onclick();
+    const [seed] = revising.body.find('studio-seed');
+    seed.children[1].value = '42';
+    seed.children[1].oninput();
+    assert.deepEqual(await stopped(revising, { ...asking, requestId: 'q2' }), [
+      ['tools/action', null],
+      ['tools/revise', 'q'],
+      ['tools/cancel', 'q'],
+      ['tools/cancel', 'q2'],
+    ]);
+  } finally {
+    revising.restore();
+  }
+});

@@ -4921,6 +4921,13 @@ export function setupStudio({
     render();
     onChange();
     const pause = () => new Promise(resolve => setTimeout(resolve, 700));
+    // (0.6.324) Stopped while the server answered: the request it made there is cancelled, as stop() does once it
+    // knows it (pressed before tools/action answered, it stayed waiting on the server for its 15 minutes).
+    const cancelIfStopped = id => {
+      if (!controller.signal.aborted) return;
+      if (id) api('tools/cancel', { requestId: id }).catch(() => {});
+      controller.signal.throwIfAborted();
+    };
     try {
       await releasing;
       let proposed = await (
@@ -4937,6 +4944,7 @@ export function setupStudio({
         })
       ).json();
       working.requestId = proposed.requestId;
+      cancelIfStopped(proposed.requestId);
       // The size chosen here, where the workflow sets its own.
       const shown = proposed.plan?.parameters ?? {},
         edits = Object.fromEntries(Object.entries(wanted.edits).filter(([key, value]) => shown[key] !== value));
@@ -4945,6 +4953,7 @@ export function setupStudio({
           await api('tools/revise', { requestId: proposed.requestId, approvalToken: proposed.approvalToken, edits })
         ).json();
         working.requestId = proposed.requestId;
+        cancelIfStopped(proposed.requestId);
       }
       controller.signal.throwIfAborted();
       if (followed) {
