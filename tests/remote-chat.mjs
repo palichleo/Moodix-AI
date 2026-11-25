@@ -1149,3 +1149,65 @@ test(
     assert.equal((await (await api('status')).json()).remote.kind, 'claude');
   },
 );
+
+test('a passing refusal of a service no longer leaves the effort out until the application is closed (0.6.315)', async t => {
+  const data = await folder(t),
+    remotes = new RemoteModels(data),
+    sent = [];
+  // A provider of OpenRouter that fails for a moment (« Provider returned error », a 400 that names no field),
+  // then one that takes the request: `refusals` requests are refused before one passes.
+  let refusals = 0,
+    clock = 1_000_000;
+  const fetchImpl = async (url, options) => {
+    const asked = JSON.parse(options.body);
+    sent.push(asked.reasoning?.effort ?? null);
+    if (refusals-- > 0) return new Response('{"error":{"message":"Provider returned error"}}', { status: 400 });
+    return new Response('data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n', {
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
+  };
+  const chat = await new ChatModel({
+    engine: { state: 'stopped', busy: false, stop: async () => {} },
+    remotes,
+    fetchImpl,
+    openrouterModels: async () => [{ id: 'a/m', name: 'M', efforts: ['low', 'medium', 'high'], vision: false }],
+    now: () => clock,
+  }).load();
+  await chat.use((await remotes.save({ preset: 'openrouter', model: 'a/m', key: 'sk-or-v1-0123456789' })).id);
+  await chat.choose({ effort: 'high' });
+  const body = { messages: [{ role: 'user', content: 'bonjour' }], stream: true, temperature: 0.7, stream_options: { include_usage: true } },
+    ask = async () => {
+      sent.length = 0;
+      await (await chat.request(body)).body.cancel();
+      return [...sent];
+    };
+  assert.deepEqual(await ask(), ['high']);
+  assert.equal((await chat.options()).ignored, false);
+  // Refused twice, then taken in its lightest form, without the effort: that form is kept, as for a service
+  // that refuses a field it does not know, and the bar says the effort is not sent.
+  refusals = 2;
+  assert.deepEqual(await ask(), ['high', 'high', null]);
+  assert.deepEqual(await ask(), [null]);
+  assert.equal((await chat.options()).ignored, true);
+  // A quarter of an hour later the whole request is tried again: it passes, the effort goes again. (It was
+  // left out of every request until the application was closed, and the bar accused the service.)
+  clock += 14 * 60 * 1000;
+  assert.deepEqual(await ask(), [null]);
+  clock += 2 * 60 * 1000;
+  assert.deepEqual(await ask(), ['high']);
+  assert.equal((await chat.options()).ignored, false);
+  assert.deepEqual(await ask(), ['high']);
+  // The user chooses an effort in the bar: the whole request is tried at once, without waiting.
+  refusals = 2;
+  assert.deepEqual(await ask(), ['high', 'high', null]);
+  assert.equal((await chat.options()).ignored, true);
+  assert.equal((await chat.choose({ effort: 'medium' })).ignored, false);
+  assert.deepEqual(await ask(), ['medium']);
+  // A service that does refuse it is asked the light way again, and stays so for the next quarter of an hour.
+  refusals = Infinity;
+  await assert.rejects(chat.request(body), { status: 502 });
+  refusals = 2;
+  assert.deepEqual(await ask(), ['medium', 'medium', null]);
+  clock += 5 * 60 * 1000;
+  assert.deepEqual(await ask(), [null]);
+});
