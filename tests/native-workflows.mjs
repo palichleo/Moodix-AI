@@ -222,7 +222,6 @@ test('implicit Krea defaults resolve a complete Python job', async () => {
 
 test('canonical digest changes only with saved content and saved files remain atomic on invalid edits', async () => {
   await withCatalog(async (catalog, directory) => {
-    assert.equal(catalog.kind, 'native');
     const saved = await catalog.save(fixture());
     const ordered = Object.fromEntries(Object.entries(fixture()).reverse());
     assert.equal(validateNativeWorkflow(ordered).digest, saved.digest);

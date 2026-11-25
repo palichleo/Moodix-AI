@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, realpath, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { families, familyTemplate } from '../lib/families.mjs';
 import { GenerationService, generationConfig } from '../lib/generation-service.mjs';
 import { createApplication } from '../server.mjs';
 
@@ -85,15 +84,19 @@ test('a workflow is neither imported, converted nor created from a template any 
       });
   // (0.6.132) « Modèles seulement » (19/11): the page offers the models Moodix ships, with their
   // settings; nothing imports a workflow of ComfyUI or of another tool, nor creates one.
-  for (const route of ['generation/import', 'generation/import-comfy', 'generation/convert-krea', 'generation/convert-longforge'])
+  // (0.6.277) Nor does anything validate one before saving it: the page sends what it saves.
+  for (const route of [
+    'generation/import',
+    'generation/import-comfy',
+    'generation/convert-krea',
+    'generation/convert-longforge',
+    'generation/validate',
+  ])
     assert.ok([404, 405].includes((await api(route, { sourceText: '{}', sourcePath: 'x.json' })).status), route);
   assert.ok([404, 405].includes((await api('generation/templates?pipeline=krea2')).status));
   assert.equal((await api('files/choose', { kind: 'workflow' })).status, 400);
-  const template = familyTemplate(families().krea2);
-  assert.equal((await api('generation/validate', template)).status, 200);
-  assert.equal((await api('generation/validate', { ...template, parameters: null })).status, 400);
-  assert.deepEqual((await (await api('generation/workflows')).json()).workflows, []);
   const generation = await (await api('generation')).json();
+  assert.deepEqual(generation.workflows, []);
   assert.match(generation.folders.model, /[\\/]models[\\/]diffusion_models$/);
   const custom = join(root, 'another checkpoint folder');
   assert.equal((await api('generation/config', { ...generation.config, modelRoot: custom })).status, 200);

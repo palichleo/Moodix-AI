@@ -39,7 +39,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import { AUTOMATIC_REASONS, History, MAX_CONVERSATION_MESSAGES, TRASH_DAYS } from './lib/history.mjs';
 import { HistoryJournal } from './lib/history-journal.mjs';
-import { chooseLocalFile } from './lib/file-picker.mjs';
+import { chooseLocalFile, isFileKind } from './lib/file-picker.mjs';
 import { Gallery } from './lib/gallery.mjs';
 import { Thumbnails } from './lib/thumbnails.mjs';
 import { ToolRuntime, chatImageUrls, collectToolCalls, firstWholeCall, unreadAnswer } from './lib/tool-runtime.mjs';
@@ -56,7 +56,6 @@ import { CLAUDE_DEFAULT, ClaudeAccess } from './lib/claude.mjs';
 import { relocate } from './lib/relocate.mjs';
 import { GenerationService, generationConfig } from './lib/generation-service.mjs';
 import { generatedMedia } from './lib/generated-media.mjs';
-import { validateNativeWorkflow } from './lib/native-workflows.mjs';
 import { ProgressHistory } from './lib/generation-progress.mjs';
 import { StudioPresets } from './lib/studio-presets.mjs';
 import { Montages, validateMontage } from './lib/montages.mjs';
@@ -1211,15 +1210,6 @@ export async function createApplication({
       if (req.headers.authorization !== `Bearer ${token}`) throw problem('Accès refusé. Rechargez la page.', 401);
       runtime.seen(tab);
       if (req.method === 'GET' && path === '/api/generation') return send(200, await generation.snapshot());
-      if (req.method === 'GET' && path === '/api/generation/assets')
-        return send(200, { assets: await generation.assets.list() });
-      if (req.method === 'GET' && path === '/api/generation/workflows')
-        return send(200, { workflows: await generation.catalog.list() });
-      if (req.method === 'GET' && path.startsWith('/api/generation/workflows/'))
-        return send(
-          200,
-          await generation.catalog.read(decodeURIComponent(path.slice('/api/generation/workflows/'.length))),
-        );
       if (path === '/api/lifecycle' && req.method === 'GET') {
         if (closing || controlResponse) throw problem('Une fenêtre contrôle déjà cette application.', 409);
         controlResponse = res;
@@ -1587,7 +1577,7 @@ export async function createApplication({
             return send(200, await generation.save(body));
           }
           if (path === '/api/generation/test') {
-            if (body.config || body.pythonPath !== undefined) await generation.save(body.config || body);
+            if (body.pythonPath !== undefined) await generation.save(body);
             void generation.start().catch(() => {});
             return send(200, await generation.snapshot());
           }
@@ -1597,7 +1587,6 @@ export async function createApplication({
           }
           if (path === '/api/generation/tokenizer')
             return send(200, await generation.suggestTokenizer(body.encoder, body.family));
-          if (path === '/api/generation/validate') return send(200, { workflow: validateNativeWorkflow(body) });
           if (path === '/api/generation/workflows') return send(200, await generation.catalog.save(body));
           if (path === '/api/generation/remove') {
             // The workflows shipped with Moodix stay: an edited one can only be restored. (0.6.198) Said so to the user.
@@ -1797,19 +1786,6 @@ export async function createApplication({
           chatgpt.cancelSignIn();
           return send(200, await remoteView());
         }
-        if (path === '/api/remote/chatgpt/signout') {
-          // Signed out: its connection goes too, and the chat comes back to the local model if it used it.
-          const kept = await remotes.provider('chatgpt');
-          if (kept && chat.connection?.id === kept.id && (chat.busy || runtime.active))
-            throw problem('Attendez la fin de la réponse avant de vous déconnecter.', 409);
-          // The connection first: if it cannot be removed, the account stays signed in (nothing half done).
-          if (kept) {
-            await remotes.remove(kept.id);
-            chat.forget(kept.id);
-          }
-          const result = await chatgpt.signOut();
-          return send(200, { ...result, ...(await remoteView()), status: status() });
-        }
         // A key of the user's OpenRouter account, made without copying it: the connection is saved once back.
         if (path === '/api/remote/openrouter/start') return send(200, await openrouter.start());
         if (path === '/api/remote/openrouter/cancel') {
@@ -1995,10 +1971,7 @@ export async function createApplication({
         return send(202, { state: 'preparing' });
       }
       if (path === '/api/files/choose') {
-        if (
-          !['engine', 'model', 'projector', 'generation', 'python', 'tokenizer', 'directory'].includes(body?.kind)
-        )
-          throw problem('Type de fichier invalide.');
+        if (!isFileKind(body?.kind)) throw problem('Type de fichier invalide.');
         if (saving || savingSettings || savingGeneration || pickingFile)
           throw problem('Un choix de fichier ou un enregistrement est déjà en cours.', 409);
         if (
@@ -2045,30 +2018,15 @@ export async function createApplication({
         const modelChanged = JSON.stringify(config) !== JSON.stringify(nextConfig);
         if (modelChanged && (engine.child || ['loading', 'stopping'].includes(engine.state)))
           throw problem('Arrêtez le modèle avant de modifier ses réglages.', 409);
-        const edits = body.workflowDescriptions === undefined ? [] : body.workflowDescriptions;
-        if (!Array.isArray(edits) || edits.length > 1000 || new Set(edits.map(edit => edit?.id)).size !== edits.length)
-          throw problem('Descriptions de workflows invalides.');
         savingSettings = true;
         saving = true;
         try {
-          const updates = [];
-          for (const edit of edits) {
-            if (typeof edit?.description !== 'string' || edit.description.length > 2000)
-              throw problem('Description de workflow invalide.');
-            updates.push(
-              validateNativeWorkflow({
-                ...(await generation.catalog.read(edit.id)),
-                description: edit.description.trim(),
-              }),
-            );
-          }
           if (modelChanged) {
             await atomicFile(configPath, JSON.stringify(nextConfig, null, 2));
             config = nextConfig;
             configWarning = '';
           }
           await generation.save(nextGeneration);
-          for (const update of updates) await generation.catalog.save(update);
           if (nextInstructions !== instructions) {
             await atomicJson(instructionsPath, { instructions: nextInstructions });
             instructions = nextInstructions;
@@ -2164,7 +2122,7 @@ export async function createApplication({
         return send(200, { removed: body.id });
       }
       // « Enregistrer » of the Studio: the settings of a model as the Studio has them, kept apart
-      // from its workflow (Configuration › Workflows is never touched), given back when it is chosen.
+      // from its workflow (Paramètres › Modèles is never touched), given back when it is chosen.
       if (req.method === 'POST' && path === '/api/studio/preset')
         return send(200, { workflow: body.workflow, preset: await studioPresets.save(body.workflow, body.preset) });
       // What the user typed in the Studio, rewritten by the chat model as a full prompt.

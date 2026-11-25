@@ -54,16 +54,9 @@ function pauseMethod(t, prototype, method) {
   return { arrived: arrived.promise, release: gate.resolve };
 }
 
-test('settings reject non-object payloads and malformed workflow edits without writes', async t => {
-  const { initial, api, dataDir } = await fixture(t);
-  for (const body of [
-    null,
-    [],
-    true,
-    'settings',
-    { config: initial.config, generation: initial.generation, workflowDescriptions: false },
-    { config: initial.config, generation: initial.generation, workflowDescriptions: 0 },
-  ]) {
+test('settings reject non-object payloads without writes', async t => {
+  const { api, dataDir } = await fixture(t);
+  for (const body of [null, [], true, 'settings']) {
     await t.test(JSON.stringify(body), async () => {
       const response = await api('settings', body);
       assert.equal(response.status, 400, await response.text());
@@ -72,19 +65,17 @@ test('settings reject non-object payloads and malformed workflow edits without w
   await assert.rejects(readFile(join(dataDir, 'generation.json')), { code: 'ENOENT' });
 });
 
-test('oversized workflow description is rejected before any settings are saved', async t => {
-  const { initial, api, dataDir } = await fixture(t);
+// (0.6.277) The descriptions of the former tab Workflows are no longer edited: a page that still
+// sends them saves its settings as any other.
+test('workflow descriptions sent with the settings are left out', async t => {
+  const { initial, api } = await fixture(t);
   const response = await api('settings', {
     config: { ...initial.config, gpuLayers: 7 },
-    generation: { ...initial.generation, autoAllow: true },
+    generation: initial.generation,
     workflowDescriptions: [{ id: 'large', description: 'd'.repeat(2001) }],
   });
-  assert.equal(response.status, 400, await response.text());
-  const after = await (await api('bootstrap')).json();
-  assert.deepEqual(after.config, initial.config);
-  assert.deepEqual(after.generation, initial.generation);
-  for (const file of ['config.json', 'generation.json'])
-    await assert.rejects(readFile(join(dataDir, file)), { code: 'ENOENT' });
+  assert.equal(response.status, 200, await response.text());
+  assert.equal((await (await api('bootstrap')).json()).config.gpuLayers, 7);
 });
 
 test('a pending workflow removal excludes concurrent settings, model start and workflow writes', async t => {

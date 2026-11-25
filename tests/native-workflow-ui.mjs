@@ -157,9 +157,6 @@ function fixture() {
         },
       });
     }
-    if (route === 'generation/validate') return Response.json({ workflow: validateNativeWorkflow(body) });
-    if (route.startsWith('generation/workflows/'))
-      return Response.json(workflows.find(item => item.id === route.slice('generation/workflows/'.length)));
     if (route === 'generation/workflows' && body) {
       if (failSave) throw Error('Composant incompatible : choisissez un modèle Krea2.');
       const index = workflows.findIndex(item => item.id === body.id);

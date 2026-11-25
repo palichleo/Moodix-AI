@@ -2,7 +2,7 @@
 /**
  * Publishes workflows tuned in Atelier as shipped workflows (for the maintainer).
  *
- * Edits made in Settings > Workflows are saved in workflow/, the user's own folder that updates
+ * Edits made in Paramètres › Modèles are saved in workflow/, the user's own folder that updates
  * never touch. To ship them to everyone, this script copies them into runner/workflows/ (the
  * folder an update replaces), records the fingerprint of the version they replace in
  * runner/workflow-history.json, and removes the local copy so this installation follows the
