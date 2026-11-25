@@ -11276,3 +11276,51 @@ test('a file dropped on the screen is not shown in a conversation opened during 
     page.restore();
   }
 });
+
+test('the model of a request is found by its identifier, not by a name two models bear (0.6.326)', async () => {
+  // (Report 4, point 14. Two workflows of the user named « Mon modèle », the request naming the second by its
+  // identifier, as the server routes it: the Studio showed the first, without the seed the second takes.)
+  const first = { ...still, id: 'w1', name: 'Mon modèle', seeded: false },
+    request = {
+      requestId: 'q',
+      approvalToken: 't',
+      tool: 'create_image',
+      workflowName: 'Mon modèle',
+      args: { workflow_id: 'w2', prompt: 'un phare' },
+      resolution: { width: 1024, height: 1024 },
+      call: { id: 'call', type: 'function', function: { name: 'create_image', arguments: '{}' } },
+      plan: {
+        prompt: 'un phare',
+        parameters: { prompt: 'un phare', width: 1024, height: 1024, seed: 3 },
+        editable: { prompt: true, parameters: [{ key: 'seed', type: 'integer', value: 3 }] },
+        references: [],
+      },
+    };
+  let take = null;
+  const said = [],
+    page = await studioPage(
+      { create_image: [first, { ...first, id: 'w2', seeded: true }] },
+      {},
+      { cursor: said, targets: true, extra: { making: () => take } },
+    );
+  try {
+    const { body, studio } = page,
+      seed = () => {
+        if (!body.find('studio-seed').length) body.find('studio-more-pill')[0]?.onclick();
+        return body.find('studio-seed')[0]?.children[1]?.value ?? null;
+      },
+      shown = () => [body.find('studio-model-pick')[0].value, seed()];
+    // Proposed by Moodix AI.
+    const answer = studio.propose(request, new AbortController().signal);
+    await until(() => said.includes('attend votre accord'));
+    assert.deepEqual(shown(), ['w2', '3']);
+    studio.decline();
+    await answer;
+    // Asked in the Chat, followed here.
+    take = chatTakeOf(request, { label: 'Génération…' });
+    studio.watch();
+    assert.deepEqual(shown(), ['w2', '3']);
+  } finally {
+    page.restore();
+  }
+});

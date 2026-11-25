@@ -392,6 +392,14 @@ export function shownFormats(available, chosen) {
 }
 
 /**
+ * (0.6.326) The model a request names: by the identifier the server routed it to (`args.workflow_id`), then by
+ * its name. Two workflows of the user may bear the same name: the first was shown while the other one was made.
+ */
+const modelOfRequest = (request, offered) =>
+  offered.find(item => item.id === request.args?.workflow_id) ??
+  offered.find(item => item.name === request.workflowName);
+
+/**
  * What a proposal of Moodix AI sets, in the Studio's terms: the workflow, the prompt, the size,
  * the length, the seed, the settings and the inputs; and what of it the assistant may change
  * (the parameters its workflow leaves to « Assistant »). The rest is shown as it will be made.
@@ -402,7 +410,7 @@ export function proposedValues(request, offered = []) {
     editable = plan.editable || {},
     items = new Map((editable.parameters || []).map(item => [item.key, item])),
     free = key => items.has(key) && !items.get(key).locked,
-    workflow = offered.find(item => item.name === request.workflowName) ?? offered[0] ?? null,
+    workflow = modelOfRequest(request, offered) ?? offered[0] ?? null,
     references = plan.references || [],
     source = references.find(ref => ref.role === 'source_video'),
     fps = parameters.fps > 0 ? parameters.fps : null,
@@ -5944,7 +5952,7 @@ export function setupStudio({
     const verb = request.tool || request.call?.function?.name,
       target = MODE_OF_VERB[verb] ?? request.mediaType ?? 'image',
       list = offered(verb),
-      workflow = list.find(item => item.name === request.workflowName);
+      workflow = modelOfRequest(request, list);
     if (!modelsOf(target).length) return null;
     mode = target;
     formatsOpen = false;
