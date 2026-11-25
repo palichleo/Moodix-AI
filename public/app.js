@@ -896,8 +896,10 @@ async function loadConversation(id) {
     $('messages').replaceChildren();
     // A take deleted since (in the Pellicule, in the Studio) is not drawn from what was read before.
     citedTakes.forget();
-    // A call whose take the server is still making waits for its card (0.6.82).
-    const views = renderTranscript(messages, record.incomplete, { waiting: state.recovery?.waiting(id, messages) });
+    // A call whose take the server is still making waits for its card (0.6.82). Its last message put back in
+    // the box: the answer before it is whole, never « partielle » (0.6.329).
+    const cut = record.incomplete && !asked,
+      views = renderTranscript(messages, cut, { waiting: state.recovery?.waiting(id, messages) });
     turnActions();
     // Its last message unsent, put back in the box: said where the thread ends (0.6.103), never the
     // welcome of a new conversation.
@@ -1140,7 +1142,10 @@ function restoreSession(saved) {
   $('prompt').value = saved.prompt;
   generationUI.clear(state.aside?.nodes);
   $('messages').replaceChildren();
-  const views = renderTranscript(state.messages, saved.archiveSnapshot?.incomplete);
+  // Its last message waits in the box (unsentNote): the answer before it is whole, never « partielle » (0.6.329).
+  const last = saved.archiveSnapshot?.messages?.at(-1),
+    unsent = last?.role === 'user' && !last.internal && state.messages.at(-1)?.role !== 'user';
+  const views = renderTranscript(state.messages, Boolean(saved.archiveSnapshot?.incomplete) && !unsent);
   turnActions();
   // (Its message unsent said where the thread ends, 0.6.103.)
   unsentNote();

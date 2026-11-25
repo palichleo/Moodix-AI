@@ -3198,3 +3198,45 @@ test('the Bobine left for the Chat another way than by its tab is left as by its
   assert.deepEqual([leaving('studio'), left, hushed], ['studio', 1, 1]);
   assert.deepEqual([leaving('chat'), left, hushed], ['chat', 1, 1]);
 });
+
+test('the answer before a message left in the box is not said partial (0.6.329)', async t => {
+  const store = await historyStore(t),
+    first = page({ store, chat: (body, n) => said(n === 1 ? 'Réponse complète 1.' : 'Réponse complète 2.') }),
+    partial = shown => shown.$('messages').words.includes('Réponse partielle restaurée.');
+  await first.send('Question 1');
+  await first.send('Question 2');
+  // « Modifier » on the last message: back in the box, the conversation kept with it as still being written.
+  await first.context.takeBack(false);
+  assert.equal(first.state.archiveSnapshot.incomplete, true);
+  const reopened = page({ store: await diskCopy(t, store) });
+  await reopened.context.loadConversation(ID);
+  assert.deepEqual([reopened.$('prompt').value, reopened.$('messages').all('unsent-note').length], ['Question 2', 1]);
+  assert.equal(partial(reopened), false, 'opened again');
+  // The same conversation as « Redémarrer » gives it back to the page (restoreSession).
+  const restarted = page({ store: await diskCopy(t, store) });
+  restarted.context.restoreSession(
+    plain({
+      messages: first.state.messages,
+      archiveSnapshot: first.state.archiveSnapshot,
+      conversationId: ID,
+      prompt: first.$('prompt').value,
+      images: [],
+      thinking: true,
+      title: 'Question 1',
+    }),
+  );
+  assert.equal(partial(restarted), false, 'restarted');
+  // An answer really cut short (kept while it was being written) still says so, both ways.
+  const cut = [
+    { role: 'user', content: 'Question longue' },
+    { role: 'assistant', content: 'Le début de la rép' },
+  ];
+  await store.save({ id: ID, messages: cut, incomplete: true, instructions: '', projectId: 'inbox' });
+  const stopped = page({ store: await diskCopy(t, store) });
+  await stopped.context.loadConversation(ID);
+  assert.equal(partial(stopped), true);
+  const stoppedAgain = page();
+  const session = { conversationId: ID, prompt: '', images: [], thinking: true, messages: cut };
+  stoppedAgain.context.restoreSession(plain({ ...session, archiveSnapshot: { messages: cut, incomplete: true } }));
+  assert.equal(partial(stoppedAgain), true);
+});
