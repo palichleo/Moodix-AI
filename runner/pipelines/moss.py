@@ -108,6 +108,30 @@ def load_vae(path):
     return vae.eval()
 
 
+def decoded_image(vae, latents, megapixels, torch):
+    """The picture the VAE decodes of the latents, and whether it was by tiles. Whole where the card has the
+    room, by tiles beyond: a tile joins its neighbours over a band.
+
+    (0.6.375) By tiles too when the whole one runs out of video memory all the same (runner.models.ladder):
+    what it takes is an estimate, weighed against what the card has free, a gibibyte above the ceiling the
+    engine holds the creation under. It was tried once: the engine then made the whole image again, its prompt
+    and its fifty steps, and chose the same way."""
+    from runner.models.ladder import smaller
+
+    def decode():
+        return vae.decode(pixels_of(latents.to(vae.dtype), vae), return_dict=False)[0][0]
+
+    def by_tiles():
+        vae.enable_tiling()
+        return decode()
+
+    if DECODE_GIB_PER_MEGAPIXEL * megapixels > hardware.free_bytes(torch) / 1024**3:
+        return by_tiles(), True
+    said = []
+    decoded = smaller([decode, by_tiles], torch, told=said.append)
+    return decoded, bool(said)
+
+
 def pixels_of(latents, vae):
     """What the VAE decodes: the latents of the model given their mean and deviation back, then
     each of the 128 channels put in its place of a 2 x 2 block of the VAE's 32."""
@@ -252,11 +276,7 @@ def _generate(job, config, progress_callback, cleanup):
         release()
         progress('decoding image')
         vae.to(device)
-        # Whole where the card has the room, by tiles beyond: a tile joins its neighbours over a band.
-        tiled = DECODE_GIB_PER_MEGAPIXEL * megapixels > hardware.free_bytes(torch) / 1024**3
-        if tiled:
-            vae.enable_tiling()
-        decoded = vae.decode(pixels_of(latents.to(vae.dtype), vae), return_dict=False)[0][0]
+        decoded, tiled = decoded_image(vae, latents, megapixels, torch)
         if not torch.isfinite(decoded).all():
             raise RuntimeError('Non-finite decoded image')
         progress('decoded', tiled=tiled)

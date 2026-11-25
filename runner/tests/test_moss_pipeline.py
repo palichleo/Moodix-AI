@@ -99,6 +99,52 @@ class DecodingTests(unittest.TestCase):
             expected = latents[0, channel] * (vae.bn.running_var[channel] + 0.25).sqrt() + vae.bn.running_mean[channel]
             self.assertTrue(torch.allclose(got[0, deep, down::2, right::2], expected, atol=1e-6), channel)
 
+    def test_a_picture_that_does_not_fit_whole_is_decoded_by_tiles_not_made_again(self):
+        # (0.6.375) What the whole decode takes is an estimate. Out of video memory, the image was made again
+        # from its prompt, its fifty steps too, and decoded the same way.
+        class Vae:
+            dtype = torch.float32
+            config = SimpleNamespace(batch_norm_eps=0.0)
+            bn = SimpleNamespace(running_var=torch.ones(8), running_mean=torch.zeros(8))
+
+            def __init__(self, fits):
+                self.fits, self.tiling, self.calls = fits, False, []
+
+            def enable_tiling(self):
+                self.tiling = True
+
+            def decode(self, pixels, return_dict=False):
+                self.calls.append('tiles' if self.tiling else 'whole')
+                if not self.tiling and not self.fits:
+                    raise torch.OutOfMemoryError('CUDA out of memory')
+                return (pixels + (1 if self.tiling else 0),)
+
+        latents = torch.zeros(1, 8, 2, 2)
+        released = []
+        cuda = SimpleNamespace(empty_cache=lambda: released.append(True))
+        fake = SimpleNamespace(OutOfMemoryError=torch.OutOfMemoryError, cuda=cuda)
+        free = {'gib': 11.0}
+        with patch.object(moss.hardware, 'free_bytes', lambda _torch: free['gib'] * 1024**3):
+            # Room for it: whole, at once, nothing said of tiles.
+            vae = Vae(fits=True)
+            decoded, tiled = moss.decoded_image(vae, latents, 2.0, fake)
+            self.assertEqual((vae.calls, tiled, tuple(decoded.shape)), (['whole'], False, (2, 4, 4)))
+            # Estimated to fit, and it does not: by tiles then, the memory of the failed try given back first.
+            vae = Vae(fits=False)
+            decoded, tiled = moss.decoded_image(vae, latents, 2.0, fake)
+            self.assertEqual((vae.calls, tiled, float(decoded.max())), (['whole', 'tiles'], True, 1.0))
+            self.assertEqual(released, [True])
+            # Estimated not to fit: by tiles from the start, as before.
+            free['gib'] = 7.9
+            vae = Vae(fits=False)
+            self.assertEqual((moss.decoded_image(vae, latents, 2.0, fake)[1], vae.calls), (True, ['tiles']))
+            # Tiles that do not fit either: the error is the caller's, nothing smaller was left to try.
+            free['gib'] = 11.0
+            vae = Vae(fits=False)
+            vae.enable_tiling = lambda: None
+            with self.assertRaises(torch.OutOfMemoryError):
+                moss.decoded_image(vae, latents, 2.0, fake)
+
     def test_the_vae_is_read_from_its_single_file_with_its_two_convolutions_renamed(self):
         from safetensors.torch import save_file
 
