@@ -181,9 +181,6 @@ class QuantEmbedding(torch.nn.Module):
 
 def load(path):
     """Qwen3VLModel with streamed language model and resident bf16 vision tower, plus the open store."""
-    from accelerate import init_empty_weights
-    from accelerate.utils import set_module_tensor_to_device
-    from transformers import Qwen3VLModel
     from runner.models.residency import open_store
 
     # Read once per prompt, this file sends nothing away from RAM to sit there (`evict`): the
@@ -192,6 +189,21 @@ def load(path):
     # run, a little ahead of them (Store.follow). Sent away, the share of the video model was read
     # back from the disk at every new prompt: 12 to 13 s.
     store = open_store(path, evict=False)
+    # (0.6.371) What is opened here is closed here when the model cannot be made of it (a tensor missing from a
+    # wrong file, the card refusing its vision tower): the file stayed open until the engine stopped.
+    try:
+        return _built(store), store
+    except BaseException:
+        store.close()
+        raise
+
+
+def _built(store):
+    """The model of `load`, read from its open store."""
+    from accelerate import init_empty_weights
+    from accelerate.utils import set_module_tensor_to_device
+    from transformers import Qwen3VLModel
+
     keys = set(store.keys())
     with init_empty_weights():
         model = Qwen3VLModel(config())
@@ -217,7 +229,7 @@ def load(path):
             raise ValueError('Uninitialized conditioner buffer ' + name)
     model = model.eval().to('cuda')
     store.follow(order)
-    return model, store
+    return model
 
 
 def prompt_embeds(

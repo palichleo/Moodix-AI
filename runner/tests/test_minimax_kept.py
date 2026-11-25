@@ -78,6 +78,51 @@ class KeptModelTests(unittest.TestCase):
             loaded.drop()
         self.assertEqual((closed, loaded.pool, loaded.dit), ([True], None, None))
 
+    def test_the_conditioner_is_closed_once_a_prompt_is_encoded_whatever_happened(self):
+        # (0.6.371) An encoding that failed left its store open: a thread asleep with up to 1 GiB of the file,
+        # the file held under Windows, or 14.6 GiB of locked RAM that nothing gave back.
+        import weakref
+
+        from runner.models import minimax_h3_text
+        from runner.pipelines import minimax_h3 as pipeline
+
+        class Model:
+            pass
+
+        told = []
+
+        def load(path):
+            model = Model()
+            alive = weakref.ref(model)
+            # (Its store says, when it is closed, whether the model that reads it is still there.)
+            return model, SimpleNamespace(close=lambda: told.append((path, alive() is not None)))
+
+        with mock.patch.object(minimax_h3_text, 'load', load):
+            with self.assertRaisesRegex(RuntimeError, 'out of memory'):
+                with pipeline._conditioner('conditioner.safetensors') as (text_encoder, store):
+                    del text_encoder
+                    raise RuntimeError('CUDA out of memory')
+            self.assertEqual(told, [('conditioner.safetensors', False)])
+            # As it always was when the prompt is encoded: the model first, then the store it reads, once.
+            with pipeline._conditioner('conditioner.safetensors') as (text_encoder, store):
+                del text_encoder
+            self.assertEqual(told, [('conditioner.safetensors', False)] * 2)
+
+    def test_a_conditioner_that_cannot_be_made_of_its_file_closes_the_file(self):
+        # (0.6.371) A wrong file (a tensor it lacks): opened, then left open until the engine stopped.
+        from runner.models import minimax_h3_text, residency
+
+        closed = []
+
+        def missing(key):
+            raise KeyError(key)
+
+        store = SimpleNamespace(keys=lambda: [], get_tensor=missing, close=lambda: closed.append(True))
+        with mock.patch.object(residency, 'open_store', lambda path, **options: store):
+            with self.assertRaises(KeyError):
+                minimax_h3_text.load('wrong.safetensors')
+        self.assertEqual(closed, [True])
+
     def test_the_decode_asks_for_its_decoder_and_more_for_a_larger_picture(self):
         from runner.pipelines.minimax_h3 import decode_gib
 

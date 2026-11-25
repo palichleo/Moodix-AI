@@ -7,7 +7,7 @@ presentation + conditioner, VAE encoding of the conditions, 8-step joint
 denoise with the streamed DiT, then video and audio decoding.
 """
 
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import gc
 import math
 import time
@@ -218,6 +218,23 @@ def _free():
 
     gc.collect()
     torch.cuda.empty_cache()
+
+
+@contextmanager
+def _conditioner(path):
+    """The conditioner and its open store, for the time a prompt is encoded: the store is closed after it
+    whatever happened. (0.6.371) Closed after the prompt was kept, an encoding that failed (the card out of
+    memory, and the creation made again in the same process) left it open: its reading thread asleep with up
+    to 1 GiB of the file, the file held (neither replaced nor deleted under Windows), or its arena held where
+    it fits in RAM. The model first, then the store it reads."""
+    from runner.models import minimax_h3_text
+
+    text_encoder, store = minimax_h3_text.load(path)
+    try:
+        yield text_encoder, store
+    finally:
+        del text_encoder
+        store.close()
 
 
 def _patchify(latents):
@@ -481,34 +498,36 @@ def _generate(job, config, progress, key, holder):
         kept = 'kept from an earlier generation'
     else:
         tokenizer, processor = minimax_h3_text.processor(paths['tokenizer'])
-        text_encoder, text_store = minimax_h3_text.load(paths['textEncoder'])
-        # The disk reads the conditioner in sequence while its layers run: by the store itself
-        # when the file is not kept in RAM (Store.follow), else through the system's cache.
-        ahead = (
-            None
-            if text_store.reader
-            else prefetch(paths, {'textEncoder': text_store}, [('textEncoder', key, None) for key in text_store.keys()])
-        )
-        original = reference_encoders.get_qwen3vl_prompt_embeds
-        reference_encoders.get_qwen3vl_prompt_embeds = minimax_h3_text.prompt_embeds
-        before = dict(state.values)
-        try:
-            progress(stage='encoding video prompt')
-            state = _stage(
-                'text_encoder', dict(text_encoder=text_encoder, tokenizer=tokenizer, processor=processor), state
+        with _conditioner(paths['textEncoder']) as (text_encoder, text_store):
+            # The disk reads the conditioner in sequence while its layers run: by the store itself
+            # when the file is not kept in RAM (Store.follow), else through the system's cache.
+            ahead = (
+                None
+                if text_store.reader
+                else prefetch(
+                    paths, {'textEncoder': text_store}, [('textEncoder', key, None) for key in text_store.keys()]
+                )
             )
-        finally:
-            reference_encoders.get_qwen3vl_prompt_embeds = original
-            read = ahead.stop() if ahead else text_store.reader.summary() if text_store.reader else None
-        written = conditioning.changes(before, state.values)
-        kept = (
-            'kept for the next generations'
-            if written
-            and conditioning.save(config, entry, written[0], dict(written[1], kinds=dict(state.kwargs_mapping)))
-            else 'not kept'
-        )
-        del text_encoder
-        text_store.close()
+            original = reference_encoders.get_qwen3vl_prompt_embeds
+            reference_encoders.get_qwen3vl_prompt_embeds = minimax_h3_text.prompt_embeds
+            before = dict(state.values)
+            try:
+                progress(stage='encoding video prompt')
+                state = _stage(
+                    'text_encoder', dict(text_encoder=text_encoder, tokenizer=tokenizer, processor=processor), state
+                )
+            finally:
+                reference_encoders.get_qwen3vl_prompt_embeds = original
+                read = ahead.stop() if ahead else text_store.reader.summary() if text_store.reader else None
+            written = conditioning.changes(before, state.values)
+            kept = (
+                'kept for the next generations'
+                if written
+                and conditioning.save(config, entry, written[0], dict(written[1], kinds=dict(state.kwargs_mapping)))
+                else 'not kept'
+            )
+            # (Its store is closed as the block ends: _conditioner.)
+            del text_encoder
         del text_store, before, written
     state.set('prompt_embeds', state.get('prompt_embeds').to('cuda', torch.bfloat16))
     _free()
