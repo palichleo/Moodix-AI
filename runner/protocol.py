@@ -140,7 +140,7 @@ def _serve(config, source, destination):
             except Exception as exc:
                 _log_failure(config, method, exc)
                 # Do not retain an inference traceback (and its model tensors) during cleanup.
-                response = dict(id=request_id, error=dict(message=str(exc), code=_code(exc)))
+                response = dict(id=request_id, error=dict(message=_said(exc), code=_code(exc)))
             if method == 'generate':
                 try:
                     with redirect_stdout(sys.stderr):
@@ -163,6 +163,18 @@ def _serve(config, source, destination):
     finally:
         with redirect_stdout(sys.stderr):
             release()
+
+
+def _said(exc):
+    """What a failure is told as. (0.6.363) A KeyError says its key alone, between quotes: a model file that
+    lacks a tensor the engine reads was told « 'model.diffusion_model.blocks.0.weight' », nothing else. Every
+    other message is left as it is: many are written for the user, in French, and need no name before them."""
+    if isinstance(exc, KeyError) and len(exc.args) == 1:
+        return (
+            f'Élément introuvable : {exc.args[0]}. '
+            'Le fichier du modèle est peut-être incomplet, ou d’une autre version.'
+        )
+    return str(exc)
 
 
 def _code(exc):

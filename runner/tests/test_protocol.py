@@ -537,6 +537,43 @@ class ProtocolTests(unittest.TestCase):
         said = [json.loads(line) for line in gone.getvalue().splitlines()]
         self.assertEqual(said[1]['error']['code'], 'GENERATION_FAILED')
 
+    def test_a_key_that_is_missing_is_told_as_such_not_as_its_name_alone(self):
+        # (0.6.363) « 'model.diffusion_model.blocks.0.weight' » was all the user read of a model file that
+        # lacked a tensor.
+        requests = ''.join(f'{{"id":{number},"method":"preflight","params":{{}}}}\n' for number in (1, 2, 3))
+        failures = iter(
+            [
+                KeyError('model.diffusion_model.blocks.0.weight'),
+                ValueError('Invalid job'),
+                RuntimeError('Il manque 3,2 Go de mémoire vidéo pour ce modèle.'),
+            ]
+        )
+
+        def preflight(job, config):
+            raise next(failures)
+
+        destination = io.StringIO()
+        with (
+            patch('runner.protocol.preflight', preflight),
+            patch('runner.protocol.release', lambda **_: dict(released=True, allocatedGiB=0)),
+            patch('runner.protocol._log_failure', lambda *args: None),
+        ):
+            serve({}, io.StringIO(requests), destination)
+        errors = [json.loads(line)['error'] for line in destination.getvalue().splitlines()[1:]]
+        self.assertEqual(
+            errors[0],
+            dict(
+                message='Élément introuvable : model.diffusion_model.blocks.0.weight. '
+                'Le fichier du modèle est peut-être incomplet, ou d’une autre version.',
+                code='INVALID_REQUEST',
+            ),
+        )
+        # What is written for the user stays as it is, with no name of an error before it.
+        self.assertEqual(errors[1], dict(message='Invalid job', code='INVALID_REQUEST'))
+        self.assertEqual(
+            errors[2], dict(message='Il manque 3,2 Go de mémoire vidéo pour ce modèle.', code='GENERATION_FAILED')
+        )
+
     def test_failed_generate_cleans_up_and_can_receive_next_request(self):
         source = io.StringIO('{"id":1,"method":"generate","params":{}}\n{"id":2,"method":"release","params":{}}\n')
         destination = io.StringIO()
