@@ -172,7 +172,10 @@ def validated(params, root):
         if 'watermarked' in item and item['watermarked'] is not True:
             raise ValueError(label + ': invalid watermarked')
         start, end = _seconds(item['from'], label), _seconds(item['to'], label)
-        if not LIMITS['shortest'] <= end - start <= LIMITS['longest'] or (item['kind'] == 'image' and start):
+        # (0.6.286) To the millisecond, as the application keeps its instants (`span`, lib/montages.mjs): in
+        # floating point 1.083 − 0.983 is 0.0999…, and a take brought to its shortest stopped the whole film.
+        length = round(end - start, 3)
+        if not LIMITS['shortest'] <= length <= LIMITS['longest'] or (item['kind'] == 'image' and start):
             raise ValueError(label + ': invalid length')
         # Its instant: after the end of the one before it (a millisecond of rounding allowed).
         before = result['plans'][-1] if result['plans'] else None
@@ -197,7 +200,7 @@ def validated(params, root):
         label = f'Son {index + 1}'
         fields(item, ('path', 'at', 'from', 'to', 'volume'), label=label)
         start, end = _seconds(item['from'], label), _seconds(item['to'], label)
-        if end - start < LIMITS['shortest']:
+        if round(end - start, 3) < LIMITS['shortest']:
             raise ValueError(label + ': invalid length')
         result['sounds'].append(
             {

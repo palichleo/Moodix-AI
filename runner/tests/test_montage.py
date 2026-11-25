@@ -105,6 +105,27 @@ class RuleTests(Folder):
         place = montage.validated(self.asked(**NAMED, exportTo='bobines/Le renard/01.mp4'), self.root)
         self.assertEqual(place['exportTo'], self.root / 'bobines' / 'Le renard' / '01.mp4')
 
+    def test_a_take_or_a_sound_brought_to_its_shortest_is_taken_whatever_floating_point_makes_of_it(self):
+        # (0.6.286) The page lets an edge go as far as a tenth of a second and the application keeps it, its
+        # length counted to the millisecond; counted in floating point here, the whole film was refused.
+        first, sound = self.asked()['plans'][0], self.asked()['sounds'][0]
+        for start, end in ((0.983, 1.083), (1.1, 1.2)):
+            self.assertLess(end - start, 0.1, 'in floating point, under the shortest')
+            cut = {'from': start, 'to': end}
+            plan = montage.validated(self.asked(plans=[dict(first, **cut)], sounds=[dict(sound, **cut)]), self.root)
+            self.assertEqual([(item['from'], item['to']) for item in plan['plans']], [(start, end)])
+            self.assertEqual([(item['from'], item['to']) for item in plan['sounds']], [(start, end)])
+        # Shorter to the millisecond: refused as before, the plan and the sound alike.
+        short = {'from': 1.0, 'to': 1.099}
+        for wrong in (dict(plans=[dict(first, **short)]), dict(sounds=[dict(sound, **short)])):
+            with self.assertRaisesRegex(ValueError, 'invalid length'):
+                montage.validated(self.asked(**wrong), self.root)
+        # And the longest, counted the same way.
+        whole = montage.validated(self.asked(plans=[dict(first, **{'from': 0.1, 'to': 600.1})]), self.root)
+        self.assertEqual(montage.seconds(whole), 600.0)
+        with self.assertRaisesRegex(ValueError, 'invalid length'):
+            montage.validated(self.asked(plans=[dict(first, **{'from': 0, 'to': 600.001})]), self.root)
+
     def test_each_plan_is_cut_sized_and_given_exactly_its_length_then_joined_and_mixed(self):
         plan = montage.validated(self.asked(), self.root)
         inputs, filters, sound, total = montage.graph(plan, [False, True, False])
