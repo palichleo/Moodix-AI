@@ -1164,6 +1164,19 @@ test('13 · « Enrichir le prompt » with a remote model that reflects within an
   assert.equal(response.status, 200, await response.clone().text());
   assert.match((await response.json()).prompt, /red fishing boat/);
   assert.equal(sent.length, 1, 'asked once');
+  // (0.6.282) The family of the model in hand reaches the words of the request: an instruction for Qwen-Image-Edit,
+  // the whole picture for any other.
+  for (const family of ['qwen_image_edit', 'krea2', '__proto__'])
+    await fetch(app.url + '/api/studio/enrich', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + boot.token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: 'la voiture en rouge', verb: 'create_image', family }),
+    });
+  const [edit, krea, odd] = sent.slice(1).map(body => body.messages[0].content);
+  assert.match(edit, /An editing instruction in English/);
+  assert.doesNotMatch(edit, /three to six sentences/);
+  assert.equal(krea, sent[0].messages[0].content);
+  assert.equal(odd, sent[0].messages[0].content);
 });
 
 // ——— 0.6.41, asked by the session that adapts the instructions to large models ———

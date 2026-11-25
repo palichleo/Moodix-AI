@@ -2143,7 +2143,12 @@ export async function createApplication({
           const upstream = await chat.request(
             {
               // The global instructions of the user say how he wants his prompts (length, language).
-              messages: enrichMessages(body.prompt, { verb: body.verb, preferences: instructions }),
+              // (0.6.282) With the family of the model in hand: Qwen-Image-Edit reads an instruction to edit images.
+              messages: enrichMessages(body.prompt, {
+                verb: body.verb,
+                preferences: instructions,
+                family: body.family,
+              }),
               stream: false,
               max_tokens: 700,
               temperature: 0.7,

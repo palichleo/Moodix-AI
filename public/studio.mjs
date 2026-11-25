@@ -4380,6 +4380,8 @@ export function setupStudio({
             await api('studio/enrich', {
               prompt: text,
               verb,
+              // (0.6.282) The family of the model in hand: Qwen-Image-Edit is asked an instruction to edit its images.
+              ...(current()?.family ? { family: current().family } : {}),
               // Its video or its character made in the conversation are found there.
               ...(scene ? { ...scene, conversationId: home } : {}),
             })

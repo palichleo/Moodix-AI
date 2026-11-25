@@ -117,6 +117,34 @@ test('a plain image request goes to Krea 2; MOSS Image runs when the model asks 
   );
 });
 
+test('Moodix AI is told to write an instruction for Qwen-Image-Edit only, when it is offered (0.6.282)', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const qwen = {
+    ...JSON.parse(
+      await readFile(new URL('../runner/workflows/a7601a5d-e43b-4f4e-8871-2d9dc7138bd9.json', import.meta.url), 'utf8'),
+    ),
+    ready: true,
+  };
+  const prompt = async (list, options) =>
+    (await catalogOf(list).definitions(undefined, options)).find(tool => tool.function.name === 'create_image').function
+      .parameters.properties.prompt.description;
+  const whole = await prompt([image('krea')]);
+  assert.match(whole, /^The whole image/);
+  // Shipped « Proposé à Moodix AI » off: not offered, nothing said of it.
+  assert.equal(await prompt([image('krea'), qwen]), whole);
+  // Offered beside another model: the whole picture, then its own words, for it alone.
+  const offered = { ...qwen, enabled: true };
+  const both = await prompt([image('krea'), offered]);
+  assert.ok(both.startsWith(whole + ' For a7601a5d-e43b-4f4e-8871-2d9dc7138bd9: An editing instruction in English'), both);
+  assert.match(both, /Picture 1 is the image to modify/);
+  // Twice (a copy of it): said once, for both.
+  assert.match(await prompt([image('krea'), offered, { ...offered, id: 'copy' }]), /For a7601a5d-[^:]+, copy: An editing/);
+  // The only model of the verb: its own words alone.
+  assert.match(await prompt([offered]), /^An editing instruction in English/);
+  // In the words of a capable model, named by its name.
+  assert.match(await prompt([image('krea'), offered], { wording: CAPABLE }), / For Qwen-Image-Edit: An editing instruction/);
+});
+
 test('MiniMax does not get a start image together with references, even when the model names it', async () => {
   const minimax = {
     ...video('minimax', [slot('s', 'start_image'), slot('e', 'end_image'), slot('r1', 'reference_image')]),

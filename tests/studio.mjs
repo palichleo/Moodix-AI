@@ -36,6 +36,39 @@ test('a prompt is enriched from what the user typed, for the creation it is for'
   );
 });
 
+test('the wand asks Qwen-Image-Edit an instruction that edits its images, any other model what it was asked (0.6.282)', async () => {
+  const { TASKS } = await import('../lib/tasks.mjs');
+  // Any other model: the words written before, to the letter.
+  const [usual] = enrichMessages('la voiture en rouge');
+  assert.equal(
+    usual.content,
+    'You rewrite what the user typed into the prompt of an image, for a generator that only reads this prompt. ' +
+      'Keep everything the user asked for (the subject, the action, the place, the mood, any words to show or to say) and add what is missing. ' +
+      `What the prompt must be: ${TASKS.create_image.prompt} ` +
+      'Answer with the prompt alone: no preamble, no title, no quotes, no list, no explanation.',
+  );
+  for (const family of ['krea2', 'moss', 'nope', '__proto__', 'constructor', '', undefined, null, 7])
+    assert.equal(enrichMessages('la voiture en rouge', { family })[0].content, usual.content, String(family));
+  // A verb the family does not read its own way: the guide of that verb.
+  assert.equal(
+    enrichMessages('un renard', { verb: 'create_video', family: 'qwen_image_edit' })[0].content,
+    enrichMessages('un renard', { verb: 'create_video' })[0].content,
+  );
+  // Qwen-Image-Edit sees its images and changes only what it is told: an instruction, nothing of the whole picture.
+  const [edit, typed] = enrichMessages('  la voiture en rouge ', { family: 'qwen_image_edit' });
+  assert.equal(typed.content, 'la voiture en rouge');
+  assert.match(edit.content, /^You rewrite what the user typed into the prompt of an image\. Keep everything the user asked for\. /);
+  assert.match(edit.content, /What the prompt must be: An editing instruction in English, for a model that sees the images given/);
+  assert.match(edit.content, /Picture 1 is the image to modify; Picture 2 and Picture 3 are the other images given/);
+  assert.match(edit.content, /what is not named stays as it is\. Answer with the prompt alone/);
+  assert.doesNotMatch(edit.content, /three to six sentences|add what is missing|only reads this prompt/);
+  // The user's standing instructions still come last, and win.
+  assert.match(
+    enrichMessages('x', { family: 'qwen_image_edit', preferences: ' court ' })[0].content,
+    /standing instructions, which come first where they differ: court$/,
+  );
+});
+
 test('the answer is kept as the prompt alone', () => {
   assert.equal(
     enrichedPrompt('<think>hmm</think>\n"Prompt: A red fox sits in fresh snow.\n\nSoft morning light."\n'),
@@ -4238,6 +4271,37 @@ test('(0.6.253) while the chat answers, « Générer » waits greyed with its re
     busy = reason;
     page.studio.busyChanged();
     assert.deepEqual([go().disabled, go().title], [true, reason]);
+  } finally {
+    restore();
+  }
+});
+
+test('« Enrichir le prompt » names the family of the model in hand: Qwen-Image-Edit is asked an instruction (0.6.282)', async () => {
+  const edit = {
+    id: 'q',
+    name: 'Qwen-Image-Edit',
+    family: 'qwen_image_edit',
+    roles: { source: { count: 1, media: ['image'], required: true } },
+    limits: sizes,
+    size: { width: 1024, height: 1024 },
+    settings: [],
+    seeded: true,
+  };
+  const studio = await studioPage(
+    { create_image: [edit] },
+    { 'studio/enrich': () => ({ prompt: 'Make the car of Picture 1 red; the rest stays as it is.' }) },
+  );
+  const { body, asked, restore } = studio;
+  try {
+    studio.prompt().value = 'la voiture en rouge';
+    studio.prompt().oninput();
+    await body.find('studio-enrich-go')[0].onclick();
+    assert.deepEqual(asked.find(([route]) => route === 'studio/enrich')[1], {
+      prompt: 'la voiture en rouge',
+      verb: 'create_image',
+      family: 'qwen_image_edit',
+    });
+    assert.equal(studio.prompt().value, 'Make the car of Picture 1 red; the rest stays as it is.');
   } finally {
     restore();
   }
