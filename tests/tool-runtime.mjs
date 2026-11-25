@@ -952,3 +952,30 @@ test('a proposal changed on its card is kept when what it says of a named image 
   assert.equal(runtime.pending.size, 1);
   assert.equal(runtime.pending.has(revised.requestId), true);
 });
+
+test('a creation stopped while the engine is checked is said stopped, not failed in the words of the runtime (0.6.314)', async () => {
+  const { rt, client, request } = runtimeFixture();
+  // The generation engine that starts (cold, some sixteen seconds): it waits, and lets go when stopped.
+  client.status = ({ signal }) => new Promise((_yes, no) => signal.addEventListener('abort', () => no(signal.reason), { once: true }));
+  const proposal = await request(),
+    executing = rt.execute({ requestId: proposal.requestId, permission: 'once' });
+  try {
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(rt.status().state, 'checking');
+    rt.cancel({ requestId: proposal.requestId });
+    // The page that stopped it is answered as before (it says the stop itself).
+    await assert.rejects(executing, { name: 'AbortError' });
+    // Another tab, or the page reloaded, reads the take here: it read « error » and « This operation was
+    // aborted ». As a creation stopped once it runs (run()).
+    const after = rt.status();
+    assert.deepEqual([after.state, after.error], ['cancelled', 'Génération arrêtée.']);
+    // What fails there without being stopped is still an error, in its own words.
+    client.status = async () => ({ idle: false });
+    const second = await request();
+    await assert.rejects(rt.execute({ requestId: second.requestId, permission: 'once' }), { status: 409 });
+    const failed = rt.status();
+    assert.deepEqual([failed.state, failed.error], ['error', 'Le moteur de génération exécute déjà une tâche. Attendez sa fin.']);
+  } finally {
+    await rt.close();
+  }
+});
