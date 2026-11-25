@@ -10619,3 +10619,62 @@ test('(0.6.258) the styles of the loupe: round, 200 px, cut in two; the size in 
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
   assert.match(html, /<symbol id="i-act-compare" viewBox="0 0 24 24">/);
 });
+
+// ------------------------------------------------------------------ relecture du 25/11 (rapport 4)
+// What the tests below share: a model that interpolates, one that makes bigger, one that edits an image, two takes.
+const reviewed = {
+  rife: { id: 'rife', name: 'Interpoler (RIFE 4.26)', media: 'video', verb: 'interpolate', family: 'rife', roles: { source: { count: 1, media: ['video'], required: true } }, settings: [], finish: { key: 'multiplier', choices: [2, 4], standard: 2 } },
+  seedvr: { id: 'sv', name: 'Upscale SeedVR2', media: 'image', verb: 'upscale', family: 'seedvr2', roles: { source: { count: 1, media: ['image'], required: true } }, settings: [], finish: { key: 'scale', choices: [2, 4], standard: 2 } },
+  editor: { id: 'k', name: 'Krea 2', family: 'krea2', verb: 'create_image', seeded: true, direct: true, limits: sizes, size: { width: 1024, height: 1024 }, settings: [], roles: { source: { count: 1, media: ['image'], many: false }, reference: { count: 0, media: [], many: true } } },
+  clip: { id: 'c', conversationId: 'c1', mediaType: 'video', workflowId: 'wan', prompt: 'la mer', parameters: { fps: 24, frames: 121, width: 768, height: 448 }, outputs: [{ originalUrl: '/c.mp4', thumbUrl: '/c.jpg', take: 4 }] },
+  image: (id, take) => ({ id, conversationId: 'c1', workflowId: 'w', prompt: 'un phare', parameters: { width: 1024, height: 1024 }, outputs: [{ originalUrl: `/${id}.png`, thumbUrl: `/${id}.jpg`, take, width: 1024, height: 1024 }] }),
+};
+
+test('« Animer » and « Modifier » of a take leave the page « Agrandir » or « Interpoler » open before them (0.6.298)', async () => {
+  // (Report 4, point 2. The same medium kept the page open: its button still said « Interpoler », the image went
+  // in a case of the draft hidden behind it, and the click seemed to do nothing.)
+  const { rife, seedvr, editor, clip, image } = reviewed,
+    shown = body => ({
+      mode: body.dataset.mode,
+      finish: body.find('studio-finish').length,
+      go: body.find('studio-go-label')[0].textContent,
+    });
+  const interpolating = await studioPage(
+    { create_image: [still], create_video: [wanStudio()], interpolate: [rife] },
+    { 'tools/actions': () => ({ interpolate: ['video'], animate: ['image'] }) },
+    { runs: [clip, image('a', 1)] },
+  );
+  try {
+    const { body } = interpolating;
+    interpolating.mode(1);
+    await settle();
+    body.find('studio-rail')[0].find('output-action-interpolate')[0].onclick();
+    assert.deepEqual(shown(body), { mode: 'video', finish: 1, go: 'Interpoler' });
+    // « Animer » of an image of the Sortie: the page Vidéo, the image at its start.
+    body.find('studio-item').find(item => item.dataset.id === 'a').find('studio-item-main')[0].onclick();
+    assert.deepEqual(shown(body), { mode: 'video', finish: 0, go: 'Générer' });
+    assert.equal(body.find('studio-frame-start')[0]?.src, '/a.jpg');
+  } finally {
+    interpolating.restore();
+  }
+  const growing = await studioPage(
+    { create_image: [editor], upscale: [seedvr] },
+    { 'tools/actions': () => ({ upscale: ['image'] }) },
+    { runs: [image('b', 2), image('a', 1)] },
+  );
+  try {
+    const { body } = growing;
+    await settle();
+    body.find('studio-rail')[0].find('output-action-upscale')[0].onclick();
+    assert.deepEqual(shown(body), { mode: 'image', finish: 1, go: 'Agrandir' });
+    // « Modifier » of another image, from its menu: the page Image, that image in « Image à modifier ».
+    const tile = () => body.find('studio-item').find(item => item.dataset.id === 'a');
+    tile().oncontextmenu({ preventDefault() {} });
+    tile().find('studio-menu-item').find(item => item.children.at(-1)?.textContent === 'Modifier').onclick();
+    assert.deepEqual(shown(body), { mode: 'image', finish: 0, go: 'Générer' });
+    const source = body.find('studio-slot').find(slot => slot.dataset.slot === 'source-0');
+    assert.ok(source.className.includes('is-filled'));
+  } finally {
+    growing.restore();
+  }
+});

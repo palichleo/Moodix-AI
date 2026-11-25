@@ -6242,6 +6242,10 @@ export function setupStudio({
     const model = editor();
     if (!model || working) return;
     if (proposal?.mode === 'image') return notice('Moodix AI est en train de proposer');
+    // (0.6.298) Another page than « Agrandir » or « Interpoler », when one of them is open: it stayed (the same
+    // medium keeps it, setMode), its model took the name of the model to edit with, and the image went in a
+    // case of the draft hidden behind it. The click seemed to do nothing.
+    finishing = null;
     setMode('image');
     if (current()?.id !== model.id) choose(model.id);
     putCreation(record, 'source', 0);
@@ -6277,6 +6281,8 @@ export function setupStudio({
       draft = drafts.video;
     // Where it flies from: the picture of the screen (the take of Image), before Vidéo is drawn.
     const from = flightStart();
+    // (0.6.298) « Interpoler » or « Agrandir » of a video left for it, as for « Modifier » (editImage).
+    finishing = null;
     setMode('video');
     extending = null;
     tries = 1;
