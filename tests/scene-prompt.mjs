@@ -268,3 +268,50 @@ test('a video of another conversation of the project is read in its own conversa
   assert.deepEqual(pictures.frames, ['f1', 'f2']);
   assert.deepEqual(asked, [[other, run]]);
 });
+
+test('what the user asked with a picture joined is heard too (0.6.304)', () => {
+  // A message sent with a picture is a list (its words, then its pictures): it was passed over, and the two
+  // older messages that had nothing to do with the replacement were given as what the user asks.
+  const shown = text => [
+    { type: 'text', text },
+    { type: 'image_url', file: 'a.png', view: 'input' },
+  ];
+  assert.equal(
+    askedSince([
+      { role: 'user', content: "fais-moi une image d'un chat roux" },
+      { role: 'user', content: "maintenant une vidéo d'un verger" },
+      { role: 'user', content: shown('mets cette femme à la place de la fille du verger, avec une robe rouge') },
+    ]),
+    "fais-moi une image d'un chat roux\nmaintenant une vidéo d'un verger\n" +
+      'mets cette femme à la place de la fille du verger, avec une robe rouge',
+  );
+  const made = [
+    { role: 'assistant', content: '', tool_calls: [{ id: 'a', function: { name: 'replace_character', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'a', content: JSON.stringify({ status: 'success' }) },
+  ];
+  // A correction sent with a picture: it was an empty demand.
+  assert.equal(
+    askedSince([{ role: 'user', content: 'remplace la fille' }, ...made, { role: 'user', content: shown('mets-la en robe rouge') }]),
+    'mets-la en robe rouge',
+  );
+  // Pictures sent without a word: what the page writes in their place is no word of the user, and it takes
+  // the place of none of their last three messages.
+  assert.equal(
+    askedSince([
+      { role: 'user', content: 'un' },
+      { role: 'user', content: 'deux' },
+      { role: 'user', content: 'trois' },
+      { role: 'user', content: shown('Décris les images.') },
+    ]),
+    'un\ndeux\ntrois',
+  );
+  // Several parts of text, a part that is not one, a content that is neither: read as far as it goes.
+  assert.equal(
+    askedSince([
+      { role: 'user', content: [{ type: 'text', text: ' le premier ' }, { type: 'image_url' }, null, { type: 'text', text: 'puis le second' }] },
+      { role: 'user', content: null },
+      { role: 'user', internal: true, content: shown('shown pictures') },
+    ]),
+    'le premier\npuis le second',
+  );
+});
