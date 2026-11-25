@@ -3377,6 +3377,9 @@ function nameHere(id, title) {
 /** Resolves once conversation `id` is on screen: a step that needs its Studio waits for the user. */
 function backHere(id, signal) {
   if (shownHere(id)) return Promise.resolve();
+  // Stopped already (0.6.336): its « abort » never comes again, and the miniature said « vous attend » until
+  // the user came back.
+  if (signal?.aborted) return Promise.reject(signal.reason || new DOMException('Annulé', 'AbortError'));
   if (state.work) state.work.waits = true;
   updateControls();
   return new Promise((resolve, reject) => {

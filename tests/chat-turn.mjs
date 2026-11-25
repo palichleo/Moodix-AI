@@ -3397,3 +3397,24 @@ test('the conversation set aside, opened from the Archives, is shown in the Chat
   await shown.context.loadConversation(ID);
   assert.deepEqual([shown.state.conversationId, shown.state.view, drawnFor.at(-1)], [ID, 'chat', 'chat']);
 });
+
+test('a step that waits for its conversation to be shown, stopped already, does not wait (0.6.336)', async () => {
+  const shown = page({ state: { conversationId: ELSEWHERE, work: { kind: 'turn', conversationId: ID } } }),
+    stop = new AbortController();
+  // Stopped between the answer of the model and the step (backHere): its « abort » came before it listened.
+  stop.abort(new DOMException('Arrêté', 'AbortError'));
+  const outcome = await Promise.race([
+    shown.context.backHere(ID, stop.signal).then(
+      () => 'résolue',
+      error => error.name,
+    ),
+    new Promise(resolve => setTimeout(() => resolve('en attente'), 600)),
+  ]);
+  try {
+    // Not « Moodix AI vous attend dans le Studio » on the miniature, until the user came back.
+    assert.deepEqual([outcome, Boolean(shown.state.work.waits)], ['AbortError', false]);
+  } finally {
+    // Back in it: a wait left running ends.
+    shown.state.conversationId = ID;
+  }
+});
