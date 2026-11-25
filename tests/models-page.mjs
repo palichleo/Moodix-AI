@@ -59,6 +59,12 @@ test('a line says the version its model uses; what is in its way decides the res
   assert.equal(why({ enabled: false, unavailableReason: 'Moteur arrêté.' }).note, 'Pas proposé à Moodix AI. Moteur arrêté.');
   assert.equal(why({ enabled: false }).note, 'Pas proposé à Moodix AI. Indisponible.');
   assert.equal(lineOf(model({ id: 'a' }), [record('a', { enabled: false })], { offers: {}, job: { state: 'running', workflowId: 'a' } }).state, 'downloading');
+  // (0.6.270) Not offered and its files to fetch: « Télécharger » all the same, the switch says it is off.
+  // Qwen-Image-Edit and Wan 2.2 Caméra are shipped off: said « off » first, they could never be downloaded.
+  const fetched = lineOf(model({ id: 'a' }), [record('a', { enabled: false, ready: false, unavailableReason: 'Fichier introuvable pour « Modèle ».' })], { offers: { a: offer(31 * GIB) }, job: { state: 'idle' } });
+  assert.deepEqual([fetched.state, fetched.offer?.[0].id, fetched.bytes], ['download', 'a', 31 * GIB]);
+  // Off, its files missing and nowhere to fetch them from: said why, as before.
+  assert.equal(why({ enabled: false, unavailableReason: 'Fichier introuvable pour « Modèle ».' }).note, 'Pas proposé à Moodix AI. Fichier introuvable pour « Modèle ».');
 });
 
 test('without lines from the server, a line a workflow, in the group of what it makes', () => {

@@ -54,7 +54,7 @@ export function linesOf(models, workflows) {
  * `workflows`: the workflows as listed (ready or not, and why); `downloads`: { offers, job }.
  *
  * { records: [[entry, workflow]] the workflows of the model that are listed,
- *   state: 'downloading' | 'download' | 'ready' | 'waiting' | 'problem' | 'unavailable',
+ *   state: 'downloading' | 'download' | 'off' | 'ready' | 'waiting' | 'problem' | 'unavailable',
  *   label: what stands for the version used, in mono ([« Distillé », « INT8 »]),
  *   note: what is said under the description ('' when nothing is),
  *   offer: [workflow, offer] what « Télécharger » downloads, bytes: its size }
@@ -72,6 +72,20 @@ export function lineOf(model, workflows, downloads) {
     line = { records, label, note: '', offer: null, bytes: 0 };
   if (job.state === 'running' && records.some(([, record]) => record.id === job.workflowId))
     return { ...line, state: 'downloading' };
+  const lacking = records.filter(([, record]) => record.ready === false);
+  // What Moodix can fetch by itself: every workflow of the model that lacks a file it knows a source of.
+  // (0.6.270) Asked before « off »: a model not offered to Moodix AI is still downloaded from its line.
+  // Asked after, Qwen-Image-Edit and Wan 2.2 Caméra, shipped off, could never be downloaded.
+  const offers = lacking
+    .map(([, record]) => [record, downloads?.offers?.[record.id]])
+    .filter(([, offer]) => offer?.complete);
+  if (offers.length)
+    return {
+      ...line,
+      state: 'download',
+      offer: offers[0],
+      bytes: offers.reduce((sum, [, offer]) => sum + (offer.left ?? offer.bytes ?? 0), 0),
+    };
   // « Proposé à Moodix AI » off (0.6.94): out of the tools of Moodix AI, never out of the Studio.
   const off = records.find(([, record]) => record.enabled === false)?.[1];
   if (off)
@@ -83,19 +97,7 @@ export function lineOf(model, workflows, downloads) {
           ? 'Pas proposé à Moodix AI. ' + (off.unavailableReason || 'Indisponible.')
           : 'Pas proposé à Moodix AI : il reste dans le Studio.',
     };
-  const lacking = records.filter(([, record]) => record.ready === false);
   if (!lacking.length) return { ...line, state: 'ready' };
-  // What Moodix can fetch by itself: every workflow of the model that lacks a file it knows a source of.
-  const offers = lacking
-    .map(([, record]) => [record, downloads?.offers?.[record.id]])
-    .filter(([, offer]) => offer?.complete);
-  if (offers.length)
-    return {
-      ...line,
-      state: 'download',
-      offer: offers[0],
-      bytes: offers.reduce((sum, [, offer]) => sum + (offer.left ?? offer.bytes ?? 0), 0),
-    };
   const [, record] = lacking[0],
     reason = record.unavailableReason || 'Indisponible.';
   // What this computer lacks whatever the files (a card of another maker): greyed, with its reason.
