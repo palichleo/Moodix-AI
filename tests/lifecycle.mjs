@@ -210,3 +210,112 @@ test('launcher replacement verifies its source identity and never interrupts an 
     }
   });
 });
+
+
+/** What a control stream said, line by line, until it ended (« still open » after 4 s). */
+async function said(control) {
+  let text = '';
+  const read = (async () => {
+    for await (const chunk of control.body) text += new TextDecoder().decode(chunk);
+  })().catch(() => {});
+  const ended = await Promise.race([read.then(() => true), new Promise(done => setTimeout(done, 4000, false))]),
+    states = text
+      .split('\n')
+      .filter(Boolean)
+      .map(line => JSON.parse(line).state);
+  return ended ? states : [...states, 'still open'];
+}
+// A Python engine that refuses to close: the step of the closing that fails.
+const stubborn = () => ({
+  status: () => ({ state: 'stopped', capabilities: {} }),
+  start: async () => {},
+  close: async () => {
+    throw new Error('Le moteur Python ne se ferme pas.');
+  },
+});
+
+test('a step of the closing that fails leaves nothing open: the model stops, the launcher is told (0.6.391)', async () => {
+  // The rest of the closing was skipped: the model of the chat stayed loaded, and the launcher went on being
+  // told « running » behind a port that took no one any more.
+  const directory = await mkdtemp(join(tmpdir(), 'atelier-lifecycle-')),
+    control = new AbortController();
+  let child;
+  const app = await createApplication({
+    port: 0,
+    dataDir: directory,
+    generationWorker: stubborn(),
+    spawnProcess: (_command, args, options) =>
+      (child = spawn(
+        process.execPath,
+        [fileURLToPath(new URL('./fixtures/fake-engine.mjs', import.meta.url)), ...args],
+        options,
+      )),
+  });
+  try {
+    const { token } = await (await fetch(app.url + '/api/bootstrap')).json(),
+      api = (route, body) =>
+        fetch(app.url + '/api/' + route, {
+          method: body === undefined ? 'GET' : 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+    const modelPath = join(directory, 'model.gguf');
+    await writeFile(modelPath, Buffer.from('GGUF\x03\0\0\0'));
+    const settings = { enginePath: process.execPath, modelPath, projectorPath: '', contextSize: 4096 };
+    assert.equal((await api('config', { ...settings, maxOutputTokens: 1024, gpuLayers: 0 })).status, 200);
+    assert.equal((await api('start', {})).status, 202);
+    await until(async () => (await (await api('status')).json()).state === 'ready');
+    const headers = { Authorization: `Bearer ${token}` },
+      states = said(await fetch(app.url + '/api/lifecycle', { headers, signal: control.signal }));
+    // What failed is still said to who asked for the closing, once the rest is closed.
+    await assert.rejects(app.close(), /Le moteur Python ne se ferme pas/);
+    assert.deepEqual((await states).at(-1), 'stopped');
+    assert.ok(child.exitCode !== null || child.signalCode !== null, 'the model of the chat is still loaded');
+    await assert.rejects(fetch(app.url + '/api/bootstrap'));
+  } finally {
+    // (Whatever failed: a control stream left open would keep the application, and the test, from ending.)
+    control.abort();
+    child?.kill();
+    await app.close().catch(() => {});
+    await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test('an update whose closing fails tells the launcher « stopped », not « restarting » (0.6.391)', async () => {
+  // Told « restarting », the launcher waited three minutes for a new instance: the update was given up.
+  const directory = await mkdtemp(join(tmpdir(), 'atelier-lifecycle-')),
+    control = new AbortController();
+  const installer = { committed: 0, aborted: 0 };
+  const app = await createApplication({
+    port: 0,
+    dataDir: directory,
+    generationWorker: stubborn(),
+    updateChecker: async () => ({ available: true, version: '9.9.9' }),
+    updateInstaller: {
+      prepare: async () => ({}),
+      launch: async () => ({
+        commit: async () => void installer.committed++,
+        abort: () => void installer.aborted++,
+      }),
+    },
+  });
+  try {
+    const { token } = await (await fetch(app.url + '/api/bootstrap')).json(),
+      headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      states = said(await fetch(app.url + '/api/lifecycle', { headers, signal: control.signal })),
+      session = { messages: [], conversationId: null, prompt: '', images: [], thinking: true, title: 'Essai' };
+    const asked = await fetch(app.url + '/api/updates/install', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ session }),
+    });
+    assert.equal(asked.status, 202);
+    assert.deepEqual((await states).at(-1), 'stopped');
+    await until(async () => installer.aborted === 1);
+    assert.deepEqual(installer, { committed: 0, aborted: 1 });
+  } finally {
+    control.abort();
+    await app.close().catch(() => {});
+    await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});

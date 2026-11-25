@@ -3180,25 +3180,39 @@ export async function createApplication({
       clearTimeout(controlTimer);
       const serverClosed = new Promise(done => server.close(done));
       updateController.abort();
-      await updates;
-      await resources.close();
-      await modelOperation;
-      await models.pending;
-      await runtime.close();
-      await generation.close();
-      chatgpt.close?.();
-      openrouter.close();
-      await chat.stop();
-      await engine.stop();
-      await projects.pending;
-      await historySaves;
-      await history.flush();
-      await galleryBatch.catch(() => {});
-      await gallery.pending;
-      if (controlResponse && !controlResponse.destroyed)
-        controlResponse.end(JSON.stringify({ state: applyingUpdate ? 'restarting' : 'stopped' }) + '\n');
+      // (0.6.391) Each step, whatever the one before did: the first that failed left the rest undone, the
+      // model of the chat still loaded, the history not written, and the launcher told « running » for good
+      // behind a port already closed. What failed first is thrown once everything is closed.
+      let failure;
+      for (const step of [
+        () => updates,
+        () => resources.close(),
+        () => modelOperation,
+        () => models.pending,
+        () => runtime.close(),
+        () => generation.close(),
+        () => chatgpt.close?.(),
+        () => openrouter.close(),
+        () => chat.stop(),
+        () => engine.stop(),
+        () => projects.pending,
+        () => historySaves,
+        () => history.flush(),
+        () => galleryBatch.catch(() => {}),
+        () => gallery.pending,
+      ])
+        try {
+          await step();
+        } catch (error) {
+          failure ??= error;
+        }
+      // A closing that failed is no restart: the update is given up (/api/updates/install), and the launcher,
+      // told « stopped », ends: told « restarting », it waited three minutes for an instance that never came.
+      const said = applyingUpdate && !failure ? 'restarting' : 'stopped';
+      if (controlResponse && !controlResponse.destroyed) controlResponse.end(JSON.stringify({ state: said }) + '\n');
       server.closeAllConnections();
       await serverClosed;
+      if (failure) throw failure;
     })());
   }
   async function stopApplication() {
