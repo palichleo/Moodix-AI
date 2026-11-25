@@ -483,9 +483,28 @@ export function withPhoto(montage, record, seconds, { id } = {}) {
   if (local < 0.5) return refused('Posez l’image plus loin dans la vidéo : avant elle, il ne resterait rien de cette prise.');
   if (length - local < TODO_LIMITS.shortest) return refused('Posez l’image plus tôt dans la vidéo, ou après la fin pour une nouvelle prise.');
   if (plans.length >= MONTAGE_LIMITS.plans) return refused('Cette bobine est pleine.');
+  // (0.6.294) The take to create is as long as what it takes the place of, to the millisecond (the server keeps
+  // it so), not to the tenth of `todoPlan`. A video of LTX is 5,042 s: rounded, the take ended 42 ms before the
+  // one that followed. No longer glued to it, it did not take it along any more, a suite behind it was said
+  // « plus collée », and once made the film had one to five black pictures there. And it lasts a minute at
+  // most: cut to a minute, it left the rest of a longer video black though it said it replaced it whole.
+  const left = round(length - local);
+  if (left > TODO_LIMITS.longest)
+    return refused(
+      'Posez l’image plus loin dans la vidéo : après elle, il resterait plus d’une minute à refaire, et une prise à créer dure une minute au plus.',
+    );
   const cut = round(plan.from + local);
   plans[index] = { ...plan, to: cut };
-  plans.splice(index + 1, 0, todoPlan(id, length - local, { at: round(start + local), photos: { start: photo }, replaces: { source: plan.source, from: cut, to: plan.to } }));
+  plans.splice(
+    index + 1,
+    0,
+    todoPlan(id, left, {
+      to: left,
+      at: round(start + local),
+      photos: { start: photo },
+      replaces: { source: plan.source, from: cut, to: plan.to },
+    }),
+  );
   return { montage: { ...montage, plans: settled(plans) }, chosen: id };
 }
 

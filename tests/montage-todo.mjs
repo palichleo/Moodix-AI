@@ -107,6 +107,42 @@ test('a photo laid above a video cuts it there: the film will cut on the photo (
   assert.equal(withPhoto(laid, photo(2), 9.5, { id: id(16) }).montage, laid);
 });
 
+test('the take that replaces the end of a video is as long as that end, to the millisecond, and a minute at most (0.6.294)', () => {
+  // A video of LTX is 121 pictures, 5,042 s. Rounded to the tenth, the take to create ended 42 ms before the
+  // take that followed: no longer glued, and black pictures there once it was made.
+  const ltx = n => record(n, 'video', { parameters: { frames: 121, fps: 24 } }),
+    two = withTake(withTake(empty(), ltx(5), { id: id(15) }), ltx(6), { id: id(17) }),
+    places = montage => montage.plans.map(plan => [plan.at, plan.from, plan.to]);
+  assert.deepEqual(places(two), [[0, 0, 5.042], [5.042, 0, 5.042]]);
+  const replaced = withPhoto(two, photo(2), 2, { id: id(16) }).montage;
+  assert.deepEqual(places(replaced), [[0, 0, 2], [2, 0, 3.042], [5.042, 0, 5.042]]);
+  assert.deepEqual(replaced.plans[1].replaces, { source: source(5), from: 2, to: 5.042 });
+  assert.equal(montageSeconds(replaced), montageSeconds(two), 'the film is as long as it was');
+  assert.deepEqual(validateMontage(replaced).plans, replaced.plans, 'the server keeps it as it is');
+  // What touches follows: made shorter, it takes the take after it along.
+  assert.deepEqual(places(withItemChanged(replaced, id(16), { to: 2 })).at(-1), [4, 0, 5.042]);
+  // Wherever the image is laid in the video, the take to create ends where the video ended.
+  for (let at = 0.5; at <= 4; at += 0.1) {
+    const laid = withPhoto(two, photo(2), at, { id: id(16) }).montage.plans;
+    assert.equal(Math.round((laid[1].at + laid[1].to) * 1000), 5042, `image at ${at.toFixed(1)} s`);
+  }
+
+  // More than a minute of the video left after the image: said, and nothing changes. Cut to a minute, the take
+  // left the rest of the video black, though it said it replaced it whole.
+  const long = withTake(empty(), clip(7, 120), { id: id(15) }),
+    far = withPhoto(long, photo(2), 10, { id: id(16) });
+  assert.equal(
+    far.reason,
+    'Posez l’image plus loin dans la vidéo : après elle, il resterait plus d’une minute à refaire, et une prise à créer dure une minute au plus.',
+  );
+  assert.equal(far.montage, long);
+  // A minute exactly is taken.
+  assert.deepEqual(shape(withPhoto(long, photo(2), 60, { id: id(16) }).montage), [
+    ['video', 0, 60, null, null],
+    ['à faire', 0, 60, id(2), null],
+  ]);
+});
+
 test('a plan to make has a length a clip can have, a text, and photos that can be taken off (0.6.142)', () => {
   let montage = withPhoto(empty(), photo(1), 0, { id: id(11) }).montage;
   montage = withPhoto(montage, photo(2), 5, { id: id(12) }).montage;
