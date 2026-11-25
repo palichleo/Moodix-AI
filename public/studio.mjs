@@ -7802,6 +7802,8 @@ export function setupStudio({
   function invalidate({ tools = false } = {}) {
     runsStale = true;
     if (tools) toolsStale = true;
+    // (0.6.346) The Bobine asks again for the models it said missing: one may have been downloaded there.
+    if (tools) montage.toolsChanged();
   }
   /** When the user last changed each part of each workflow, as tools read so tell it: { id → { part: time } }. */
   const changesOf = value => {

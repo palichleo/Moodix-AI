@@ -4301,3 +4301,57 @@ test('a bobine is kept in the project it was read from, whatever project the pag
   await r.later();
   assert.equal(r.saves().length, 1, 'no try again in the name of the other project');
 });
+
+test('a model said missing is asked again when the settings close or the page is drawn again (0.6.346)', async () => {
+  // Downloaded in Paramètres › Modèles, it was said missing until the page was loaded again.
+  const GB = 1024 ** 3,
+    files = [{ file: 'ltx-2.5-int8.safetensors', size: 20 * GB, license: { name: 'Apache 2.0' } }],
+    offer = { workflowId: 'ltx', files, bytes: 20 * GB, left: 20 * GB, needsToken: false, page: '' },
+    job = { state: 'idle' },
+    downloads = route => structuredClone(route === 'downloads' ? { job } : job),
+    waiting = [];
+  let installed = false,
+    slow = false;
+  const answer = () => ({ workflowName: 'LTX 2.5', ...(installed ? {} : { missing: structuredClone(offer) }) }),
+    estimate = () => (slow ? new Promise(done => waiting.push(() => done(answer()))) : answer());
+  // Downloaded while the page was left (from a card of the chat, which says nothing to the Studio): drawn again.
+  const { f: g } = await series({ estimate, downloads });
+  assert.deepEqual(g.said('bobine-missing'), ['LTX 2.5 n’est pas sur cet ordinateur.']);
+  installed = true;
+  await g.ui.leave();
+  g.root = g.ui.desk();
+  await settle();
+  await settle();
+  assert.deepEqual([g.get('bobine-go-download').length, g.go(), g.said('bobine-missing')], [0, 'Créer 2 prises', []]);
+  // Downloaded in Paramètres over the page, the settings closed (studio.mjs `invalidate`): asked again, said as
+  // it was until the server answers, even drawn again meanwhile.
+  installed = false;
+  const { f, foreseen } = await series({ estimate, downloads });
+  const fetch = () => f.get('bobine-go-download')[0],
+    missing = ['LTX 2.5 n’est pas sur cet ordinateur.'],
+    offered = 'Télécharger · 20,0 Go';
+  assert.deepEqual([f.said('bobine-missing'), fetch().textContent], [missing, offered]);
+  const before = foreseen.length;
+  installed = slow = true;
+  f.ui.toolsChanged();
+  f.get('bobine-line')[0].onclick({});
+  assert.deepEqual([foreseen.length, waiting.length], [before + 1, 1]);
+  assert.deepEqual([fetch()?.textContent, f.said('bobine-missing')], [offered, missing]);
+  waiting.shift()();
+  await settle();
+  await settle();
+  assert.deepEqual([f.get('bobine-go-download').length, f.go(), f.said('bobine-missing')], [0, 'Créer 2 prises', []]);
+  // A model there is not asked again.
+  f.ui.toolsChanged();
+  assert.equal(foreseen.length, before + 1);
+  // Its download begun there once the page had looked for one: looked for again, followed.
+  slow = false;
+  installed = false;
+  const { f: h } = await series({ estimate, downloads });
+  Object.assign(job, { state: 'running', workflowId: 'ltx', name: 'LTX 2.5', received: 5 * GB, total: 20 * GB });
+  h.ui.toolsChanged();
+  await settle();
+  await settle();
+  const shown = h.get('bobine-go-download')[0];
+  assert.deepEqual([h.ui.state().downloading?.stage, shown.textContent], ['running', '5,0 / 20,0 Go']);
+});

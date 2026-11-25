@@ -329,6 +329,8 @@ export function setupMontage({
   const models = new Map();
   // (0.6.155) The models whose download under way elsewhere (Paramètres › Modèles) was looked for.
   const watched = new Set();
+  // (0.6.346) The models said missing, asked again the next time they are looked at (doubt).
+  const doubted = new Set();
   const inSeries = () => filling?.stage === 'running' || filling?.stage === 'paused';
   // (0.6.152) What the model of the takes makes at once: what a take to create is cut by.
   const limits = () => ({ create_video: longestFor('create_video'), extend_video: longestFor('extend_video') });
@@ -1411,9 +1413,11 @@ export function setupMontage({
     }
     const { prompt: _prompt, intention: _intention, duration: _duration, ...inputs } = args,
       key = JSON.stringify([wanted.verb, inputs, filmSize()]),
-      known = models.get(key);
-    if (known) return known === 'asking' ? null : known;
-    models.set(key, 'asking');
+      known = models.get(key),
+      // (0.6.346) Said missing before (doubt): asked again, and said as it was until the server answers.
+      again = doubted.delete(key);
+    if (known && !again) return known === 'asking' ? null : known;
+    if (!known) models.set(key, 'asking');
     void Promise.resolve(estimate({ verb: wanted.verb, args: { ...args, prompt: 'Prise.' }, size: filmSize() }))
       .then(seen => {
         // (0.6.153) A model this computer lacks: what its download is (files, size), from the server.
@@ -1423,7 +1427,7 @@ export function setupMontage({
       })
       // (Not known now, the chat model answering say: asked again the next time.)
       .catch(() => models.delete(key));
-    return null;
+    return known && known !== 'asking' ? known : null;
   }
   const inPanel = () => Boolean(page?.document?.activeElement && parts?.create?.contains?.(page.document.activeElement));
   function sayModels() {
@@ -2323,6 +2327,16 @@ export function setupMontage({
         timers.set(followDownload, POLL);
       })
       .catch(() => {});
+  }
+  /**
+   * (0.6.346) A model said missing may be there now, downloaded in Paramètres › Modèles or from a card of the
+   * chat: what the server said of it was kept until the page was loaded again (« LTX 2.5 n’est pas sur cet
+   * ordinateur », « Télécharger · 20,0 Go »). Asked again the next time it is looked at (modelOf), and a
+   * download of it under way looked for again (watch). A model said there is not asked again.
+   */
+  function doubt() {
+    for (const [key, known] of models) if (known?.missing) doubted.add(key);
+    watched.clear();
   }
 
   // Moodix AI writes ------------------------------------------------------------------------------
@@ -3529,8 +3543,15 @@ export function setupMontage({
         // (0.6.181) A take made for it while another page was shown: at its place.
         layMissed();
       }
+      // (0.6.346) A model said missing may have been downloaded while another page was shown.
+      doubt();
       draw();
       return root;
+    },
+    /** (0.6.346) The settings were closed, or the engine got ready (studio.mjs `invalidate`): see doubt. */
+    toolsChanged() {
+      doubt();
+      if (root && montage) sayModels();
     },
     /**
      * (0.6.154) The bobine a card of the Archives opens: at once when those of its project are read,
