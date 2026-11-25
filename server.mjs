@@ -45,7 +45,7 @@ import { Thumbnails } from './lib/thumbnails.mjs';
 import { ToolRuntime, chatImageUrls, collectToolCalls, firstWholeCall, unreadAnswer } from './lib/tool-runtime.mjs';
 import { roomSettings } from './public/room.mjs';
 import { WATERMARKS, watermarkSetting } from './public/watermark.mjs';
-import { nativeFields } from './lib/native-messages.mjs';
+import { nativeFields, uniqueCallIds } from './lib/native-messages.mjs';
 import { readSSE } from './public/stream.mjs';
 import { Engine, defaults, normalizeConfig, problem } from './lib/engine.mjs';
 import { ChatModel, estimateContext, listModels, testConnection } from './lib/chat-model.mjs';
@@ -266,7 +266,9 @@ function chatPayload(input, vision, maxOutputTokens, countOnly = false) {
     throw problem('Écrivez un message ou joignez une image.');
   return {
     model: 'local',
-    messages,
+    // (0.6.297) Every call under an identifier of its own for the model (lib/native-messages.mjs): two of one
+    // identifier, both followed by their result, pass the check above, and Claude refuses them.
+    messages: uniqueCallIds(messages),
     stream: true,
     stream_options: { include_usage: true },
     temperature: 0.7,

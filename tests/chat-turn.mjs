@@ -15,7 +15,7 @@ import * as detached from '../public/detached-takes.mjs';
 import { takeContent } from '../public/generation-runtime.mjs';
 import { dataBlob, prepareImages } from '../public/images.mjs';
 import { History, MAX_CONVERSATION_MESSAGES } from '../lib/history.mjs';
-import { nativeFields } from '../lib/native-messages.mjs';
+import { nativeFields, uniqueCallIds } from '../lib/native-messages.mjs';
 import { problem } from '../lib/engine.mjs';
 import { briefMissing } from '../lib/video-brief.mjs';
 
@@ -41,7 +41,7 @@ const roles = messages => Array.from(messages, message => message.role);
 
 // What /api/chat does with the messages of a request before anything else: it throws its refusal
 // (« Résultat d’outil manquant. », a call without its result).
-const validation = { problem, nativeFields, MAX_CONVERSATION_MESSAGES, Buffer };
+const validation = { problem, nativeFields, uniqueCallIds, MAX_CONVERSATION_MESSAGES, Buffer };
 runInNewContext(cut('function chatPayload(', '/** 32 random bytes kept', serverSource) + '\nthis.chatPayload = chatPayload;', validation);
 const accepted = messages => validation.chatPayload({ messages: plain(messages) }, true, 1024);
 /** The next message of the user after `messages`, as sendMessage posts it. */
