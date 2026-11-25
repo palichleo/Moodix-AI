@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import {
   BOBINE_NOTE,
+  COPIES_SETTLED,
   FAILED_NOTE,
   FAILED_SETTLED,
   STUDIO_LINE,
@@ -303,4 +304,32 @@ test('a creation that lacked a file is told when read back: its message is never
     'Vidéo : il manque un fichier à LTX 2.5, rien n’a été généré.',
   );
   assert.equal(callNote(call('create_audio'), result(lacking())), 'Son : il manque un fichier, rien n’a été généré.');
+});
+
+test('the copies an analysis showed are said gone once their turn is over, never announced again (0.6.342)', () => {
+  const asked = { role: 'user', content: 'Un renard dans la neige' },
+    made = [call('create_image'), result({ status: 'success', run_id: 'r1' })],
+    exchange = [asked, { role: 'assistant', content: '', tool_calls: [made[0]] }, made[1]],
+    announced = 'Voici les copies réduites des sorties du workflow, dans le même ordre. Les originaux affichés…',
+    picture = { type: 'image_url', image_url: { url: 'data:image/png;base64,AAA' } },
+    looking = { role: 'user', internal: true, content: [{ type: 'text', text: announced }, picture] },
+    // As the page keeps it after its turn (app.js, archiveMessages) and the disk (lib/history.mjs): no copy.
+    kept = { role: 'user', internal: true, content: [{ type: 'text', text: announced }] },
+    analysed = { role: 'assistant', content: 'Le renard est net.' },
+    next = { role: 'user', content: 'Et en hiver ?' };
+  // In its turn, the model reads it whole, its copy with it.
+  const during = [...exchange, looking, analysed];
+  assert.deepEqual(settledNotes(during), during);
+  // At the next message, what is left of it says the copies are gone; nothing else changes.
+  const after = settledNotes([...exchange, kept, analysed, next]);
+  assert.deepEqual(after[3], { role: 'user', internal: true, content: COPIES_SETTLED });
+  assert.deepEqual([...after.slice(0, 3), after[4], after[5]], [...exchange, analysed, next]);
+  // A video looked at (its frames announced first), the same.
+  const frames = { ...kept, content: [{ type: 'text', text: 'Vidéo : les images suivantes sont… ' + announced }] };
+  assert.equal(settledNotes([...exchange, frames, analysed, next])[3].content, COPIES_SETTLED);
+  // Its copy still there (a page of an earlier version): what it says is true, it stays.
+  assert.deepEqual(settledNotes([...exchange, looking, analysed, next])[3], looking);
+  // A creation of the Studio, a message without copies: never touched.
+  const studio = { role: 'user', internal: true, content: 'Studio · Image : un renard\n\n' + STUDIO_NOTE };
+  assert.deepEqual(settledNotes([studio, next])[0], studio);
 });

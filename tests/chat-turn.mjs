@@ -3497,3 +3497,33 @@ test('the copy an image was looked at with is for its turn: not sent again at th
   await shown.send('Et maintenant en hiver ?');
   assert.equal(pictures(shown.requests.at(-1).messages), 0, 'the next message');
 });
+
+test('the copies of an analysis are said gone at the next message, and once reopened (0.6.342)', async t => {
+  const store = await historyStore(t),
+    run = 'b3333333-3333-4333-8333-333333333333',
+    record = { id: run, conversationId: ID, mediaType: 'image' },
+    content = JSON.stringify({ status: 'success', run_id: run }),
+    made = { content, images: ['data:image/png;base64,AAA'], record },
+    call = functionCall('create_image', 'call_1'),
+    creation = called({ call, workflowName: 'Krea 2', requestId: 'r1', autoAllow: true }),
+    announced = messages => messages.filter(message => JSON.stringify(message.content).includes('Voici les copies')),
+    settled = messages => messages.filter(message => message.content === transcript.COPIES_SETTLED);
+  const shown = page({
+    store,
+    state: { generation: { maxIterations: 5, reviewImages: true } },
+    requestTool: async () => made,
+    chat: (body, n) => (n === 1 ? creation : said(n === 2 ? 'Le renard est net.' : 'En hiver, alors.')),
+  });
+  await shown.send('Un renard dans la neige');
+  // In its turn, the model is told what it is shown.
+  assert.deepEqual([announced(shown.requests[1].messages).length, settled(shown.requests[1].messages).length], [1, 0]);
+  await shown.send('Et maintenant en hiver ?');
+  const next = shown.requests.at(-1).messages;
+  assert.deepEqual([announced(next).length, settled(next).length], [0, 1]);
+  // Reopened from the disk, where the copy never was: the same.
+  const reopened = page({ store: await diskCopy(t, store), chat: () => said('Au printemps, alors.') });
+  await reopened.context.loadConversation(ID);
+  await reopened.send('Et au printemps ?');
+  const read = reopened.requests.at(-1).messages;
+  assert.deepEqual([announced(read).length, settled(read).length], [0, 1]);
+});

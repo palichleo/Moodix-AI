@@ -35,6 +35,22 @@ export const FAILED_NOTE =
 export const FAILED_SETTLED =
   'La génération a échoué et rien n’a été produit. Si l’utilisateur demande de recommencer, refais le même appel d’outil.';
 const inJSON = text => JSON.stringify(text).slice(1, -1);
+/**
+ * What is left of the message that showed the model the copies of a take (« analyser les images ») once
+ * the user has written again (0.6.342): its copies are for its turn (app.js, archiveMessages; the disk
+ * never keeps them), and « Voici les copies réduites… » was read at every later message with none there.
+ */
+export const COPIES_SETTLED =
+  'Les copies réduites de cette génération ont été regardées pour son analyse ; ' +
+  'elles ne font plus partie de ce contexte.';
+const COPIES = 'Voici les copies réduites des sorties du workflow';
+// What a message says when it is words alone: one that still holds its copies says what is true, and stays.
+const wordsOf = content =>
+  typeof content === 'string'
+    ? content
+    : Array.isArray(content) && content.every(part => part?.type === 'text')
+      ? content.map(part => part.text).join('')
+      : '';
 /** The messages as the model reads them: the consigne of a failure before the user's last message, settled. */
 export function settledNotes(messages) {
   const last = messages.findLastIndex(message => message?.role === 'user' && !message.internal),
@@ -42,7 +58,9 @@ export function settledNotes(messages) {
   return messages.map((message, index) =>
     index < last && message?.role === 'tool' && typeof message.content === 'string' && message.content.includes(now)
       ? { ...message, content: message.content.replace(now, inJSON(FAILED_SETTLED)) }
-      : message,
+      : index < last && message?.role === 'user' && message.internal && wordsOf(message.content).includes(COPIES)
+        ? { ...message, content: COPIES_SETTLED }
+        : message,
   );
 }
 
