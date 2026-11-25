@@ -431,3 +431,70 @@ test('a stale launcher never shuts down another installation or a busy conversat
       }
     });
 });
+
+/**
+ * A folder of the application with a server that only answers the launcher: it listens after FAKE_START_DELAY
+ * ms, says it is controlled already (the launcher then leaves it and returns), writes the instant it was
+ * started in the file FAKE_STARTED, and ends at « /quit » (after 20 s at most, whatever a test leaves).
+ */
+async function bareRoot(t) {
+  const root = await mkdtemp(join(tmpdir(), 'atelier-lanceur-nu-')),
+    port = await freePort();
+  for (const name of ['lib', 'public', 'scripts']) await mkdir(join(root, name));
+  await writeFile(join(root, 'package.json'), '{"name":"atelier-local","version":"0.2.0","type":"module"}');
+  await writeFile(
+    join(root, 'server.mjs'),
+    `import http from 'node:http';
+import { writeFileSync } from 'node:fs';
+const port = Number(process.argv.find(arg => arg.startsWith('--port=')).split('=')[1]);
+if (process.env.FAKE_STARTED) writeFileSync(process.env.FAKE_STARTED, String(Date.now()));
+setTimeout(() => {
+  const server = http.createServer((req, res) => {
+    if (req.url === '/quit') {
+      res.end('bye');
+      server.close();
+      return server.closeAllConnections();
+    }
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ application: 'atelier-local', token: 'bare-instance', controlled: true }));
+  });
+  server.listen(port, '127.0.0.1');
+}, Number(process.env.FAKE_START_DELAY || 0));
+setTimeout(() => process.exit(0), 20000).unref();
+`,
+  );
+  const quit = async () => {
+    try {
+      await (await fetch(`http://127.0.0.1:${port}/quit`, { signal: AbortSignal.timeout(1000) })).text();
+    } catch {}
+  };
+  t.after(async () => {
+    await quit();
+    for (const name of ['FAKE_START_DELAY', 'FAKE_STARTED']) delete process.env[name];
+    await rm(root, { recursive: true, force: true, maxRetries: 15, retryDelay: 100 });
+  });
+  return { root, port, quit };
+}
+
+test('a server slow to listen is given a minute, as the installer of an update gives it (0.6.387)', async t => {
+  const { runLauncher, START_TIMEOUT } = await import('../scripts/launch.mjs'),
+    { root, port } = await bareRoot(t);
+  // 15 s: a rescue update waited 90 s for the new version, whose launcher gave up after 15.
+  assert.ok(START_TIMEOUT >= 60000, String(START_TIMEOUT));
+  process.env.FAKE_START_DELAY = '900';
+  const run = startTimeout => runLauncher({ root, port, startTimeout, signal: AbortSignal.timeout(15000) });
+  // The time it is given is the one asked: less than it takes, it is given up (and stopped)...
+  await assert.rejects(run(300), /démarrage de l’application n’a pas pu être confirmé/);
+  await until(async () => {
+    try {
+      await fetch(`http://127.0.0.1:${port}/api/bootstrap`, { signal: AbortSignal.timeout(300) });
+      return false;
+    } catch {
+      return true;
+    }
+  }, 'The server given up was left running');
+  // ... and with its minute, it is found once it listens.
+  await run(undefined);
+  const live = await (await fetch(`http://127.0.0.1:${port}/api/bootstrap`)).json();
+  assert.equal(live.token, 'bare-instance');
+});

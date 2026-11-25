@@ -6,6 +6,12 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { openBrowser } from '../server.mjs';
 import { appSources } from '../lib/app-sources.mjs';
 
+// (0.6.387) What a server may take to listen once started: a minute, as the installer of an update gives it
+// (scripts/apply-update.mjs). It was 15 s: after a rescue update, a first start slowed down (an antivirus
+// reading five hundred new files, a slow disk) was given up by this launcher while the rescue waited 90 s
+// for it, and a good version was taken out again (« arrêtée au démarrage »).
+export const START_TIMEOUT = 60000;
+
 export async function runLauncher({
   root = resolve(dirname(fileURLToPath(import.meta.url)), '..'),
   port = 8787,
@@ -18,6 +24,7 @@ export async function runLauncher({
   // How long an instance may take to say who it is. An instance of an earlier version reads its
   // whole workflow catalog to answer, seconds of it while its model loads.
   answerTimeout = 10000,
+  startTimeout = START_TIMEOUT,
   signal = new AbortController().signal,
 } = {}) {
   if (Number(process.versions.node.split('.')[0]) < 22) throw Error('Node.js 22 ou plus récent est requis.');
@@ -152,7 +159,7 @@ export async function runLauncher({
       child.once('exit', () => {
         childExited = true;
       });
-      boot = await ready(undefined, 15000);
+      boot = await ready(undefined, startTimeout);
     }
     if (boot.controlled) {
       console.log(`Atelier local est déjà ouvert : ${url}`);
