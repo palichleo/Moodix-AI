@@ -574,6 +574,34 @@ class ProtocolTests(unittest.TestCase):
             errors[2], dict(message='Il manque 3,2 Go de mémoire vidéo pour ce modèle.', code='GENERATION_FAILED')
         )
 
+    def test_a_reference_image_that_cannot_be_read_is_refused_in_the_words_of_the_engine(self):
+        # (0.6.364) Cut short, not an image, or gone: what PIL says of it, with the path of the copy made for
+        # the engine, was the message of the user.
+        from PIL import Image
+
+        from runner import engine
+
+        with tempfile.TemporaryDirectory() as folder:
+            whole = Path(folder, 'whole.png')
+            Image.new('RGB', (8, 8), (200, 30, 30)).save(whole)
+            cut = Path(folder, 'cut.png')
+            cut.write_bytes(whole.read_bytes()[:40])
+            other = Path(folder, 'text.png')
+            other.write_text('not an image', encoding='utf-8')
+            self.assertIsNone(engine._check_reference(dict(input='start', path=str(whole)), 'image'))
+            for path in (cut, other, Path(folder, 'gone.png')):
+                with self.assertRaises(ValueError) as refused:
+                    engine._check_reference(dict(input='start', path=str(path)), 'image')
+                self.assertEqual(str(refused.exception), 'Reference start is not a readable file')
+                # Told as a request that cannot be made, what PIL said kept for the journal of the errors.
+                self.assertIsInstance(refused.exception.__cause__, (OSError, SyntaxError, ValueError))
+            from runner.protocol import _code
+
+            self.assertEqual(_code(refused.exception), 'INVALID_REQUEST')
+            # A clip is checked as before.
+            with self.assertRaisesRegex(ValueError, 'Reference clip is not a readable file'):
+                engine._check_reference(dict(input='clip', path=str(Path(folder, 'gone.mp4'))), 'video')
+
     def test_failed_generate_cleans_up_and_can_receive_next_request(self):
         source = io.StringIO('{"id":1,"method":"generate","params":{}}\n{"id":2,"method":"release","params":{}}\n')
         destination = io.StringIO()

@@ -32,8 +32,14 @@ def _check_reference(item, media):
     if media == 'image':
         from PIL import Image
 
-        with Image.open(item['path']) as image:
-            image.verify()
+        # (0.6.364) Said as a clip that cannot be read is, below. What PIL says of an image cut short went
+        # to the user as it was, in English, with the path of the copy the application made of it:
+        # « cannot identify image file '…/data/runner-input/….png' ».
+        try:
+            with Image.open(item['path']) as image:
+                image.verify()
+        except (OSError, SyntaxError, ValueError) as error:
+            raise ValueError('Reference ' + item['input'] + ' is not a readable file') from error
     elif not Path(item['path']).is_file():
         raise ValueError('Reference ' + item['input'] + ' is not a readable file')
 
