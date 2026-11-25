@@ -459,3 +459,57 @@ test('a folder never saved goes to the bin at launch with an old copy a refused 
   assert.deepEqual((await readdir(root)).sort(), ['.corbeille', writing, other].sort());
   assert.deepEqual(await readdir(join(root, '.corbeille')), [old]);
 });
+
+test('the conversation set aside comes back with its attachments after a restart, as the one shown (0.6.353)', async t => {
+  // Without the history, a conversation is kept nowhere but in the copy of the session taken back; the one set
+  // aside while a work went on in it (0.6.103) is in that copy too. Its folder, attachments alone, went to the
+  // bin at the launch (one identifier was kept, the one shown), and its pictures had no address to be read at.
+  const root = await mkdtemp(join(tmpdir(), 'moodix-aside-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const attachment = 'original-' + 'a'.repeat(64) + '.png',
+    [shown, aside, old] = [randomUUID(), randomUUID(), randomUUID()];
+  const folders = async () => (await readdir(join(root, 'history'))).filter(name => name !== '.corbeille').sort();
+  for (const id of [shown, aside, old]) {
+    await mkdir(join(root, 'history', id), { recursive: true });
+    await writeFile(join(root, 'history', id, attachment), 'x');
+  }
+  // The list of those to keep, as the server gives it; one alone as before; none: all of them go.
+  const history = new History(join(root, 'history'));
+  assert.equal(await history.pruneUnsaved([shown, aside, null, undefined]), 1);
+  assert.deepEqual(await folders(), [shown, aside].sort());
+  assert.equal(await history.pruneUnsaved(shown), 1);
+  assert.deepEqual(await folders(), [shown]);
+  assert.equal(await history.pruneUnsaved(), 1);
+  assert.deepEqual(await folders(), []);
+
+  // Through the application: the copy of the session names both, each with a picture joined.
+  const dataDir = join(root, 'data'),
+    said = (id, words) => ({
+      messages: [{ role: 'user', content: [{ type: 'text', text: words }, { type: 'image_url', file: attachment }] }],
+      conversationId: id,
+      prompt: '',
+      images: [{ name: 'photo.png', file: attachment }],
+      title: words,
+      thinking: false,
+    });
+  for (const id of [shown, aside, old]) {
+    await mkdir(join(dataDir, 'history', id), { recursive: true });
+    await writeFile(join(dataDir, 'history', id, attachment), 'x');
+  }
+  await writeFile(join(dataDir, 'update-session.json'), JSON.stringify({ ...said(shown, 'à l’écran'), aside: said(aside, 'de côté') }));
+  const app = await createApplication({ port: 0, dataDir });
+  t.after(() => app.close());
+  const { token } = await (await fetch(app.url + '/api/bootstrap')).json(),
+    kept = await (await fetch(app.url + '/api/updates/session', { headers: { Authorization: 'Bearer ' + token } })).json();
+  assert.deepEqual(
+    (await readdir(join(dataDir, 'history'))).filter(name => name !== '.corbeille').sort(),
+    [shown, aside].sort(),
+    'the folder of the one set aside is kept at the launch',
+  );
+  // Each picture has the address of its file, in its own conversation: in the messages and in the draft.
+  const address = id => new RegExp(`^/media/attachments/${id}/${attachment}\\?key=[0-9a-f]{64}$`);
+  assert.match(kept.messages[0].content[1].view, address(shown));
+  assert.match(kept.aside.messages[0].content[1].view, address(aside));
+  assert.match(kept.aside.images[0].view, address(aside));
+  assert.equal((await fetch(app.url + kept.aside.messages[0].content[1].view)).status, 200);
+});

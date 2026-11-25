@@ -430,6 +430,8 @@ export async function createApplication({
       images: saved.images.map(item =>
         item.file ? { ...item, view: attachmentUrl(saved.conversationId, item.file) } : item,
       ),
+      // (0.6.353) The conversation set aside the same, in its own folder: its pictures had no address.
+      ...(saved.aside ? { aside: sessionView(saved.aside) } : {}),
     };
   };
   const historyView = record => ({
@@ -654,8 +656,12 @@ export async function createApplication({
     await gallery
       .put(record, { persist: false })
       .catch(error => console.error('Copie de reprise, une prise écartée :', error.message));
-  // Attachments of conversations never saved belong to a session that has ended.
-  await history.pruneUnsaved(pendingSession?.conversationId ?? null).catch(error => console.error(error));
+  // Attachments of conversations never saved belong to a session that has ended. (0.6.353) Not those of the
+  // conversation set aside in the session taken back: kept without the history, it came back with its messages
+  // and its files gone to the bin (« Image jointe introuvable »).
+  await history
+    .pruneUnsaved([pendingSession?.conversationId, pendingSession?.aside?.conversationId])
+    .catch(error => console.error(error));
   // What waited 30 days in the bin of the history goes for good, its thumbnails with it (0.6.103).
   for (const id of await history.purgeTrash().catch(error => (console.error(error), [])))
     await thumbnails.forget(id).catch(() => {});
