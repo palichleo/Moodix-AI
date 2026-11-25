@@ -491,7 +491,16 @@ export function setupMontage({
     if (!wantedId || reading || readFor !== project()) return;
     const id = wantedId;
     wantedId = null;
-    if (montage?.id !== id) void choose(id);
+    if (montage?.id === id) return;
+    // (0.6.295) Not while this bobine is at work, as its menu of the fil (greyed then) and « Supprimer »: opened
+    // in its place from the Archives, the other bobine received the end of the take — nothing laid, an
+    // « Annuler » that did nothing, the series stopped without a word — and the take stayed out of its own
+    // bobine until the page was loaded again.
+    if (making || inSeries())
+      return void notice('Une prise est en cours de création : attendez sa fin pour ouvrir une autre bobine.');
+    if (writing || arranging)
+      return void notice('Moodix AI écrit dans cette bobine : attendez la fin pour en ouvrir une autre.');
+    void choose(id);
   }
   async function open(id) {
     const place = project();
@@ -1982,12 +1991,17 @@ export function setupMontage({
     making = null;
     if (record) {
       // (0.6.152) A take made in parts: its first part made, what is left of it stays to create.
-      remember(montage);
-      montage = withTodoMade(montage, id, record, { from: wanted.from, limits: limits(), partId: newId() });
-      laidHere.add(record.id);
-      pending = true;
-      // Kept at once: the take exists, the bobine must say so.
-      await keep();
+      const laid = withTodoMade(montage, id, record, { from: wanted.from, limits: limits(), partId: newId() });
+      // (0.6.295) Laid, and said so, only where its take to create still is: said laid in a bobine that had
+      // it no more, it was never laid again (layMissed), and an « Annuler » that changed nothing was kept.
+      if (laid !== montage) {
+        remember(montage);
+        montage = laid;
+        laidHere.add(record.id);
+        pending = true;
+        // Kept at once: the take exists, the bobine must say so.
+        await keep();
+      }
     } else if (refused !== null) {
       if (refused) notice(refused);
     } else if (!stopped) failed.set(id, problem.charAt(0).toUpperCase() + problem.slice(1));

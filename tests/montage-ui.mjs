@@ -4165,3 +4165,83 @@ test('(0.6.210) the styles of the pieces of a line: 26 px high, 12 px words; 6 p
   const source = await readFile(new URL('../public/montage.mjs', import.meta.url), 'utf8');
   assert.match(source, /from '\.\/pieces\.mjs'/);
 });
+
+test('a bobine asked from the Archives is not opened in the place of one whose take is being created (0.6.295)', async () => {
+  // (Its menu of the fil is greyed meanwhile, « Supprimer » refuses; the card of the Archives opened it all the same.)
+  const film = more => ({
+      ...{ schemaVersion: 1, format: '16:9', width: 1344, height: 768, fps: 24, sounds: [] },
+      ...{ createdAt: KEPT_AT, updatedAt: KEPT_AT },
+      ...more,
+    }),
+    todo = (n, at, prompt) => ({ id: id(n), at, kind: 'video', todo: { prompt }, from: 0, to: 5, frame: 'fit', volume: 1 }),
+    two = () => [
+      film({ id: id(900), name: 'A', plans: [todo(901, 0, 'Il court.'), todo(902, 5, 'Il saute.')] }),
+      film({ id: id(910), name: 'B', plans: [] }),
+    ],
+    turns = async () => {
+      for (let i = 0; i < 6; i++) await settle();
+    },
+    laid = f => f.ui.state().montage.plans.map(plan => (plan.todo ? 'à créer' : plan.source.runId)),
+    // (Made after the bobine was last kept, as any take made for it: `madeFor`.)
+    madeForA = n => madeFor(n, { bobine: id(900), plan: id(901) }),
+    creating = async () => {
+      const answers = [],
+        f = setup({ stored: two(), create: () => new Promise(resolve => answers.push({ resolve })) });
+      await f.open();
+      f.goMain().onclick();
+      await turns();
+      assert.deepEqual([f.ui.state().montage.name, f.ui.state().making?.id], ['A', id(901)]);
+      return { f, answers };
+    };
+  const { f, answers } = await creating();
+  // The Archives meanwhile, the card of B clicked there: back on the Bobine, A stays open, and why is said.
+  await f.ui.leave();
+  f.ui.wanted(id(910));
+  f.root = f.ui.desk();
+  await turns();
+  assert.deepEqual(
+    [f.ui.state().montage.name, f.notices.at(-1)],
+    ['A', 'Une prise est en cours de création : attendez sa fin pour ouvrir une autre bobine.'],
+  );
+  // Its take arrives: laid at its place in A, kept there, and the series goes on with the next one.
+  f.runs.push(madeForA(50));
+  answers[0].resolve(f.runs.at(-1));
+  await turns();
+  assert.deepEqual([laid(f), f.kept.get(id(900)).plans[0].source?.runId, answers.length], [[id(50), 'à créer'], id(50), 2]);
+  // The series over, nothing made any more: the card opens its bobine.
+  f.button('Arrêter').onclick();
+  answers[1].resolve(null);
+  await turns();
+  assert.deepEqual([f.ui.state().making, f.ui.state().filling], [null, null]);
+  f.ui.wanted(id(910));
+  await turns();
+  assert.equal(f.ui.state().montage.name, 'B');
+
+  // Whatever opened another bobine during a take: the take is said laid only where it was laid. Said laid in
+  // B, which has no such take to create, it left there an « Annuler » that changed nothing, and A opened again
+  // in the same page never received it.
+  const { f: g, answers: later } = await creating();
+  g.pick(id(910));
+  await turns();
+  assert.equal(g.ui.state().montage.name, 'B');
+  g.runs.push(madeForA(51));
+  later[0].resolve(g.runs.at(-1));
+  await turns();
+  assert.deepEqual([g.ui.state().montage.name, g.ui.state().past, laid(g)], ['B', 0, []]);
+  g.pick(id(900));
+  await turns();
+  assert.deepEqual(laid(g), [id(51), 'à créer']);
+
+  // While Moodix AI writes the takes of a bobine, the same: it stays open, and why is said.
+  const { f: written } = await series({ texts: ['', ''], write: pen().write });
+  written.get('bobine-go-agent')[0].onclick();
+  await settle();
+  const open = written.ui.state().montage.id;
+  written.kept.set(id(910), two()[1]);
+  written.ui.wanted(id(910));
+  await turns();
+  assert.deepEqual(
+    [Boolean(written.ui.state().writing), written.ui.state().montage.id, written.notices.at(-1)],
+    [true, open, 'Moodix AI écrit dans cette bobine : attendez la fin pour en ouvrir une autre.'],
+  );
+});
