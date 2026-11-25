@@ -21,7 +21,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Gallery } from '../lib/gallery.mjs';
 import { ToolCatalog } from '../lib/tool-catalog.mjs';
 import { validateNativeWorkflow } from '../lib/native-workflows.mjs';
-import { STUDIO_ID } from '../lib/studio.mjs';
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const local = process.env.LOCALAPPDATA || '';
@@ -67,7 +66,6 @@ const shipped = await Promise.all(
     .map(async name => JSON.parse(await readFile(new URL(name, shippedFolder), 'utf8'))),
 );
 const shippedStudio = {
-  legacyId: STUDIO_ID,
   enabled: true,
   tools: await new ToolCatalog({ list: async () => shipped.map(item => ({ ...validateNativeWorkflow(item), ready: true })) }).studio(),
   styles: ['grain-argentique.safetensors', 'portrait-doux.safetensors', 'styles\\lumiere-70s.safetensors'],

@@ -86,7 +86,6 @@ async function settingsUI({ request, refresh = async () => {}, saved = () => {},
     cancelSettings() {},
     setBusy() {},
     values: () => savedGeneration,
-    workflowDescriptions: () => [],
     reset() {},
   };
   const context = {
@@ -117,11 +116,10 @@ async function settingsUI({ request, refresh = async () => {}, saved = () => {},
     setupSettingsSearch: () => ({ reset() {}, refresh() {} }),
     setupHelpTips: () => ({ hide() {}, refresh() {} }),
     setupGlassSelects() {},
-    setupModelChoice: () => ({ render() {}, refresh: async () => {}, close() {} }),
+    setupModelChoice: () => ({ render() {}, refresh: async () => {} }),
     setupRemoteModels: () => ({
       load: async () => ({}),
       rows: () => [],
-      draft: () => null,
       dirty: () => false,
       save: async () => true,
       select: async () => true,
@@ -522,60 +520,6 @@ test('edited VAE and LoRA folders participate in unsaved-settings protection', a
     ui.$('settings-close').onclick();
     assert.equal(ui.$('settings').open, false);
   }
-});
-test('unsaved workflow descriptions prompt, and an unfinished workflow import cannot be discarded by the save button', async () => {
-  const ui = await settingsUI();
-  await ui.open();
-  ui.workflowsUI.workflowDescriptions = () => [{ id: 'photo', description: 'Draft' }];
-  ui.$('settings-close').onclick();
-  assert.equal(ui.$('settings-unsaved').open, true);
-  ui.$('settings-keep').onclick();
-  ui.workflowsUI.hasPendingImport = () => true;
-  ui.workflowsUI.finishImport = async () => false;
-  await ui.saveConfiguration();
-  assert.equal(ui.$('settings').open, true);
-  assert.equal(
-    ui.calls.some(call => call.route === 'settings'),
-    false,
-  );
-});
-
-test('the main Save finishes a prepared workflow before saving configuration and closing', async () => {
-  const ui = await settingsUI();
-  await ui.open();
-  let pending = true,
-    finished = 0;
-  ui.workflowsUI.hasPendingImport = () => pending;
-  ui.workflowsUI.finishImport = async () => {
-    finished++;
-    assert.equal(
-      ui.calls.some(call => call.route === 'settings'),
-      false,
-    );
-    pending = false;
-    return true;
-  };
-  await ui.saveConfiguration();
-  assert.equal(finished, 1);
-  assert.equal(ui.$('settings').open, false);
-  assert.equal(ui.calls.filter(call => call.route === 'settings').length, 1);
-});
-
-test('a rejected workflow remains unsaved and closing settings asks before discarding it', async () => {
-  const ui = await settingsUI();
-  await ui.open();
-  ui.workflowsUI.hasPendingImport = () => true;
-  ui.workflowsUI.finishImport = async () => false;
-  await ui.saveConfiguration();
-  assert.equal(ui.$('settings').open, true);
-  assert.equal(
-    ui.calls.some(call => call.route === 'settings'),
-    false,
-  );
-  ui.$('settings-close').onclick();
-  assert.equal(ui.$('settings-unsaved').open, true);
-  ui.$('settings-keep').onclick();
-  assert.equal(ui.$('settings').open, true);
 });
 
 test('slow status checks cannot accumulate concurrent polling requests', async () => {

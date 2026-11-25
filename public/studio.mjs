@@ -459,7 +459,7 @@ export function setupStudio({
   waitForModel,
   blocked,
   onChange,
-  // Called with the place whose creations were read again (the conversation, or the former Studio).
+  // Called with the conversation whose creations were read again.
   onRuns = () => {},
   // The conversation the page shows: its id, or null before its first message or creation. The
   // Studio works in it, unless it holds a work of another one (`conversation()` below, 0.6.81).
@@ -514,8 +514,6 @@ export function setupStudio({
     mode = 'image',
     runs = [],
     nextTake = null, // the number the next take of the project will have (the server's counter)
-    legacyRuns = [],
-    legacy = false, // the Sortie shows, and the Studio works in, the Studio of before Moodix
     working = null, // { label, fraction, preview, controller | external, chat } while a generation runs
     busyDrawn = '', // why a work of the page greys « Générer », as last drawn (busyChanged)
     // A creation just over, its takes read again: the Studio still holds its conversation (holds),
@@ -554,7 +552,7 @@ export function setupStudio({
     checking = null, // { record, resolve }: the character Moodix AI made, waiting for the user
     ai = null, // { stopped, active, touched } while the pointer sets the Studio
     seenConversation, // the conversation the creations were read for
-    runsFor, // the place (conversation, or the former Studio) they were read from
+    runsFor, // where they were read from: the conversation and its project (where)
     runsStale = false, // something was made elsewhere since
     loading = null, // the tools being read
     unreadable = '', // why the tools could not be read, while they are not
@@ -681,7 +679,6 @@ export function setupStudio({
           ? 'refilm_video'
           : 'extend_video'
         : (current()?.verb ?? modeOf(mode).verb);
-  const place = () => (legacy ? (info?.legacyId ?? null) : conversation());
   function current() {
     const draft = drafts[mode],
       list = offered(),
@@ -830,7 +827,7 @@ export function setupStudio({
     write: async (asked, { signal } = {}) => {
       await releasing;
       await waitForModel(api, signal, () => {});
-      return (await api('montages/describe', { ...asked, conversationId: place() }, { signal })).json();
+      return (await api('montages/describe', { ...asked, conversationId: conversation() }, { signal })).json();
     },
     // (0.6.162) The plan of a request written in the Bobine (« invente la suite »), asked to the chat
     // model in a request of its own, as its texts are: the bobine goes with it as the page has it.
@@ -838,7 +835,7 @@ export function setupStudio({
       await releasing;
       await waitForModel(api, signal, () => {});
       return (
-        await api('montages/arrange', { project: project(), conversationId: place(), montage: asked.montage, request: asked.request, previous: asked.previous }, { signal })
+        await api('montages/arrange', { project: project(), conversationId: conversation(), montage: asked.montage, request: asked.request, previous: asked.previous }, { signal })
       ).json();
     },
     // (0.6.144) What a plan would be made with and in how long: the request of a creation, asked
@@ -3685,12 +3682,6 @@ export function setupStudio({
     sayBlank();
     paintSave();
   }
-  /** (0.6.200) Whether an image, a clip or a sound is put in a case of the model in hand. */
-  function inputGiven(workflow = current()) {
-    return Object.entries(drafts[mode].inputs ?? {}).some(
-      ([role, list]) => workflow?.roles?.[role]?.count && (list ?? []).some(Boolean),
-    );
-  }
   /**
    * (0.6.200) The words of the empty screen, in place: a key does not draw the Studio again. Where the take
    * comes only while nothing is begun: no prompt, nothing in a case, no clip continued, no reason said under
@@ -4370,7 +4361,7 @@ export function setupStudio({
     // What it is asked for: the verb, the conversation and the mode in hand now. The chat model may
     // take seconds to come back and to write: the user may open another conversation meanwhile.
     const verb = verbOf(),
-      home = place(),
+      home = conversation(),
       epoch = draftsEpoch,
       asked = mode,
       moved = () => epoch !== draftsEpoch || asked !== mode;
@@ -4446,7 +4437,7 @@ export function setupStudio({
             draft: before.trim(),
             verb: 'replace_character',
             ...scene,
-            conversationId: place(),
+            conversationId: conversation(),
           },
           { signal },
         )
@@ -4869,15 +4860,14 @@ export function setupStudio({
     // settings once the server has said them. It stayed in the mode it was left in: « Krea 2 », the prompt of
     // an image, a screen at the wrong format, while LTX 2.5 made a video for the Bobine.
     let followed = null;
-    if (onTake?.montage && !legacy && info) {
+    if (onTake?.montage && info) {
       leaveLook();
       followed = { before: asItIs() };
       mode = MODE_OF_VERB[wanted.verb] ?? mode;
     }
     const controller = new AbortController(),
       // Where the creation will be kept once made: the mode it was asked in.
-      asked = mode,
-      former = legacy;
+      asked = mode;
     let made = null,
       result = null,
       // (0.6.148) Why a take of the bobine was not made: said there, never on the form of a mode.
@@ -4900,9 +4890,9 @@ export function setupStudio({
     };
     // Its conversation from its first instant (0.6.81): the page may show another meanwhile, the
     // creation is still this one's, and the page follows it there.
-    const conversationId = former ? info.legacyId : await ensureConversation();
+    const conversationId = await ensureConversation();
     holdAt(conversationId);
-    if (!former) onWork(conversationId, wanted.args?.prompt ?? '');
+    onWork(conversationId, wanted.args?.prompt ?? '');
     render();
     onChange();
     const pause = () => new Promise(resolve => setTimeout(resolve, 700));
@@ -4937,7 +4927,7 @@ export function setupStudio({
         showRequest({ tool: wanted.verb, ...proposed });
         render();
       }
-      if (run && !former) {
+      if (run) {
         // In the conversation: followed and written there like a creation of the chat.
         const done = await run(proposed, {
           signal: controller.signal,
@@ -5049,7 +5039,7 @@ export function setupStudio({
       render();
       scrollStrip();
       // The page's work is over; left meanwhile, the Studio goes to the conversation shown.
-      if (!former) onWork(null);
+      onWork(null);
       letGo();
     }
     // (0.6.142) Asked by the montage: the take made, or why there is none, said there and not on the form.
@@ -5368,7 +5358,6 @@ export function setupStudio({
       signal?.addEventListener('abort', abort, { once: true });
       // Locked from now until the pointer rests on « Générer », or the proposal goes (endPointer).
       lockStudio(true);
-      legacy = false;
       failure = '';
       const shown = reveal();
       void (async () => {
@@ -5840,7 +5829,6 @@ export function setupStudio({
         },
       };
       signal?.addEventListener('abort', abort, { once: true });
-      legacy = false;
       failure = '';
       if (mode !== 'image') setMode('image');
       kept.image = runs.find(item => item.id === record.id) ?? record;
@@ -6003,7 +5991,7 @@ export function setupStudio({
       return progress();
     }
     // Not over a work of its own, a proposal or Moodix AI setting it, nor a prompt being improved.
-    if (!take?.running || holds() || working || enriching || !info || legacy || away()) return;
+    if (!take?.running || holds() || working || enriching || !info || away()) return;
     leaveLook();
     const before = asItIs();
     showRequest(take.request);
@@ -6157,17 +6145,16 @@ export function setupStudio({
     // A file put on the screen, kept as a reference of the project (inspectFile).
     record.resource
       ? { resource: record.resource }
-      : record.conversationId && record.conversationId !== place()
+      : record.conversationId && record.conversationId !== conversation()
         ? { output: record.id, conversation: record.conversationId }
         : { output: record.id };
   /** What the screen shows: the creation just made or opened from the chat, else the last of its mode. */
   /**
    * The takes of the open conversation: the screen is that conversation's (16/11), with the settings
    * of its last take (adopt). The Sortie is the project's: every take of all its conversations, a new
-   * conversation included. (The former Studio, read alone, has all of its own.)
+   * conversation included.
    */
-  const ownRuns = () =>
-    legacy ? runs : runs.filter(record => !record.conversationId || record.conversationId === conversation());
+  const ownRuns = () => runs.filter(record => !record.conversationId || record.conversationId === conversation());
   function onStage() {
     if (working) return null;
     return kept[mode] ?? ownRuns().find(item => mediaOf(item) === mode) ?? null;
@@ -6198,7 +6185,7 @@ export function setupStudio({
   async function remove(record) {
     let gone = false;
     try {
-      const where = record.conversationId ?? place();
+      const where = record.conversationId ?? conversation();
       // A creation of another conversation of the project leaves that conversation.
       await api('studio/delete', { id: record.id, conversationId: where });
       gone = true;
@@ -6244,13 +6231,6 @@ export function setupStudio({
     pressed = false; // a long press opened a menu: the click that ends it selects nothing
   // The size of each image shown, read from the picture itself: a record does not keep it.
   const measured = new Map();
-  /** Puts an image of the Sortie in a slot of a mode (`index`: which one of its role). */
-  function useImage(record, target, role, index = 0) {
-    setMode(target);
-    extending = null;
-    putCreation(record, role, index);
-    $('studio-view')?.scrollTo?.({ top: 0, behavior: 'smooth' });
-  }
   /**
    * « Modifier »: the image is the one to modify of the next image. The model in hand may take none
    * (MOSS Image) while another does (Krea 2): that one is then chosen, as « Animer » chooses its
@@ -7626,29 +7606,17 @@ export function setupStudio({
   }
   async function refresh() {
     if (!info) return;
-    const id = place();
-    seenConversation = conversation();
+    const id = conversation();
+    seenConversation = id;
     // Without the copies kept for the model (a storyboard per clip): the Studio shows the files.
-    // Those of the whole project, the open conversation with them (the former Studio: its own).
-    const route = legacy
-      ? id && `gallery/${id}?images=0`
-      : `project-gallery/${encodeURIComponent(project())}?images=0` + (id ? '&conversation=' + id : '');
-    const read = route ? await (await api(route)).json() : {};
+    // Those of the whole project, the open conversation with them.
+    const route = `project-gallery/${encodeURIComponent(project())}?images=0` + (id ? '&conversation=' + id : '');
+    const read = await (await api(route)).json();
     runs = read.runs ?? [];
     nextTake = Number.isInteger(read.nextTake) ? read.nextTake : null;
     runsFor = where();
     runsStale = false;
-    if (info.legacyId && !legacyRuns.loaded) {
-      try {
-        legacyRuns = (await (await api(`gallery/${info.legacyId}?images=0`)).json()).runs ?? [];
-      } catch {
-        legacyRuns = [];
-      }
-      legacyRuns.loaded = true;
-    } else if (legacy) {
-      legacyRuns = Object.assign([...runs], { loaded: true });
-    }
-    onRuns(id, legacy);
+    onRuns(id);
     // (0.6.148) The bobine shows the takes of the project too: one made or removed is shown there.
     if (globalThis.document?.body?.dataset?.view === 'bobine') montage.refreshed();
   }
@@ -7712,9 +7680,9 @@ export function setupStudio({
     if (set || shown() !== drawn) render();
   }
   /** Where the creations shown come from: the conversation and its project. */
-  const where = () => `${place()}|${legacy ? '' : project()}`;
+  const where = () => `${conversation()}|${project()}`;
   /** What the Studio shows of what it reads: its tools and creations, from where. */
-  const shown = () => JSON.stringify([info, runs, legacyRuns.length, legacy, unreadable]);
+  const shown = () => JSON.stringify([info, runs, unreadable]);
   /**
    * Reads ahead, as the page opens (app.js): its tools, most of the wait the first time, and the
    * creations of the conversation. The Studio is then drawn whole the first time it comes on screen.
@@ -7814,7 +7782,6 @@ export function setupStudio({
     extending = null;
     finishing = animated = null;
     failure = '';
-    legacy = false;
   }
   /** What names the conversation of the drafts: its identifier; a new one, by its project. */
   const draftKey = () => conversation() ?? 'new|' + project();
@@ -8053,7 +8020,7 @@ export function setupStudio({
    * there was lost.
    */
   function settle() {
-    if (!info || legacy || runsFor !== where() || working || proposal || ai || checking) return false;
+    if (!info || runsFor !== where() || working || proposal || ai || checking) return false;
     // Nor while the prompt of this conversation is being improved: its answer would be written over
     // the settings taken here. (Asked in a conversation left since, it is dropped: nothing to wait for.)
     if (enriching && enrichEpoch === draftsEpoch) return false;
@@ -8112,7 +8079,7 @@ export function setupStudio({
   }
   /** The Studio has just made a take itself: its settings are already those of the newest take. */
   function settledHere() {
-    if (!legacy && runsFor === where()) lastSeen.set(draftKey(), ownRuns()[0]?.id ?? null);
+    if (runsFor === where()) lastSeen.set(draftKey(), ownRuns()[0]?.id ?? null);
   }
   /** Nothing is looked at any more: no way back, the address of a file of the disk given back. */
   function endLook() {
@@ -8177,7 +8144,6 @@ export function setupStudio({
     const refused = cannotLook(mediaOf(record));
     if (refused) return notice(refused);
     looked ??= { mode, drafts: structuredClone(drafts), advanced, kept: { ...kept }, pinned, extending };
-    legacy = false;
     const target = mediaOf(record);
     mode = target;
     kept[target] = record;
@@ -8471,7 +8437,6 @@ export function setupStudio({
     finish: (record, verb) => finishTake(record, verb),
     // (0.6.260) Why that page cannot open now ('' when it can): asked there before the Chat is left.
     finishBlocked: () => (working ? whyNot() || BUSY_HERE : proposal ? 'Moodix AI est en train de proposer' : ''),
-    takeOver,
     conversationChanged,
     invalidate,
     workflowsSaved,

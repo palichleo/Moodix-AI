@@ -362,11 +362,5 @@ export function setupModelChoice({
     return loading;
   }
   render();
-  return {
-    render,
-    refresh,
-    close: () => {
-      for (const open of popups) open.close();
-    },
-  };
+  return { render, refresh };
 }

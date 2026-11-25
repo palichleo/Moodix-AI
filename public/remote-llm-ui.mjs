@@ -598,17 +598,12 @@ export function setupRemoteModels({
   return {
     load,
     rows,
-    draft,
     dirty,
     save,
     select,
-    cancel,
-    close,
     /** Locked while the page works elsewhere (a save, a generation). */
     lock(value) {
       $('add-api').disabled = value;
     },
-    active: () => view.active,
-    connections: () => view.connections,
   };
 }

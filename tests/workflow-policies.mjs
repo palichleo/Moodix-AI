@@ -17,7 +17,6 @@ import {
   workflowFingerprint,
 } from '../lib/native-workflows.mjs';
 import { nearestFormat } from '../public/formats.mjs';
-import { STUDIO_ID } from '../lib/studio.mjs';
 import { ToolCatalog } from '../lib/tool-catalog.mjs';
 import { ToolRuntime } from '../lib/tool-runtime.mjs';
 import { renderProposal } from '../public/video-plan.mjs';
@@ -270,7 +269,7 @@ async function studioPage(w, { runs = null } = {}) {
     notices = [];
   async function serve(route, body) {
     if (route === 'studio')
-      return { enabled: true, legacyId: STUDIO_ID, styles: [], tools: await w.tools.studio(), presets: {} };
+      return { enabled: true, styles: [], tools: await w.tools.studio(), presets: {} };
     if (route.startsWith('project-gallery/') || route.startsWith('gallery/')) return { runs: runs ?? w.saved };
     // As server.mjs answers « Générer » (/api/tools/action): a call made of the Studio's arguments.
     if (route === 'tools/action')

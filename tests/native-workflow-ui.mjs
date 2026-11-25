@@ -244,7 +244,6 @@ test('settings read native generation values and descriptions come from workflow
     f.calls.some(call => call.route === 'comfy'),
     false,
   );
-  assert.deepEqual(f.ui.workflowDescriptions(), []);
 });
 
 test('an unchanged native prompt policy remains valid against the shared catalog contract', async t => {

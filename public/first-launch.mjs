@@ -227,8 +227,5 @@ export function setupFirstLaunch({ api, node, icon, host, config, onConfig, onDo
       host.replaceChildren();
       onDone();
     },
-    get shown() {
-      return shown;
-    },
   };
 }

@@ -417,7 +417,6 @@ test('the Pellicule keeps the current messages and draft', async () => {
       status: {},
       view: 'chat',
       conversationId: 'kept',
-      studioId: 'studio',
       messages: [{ role: 'user', content: 'Keep' }],
     },
     prompt = { value: 'An unsent draft' },
@@ -561,7 +560,7 @@ test('an action clicked before the page knows its token waits for it instead of 
 });
 test('Chat and Studio are two views of one conversation: switching is immediate, even during an answer', async () => {
   const source = await readFile(new URL('../public/app.js', import.meta.url), 'utf8'),
-    state = { status: {}, view: 'chat', conversationId: 'kept', studioId: 'studio', generating: true },
+    state = { status: {}, view: 'chat', conversationId: 'kept', generating: true },
     document = { body: { dataset: {} } };
   let loaded,
     opened,

@@ -821,5 +821,5 @@ export function setupProjectNavigation({
   function useLibrary(shown) {
     library = shown;
   }
-  return { render, refresh, sync, closeMenus, edit, remove, renderResume, useLibrary };
+  return { render, refresh, sync, renderResume, useLibrary };
 }

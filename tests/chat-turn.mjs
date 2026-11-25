@@ -336,7 +336,7 @@ function page({
       cut('async function runInStudio(', 'const tokenControls = setupTokenControls'),
       cut('async function newConversation(', "document.addEventListener('keydown'"),
       cut('let promptLabel = null;', '// Images need the vision projector'),
-      cut("$('cancel').onclick = () => {", "$('thinking').onclick"),
+      cut("$('cancel').onclick = () => {", '// The model and its reflection in the bar of the chat'),
     ].join('\n'),
     context,
   );

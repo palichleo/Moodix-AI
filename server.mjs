@@ -1333,9 +1333,8 @@ export async function createApplication({
           generation.styles(),
           studioPresets.all(),
         ]);
-        // `legacyId`: the Studio of before, whose creations had no conversation, still listed apart.
         // `presets`: the settings saved for each model (« Enregistrer »).
-        return send(200, { legacyId: STUDIO_ID, enabled: generation.config.enabled === true, tools, styles, presets });
+        return send(200, { enabled: generation.config.enabled === true, tools, styles, presets });
       }
       if (req.method === 'GET' && path === '/api/tools/job') {
         // With what a page draws its card (`proposal`): one reloaded meanwhile follows it again (0.6.82).

@@ -763,7 +763,6 @@ test('another mode stops following the size of the frame it leaves', async () =>
     });
     const info = {
       enabled: true,
-      legacyId: STUDIO_ID,
       styles: [],
       tools: { create_image: [workflow('i', 'image')], create_video: [workflow('v', 'video')] },
     };
@@ -1127,7 +1126,6 @@ async function studioPage(tools, routes = {}, options = {}) {
           route === 'studio'
             ? {
                 enabled: true,
-                legacyId: STUDIO_ID,
                 styles: ['a.safetensors', 'b.safetensors'],
                 tools,
                 presets: options.presets ?? {},

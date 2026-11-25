@@ -53,7 +53,6 @@ const state = {
   view: 'chat',
   // The project the Pellicule shows ('all': every one).
   libraryProject: 'all',
-  studioId: null,
   projectId: 'inbox',
   projects: [{ id: 'inbox', name: 'Conversations' }],
   projectWorking: false,
@@ -1122,7 +1121,6 @@ function restoreSession(saved) {
   state.images = saved.images;
   state.thinking = saved.thinking;
   $('prompt').value = saved.prompt;
-  $('thinking').setAttribute('aria-pressed', String(state.thinking));
   generationUI.clear(state.aside?.nodes);
   $('messages').replaceChildren();
   const views = renderTranscript(state.messages, saved.archiveSnapshot?.incomplete);
@@ -1166,7 +1164,6 @@ async function resumeAfterRestart() {
   state.images = kept.images || [];
   state.videos = kept.videos || [];
   state.thinking = kept.thinking !== false;
-  $('thinking').setAttribute('aria-pressed', String(state.thinking));
   renderAttachments();
   resizePrompt();
   returnBand();
@@ -1441,7 +1438,6 @@ function updateControls() {
   }
   $('cancel').setAttribute('aria-label', cancelLabel);
   $('cancel').title = cancelLabel;
-  $('thinking').disabled = state.generating;
   // The model and its reflection, chosen in the bar of the chat (model-choice.mjs): never while it answers.
   $('model-choice').disabled = $('effort-choice').disabled = state.generating || toolBusy || !state.connected;
   state.modelChoice?.render();
@@ -2253,10 +2249,6 @@ async function saveConfiguration() {
   )
     return;
   const session = state.settingsSession;
-  if (workflowsUI.hasPendingImport?.()) {
-    if (!(await workflowsUI.finishImport?.())) return;
-    if (session !== state.settingsSession || !$('settings').open) return;
-  }
   state.operation = true;
   $('config-error').hidden = true;
   updateControls();
@@ -2280,7 +2272,6 @@ async function saveConfiguration() {
         config,
         instructions: $('global-instructions').value,
         generation: workflowsUI.values(),
-        workflowDescriptions: workflowsUI.workflowDescriptions(),
       })
     ).json();
     // The room (Interface) goes with the other preferences.
@@ -5089,10 +5080,6 @@ const studioUI = setupStudio({
   // The pointer of Moodix AI sets the Studio: the places of the page wait for it (2 to 3 s).
   onLock: () => updateControls(),
   onChange: () => refreshStatus(),
-  onRuns: (id, legacy) => {
-    state.studioId = id;
-    state.studioLegacy = legacy;
-  },
   conversation: () => state.conversationId,
   // The Sortie of the Studio shows the creations of the whole project.
   project: () => state.projectId || 'inbox',
@@ -5272,8 +5259,6 @@ const settingsGuard = setupSettingsGuard({
       'generation-latent-upscale-root',
     ].map(id => [id, $(id).value, $(id).checked]),
     room: interfaceUI.dirty(),
-    descriptions: workflowsUI.workflowDescriptions(),
-    pending: workflowsUI.hasPendingImport?.() || false,
     editor: workflowsUI.editorDirty?.() || false,
   }),
 });
@@ -5460,11 +5445,6 @@ $('cancel').onclick = () => {
   if (state.controller) state.controller.abort();
   else api('tools/cancel', { jobId: state.status.toolJob?.id }).catch(error => notice(error.message));
 };
-$('thinking').onclick = () => {
-  state.thinking = !state.thinking;
-  $('thinking').setAttribute('aria-pressed', String(state.thinking));
-  contextMeter.schedule();
-};
 // The model and its reflection in the bar of the chat (17/11): the reflection of the local model,
 // or the model and the effort of a remote one, kept by the server as the last choice.
 /** The name of the local model, as the top bar says it: the one given in « Vos LLM », else its file. */
@@ -5489,7 +5469,6 @@ state.modelChoice = setupModelChoice({
   },
   setThinking: on => {
     state.thinking = on;
-    $('thinking').setAttribute('aria-pressed', String(on));
     contextMeter.schedule();
   },
   onStatus: status => {
