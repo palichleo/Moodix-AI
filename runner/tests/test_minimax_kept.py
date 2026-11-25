@@ -123,6 +123,30 @@ class KeptModelTests(unittest.TestCase):
                 minimax_h3_text.load('wrong.safetensors')
         self.assertEqual(closed, [True])
 
+    def test_the_kind_of_the_model_a_take_says_is_never_written_over(self):
+        # (0.6.372) Read from the header of the model, then said in what the take keeps of itself (`model`):
+        # a loop that put back a prompt kept on the disk used the same name for something else.
+        import ast
+        import inspect
+
+        from runner.pipelines import minimax_h3 as pipeline
+
+        tree = ast.parse(inspect.getsource(pipeline._generate))
+        bound = [
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Name) and node.id == 'kind' and isinstance(node.ctx, ast.Store)
+        ]
+        self.assertEqual(len(bound), 1, 'the kind of the model is given its value once in a creation')
+        said = [
+            keyword
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            for keyword in node.keywords
+            if keyword.arg == 'model' and isinstance(keyword.value, ast.Name) and keyword.value.id == 'kind'
+        ]
+        self.assertEqual(len(said), 1, 'and it is what the take says of its model')
+
     def test_the_decode_asks_for_its_decoder_and_more_for_a_larger_picture(self):
         from runner.pipelines.minimax_h3 import decode_gib
 

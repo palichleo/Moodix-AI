@@ -492,8 +492,11 @@ def _generate(job, config, progress, key, holder):
     if found:
         for name, value in conditioning.restore(*found).items():
             state.set(name, value)
-        for kind, names in found[1].get('kinds', {}).items():
-            known = state.kwargs_mapping.setdefault(kind, [])
+        # (0.6.372) Its own name: called `kind` as the kind of the model is (base, distilled), the group
+        # diffusers files a value under took its place, and the take of a prompt kept on the disk said it
+        # was made with the model « denoiser_input_fields ».
+        for group, names in found[1].get('kinds', {}).items():
+            known = state.kwargs_mapping.setdefault(group, [])
             known.extend(name for name in names if name not in known)
         kept = 'kept from an earlier generation'
     else:
