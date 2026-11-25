@@ -91,17 +91,21 @@ export async function compressImage(blob, { name, count = 1 } = {}) {
   return raster(blob, { name: filename, count, source, maxPixels: 64_000_000 });
 }
 
-export async function prepareImages(items) {
+/**
+ * (0.6.292) `among`: how many images the message has in all, when some of them are not prepared here (those
+ * the history already keeps, addFiles of app.js): each copy has the size its share of the message allows.
+ */
+export async function prepareImages(items, { among } = {}) {
   if (!items || typeof items[Symbol.iterator] !== 'function') throw new Error('Liste d’images invalide.');
-  const list = Array.from(items);
-  imageBudget(list.length);
+  const list = Array.from(items),
+    count = among === undefined ? list.length : among;
+  imageBudget(count);
+  if (count < list.length) throw new Error('Liste d’images invalide.');
   const prepared = [];
   for (const item of list) {
     if (item instanceof File) {
       checkBlob(item, false);
-      prepared.push(
-        await raster(item, { name: imageName(item.name), count: list.length, source: item, maxPixels: 40_000_000 }),
-      );
+      prepared.push(await raster(item, { name: imageName(item.name), count, source: item, maxPixels: 40_000_000 }));
       continue;
     }
     if (!item || typeof item !== 'object') throw new Error('Image invalide.');
@@ -109,14 +113,12 @@ export async function prepareImages(items) {
     if (item.source !== undefined) {
       if (!(item.source instanceof File)) throw new Error('Source d’image invalide.');
       checkBlob(item.source, true);
-      prepared.push(
-        await raster(item.source, { name, count: list.length, source: item.source, maxPixels: 64_000_000 }),
-      );
+      prepared.push(await raster(item.source, { name, count, source: item.source, maxPixels: 64_000_000 }));
       continue;
     }
     const blob = dataBlob(item.url);
     checkBlob(blob, true);
-    prepared.push(await raster(blob, { name, count: list.length, maxPixels: 64_000_000 }));
+    prepared.push(await raster(blob, { name, count, maxPixels: 64_000_000 }));
   }
   return prepared;
 }

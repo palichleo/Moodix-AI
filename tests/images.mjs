@@ -144,6 +144,27 @@ test('raster dimensions share the batch budget and never upscale small originals
   });
 });
 
+test('images prepared beside others of their message take their share of it, not that of an image alone (0.6.292)', { concurrency: false }, async () => {
+  await browserStub({ width: 4000, height: 2000 }, async seen => {
+    // One prepared among sixteen (the fifteen others are kept by the history, and stay as they are).
+    await prepareImages([{ name: 'une', url: pngUrl }], { among: 16 });
+    await prepareImages([{ name: 'une', url: pngUrl }]);
+    await prepareImages([new File(['x'], 'choisie.png', { type: 'image/png' })], { among: 4 });
+    assert.deepEqual(
+      seen.drawn.map(({ width, height }) => [width, height]),
+      [
+        [500, 250],
+        [1024, 512],
+        [1000, 500],
+      ],
+    );
+    assert.deepEqual(await prepareImages([], { among: 3 }), []);
+  });
+  // Never more images than the message is said to have, nor more than a message may hold.
+  await assert.rejects(prepareImages([{ url: pngUrl }], { among: 65 }), /64/);
+  await assert.rejects(prepareImages([{ url: pngUrl }, { url: pngUrl }], { among: 1 }), /invalide/);
+});
+
 test(
   'compression chooses the shorter PNG or JPEG and preserves the original File',
   { concurrency: false },

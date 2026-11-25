@@ -2525,11 +2525,24 @@ async function addFiles(files) {
     }
     // Shown to the model when it sees: its projector of vision, or its connection (remote-llm-ui.mjs).
     if (images.length && (state.status?.remote ? state.status.remote.vision === true : state.config.projectorPath)) {
-      const refs = [...state.images.map(image => image.ref), ...images.map(item => item.reference.label)],
-        ids = [...state.images.map(image => image.resource), ...images.map(item => item.reference.id)];
-      state.images = (await prepareImages([...state.images, ...images.map(item => item.file)])).map((image, index) =>
-        refs[index] ? { ...image, ref: refs[index], resource: ids[index] } : image,
-      );
+      const before = state.images,
+        refs = [...before.map(image => image.ref), ...images.map(item => item.reference.label)],
+        ids = [...before.map(image => image.resource), ...images.map(item => item.reference.id)];
+      // (0.6.292) The images the history already keeps (a message taken back by « Modifier », a conversation
+      // opened again) stay as they are, their file with them. Prepared again with the others, one whose copy was
+      // not made yet refused the whole lot (« Utilisez une image locale… », the new image left out though its
+      // « #ref » was written), and one that had its copy lost its original for it (`file`, `view`). Their copy is
+      // made again when the message leaves, for the number of images it has then (fillCopies).
+      const made = (
+          await prepareImages([...before.filter(image => !image.file), ...images.map(item => item.file)], {
+            among: before.length + images.length,
+          })
+        )[Symbol.iterator](),
+        kept = ({ url, ...image }) => image;
+      state.images = [...before, ...images].map((image, index) => {
+        const next = index < before.length && image.file ? kept(image) : made.next().value;
+        return refs[index] ? { ...next, ref: refs[index], resource: ids[index] } : next;
+      });
     }
     notice('');
   } catch (error) {

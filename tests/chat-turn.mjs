@@ -13,7 +13,7 @@ import { runSeries } from '../public/image-series.mjs';
 import { takesOf } from '../public/take-recovery.mjs';
 import * as detached from '../public/detached-takes.mjs';
 import { takeContent } from '../public/generation-runtime.mjs';
-import { dataBlob } from '../public/images.mjs';
+import { dataBlob, prepareImages } from '../public/images.mjs';
 import { History, MAX_CONVERSATION_MESSAGES } from '../lib/history.mjs';
 import { nativeFields } from '../lib/native-messages.mjs';
 import { problem } from '../lib/engine.mjs';
@@ -261,6 +261,7 @@ function page({
       target.textContent = words;
     },
     dataBlob,
+    prepareImages,
     notice: words => seen.notices.push(words),
     tabLine: () => seen.lines.push(state.view),
     turnActions() {},
@@ -3046,4 +3047,84 @@ test('an image of the draft taken back after « Redémarrer » leaves with its m
     'Image jointe non enregistrée : Utilisez une image locale PNG, JPEG ou WebP.',
   ]);
   assert.deepEqual([wrong.requests.length, kept.length, wrong.state.images.length], [0, 1, 1]);
+});
+
+test('an image joined after « Modifier » leaves those of the message as the history keeps them (0.6.292)', async t => {
+  // What the browser does of the preparation of an image (tests/images.mjs): a picture of 4000 × 2000, drawn smaller.
+  const PIXELS = 'data:image/png;base64,iVBORw0KGgo=',
+    drawn = [],
+    browser = {
+      createImageBitmap: async () => ({ width: 4000, height: 2000, close() {} }),
+      document: {
+        createElement: () => ({
+          getContext: () => ({ fillRect() {}, drawImage: (bitmap, x, y, width) => drawn.push(width) }),
+          toDataURL: () => PIXELS,
+        }),
+      },
+    },
+    former = Object.keys(browser).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]);
+  Object.assign(globalThis, browser);
+  t.after(() => {
+    for (const [key, descriptor] of former)
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+  });
+  const chosen = name => new File([Uint8Array.from([137, 80, 78, 71])], name, { type: 'image/png' }),
+    // An image of a message taken back by « Modifier » (savedUser): the file the history keeps, and its view.
+    saved = (n, more = {}) => ({
+      name: 'Image enregistrée ' + n,
+      file: `original-${String(n).repeat(64)}.png`,
+      view: '/media/attachments/' + n,
+      ...more,
+    }),
+    joining = images => {
+      const shown = page({ state: { images, config: { enginePath: 'engine', modelPath: 'model', projectorPath: 'vision' } } });
+      shown.context.assetsUI.importFiles = async ([file]) => [{ id: 'reference-' + file.name, label: '#ref4', name: file.name }];
+      return shown;
+    },
+    // (Read as plain values: the page of the test lives in a context of its own.)
+    told = shown =>
+      plain(shown.state.images.map(image => [image.name, image.file ?? null, image.view ?? null, image.url ?? null, image.ref ?? null]));
+
+  // The conversation opened again, its copy not made yet. The whole lot was refused (« Utilisez une image locale… »).
+  const reopened = joining([saved(1)]);
+  await reopened.context.addFiles([chosen('chat.png')]);
+  assert.deepEqual(reopened.notices.filter(Boolean), []);
+  assert.deepEqual(told(reopened), [
+    ['Image enregistrée 1', saved(1).file, saved(1).view, null, null],
+    ['chat.png', null, null, PIXELS, '#ref4'],
+  ]);
+  assert.ok(reopened.state.images[1].source instanceof File, 'the new image keeps the file the user chose');
+  assert.equal(reopened.state.images[1].resource, 'reference-chat.png');
+  // In the session it was sent in, its copy made: it lost its file for that copy, kept again as a new image.
+  const same = joining([saved(1, { url: PIXELS })]);
+  await same.context.addFiles([chosen('chat.png')]);
+  assert.deepEqual(told(same)[0], ['Image enregistrée 1', saved(1).file, saved(1).view, null, null]);
+  assert.equal(same.state.images[0].source, undefined);
+
+  // Each new copy has the share of the whole message: one among four, not one alone.
+  drawn.length = 0;
+  const four = joining([saved(1), saved(2), saved(3)]);
+  await four.context.addFiles([chosen('chat.png')]);
+  const alone = joining([]);
+  await alone.context.addFiles([chosen('chat.png')]);
+  assert.deepEqual(drawn, [1000, 1024]);
+  // Their order stays, an image of the draft without a file (taken back after « Redémarrer ») prepared with the new one.
+  const mixed = joining([saved(1), { name: 'brouillon.png', url: PIXELS, ref: '#ref2', resource: 'reference-2' }, saved(3)]);
+  await mixed.context.addFiles([chosen('chat.png')]);
+  assert.deepEqual(
+    told(mixed).map(([name, file, , url, ref]) => [name, Boolean(file), Boolean(url), ref]),
+    [
+      ['Image enregistrée 1', true, false, null],
+      ['brouillon.png', false, true, '#ref2'],
+      ['Image enregistrée 3', true, false, null],
+      ['chat.png', false, true, '#ref4'],
+    ],
+  );
+  assert.deepEqual([mixed.state.images[1].resource, mixed.state.images[1].width], ['reference-2', 4000]);
+  // One the browser cannot read is still said, and the message keeps what it had.
+  const unread = joining([saved(1)]);
+  globalThis.createImageBitmap = async () => Promise.reject(new Error('Image illisible.'));
+  await unread.context.addFiles([chosen('abîmée.png')]);
+  assert.deepEqual([unread.notices.filter(Boolean), told(unread).length], [['Image illisible.'], 1]);
 });
