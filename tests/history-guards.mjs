@@ -342,3 +342,41 @@ test('the session of an update or « Redémarrer » keeps the revision read, and
   assert.equal(updateSession(base).aside, undefined);
   assert.throws(() => updateSession({ ...base, aside: { messages: 'non' } }), /Session de mise à jour invalide/);
 });
+
+test('a conversation kept in the bin is never replaced there by a folder of attachments alone (0.6.354)', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'moodix-bin-kept-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const directory = join(root, 'history'),
+    history = new History(directory),
+    id = randomUUID(),
+    attachment = 'original-' + 'b'.repeat(64) + '.png',
+    inBin = async () => (await history.trash()).find(item => item.id === id);
+  await history.save({ id, title: 'Vraie conversation', messages: [{ role: 'user', content: 'bonjour' }] });
+  await history.remove(id);
+  assert.deepEqual([(await inBin()).saved, (await inBin()).messages], [true, 1]);
+  const deleted = (await inBin()).deletedAt;
+  // Another tab still open on it joins an image without sending anything; then the next launch. The folder of
+  // that image alone took the place of the conversation in the bin: erased, and hidden there (`saved: false`).
+  await mkdir(join(directory, id), { recursive: true });
+  await writeFile(join(directory, id, attachment), 'x');
+  assert.equal(await history.pruneUnsaved(), 1);
+  const kept = await inBin();
+  assert.deepEqual([kept.saved, kept.messages, kept.title, kept.deletedAt], [true, 1, 'bonjour', deleted]);
+  // Its image joined it there, and its folder is gone from the history: nothing lost, nothing left behind.
+  assert.deepEqual((await readdir(join(directory, '.corbeille', id))).includes(attachment), true);
+  assert.deepEqual((await readdir(directory)).filter(name => name !== '.corbeille'), []);
+  // Given back, the conversation is whole.
+  await history.restore(id);
+  assert.equal((await history.read(id)).messages[0].content, 'bonjour');
+  // Deleted, given back, deleted again: the newer one still takes the place of the older, as before.
+  await history.remove(id);
+  await history.save({ id, title: 'Refaite', messages: [{ role: 'user', content: 'encore' }] });
+  await history.remove(id);
+  assert.deepEqual([(await inBin()).title, (await inBin()).messages], ['encore', 1]);
+  // A folder of attachments alone whose conversation is not in the bin goes there as before, hidden.
+  const other = randomUUID();
+  await mkdir(join(directory, other), { recursive: true });
+  await writeFile(join(directory, other, attachment), 'x');
+  assert.equal(await history.pruneUnsaved(), 1);
+  assert.equal((await history.trash()).find(item => item.id === other).saved, false);
+});
