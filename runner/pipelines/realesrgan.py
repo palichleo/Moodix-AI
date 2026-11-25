@@ -68,7 +68,10 @@ def generate(job, config, progress):
         tensor = torch.from_numpy(pixels).to(device).permute(2, 0, 1)[None].to(dtype) / 255
         result = rrdbnet.upscale(model, tensor, tile=tile)
         width, height = _target(pixels.shape[1], pixels.shape[0], model.scale, max_side)
-        if result.shape[-1] != width:
+        # (0.6.377) Its height too: a clip four times as high as it is wide, brought under a largest side just
+        # below its double, keeps its width and loses a few rows. Its width alone was compared: the picture went
+        # as it was, and the video refused it (a frame of another size than its file).
+        if tuple(result.shape[-2:]) != (height, width):
             result = F.interpolate(result.float(), size=(height, width), mode='area')
         return (result[0].permute(1, 2, 0).float().clamp(0, 1) * 255).round().to(torch.uint8).cpu().numpy()
 

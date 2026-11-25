@@ -250,6 +250,31 @@ class TransformTests(unittest.TestCase):
         rrdbnet.upscale(model, even, tile=0)
         self.assertIs(seen[0], even)
 
+    def test_a_clip_brought_under_its_largest_side_by_its_height_alone_is_resized(self):
+        # (0.6.377) 64 x 300 doubled is 128 x 600; under 598 its width stays 128 and its height is 598.
+        import imageio_ffmpeg
+
+        from runner.pipelines.realesrgan import _target
+        from runner.video.stream import probe
+
+        self.assertEqual(_target(64, 300, 2, 598), (128, 598))
+        tall = Path(self.folder.name) / 'tall.mp4'
+        subprocess.run(
+            [imageio_ffmpeg.get_ffmpeg_exe(), '-v', 'error', '-y', '-f', 'lavfi', '-i',
+             'testsrc=size=64x300:rate=8:duration=0.5', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(tall)],
+            check=True,
+        )  # fmt: skip
+        _, path = self.run_job(
+            'realesrgan_video', 'video', 'upscaler', self.upscaler, {'max_side': 598}, 'source_video', tall
+        )
+        info = probe(path)
+        self.assertEqual((info['width'], info['height'], info['frames']), (128, 598, 4))
+        # A width that changes was resized already, and still is.
+        _, path = self.run_job(
+            'realesrgan_video', 'video', 'upscaler', self.upscaler, {'max_side': 590}, 'source_video', tall
+        )
+        self.assertEqual((probe(path)['width'], probe(path)['height']), (126, 590))
+
     def test_video_upscale_keeps_frames_rate_and_sound(self):
         from runner.video.stream import probe
 
