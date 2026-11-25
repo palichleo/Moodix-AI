@@ -620,14 +620,29 @@ export async function createApplication({
     resourceTurns = new Map(),
     // How many times the chat model was asked to name each conversation (/api/history/title).
     titleTries = new Map();
+  // The pictures the chat model reads in a turn of a conversation: eight at most, counted for the
+  // 256 latest turns.
+  const READS_PER_TURN = 8,
+    readsOf = turnId => resourceTurns.get(turnId) || 0,
+    countReads = (turnId, count) => {
+      resourceTurns.set(turnId, readsOf(turnId) + count);
+      if (resourceTurns.size > 256) resourceTurns.delete(resourceTurns.keys().next().value);
+    };
   const mediaKey = (id, part) =>
     createHmac('sha256', mediaSecret)
       .update(id + '/' + part)
       .digest('hex');
+  // The key a media address carries (mediaKey), checked in constant time: anything else is refused.
+  const checkKey = (requestURL, id, part) => {
+    const key = requestURL.searchParams.get('key') || '';
+    if (!/^[0-9a-f]{64}$/.test(key) || !timingSafeEqual(Buffer.from(key, 'hex'), Buffer.from(mediaKey(id, part), 'hex')))
+      throw problem('Accès refusé.', 401);
+  };
+  const resourceUrl = (id, part) => `/media/resources/${id}/${part}?key=${mediaKey(id, part)}`;
   const resourceView = record => ({
     ...record,
-    originalUrl: `/media/resources/${record.id}/original?key=${mediaKey(record.id, 'original')}`,
-    previewUrl: record.ready ? `/media/resources/${record.id}/preview?key=${mediaKey(record.id, 'preview')}` : null,
+    originalUrl: resourceUrl(record.id, 'original'),
+    previewUrl: record.ready ? resourceUrl(record.id, 'preview') : null,
   });
   await numberEarlierTakes().catch(error => console.error('Numéros de prise :', error.message));
   const pendingSession = await readUpdateSession(dataDir).catch(() => null);
@@ -699,15 +714,12 @@ export async function createApplication({
     // one). Null for anything else: the card shows its name.
     previewOf: (ref, conversationId, media) => {
       if (ref.attachment) return attachmentUrl(conversationId, ref.attachment);
-      if (ref.resource_id) return `/media/resources/${ref.resource_id}/preview?key=${mediaKey(ref.resource_id, 'preview')}`;
+      if (ref.resource_id) return resourceUrl(ref.resource_id, 'preview');
       if (!ref.output_id) return null;
       const owner = ref.output_conversation ?? conversationId,
         index = ref.output_index ?? 0;
       if (thumbnails.has(Thumbnails.key(owner, ref.output_id, index))) return thumbUrl(owner, ref.output_id, index);
-      return media === 'image'
-        ? `/media/generated/${owner}/${ref.output_id}/${index}?key=` +
-            mediaKey(owner + '/' + ref.output_id + '/' + index, 'generated')
-        : null;
+      return media === 'image' ? generatedUrl(owner, ref.output_id, index) : null;
     },
   });
   /**
@@ -795,15 +807,7 @@ export async function createApplication({
         ...output,
         ...(record.provider === 'native'
           ? {
-              originalUrl:
-                '/media/generated/' +
-                record.conversationId +
-                '/' +
-                record.id +
-                '/' +
-                index +
-                '?key=' +
-                mediaKey(record.conversationId + '/' + record.id + '/' + index, 'generated'),
+              originalUrl: generatedUrl(record.conversationId, record.id, index),
               // Only once the page has sent one: until then the original is shown.
               ...(thumbnails.has(Thumbnails.key(record.conversationId, record.id, index))
                 ? { thumbUrl: thumbUrl(record.conversationId, record.id, index) }
@@ -813,6 +817,10 @@ export async function createApplication({
       })),
     };
   }
+  /** The file of a creation as it was made. */
+  const generatedUrl = (conversationId, runId, index) =>
+    `/media/generated/${conversationId}/${runId}/${index}?key=` +
+    mediaKey(conversationId + '/' + runId + '/' + index, 'generated');
   // `v`: the time it was written; one made again has another address, the browser keeping each for good.
   const thumbUrl = (conversationId, runId, index) =>
     `/media/thumbs/${conversationId}/${runId}/${index}?key=${mediaKey(conversationId + '/' + runId + '/' + index, 'thumb')}` +
@@ -1004,18 +1012,18 @@ export async function createApplication({
     // A capable model reads by number, with the same two definitions at every request of every
     // conversation (the cache of its provider); the server answers a number or a run_id that is none.
     if (wording === CAPABLE) {
-      if (chat.vision && body.resources !== false && (resourceTurns.get(body.turnId) || 0) < 8)
+      if (chat.vision && body.resources !== false && readsOf(body.turnId) < READS_PER_TURN)
         definitions.push(capableResourceTool, capableOutputTool);
-    } else if (active.length && chat.vision && body.resources !== false && (resourceTurns.get(body.turnId) || 0) < 8) {
+    } else if (active.length && chat.vision && body.resources !== false && readsOf(body.turnId) < READS_PER_TURN) {
       const definition = structuredClone(resourceTool),
         ids = active.map(item => item.id);
       definition.function.parameters.properties.resource_id.enum = ids;
       definition.function.parameters.properties.resource_ids.items.enum = ids;
-      definition.function.parameters.properties.resource_ids.maxItems = 8 - (resourceTurns.get(body.turnId) || 0);
+      definition.function.parameters.properties.resource_ids.maxItems = READS_PER_TURN - readsOf(body.turnId);
       definitions.push(definition);
     }
     const outputDefinition = wording === CAPABLE ? null : outputToolFor(listed().runs);
-    if (chat.vision && outputDefinition && body.resources !== false && (resourceTurns.get(body.turnId) || 0) < 8)
+    if (chat.vision && outputDefinition && body.resources !== false && readsOf(body.turnId) < READS_PER_TURN)
       definitions.push(outputDefinition);
     if (definitions.length) {
       payload.tools = definitions;
@@ -1052,15 +1060,7 @@ export async function createApplication({
       const previewMatch = path.match(/^\/media\/previews\/([0-9a-f-]{36})$/);
       if (previewMatch) {
         if (!['GET', 'HEAD'].includes(req.method)) throw problem('Méthode non prise en charge.', 405);
-        const key = requestURL.searchParams.get('key') || '';
-        if (
-          !/^[0-9a-f]{64}$/.test(key) ||
-          !timingSafeEqual(
-            Buffer.from(key, 'hex'),
-            Buffer.from(mediaKey(previewMatch[1], 'conversation-preview'), 'hex'),
-          )
-        )
-          throw problem('Accès refusé.', 401);
+        checkKey(requestURL, previewMatch[1], 'conversation-preview');
         if (!preferences.saveHistory) throw problem('L’historique est désactivé.', 403);
         let cover;
         try {
@@ -1078,12 +1078,7 @@ export async function createApplication({
       const livePreview = path.match(/^\/media\/job-preview\/([0-9a-f-]{36})\/[0-9]{1,6}$/);
       if (livePreview) {
         if (req.method !== 'GET') throw problem('Méthode non prise en charge.', 405);
-        const key = requestURL.searchParams.get('key') || '';
-        if (
-          !/^[0-9a-f]{64}$/.test(key) ||
-          !timingSafeEqual(Buffer.from(key, 'hex'), Buffer.from(mediaKey(livePreview[1], 'job-preview'), 'hex'))
-        )
-          throw problem('Accès refusé.', 401);
+        checkKey(requestURL, livePreview[1], 'job-preview');
         // Whatever number was asked, the picture so far: the job may have moved on, or ended.
         const picture = runtime.preview(livePreview[1]);
         if (!picture) {
@@ -1100,12 +1095,7 @@ export async function createApplication({
       const thumb = path.match(/^\/media\/thumbs\/([0-9a-f-]{36})\/([0-9a-f-]{36})\/([0-9]{1,3})$/);
       if (thumb) {
         if (!['GET', 'HEAD'].includes(req.method)) throw problem('Méthode non prise en charge.', 405);
-        const key = requestURL.searchParams.get('key') || '';
-        if (
-          !/^[0-9a-f]{64}$/.test(key) ||
-          !timingSafeEqual(Buffer.from(key, 'hex'), Buffer.from(mediaKey(thumb.slice(1).join('/'), 'thumb'), 'hex'))
-        )
-          throw problem('Accès refusé.', 401);
+        checkKey(requestURL, thumb.slice(1).join('/'), 'thumb');
         const bytes = await thumbnails.read(Thumbnails.key(thumb[1], thumb[2], thumb[3]));
         // Written once and never changed: the browser keeps it.
         res.writeHead(200, {
@@ -1118,25 +1108,14 @@ export async function createApplication({
       const attached = path.match(/^\/media\/attachments\/([0-9a-f-]{36})\/([a-z0-9.-]{1,90})$/);
       if (attached) {
         if (!['GET', 'HEAD'].includes(req.method)) throw problem('Méthode non prise en charge.', 405);
-        const key = requestURL.searchParams.get('key') || '';
-        if (
-          !/^[0-9a-f]{64}$/.test(key) ||
-          !timingSafeEqual(Buffer.from(key, 'hex'), Buffer.from(mediaKey(attached[1] + '/' + attached[2], 'attachment'), 'hex'))
-        )
-          throw problem('Accès refusé.', 401);
+        checkKey(requestURL, attached[1] + '/' + attached[2], 'attachment');
         await sendResourceMedia(req, res, await history.attachment(attached[1], attached[2]));
         return;
       }
       const generated = path.match(/^\/media\/generated\/([0-9a-f-]{36})\/([0-9a-f-]{36})\/([0-9]+)$/);
       if (generated) {
         if (!['GET', 'HEAD'].includes(req.method)) throw problem('Méthode non prise en charge.', 405);
-        const key = requestURL.searchParams.get('key') || '',
-          identity = generated.slice(1).join('/');
-        if (
-          !/^[0-9a-f]{64}$/.test(key) ||
-          !timingSafeEqual(Buffer.from(key, 'hex'), Buffer.from(mediaKey(identity, 'generated'), 'hex'))
-        )
-          throw problem('Accès refusé.', 401);
+        checkKey(requestURL, generated.slice(1).join('/'), 'generated');
         const record = await gallery.get(generated[1], generated[2], { includeImages: false }),
           source = record.outputs[Number(generated[3])]?.source;
         if (!source) throw problem('Sortie introuvable.', 404);
@@ -1148,12 +1127,7 @@ export async function createApplication({
       const media = path.match(/^\/media\/resources\/([0-9a-f-]{36})\/(original|preview)$/);
       if (media) {
         if (!['GET', 'HEAD'].includes(req.method)) throw problem('Méthode non prise en charge.', 405);
-        const key = requestURL.searchParams.get('key') || '';
-        if (
-          !/^[0-9a-f]{64}$/.test(key) ||
-          !timingSafeEqual(Buffer.from(key, 'hex'), Buffer.from(mediaKey(media[1], media[2]), 'hex'))
-        )
-          throw problem('Accès refusé.', 401);
+        checkKey(requestURL, media[1], media[2]);
         await sendResourceMedia(req, res, await resources.media(media[1], media[2]));
         return;
       }
@@ -2814,7 +2788,7 @@ export async function createApplication({
             } catch {
               throw problem('Paramètres de sortie invalides.', 502);
             }
-            if (!body.turnId || !/^[0-9a-f-]{36}$/.test(body.turnId) || (resourceTurns.get(body.turnId) || 0) >= 8)
+            if (!body.turnId || !/^[0-9a-f-]{36}$/.test(body.turnId) || readsOf(body.turnId) >= READS_PER_TURN)
               throw problem('La limite de huit lectures pour ce tour est atteinte.', 502);
             // (0.6.112) Takes named by their numbers (lib/output-tools.mjs): one is read as a result
             // always was; several are read by the page together, and shown to the model on one
@@ -2832,8 +2806,7 @@ export async function createApplication({
               await rejectCall(call, error);
             }
             if (metadata || several) {
-              resourceTurns.set(body.turnId, (resourceTurns.get(body.turnId) || 0) + 1);
-              if (resourceTurns.size > 256) resourceTurns.delete(resourceTurns.keys().next().value);
+              countReads(body.turnId, 1);
               await emit({
                 local_tool_request: several
                   ? {
@@ -2876,12 +2849,11 @@ export async function createApplication({
             if (
               !body.turnId ||
               !/^[0-9a-f-]{36}$/.test(body.turnId) ||
-              (resourceTurns.get(body.turnId) || 0) + ids.length > 8
+              readsOf(body.turnId) + ids.length > READS_PER_TURN
             )
               throw problem('La limite de huit lectures pour ce tour est atteinte.', 502);
             const selected = await Promise.all(ids.map(id => resources.activeRecord(id)));
-            resourceTurns.set(body.turnId, (resourceTurns.get(body.turnId) || 0) + ids.length);
-            if (resourceTurns.size > 256) resourceTurns.delete(resourceTurns.keys().next().value);
+            countReads(body.turnId, ids.length);
             await emit({
               local_tool_request: {
                 kind: 'resource',
@@ -2911,9 +2883,8 @@ export async function createApplication({
             // (0.6.100) The other prompts of a series are looked at for a large model only: the local
             // one, sent back for them, wrote them in its answer and made no call (lib/thin-prompt.mjs).
             const thin = fullPrompts ? thinNote(body.messages, call, { series: wordingOf(chat.connection) === CAPABLE }) : '';
-            if (unseen.length && (resourceTurns.get(body.turnId) || 0) + unseen.length <= 8) {
-              resourceTurns.set(body.turnId, (resourceTurns.get(body.turnId) || 0) + unseen.length);
-              if (resourceTurns.size > 256) resourceTurns.delete(resourceTurns.keys().next().value);
+            if (unseen.length && readsOf(body.turnId) + unseen.length <= READS_PER_TURN) {
+              countReads(body.turnId, unseen.length);
               // The model makes its call again once it has seen them: a video not talked over yet
               // is then proposed with its words (below).
               await emit({
@@ -2934,10 +2905,10 @@ export async function createApplication({
                 chat.vision && body.resources !== false
                   ? passedImages(await resources.catalog(projectOf(body.project)), call)
                   : [];
-              const room = /^[0-9a-f-]{36}$/.test(body.turnId || '') && (resourceTurns.get(body.turnId) || 0) + images.length <= 8;
+              const room =
+                /^[0-9a-f-]{36}$/.test(body.turnId || '') && readsOf(body.turnId) + images.length <= READS_PER_TURN;
               if (images.length && room) {
-                resourceTurns.set(body.turnId, (resourceTurns.get(body.turnId) || 0) + images.length);
-                if (resourceTurns.size > 256) resourceTurns.delete(resourceTurns.keys().next().value);
+                countReads(body.turnId, images.length);
                 await emit({
                   local_tool_request: {
                     kind: 'resource',

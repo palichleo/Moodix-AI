@@ -22,11 +22,13 @@ const args = { prompt: 'A woman stands in a room.', source: { resource: 'clip' }
 const written =
   'A young woman with dark hair pulled back, in a white sleeveless top, stands in an apple orchard in daylight. ' +
   'She wipes a red apple with a white handkerchief, smells it, then bites into it with her eyes closed.';
-const engine = { vision: true, state: 'ready', base: 'http://engine', apiKey: 'k' };
+const engine = { vision: true, state: 'ready' };
+// The chat model of Moodix (lib/chat-model.mjs), asked by `request`.
+const asking = request => ({ ...engine, request });
 const answering =
   (content, seen = []) =>
-  async (url, options) => {
-    seen.push([url, JSON.parse(options.body)]);
+  async body => {
+    seen.push(body);
     return { ok: true, json: async () => ({ choices: [{ message: { content } }] }) };
   };
 
@@ -51,44 +53,42 @@ test('the prompt of a character put in a video is written from the frames of the
   const wished = [];
   await withScenePrompt(args, {
     resources: library,
-    engine,
+    engine: asking(answering(written, wished)),
     asked: 'elle porte une robe rouge',
     draft: '',
-    fetchImpl: answering(written, wished),
   });
-  const said = wished[0][1].messages[1].content.at(-1).text;
+  const said = wished[0].messages[1].content.at(-1).text;
   assert.match(said, /« elle porte une robe rouge »/);
   assert.doesNotMatch(said, /first draft/);
   const seen = [];
-  const result = await withScenePrompt(args, { resources: library, engine, fetchImpl: answering(written, seen) });
+  const result = await withScenePrompt(args, { resources: library, engine: asking(answering(written, seen)) });
   assert.equal(result.prompt, written);
   // The rest of the call is left as it came.
   assert.deepEqual({ ...result, prompt: args.prompt }, args);
-  assert.equal(seen[0][0], 'http://engine/v1/chat/completions');
-  assert.equal(seen[0][1].stream, false);
+  assert.equal(seen[0].stream, false);
 });
 
 test('a prompt that cannot be written from the pictures never stops the video: the call keeps its own', async () => {
   const kept = options =>
-    withScenePrompt(args, { resources: library, engine, fetchImpl: answering(written), ...options });
+    withScenePrompt(args, { resources: library, engine: asking(answering(written)), ...options });
   // No vision, a model not ready, a silent or slow model, two words for an answer.
   assert.equal(await kept({ engine: { ...engine, vision: false } }), args);
   assert.equal(await kept({ engine: { ...engine, state: 'loading' } }), args);
-  assert.equal(await kept({ fetchImpl: async () => ({ ok: false }) }), args);
+  assert.equal(await kept({ engine: asking(async () => ({ ok: false })) }), args);
   assert.equal(
     await kept({
-      fetchImpl: async () => {
+      engine: asking(async () => {
         throw Error('timeout');
-      },
+      }),
     }),
     args,
   );
-  assert.equal(await kept({ fetchImpl: answering('A woman.') }), args);
+  assert.equal(await kept({ engine: asking(answering('A woman.')) }), args);
   // The video or the character not in the library (an earlier result, an image of the message).
   const places = { resources: library };
   const other = { ...args, source: { output: 'run' } };
   assert.equal(await scenePictures(other, places), null);
-  assert.equal(await withScenePrompt(other, { resources: library, engine, fetchImpl: answering(written) }), other);
+  assert.equal(await withScenePrompt(other, { resources: library, engine: asking(answering(written)) }), other);
   assert.equal(await scenePictures({ ...args, reference: { image: 0 } }, places), null);
   assert.equal(await scenePictures({ ...args, source: { resource: 'gone' } }, places), null);
   // An image given as the video is not one to follow.
@@ -132,7 +132,7 @@ test('a character with no image yet: no prompt from words, the image prompt alon
   assert.equal(await scenePictures({ source: { resource: 'clip' } }, { resources: library }), null);
   const call = { prompt: 'x', source: { resource: 'clip' } },
     seen = [];
-  assert.equal(await withScenePrompt(call, { resources: library, engine, fetchImpl: answering(written, seen) }), call);
+  assert.equal(await withScenePrompt(call, { resources: library, engine: asking(answering(written, seen)) }), call);
   assert.equal(seen.length, 0);
   // The image of the character: alone, whole, large, on a plain background (what else it holds
   // goes into the video too).
@@ -184,17 +184,16 @@ test('why the prompt was not written is told', async () => {
   const onSkip = why => reasons.push(why);
   await withScenePrompt(args, { resources: library, engine: { ...engine, vision: false }, onSkip });
   await withScenePrompt({ ...args, source: { resource: 'gone' } }, { resources: library, engine, onSkip });
-  await withScenePrompt(args, { resources: library, engine, onSkip, fetchImpl: async () => ({ ok: false, status: 503 }) });
-  await withScenePrompt(args, { resources: library, engine, onSkip, fetchImpl: answering('Short.') });
+  await withScenePrompt(args, { resources: library, engine: asking(async () => ({ ok: false, status: 503 })), onSkip });
+  await withScenePrompt(args, { resources: library, engine: asking(answering('Short.')), onSkip });
   const late = Object.assign(Error('late'), { name: 'TimeoutError' });
   await withScenePrompt(args, {
     resources: library,
-    engine,
+    engine: asking(async () => {
+      throw late;
+    }),
     onSkip,
     timeoutMs: 5000,
-    fetchImpl: async () => {
-      throw late;
-    },
   });
   assert.deepEqual(reasons, [
     'le modèle de chat ne voit pas les images',
