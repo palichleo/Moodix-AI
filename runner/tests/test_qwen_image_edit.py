@@ -374,5 +374,141 @@ class BenchTests(unittest.TestCase):
         self.assertEqual(qwen_image_edit.made_size(bench.qwen_image_edit_job(args, 1)['parameters'], (10, 10)), (1024, 768))
 
 
+class Built:
+    """The share of the model built for `budget` GiB, as the steps see it: what they stream is
+    counted in `stats`, as WeightPool counts it."""
+
+    def __init__(self, budget):
+        self.gpu = {0: 1}
+        self.bytes = self.limit = int(budget * qwen_image_edit.GiB)
+        self.lent = 0
+        self.stats = dict(first_gib=0.0, first_seconds=0.0, again_gib=0.0)
+
+    def summary(self):
+        return dict(self.stats)
+
+    def lend(self, _gib):
+        return 0
+
+    def preload(self):
+        self.lent = 0
+
+    def settle(self):
+        pass
+
+    def clear(self):
+        self.gpu = {}
+
+
+def on_the_processor(make):
+    """torch.tensor and the like, made on the processor whatever device is asked."""
+    return lambda *args, device=None, **options: make(*args, **options)
+
+
+class GenerateTests(unittest.TestCase):
+    """The real generate and _generate, one image after the other, on the processor: the card, the
+    encoder, the VAE and the steps of the model faked (0.6.273)."""
+
+    def images(self, count, short=()):
+        """Makes `count` images with the same job. `short`: the images (0, the first) whose first
+        step runs out of memory once. Returns their sheets; the budgets of the models built are left
+        in `self.builds`."""
+        from contextlib import ExitStack
+        from unittest import mock
+
+        from PIL import Image
+
+        from runner import hardware, media, preview
+        from runner.models import conditioning, kept, pool, qwen_image
+        from runner.pipelines import ltx25
+
+        sigmas = qwen_image_edit.schedule()
+        builds, pools, short, made = [], [], list(short), [0]
+
+        def build(loaded, _job, _loras, budget, _progress):
+            builds.append(budget)
+            loaded.pool = Built(budget)
+            pools.append(loaded.pool)
+            loaded.model, loaded.zero, loaded.locked = 'model', True, True
+            loaded.facts = dict(opening_seconds=0.1)
+
+        def predict(_model, _prepared, current, index):
+            if index == 0 and made[0] in short:
+                short.remove(made[0])
+                raise torch.OutOfMemoryError('CUDA out of memory (as at the first step)')
+            # Each step streams half a gigabyte of the model, read from its file.
+            pools[-1].stats['first_gib'] += 0.5
+            return torch.zeros_like(current)
+
+        class Vae:
+            config = SimpleNamespace(latents_mean=[0.0] * 16, latents_std=[1.0] * 16)
+
+            def to(self, *_device):
+                return self
+
+            def decode(self, latents, return_dict=False):
+                return (torch.zeros(1, 3, 1, 8, 8),)
+
+        real_to = torch.Tensor.to
+
+        def to(tensor, *args, **options):
+            options.pop('device', None)
+            args = [arg for arg in args if not isinstance(arg, (str, torch.device))]
+            return real_to(tensor, *args, **options)
+
+        sheets = []
+        with tempfile.TemporaryDirectory() as folder, ExitStack() as stack:
+            enter = stack.enter_context
+            path = Path(folder) / 'a.png'
+            Image.new('RGB', (64, 48), 'red').save(path)
+            given = job(references=[dict(input='source', role='edit_image', path=str(path))])
+            given['parameters'] = dict(given['parameters'], width=256, height=256)
+            for name, value in (('is_available', True), ('reset_peak_memory_stats', None), ('empty_cache', None)):
+                enter(mock.patch.object(torch.cuda, name, return_value=value))
+            for name in ('memory_reserved', 'memory_allocated', 'max_memory_allocated'):
+                enter(mock.patch.object(torch.cuda, name, return_value=0))
+            enter(mock.patch.object(torch.Tensor, 'to', to))
+            enter(mock.patch.object(torch.Tensor, 'cuda', lambda tensor, *_device: tensor))
+            enter(mock.patch.object(torch, 'tensor', on_the_processor(torch.tensor)))
+            enter(mock.patch.object(hardware, 'free_bytes', lambda _torch: 10 * qwen_image_edit.GiB))
+            enter(mock.patch.object(pool, 'require', lambda *_args, **_measured: None))
+            enter(mock.patch.object(ltx25, 'memory', dict))
+            enter(mock.patch.object(conditioning, 'stamp', side_effect=str))
+            enter(mock.patch.object(preview, 'send', lambda *_args: None))
+            enter(mock.patch.object(media, 'save_image', lambda _pixels, _config, _job, metadata: metadata))
+            enter(mock.patch.object(qwen_image, 'prepare', lambda *_args, **_options: 'prepared'))
+            enter(mock.patch.object(qwen_image, 'predict', predict))
+            enter(mock.patch.object(qwen_image_edit, 'schedule', lambda _steps=8: sigmas))
+            enter(mock.patch.object(qwen_image_edit, 'texts', lambda *_args, **_beside: (torch.zeros(1, 5, 3584), False)))
+            enter(mock.patch.object(qwen_image_edit, 'given_latents', lambda *_args, **_before: ([torch.zeros(1, 16, 8, 8)], 0)))
+            enter(mock.patch.object(qwen_image_edit, 'modulations', lambda *_args: ({}, False)))
+            enter(mock.patch.object(qwen_image_edit, '_build', build))
+            enter(mock.patch.object(qwen_image_edit, 'load_vae', lambda _path: Vae()))
+            try:
+                for index in range(count):
+                    made[0] = index
+                    sheets.append(qwen_image_edit.generate(given, dict(cacheRoot=folder), lambda **_stage: None))
+            finally:
+                kept._kept.clear()
+        self.builds = builds
+        return sheets
+
+    def test_the_sheet_of_an_image_made_with_the_model_kept_counts_its_own_weights(self):
+        first, second = self.images(2)
+        self.assertEqual(len(self.builds), 1)
+        self.assertEqual([first['kept_model'], second['kept_model']], [False, True])
+        # Eight steps of half a gigabyte each: for the second image, its own, not the sum of both.
+        self.assertEqual([first['weights']['first_gib'], second['weights']['first_gib']], [4.0, 4.0])
+
+    def test_an_image_made_again_with_a_model_built_anew_does_not_say_it_was_kept(self):
+        first, second = self.images(2, short=[1])
+        # Out of memory at the first step of the second image: the model left is dropped, and the
+        # image made again with half the share, from a model built anew.
+        self.assertEqual(len(self.builds), 2)
+        self.assertAlmostEqual(self.builds[1], self.builds[0] / 2)
+        self.assertEqual([first['kept_model'], second['kept_model']], [False, False])
+        self.assertEqual(second['weights']['first_gib'], 4.0)
+
+
 if __name__ == '__main__':
     unittest.main()

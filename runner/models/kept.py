@@ -11,18 +11,36 @@ coming back (the application then asks the worker to release, see runner.engine.
 application stopping its models or closing. One model at a time.
 """
 
+import gc
+import sys
+
 _kept = {}
 
 
 def take(name, key):
     """What `name` left for a generation made with `key` (its files and LoRAs), or None; it is
-    then the caller's again, to put back or to drop. Anything else kept is dropped."""
+    then the caller's again, to put back or to drop. Anything else kept is dropped.
+
+    (0.6.273) What is dropped here goes back to the driver, as runner.engine gives back what another
+    family left: kept in PyTorch's reserve, it was missing from the free memory the encoder of the
+    prompt reads to size its share (runner.models.pool.room), which then streamed what it could have
+    kept on the card (the same model at another strength of its LoRA, say)."""
     found = _kept.pop(name, None)
-    drop()
+    dropped = drop()
     if found is not None and found.key != key:
         found.drop()
-        found = None
+        found, dropped = None, True
+    if dropped:
+        _give_back()
     return found
+
+
+def _give_back():
+    # As runner.engine.release: a card nothing has used yet has nothing in its reserve.
+    torch = sys.modules.get('torch')
+    if torch is not None and torch.cuda.is_initialized():
+        gc.collect()
+        torch.cuda.empty_cache()
 
 
 def put(name, value):

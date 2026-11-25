@@ -492,6 +492,9 @@ def _generate(job, config, report, key, loras, holder):
         if 'cacheGiB' in config:
             budget = min(budget, config['cacheGiB'])
         if again:
+            # (0.6.273) What its pool streamed for the last image is not this one's: counted from zero
+            # here, what it lent taken back included (as runner.pipelines.ltx25 and minimax_h3 do).
+            loaded.pool.stats.update(dict.fromkeys(loaded.pool.stats, 0.0))
             loaded = holder[0] = kept_share(loaded, budget, progress)
             if loaded is None:
                 # A share of another size than this image leaves it: built anew.
@@ -531,6 +534,8 @@ def _generate(job, config, report, key, loras, holder):
                 prepared = mods = prediction = None
                 holder[0].drop()
                 loaded = holder[0] = None
+                # (0.6.273) Built anew below: not the model the last image left, whatever it was.
+                again = False
                 free_card()
                 budget = smaller(budget)
                 progress(stage='retrying with a smaller share of the model', gpu_cache_limit_gib=budget)
