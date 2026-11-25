@@ -572,3 +572,60 @@ test('a file sent again from the chat or the Studio comes back as the reference 
   assert.deepEqual([again.existing, again.id, again.label], [true, one.id, one.label]);
   assert.equal((await (await f.request('resources')).json()).resources.length, 1);
 });
+
+test('a reading the model got wrong is said to the model, and the answer does not end on an error (0.6.308)', async t => {
+  const f = await apiFixture(t, { engine: true }),
+    active = await f.upload(),
+    other = await f.upload(),
+    third = await f.upload(),
+    inactive = await f.upload();
+  await f.request('resources/update', { id: inactive.id, patch: { enabled: false } });
+  const modelPath = join(f.root, 'model.gguf'),
+    projectorPath = join(f.root, 'vision.gguf');
+  await writeFile(modelPath, Buffer.from('GGUF\x03\0\0\0'));
+  await writeFile(projectorPath, Buffer.from('GGUF\x03\0\0\0'));
+  await f.request('config', { enginePath: process.execPath, modelPath, projectorPath, contextSize: 8192, maxOutputTokens: 1024, gpuLayers: 0 });
+  await f.request('start', {});
+  const end = Date.now() + 10000;
+  while ((await (await f.request('status')).json()).state !== 'ready') {
+    if (Date.now() > end) assert.fail('Engine did not become ready');
+    await new Promise(resolve => setTimeout(resolve, 30));
+  }
+  // (An error of the stream is thrown by readSSE: what the user would read in red.)
+  const asked = async (content, turnId = randomUUID()) => {
+    const events = [],
+      errors = [];
+    const answer = await f.request('chat', { messages: [{ role: 'user', content }], turnId, conversationId: randomUUID() });
+    await readSSE(answer.body, event => events.push(event)).catch(error => errors.push(error.message));
+    return { errors, request: events.find(event => event.local_tool_request)?.local_tool_request ?? null };
+  };
+  // An id that is none, one that names nothing, a reference turned off, the same one twice: each ended the
+  // turn (« data: {"error": …} »), the stream begun; the model is told and may correct its call.
+  for (const [content, message] of [
+    ['read pas-un-id', /Ressource invalide/],
+    ['read ' + randomUUID(), /introuvable/],
+    ['read ' + inactive.id, /inactive ou indisponible/],
+    ['read-many ' + [active.id, active.id].join(','), /une et huit ressources distinctes/],
+  ]) {
+    const { errors, request } = await asked(content);
+    assert.deepEqual(errors, [], content);
+    assert.equal(request?.kind, 'invalid', content);
+    assert.match(request.message, message, content);
+    assert.equal(request.call.function.name, 'local_read_resource');
+  }
+  // More readings than the turn has left: six made, three asked for. Nothing is counted for a reading refused.
+  const turn = randomUUID();
+  for (const ids of [[active.id, other.id, third.id], [third.id, other.id, active.id]])
+    assert.equal((await asked('read-many ' + ids.join(','), turn)).request.kind, 'resource');
+  const over = await asked('read-many ' + [active.id, other.id, third.id].join(','), turn);
+  assert.deepEqual(over.errors, []);
+  assert.equal(over.request.kind, 'invalid');
+  assert.match(over.request.message, /Il reste 2 lectures pour ce tour/);
+  assert.equal((await asked('read ' + inactive.id, turn)).request.kind, 'invalid');
+  const two = await asked('read-many ' + [active.id, other.id].join(','), turn);
+  assert.deepEqual([two.request.kind, two.request.resourceIds], ['resource', [active.id, other.id]]);
+  // A request without its turn is no fault of the model: refused as before.
+  const unnamed = await asked('read ' + active.id, null);
+  assert.deepEqual([unnamed.request, unnamed.errors.length], [null, 1]);
+  assert.match(unnamed.errors[0], /limite de huit lectures/);
+});

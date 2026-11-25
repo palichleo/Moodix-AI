@@ -2854,14 +2854,27 @@ export async function createApplication({
               res.write('data: [DONE]\n\n');
               return res.end();
             }
-            const ids = resourceReadIds(args);
-            if (
-              !body.turnId ||
-              !/^[0-9a-f-]{36}$/.test(body.turnId) ||
-              readsOf(body.turnId) + ids.length > READS_PER_TURN
-            )
+            if (!body.turnId || !/^[0-9a-f-]{36}$/.test(body.turnId))
               throw problem('La limite de huit lectures pour ce tour est atteinte.', 502);
-            const selected = await Promise.all(ids.map(id => resources.activeRecord(id)));
+            // (0.6.308) What the model got wrong in its reading is said to it, as its other wrong arguments
+            // are: an id that is none, a reference turned off since, the same one twice, more of them than
+            // the turn has readings left (a capable model is not held by its schema: three after six). Read
+            // outside any `try`, these ended the answer of the user in red, the stream already begun.
+            let ids, selected;
+            try {
+              ids = resourceReadIds(args);
+              const left = READS_PER_TURN - readsOf(body.turnId);
+              if (ids.length > left)
+                throw problem(
+                  `Il reste ${left} lecture${left > 1 ? 's' : ''} pour ce tour : lis-en moins, ou réponds sans lire.`,
+                  400,
+                );
+              selected = await Promise.all(ids.map(id => resources.activeRecord(id)));
+            } catch (error) {
+              await rejectCall(call, error);
+              res.write('data: [DONE]\n\n');
+              return res.end();
+            }
             countReads(body.turnId, ids.length);
             await emit({
               local_tool_request: {

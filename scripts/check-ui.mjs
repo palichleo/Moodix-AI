@@ -707,8 +707,15 @@ try {
       })()`), { within: 3000 });
     // (The clip lasts a second: played in a loop here, or a machine under load asked for its state
     // before it began then after it ended, and the step failed now and then, 0.6.104.)
+    // (0.6.308) A card gives its file back when it leaves the view and takes it again when it comes back
+    // (generation-ui.mjs), told of each a frame later. Pressed at once, the ▶ played the clip, and the news
+    // that its card had left during the step before came ten milliseconds after the key: the clip was paused
+    // and emptied (four commits out of five refused, the machine under load). The key waits for the page to
+    // have told the card where it is: two frames and a turn of its tasks, its file in place.
     await run('clip : Espace sur ▶', async () => {
-      await js(`${card(0)}.scrollIntoView({ block: 'center', behavior: 'instant' }); ${card(0)}.querySelector('video').loop = true; ${card(0)}.querySelector('.take-player-play').focus()`);
+      await js(`${card(0)}.scrollIntoView({ block: 'center', behavior: 'instant' }); ${card(0)}.querySelector('video').loop = true`);
+      await until(() => js(`new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => done(!!${card(0)}.querySelector('video').getAttribute('src')), 0))))`), 3000);
+      await js(`${card(0)}.querySelector('.take-player-play').focus()`);
       await press(' ', 'Space', 32, ' ');
     }, () => js(`${card(0)}.querySelector('video').paused === false && document.activeElement?.getAttribute('aria-label') === 'Mettre en pause'`), { within: 5000 });
     await run('clip : Espace de nouveau, en pause', () => press(' ', 'Space', 32, ' '), () =>
