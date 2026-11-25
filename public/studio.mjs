@@ -6057,6 +6057,8 @@ export function setupStudio({
       kept: { ...kept },
       pinned,
       extending,
+      // (0.6.321) The clip in hand filmed again (« Changer la caméra »), not continued: see putBack.
+      refilmId,
       // What a model showed first, for « Enregistrer » (paintSave): not the settings of the take followed.
       presetShown: { ...presetShown },
       baselines: { ...baselines },
@@ -8180,7 +8182,9 @@ export function setupStudio({
     }
     for (const key of Object.keys(kept)) delete kept[key];
     Object.assign(kept, before.kept);
-    ({ mode, advanced, pinned, extending } = before);
+    // (0.6.321) With the clip in hand, whether its camera was being changed: « Prolonger » of it while another take
+    // was looked at, then « Revenir », and « Changer la caméra » came back as « Générer la suite ».
+    ({ mode, advanced, pinned, extending, refilmId } = before);
   }
   /**
    * A creation put on the screen to see what made it (16/11): dropped there from the Sortie or from
@@ -8204,7 +8208,7 @@ export function setupStudio({
   function inspect(record) {
     const refused = cannotLook(mediaOf(record));
     if (refused) return notice(refused);
-    looked ??= { mode, drafts: structuredClone(drafts), advanced, kept: { ...kept }, pinned, extending };
+    looked ??= { mode, drafts: structuredClone(drafts), advanced, kept: { ...kept }, pinned, extending, refilmId };
     const target = mediaOf(record);
     mode = target;
     kept[target] = record;

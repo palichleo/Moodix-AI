@@ -11103,3 +11103,24 @@ test('the formats of « ··· » are greyed while a creation runs, its menu lef
     page.restore();
   }
 });
+
+test('« Revenir » gives back « Changer la caméra » as it was, not a continuation of its clip (0.6.321)', async () => {
+  // (Report 4, new point N3 of the sorting: what « Revenir » and the end of a take of the Chat followed give back
+  // kept the clip in hand, not that its camera was being changed. « Prolonger » of that clip while another take was
+  // looked at, then « Revenir »: « À prolonger », « Générer la suite ».)
+  const { tools, runs } = continuing();
+  const page = await studioPage({ ...tools, refilm_video: [refilmer] }, {}, { runs });
+  try {
+    const { body, studio } = page,
+      shown = () => [body.find('studio-refilm').length, body.find('studio-go-label')[0].textContent];
+    refilmOn(page);
+    assert.deepEqual(shown(), [1, 'Changer la caméra']);
+    studio.show(runs[0]);
+    prolonger(body).onclick();
+    assert.deepEqual(prolonged(body), ['À prolonger · PRISE 1 · 05.04 S']);
+    body.find('studio-look-back')[0].onclick();
+    assert.deepEqual(shown(), [1, 'Changer la caméra']);
+  } finally {
+    page.restore();
+  }
+});
