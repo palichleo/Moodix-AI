@@ -59,3 +59,15 @@ test('incomplete emphasis is shown during streaming and completed markers become
   assert.equal(markdownToHtml(''), '');
   assert.doesNotMatch(markdownToHtml('snake_case et mot_suivant'), /<em>/);
 });
+
+test('a list written right under a line of text never makes it a heading while it comes (0.6.340)', async () => {
+  const { markdownToHtml } = await import(renderer);
+  // Its first dash, then the space after it: the line before was a heading for a word or two.
+  for (const partial of ['Voici trois idées :\n-', 'Voici trois idées :\n- '])
+    assert.doesNotMatch(markdownToHtml(partial), /<h\d>/, JSON.stringify(partial));
+  assert.equal(markdownToHtml('Voici trois idées :\n- un'), '<p>Voici trois idées :</p><ul><li>un</li></ul>');
+  // A line underlined with dashes or equals signs is still a heading.
+  assert.equal(markdownToHtml('Titre\n--'), '<h2>Titre</h2>');
+  assert.equal(markdownToHtml('Titre\n---'), '<h2>Titre</h2>');
+  assert.equal(markdownToHtml('Titre\n==='), '<h1>Titre</h1>');
+});

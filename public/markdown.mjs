@@ -130,7 +130,9 @@ function blocks(lines, depth = 0) {
       i++;
       continue;
     }
-    if (i + 1 < lines.length && /^ {0,3}(?:=+|-+)[ \t]*$/.test(lines[i + 1]) && !rule(line) && !list(line)) {
+    // Underlined with two dashes at least (0.6.340): one is the first of a list being written under the line,
+    // which was a heading for a word or two (CommonMark takes one; the models write « ## »).
+    if (i + 1 < lines.length && /^ {0,3}(?:=+|-{2,})[ \t]*$/.test(lines[i + 1]) && !rule(line) && !list(line)) {
       const level = lines[i + 1].trim()[0] === '=' ? 1 : 2;
       html += `<h${level}>${inline(line.trim())}</h${level}>`;
       i += 2;
