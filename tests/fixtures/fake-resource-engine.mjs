@@ -32,6 +32,11 @@ const server = http.createServer(async (req, res) => {
     res.once('close', () => clearInterval(timer));
     return;
   }
+  if (last === 'cut in the middle') {
+    // The model lost while it answers (llama-server killed, its socket closed): a word, then nothing.
+    emit({ choices: [{ delta: { content: 'Begun' } }] });
+    return setTimeout(() => res.socket.destroy(), 30);
+  }
   if (last === 'inspect resources') emit({ local_test_payload: body });
   else if (typeof last === 'string' && last.startsWith('inspect output '))
     emit({

@@ -573,13 +573,8 @@ test('a file sent again from the chat or the Studio comes back as the reference 
   assert.equal((await (await f.request('resources')).json()).resources.length, 1);
 });
 
-test('a reading the model got wrong is said to the model, and the answer does not end on an error (0.6.308)', async t => {
-  const f = await apiFixture(t, { engine: true }),
-    active = await f.upload(),
-    other = await f.upload(),
-    third = await f.upload(),
-    inactive = await f.upload();
-  await f.request('resources/update', { id: inactive.id, patch: { enabled: false } });
+/** The fake chat model of a fixture, started with its eyes and ready to answer. */
+async function chatReady(f) {
   const modelPath = join(f.root, 'model.gguf'),
     projectorPath = join(f.root, 'vision.gguf');
   await writeFile(modelPath, Buffer.from('GGUF\x03\0\0\0'));
@@ -591,6 +586,16 @@ test('a reading the model got wrong is said to the model, and the answer does no
     if (Date.now() > end) assert.fail('Engine did not become ready');
     await new Promise(resolve => setTimeout(resolve, 30));
   }
+}
+
+test('a reading the model got wrong is said to the model, and the answer does not end on an error (0.6.308)', async t => {
+  const f = await apiFixture(t, { engine: true }),
+    active = await f.upload(),
+    other = await f.upload(),
+    third = await f.upload(),
+    inactive = await f.upload();
+  await f.request('resources/update', { id: inactive.id, patch: { enabled: false } });
+  await chatReady(f);
   // (An error of the stream is thrown by readSSE: what the user would read in red.)
   const asked = async (content, turnId = randomUUID()) => {
     const events = [],
@@ -628,4 +633,35 @@ test('a reading the model got wrong is said to the model, and the answer does no
   const unnamed = await asked('read ' + active.id, null);
   assert.deepEqual([unnamed.request, unnamed.errors.length], [null, 1]);
   assert.match(unnamed.errors[0], /limite de huit lectures/);
+});
+
+test('the local model lost in the middle of its answer is said in words, and written in the terminal (0.6.309)', async t => {
+  const f = await apiFixture(t, { engine: true });
+  await chatReady(f);
+  const logged = [],
+    real = console.error;
+  console.error = (...said) => logged.push(said);
+  t.after(() => (console.error = real));
+  const events = [],
+    errors = [];
+  const answer = await f.request('chat', {
+    messages: [{ role: 'user', content: 'cut in the middle' }],
+    turnId: randomUUID(),
+    conversationId: randomUUID(),
+  });
+  await readSSE(answer.body, event => events.push(event)).catch(error => errors.push(error.message));
+  console.error = real;
+  // What it had written is shown; then its end in the user's words (it was « terminated »).
+  assert.equal(events[0]?.choices?.[0]?.delta?.content, 'Begun');
+  assert.deepEqual(errors, ['La connexion au modèle de chat a été coupée pendant la réponse. La réponse reçue est conservée.']);
+  // And what happened is in the terminal (nothing was: the answer left before the error was logged).
+  const faults = logged.map(said => said[0]).filter(said => said instanceof Error);
+  assert.deepEqual(faults.map(error => error.message), ['terminated']);
+  // The chat is free again, and answers the next message.
+  const next = [];
+  await readSSE(
+    (await f.request('chat', { messages: [{ role: 'user', content: 'bonjour' }], turnId: randomUUID(), conversationId: randomUUID() })).body,
+    event => next.push(event),
+  );
+  assert.equal(next[0]?.choices?.[0]?.delta?.content, 'Resource inspected.');
 });

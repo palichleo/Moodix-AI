@@ -3085,7 +3085,19 @@ export async function createApplication({
     } catch (error) {
       if (res.destroyed) return;
       if (res.headersSent) {
-        res.end(`data: ${JSON.stringify({ error: error.message })}\n\ndata: [DONE]\n\n`);
+        // (0.6.309) An error nobody worded, the answer begun: it left as it was (« terminated » when the
+        // local model is lost in the middle of its answer, the words of a fault of the code), and this
+        // way out came before the line that writes it in the terminal: nothing there to understand it.
+        // What the code or the model worded itself (an `Error` of its own) is said as before.
+        const unexpected = !error.status && error.name !== 'AbortError',
+          fault = unexpected && error.constructor !== Error,
+          said = !fault
+            ? error.message
+            : error.message === 'terminated' || error.cause?.code
+              ? 'La connexion au modèle de chat a été coupée pendant la réponse. La réponse reçue est conservée.'
+              : 'La réponse s’est arrêtée sur une erreur inattendue. Le détail est dans le terminal de Moodix.';
+        if (unexpected) console.error(error);
+        res.end(`data: ${JSON.stringify({ error: said })}\n\ndata: [DONE]\n\n`);
         return;
       }
       send(error.status || 500, {
