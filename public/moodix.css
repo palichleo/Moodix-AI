@@ -37,7 +37,6 @@
 body {
   margin: 0;
   display: flex;
-  height: 100dvh;
   font-size: var(--size-3);
 }
 button,
@@ -194,9 +193,6 @@ button svg {
   padding: 15px 14px 14px;
   color: var(--muted);
   min-height: 110px;
-}
-.suggestions button:hover {
-  background: var(--hover);
 }
 .suggestions svg {
   width: 17px;
@@ -372,13 +368,6 @@ button svg {
   display: flex;
   align-items: center;
 }
-.composer-tools {
-  justify-content: space-between;
-  gap: 8px;
-}
-.composer-options {
-  gap: 12px;
-}
 .attach-button {
   background: none;
   border: 0;
@@ -399,49 +388,19 @@ button svg {
   width: 1px;
   background: var(--line);
 }
-.thinking-button {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  border: 1px solid var(--line);
-  background: var(--tint);
-  color: var(--muted);
-  font-size: var(--size-1);
-}
-.thinking-button[aria-pressed='false'] {
-  background: transparent;
-  color: var(--muted);
-  border-color: transparent;
-}
-.thinking-button svg {
-  width: 12px;
-  height: 12px;
-}
 .send-tools {
   gap: 13px;
-}
-.compose-state {
-  font-size: var(--size-1);
-  color: var(--muted);
 }
 .send-button {
   display: grid;
   place-items: center;
   border: 0;
 }
-.send-button svg {
-  width: 18px;
-  height: 18px;
-}
 .send-button:disabled {
   opacity: 1;
 }
 .send-button:hover:enabled {
   background: var(--button-hover);
-}
-.cancel-button {
-  background: var(--danger);
-  color: var(--bg);
 }
 
 .attachments {
@@ -593,15 +552,6 @@ dialog {
   align-items: center;
 }
 
-.settings-header h2 {
-  font-size: 26px;
-  letter-spacing: -0.9px;
-  font-weight: 500;
-  margin: 0;
-}
-.settings-header .icon-button {
-  align-self: flex-start;
-}
 fieldset {
   border: 0;
   padding: 0;
@@ -709,13 +659,6 @@ fieldset {
   margin: 0;
 }
 
-.settings-footer {
-  margin-top: auto;
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding-top: 13px;
-}
 .settings-footer button {
   font-size: var(--size-1);
 }
@@ -757,10 +700,6 @@ fieldset {
     gap: 7px;
     margin-top: 23px;
   }
-  .suggestions button {
-    padding: 12px 10px;
-    min-height: 105px;
-  }
   .suggestions strong {
     font-size: var(--size-1);
   }
@@ -786,10 +725,6 @@ fieldset {
     margin-top: 20px;
     gap: 8px;
   }
-  .suggestions button {
-    padding: 12px 10px;
-    min-height: 108px;
-  }
   .suggestions svg {
     margin-bottom: 9px;
     width: 16px;
@@ -799,20 +734,8 @@ fieldset {
     font-size: var(--size-1);
   }
 
-  .message.user .message-body {
-    max-width: 94%;
-  }
   .message-body {
     font-size: var(--size-2);
-  }
-  .settings-content {
-    padding: 25px 21px;
-  }
-  .settings-header h2 {
-    font-size: 24px;
-  }
-  .settings-footer {
-    gap: 8px;
   }
   .settings-footer button {
     font-size: var(--size-1);
@@ -1226,13 +1149,6 @@ fieldset {
   padding: 8px 12px;
 }
 
-.field-group input[readonly] {
-  border-style: dashed;
-}
-
-.generation-auto-label {
-  margin-bottom: 24px !important;
-}
 .field-group textarea {
   font: inherit;
   display: block;
@@ -1292,9 +1208,6 @@ fieldset {
   display: none;
 }
 .workspace:has(#messages:empty) .composer-region {
-  margin: auto;
-  padding-top: 24px;
-  padding-bottom: 24px;
   flex-shrink: 1;
   max-height: 100%;
   overflow: auto;
@@ -1312,10 +1225,6 @@ fieldset {
   position: fixed;
   inset: 0;
   margin: auto;
-  height: fit-content;
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  overflow: auto;
   scrollbar-width: thin;
 }
 #settings[open] {
@@ -1337,9 +1246,6 @@ fieldset {
 #settings .settings-header {
   align-items: center;
 }
-#settings .settings-footer {
-  justify-content: flex-end;
-}
 .path-input input::placeholder {
   color: var(--danger);
   opacity: 1;
@@ -1349,19 +1255,6 @@ fieldset {
   color: var(--muted);
 }
 
-.token-settings {
-  margin: 2px 0 22px;
-  gap: 24px;
-}
-.token-title {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-.token-title label {
-  margin: 0;
-}
 .token-title output {
   font-size: 18px;
   letter-spacing: -0.3px;
@@ -1430,15 +1323,6 @@ fieldset {
   .composer-region .suggestions span {
     font-size: var(--size-1);
   }
-  #settings {
-    border-radius: 17px;
-  }
-  .token-settings {
-    gap: 16px;
-  }
-  .token-title output {
-    font-size: var(--size-4);
-  }
   body:has(.gallery:not([hidden])) {
     flex-wrap: nowrap;
     height: 100dvh;
@@ -1455,10 +1339,6 @@ fieldset {
     font-size: 27px;
   }
   .composer-region .welcome {
-    padding-bottom: 16px;
-  }
-  .workspace:has(#messages:empty) .composer-region {
-    padding-top: 16px;
     padding-bottom: 16px;
   }
 }
@@ -1494,10 +1374,6 @@ fieldset {
 .welcome h1 {
   color: var(--ink);
 }
-.composer,
-.suggestions button {
-  background-color: var(--surface);
-}
 .suggestions button:hover {
   background-color: var(--surface-raised);
   background-image: linear-gradient(var(--surface-veil), var(--surface-veil)), var(--grain);
@@ -1506,11 +1382,6 @@ fieldset {
 .secondary,
 .theme-button {
   background-color: var(--surface);
-  background-image: linear-gradient(var(--surface-veil), var(--surface-veil)), var(--grain);
-  background-size:
-    auto,
-    1024px 1024px;
-  box-shadow: inset 0 1px 0 var(--edge);
 }
 .secondary:hover,
 .theme-button:hover {
@@ -1523,9 +1394,6 @@ fieldset {
   border-color: var(--button-hover);
 }
 .send-button:disabled {
-  box-shadow: inset 0 1px 0 var(--edge);
-}
-.thinking-button {
   box-shadow: inset 0 1px 0 var(--edge);
 }
 
@@ -1554,12 +1422,6 @@ dialog::backdrop {
   background: var(--overlay);
   backdrop-filter: none;
 }
-#settings {
-  border-color: var(--line-strong);
-  box-shadow:
-    inset 0 1px 0 var(--edge),
-    0 20px 65px #00000055;
-}
 #settings .settings-header h2 {
   font-weight: 600;
   letter-spacing: -0.65px;
@@ -1577,24 +1439,12 @@ dialog::backdrop {
 .field-group textarea:hover {
   border-color: var(--line-strong);
 }
-.field-group input[readonly] {
-  color: var(--muted);
-  background: var(--surface-raised);
-}
 .field-group .token-range {
   box-shadow: none;
   background: linear-gradient(to right, var(--accent) var(--range-progress, 0%), var(--line) var(--range-progress, 0%));
 }
 .token-range:focus-visible {
   outline-offset: 7px;
-}
-.token-title output {
-  color: var(--ink);
-  font-family: ui-monospace, Consolas, monospace;
-  font-weight: 500;
-}
-.settings-footer {
-  border-top: 1px solid var(--line);
 }
 
 .message.user .message-body,
@@ -1625,18 +1475,6 @@ dialog::backdrop {
 :root[data-theme='light'] {
   --update-line: #9dbbd2;
   --update-light: #427da7;
-}
-
-.settings-footer .app-shutdown {
-  margin-right: auto;
-  padding: 8px 0;
-  background: none;
-  border: 0;
-  color: var(--muted);
-  font-size: var(--size-1);
-}
-.settings-footer .app-shutdown:hover:enabled {
-  color: var(--danger);
 }
 
 .context-meter {
@@ -1837,17 +1675,10 @@ dialog::backdrop {
 }
 
 #original-dialog {
-  width: min(1250px, 94vw);
   height: fit-content;
   min-height: 0;
-  max-height: 92dvh;
-  padding: 20px;
   margin: auto;
   inset: 0;
-  overflow: auto;
-  border-radius: 20px;
-  border: 1px solid var(--line-strong);
-  box-shadow: 0 24px 80px var(--shadow);
 }
 #original-dialog header {
   height: auto;
@@ -1896,15 +1727,6 @@ dialog::backdrop {
   overflow: auto;
   scrollbar-width: thin;
 }
-#media-metadata {
-  margin: 0;
-}
-#media-metadata dt {
-  font-size: var(--size-1);
-  color: var(--muted);
-  margin: 14px 0 6px;
-  font-weight: 550;
-}
 #media-metadata dt:first-child {
   margin-top: 0;
 }
@@ -1924,37 +1746,15 @@ dialog::backdrop {
 #media-error:empty {
   display: none;
 }
-#media-download {
-  margin-top: 18px;
-  font-size: var(--size-1);
-}
 
 @media (max-width: 900px) and (min-width: 641px) {
   body {
-    height: auto;
     min-height: 100dvh;
-  }
-  .workspace {
-    height: 100dvh;
   }
 }
 @media (max-width: 640px) {
   body {
-    height: auto;
     min-height: 100dvh;
-  }
-  .workspace {
-    height: 85dvh;
-  }
-
-  .media-details-layout {
-    grid-template-columns: 1fr;
-  }
-  .media-information {
-    max-height: none;
-  }
-  #original-dialog {
-    padding: 15px;
   }
   #original-dialog .media-stage #original-image,
   #original-video {
@@ -1969,9 +1769,6 @@ dialog::backdrop {
   max-width: 760px;
   margin: 12px 0 20px;
   align-items: start;
-}
-.generation-grid:empty {
-  display: none;
 }
 .generation-card {
   margin: 0;
@@ -2416,31 +2213,7 @@ html[data-page-hidden='true'] .generation-progress > span::after,
   font-size: var(--size-1);
   outline: 0;
 }
-.settings-search:focus-within {
-  border-color: var(--accent);
-}
-.settings-body {
-  padding: 20px 26px;
-}
-.settings-block {
-  margin: 0 0 18px;
-  padding: 20px;
-  border: 1px solid var(--line);
-  border-radius: 15px;
-  background: var(--surface);
-}
 .settings-body > .settings-block:last-child {
-  margin-bottom: 0;
-}
-.settings-block > h3 {
-  margin: 0 0 17px;
-  font-size: var(--size-2);
-  font-weight: 600;
-}
-.settings-block [data-settings-item] + [data-settings-item] {
-  margin-top: 18px;
-}
-.settings-block .field-group:last-child {
   margin-bottom: 0;
 }
 .settings-block .field-group input,
@@ -2462,9 +2235,6 @@ html[data-page-hidden='true'] .generation-progress > span::after,
     background-image: none;
   }
 }
-.settings-block .field-group {
-  margin-bottom: 18px;
-}
 
 .model-paths {
   margin-top: 16px;
@@ -2475,9 +2245,6 @@ html[data-page-hidden='true'] .generation-progress > span::after,
   cursor: pointer;
   font-size: var(--size-1);
   color: var(--muted);
-}
-.model-paths[open] > summary {
-  margin-bottom: 17px;
 }
 .llm-editor-actions {
   display: flex;
@@ -2505,10 +2272,7 @@ html[data-page-hidden='true'] .generation-progress > span::after,
   position: sticky;
   bottom: 0;
   z-index: 4;
-  display: flex;
   margin: 0;
-  background: var(--bg);
-  border-top: 1px solid var(--line);
 }
 .settings-block .history-settings {
   border: 0;
@@ -2546,13 +2310,6 @@ html[data-page-hidden='true'] .generation-progress > span::after,
   #settings .settings-content {
     padding: 0;
   }
-  .settings-body {
-    padding: 14px;
-  }
-  .settings-block {
-    padding: 16px;
-    border-radius: 12px;
-  }
 }
 
 /* Video proposals use the same surface as settings, with readable effective inputs. */
@@ -2582,15 +2339,6 @@ html[data-page-hidden='true'] .generation-progress > span::after,
   margin-top: 8px;
 }
 /* Workflow controls share the settings surfaces and expose complexity on demand. */
-.native-settings .history-toggle {
-  margin-bottom: 17px;
-  font-size: var(--size-1);
-}
-
-.workflow-settings h3 {
-  margin: 0;
-  font-size: var(--size-2);
-}
 .workflow-settings .secondary {
   font-size: var(--size-1);
   min-height: 38px;
@@ -2603,9 +2351,6 @@ html[data-page-hidden='true'] .generation-progress > span::after,
   color: var(--muted);
   line-height: 1.7;
   margin: 22px 0;
-}
-.workflow-settings .path-input input::placeholder {
-  color: var(--muted);
 }
 #workflow-editor {
   animation: native-panel-in 0.16s ease-out;
@@ -2620,10 +2365,6 @@ html[data-page-hidden='true'] .generation-progress > span::after,
 }
 #native-workflow-back svg {
   transform: rotate(180deg);
-}
-#workflow-editor .settings-block > h3 {
-  font-size: var(--size-2);
-  margin: 0 0 18px;
 }
 #workflow-editor .history-toggle {
   font-size: var(--size-1);
@@ -2680,9 +2421,6 @@ html[data-page-hidden='true'] .generation-progress > span::after,
   }
 }
 @media (max-width: 480px) {
-  #workflow-editor .settings-header h2 {
-    font-size: 17px;
-  }
   .native-unsaved .dialog-actions {
     justify-content: flex-start;
   }
@@ -2716,9 +2454,6 @@ html[data-page-hidden='true'] .generation-progress > span::after,
   padding: 0 6px;
   font-size: var(--size-1);
   color: var(--muted);
-}
-.proposal-field[hidden] {
-  display: none;
 }
 .proposal-field > .field-help {
   grid-column: 1 / -1;
@@ -2865,9 +2600,6 @@ html[data-page-hidden='true'] .generation-progress > span::after,
 .proposal-advanced {
   margin-top: 12px;
 }
-.proposal-advanced[hidden] {
-  display: none;
-}
 .proposal-advanced > summary {
   width: fit-content;
   font-size: var(--size-1);
@@ -2975,11 +2707,6 @@ html[data-page-hidden='true'] .generation-progress > span::after,
 .output-action:disabled {
   opacity: 0.38;
   cursor: not-allowed;
-}
-/* Narrow Output panel: a tidy two-column grid. */
-
-.generation-card .output-actions {
-  margin: 10px 0 2px;
 }
 
 /* Before/after comparison of an upscale: the source over the result, cut at the pointer. */
@@ -3096,17 +2823,6 @@ html[data-page-hidden='true'] .generation-progress > span::after,
 #settings .settings-search input {
   padding: 8px 0;
 }
-#settings .settings-body {
-  padding: 12px 16px;
-}
-#settings .settings-footer {
-  padding: 10px 18px;
-}
-#settings .settings-block {
-  margin-bottom: 10px;
-  padding: 13px 15px;
-  border-radius: 12px;
-}
 #settings .settings-block > h3,
 #settings .workflow-settings h3 {
   margin: 0 0 10px;
@@ -3150,19 +2866,8 @@ html[data-page-hidden='true'] .generation-progress > span::after,
   margin-bottom: 10px;
 }
 /* Engine: the two token sliders side by side, their value on the label's line. */
-#settings .token-settings {
-  margin: 0 0 10px;
-  gap: 18px;
-}
 #settings .token-title {
-  flex-direction: row;
-  align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-#settings .token-title output {
-  font-size: var(--size-1);
 }
 
 /* Generation: the toggles as a tight list, the limit on one row. */
@@ -3200,9 +2905,6 @@ html[data-page-hidden='true'] .generation-progress > span::after,
 #settings #workflow-editor .settings-header h2 {
   font-size: var(--size-4);
 }
-#settings #workflow-editor .settings-block > h3 {
-  margin-bottom: 10px;
-}
 #settings #workflow-editor textarea {
   min-height: 60px;
   padding: 8px 10px;
@@ -3213,9 +2915,7 @@ html[data-page-hidden='true'] .generation-progress > span::after,
    the footer (save) stay in place. The workflow editor scrolls its own body (see below).
    Kept last, as one layer over the rules above. */
 #settings {
-  width: min(1120px, calc(100% - 32px));
   max-width: none;
-  height: min(780px, calc(100dvh - 32px));
   max-height: none;
 }
 #settings-form:not([hidden]) {
@@ -3239,22 +2939,16 @@ html[data-page-hidden='true'] .generation-progress > span::after,
   grid-area: close;
 }
 #settings-form .settings-search {
-  grid-area: search;
   justify-self: end;
-  width: min(100%, 420px);
 }
 #settings .settings-frame {
   flex: 1;
   min-height: 0;
-  display: grid;
   grid-template-columns: 200px minmax(0, 1fr);
 }
 #settings .settings-tabs {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 14px 10px;
-  border-right: 1px solid var(--line);
   overflow-y: auto;
   scrollbar-width: thin;
 }
@@ -3283,10 +2977,6 @@ html[data-page-hidden='true'] .generation-progress > span::after,
 .settings-tab svg {
   width: 17px;
   height: 17px;
-}
-.settings-tab:hover {
-  color: var(--ink);
-  background: var(--surface);
 }
 .settings-tab[aria-selected='true'] {
   color: var(--ink);
@@ -3387,11 +3077,8 @@ html[data-page-hidden='true'] .generation-progress > span::after,
   font-weight: 600;
 }
 .component-detail {
-  overflow: hidden;
   color: var(--muted);
   font-size: var(--size-1);
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 .component-version {
   font-family: ui-monospace, Consolas, monospace;
@@ -3419,21 +3106,7 @@ html[data-page-hidden='true'] .generation-progress > span::after,
   margin: 10px 0 0;
 }
 
-/* Workflows tab: the cards side by side, each with its own frame. */
-#settings #workflow-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  align-items: stretch;
-}
-#settings #workflow-list > :not(.workflow-card) {
-  grid-column: 1 / -1;
-}
-
 /* « ? » in the top right corner of each block: its help shows at once under the pointer. */
-#settings .settings-block {
-  position: relative;
-}
 .help-tip {
   position: absolute;
   top: 10px;
@@ -3523,14 +3196,6 @@ html[data-page-hidden='true'] .generation-progress > span::after,
 #native-workflow-body:focus {
   outline: none;
 }
-/* Its folding sections (Réglages, LoRAs, références, brouillon et vidéo finale) take the whole
-   column: as boxes of flex (« Salle obscure »), their content kept the width of what it held. */
-#settings #workflow-editor details.settings-block {
-  display: block;
-}
-#settings #workflow-editor details.settings-block[open] > summary {
-  margin-bottom: 12px;
-}
 /* A setting that changes nothing is greyed; the line under it says why (native-workflow-ui.mjs). */
 #settings #workflow-editor [data-unavailable='true']:disabled {
   opacity: 0.45;
@@ -3558,10 +3223,6 @@ html[data-page-hidden='true'] .generation-progress > span::after,
 }
 
 @media (max-width: 760px) {
-  #settings {
-    width: calc(100% - 16px);
-    height: calc(100dvh - 16px);
-  }
   #settings-form .settings-header {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
@@ -3570,20 +3231,12 @@ html[data-page-hidden='true'] .generation-progress > span::after,
     gap: 10px;
     padding: 12px 14px;
   }
-  #settings-form .settings-search {
-    width: 100%;
-  }
   #settings .settings-frame {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
   }
   #settings .settings-tabs {
-    flex-direction: row;
-    overflow-x: auto;
     overflow-y: hidden;
-    padding: 8px 10px;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
     scrollbar-width: none;
   }
   .settings-tab {
@@ -3598,8 +3251,7 @@ html[data-page-hidden='true'] .generation-progress > span::after,
   #settings-form .settings-footer {
     padding: 10px 14px;
   }
-  .components-list,
-#settings #workflow-list {
+  .components-list {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -3636,9 +3288,6 @@ dialog,
 
 /* The bottom bar is one block, framed like « Nouvelle conversation ». */
 
-.workspace {
-  height: 100dvh;
-}
 .workspace > .notice {
   position: absolute;
   z-index: 30;
@@ -3749,20 +3398,11 @@ dialog,
   font-weight: 500;
 }
 
-@media (max-width: 1150px) {
-  .workspace {
-    height: 100dvh;
-  }
-}
 @media (max-width: 720px) {
   body {
     display: flex;
     min-height: 0;
     height: 100dvh;
-  }
-
-  .workspace {
-    height: auto;
   }
 
   .composer-region {
@@ -3986,10 +3626,7 @@ body {
   font-family: var(--font-ui);
 }
 body {
-  background: var(--bg);
-  background-image: none;
   color: var(--ink);
-  flex-direction: row;
 }
 button,
 input,
@@ -3997,9 +3634,7 @@ textarea,
 select {
   font-family: inherit;
 }
-.mono,
-output,
-kbd {
+output {
   font-family: var(--font-mono);
 }
 .composer,
@@ -4050,12 +3685,8 @@ summary:focus-visible {
 .workspace {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
   min-width: 0;
-  min-height: 0;
   width: auto;
-  height: 100dvh;
-  background: transparent;
 }
 
 /* Image / Vidéo / Son under « Studio » in the sidebar (moodix-design.md 7 bis 19). While the Studio
@@ -4165,18 +3796,6 @@ body[data-view='studio'] .suggestions {
   padding-top: 16px;
   padding-bottom: 24px;
 }
-.message.user .message-body {
-  background: var(--surface-raised);
-  border: 0;
-  border-radius: 20px 20px 6px 20px;
-  padding: 12px 16px;
-  font-size: var(--size-4);
-  line-height: 1.5;
-}
-.message.assistant .message-body {
-  font-size: var(--size-4);
-  line-height: 1.6;
-}
 .message-header {
   color: var(--ink);
   font-size: var(--size-2);
@@ -4274,20 +3893,10 @@ body[data-view='studio'] .suggestions {
 .send-button svg {
   stroke-width: 2.4;
 }
-.send-button:disabled {
-  background: var(--tint);
-  color: var(--muted);
-}
 .attach-button {
   width: 44px;
   height: 44px;
   border-radius: 14px;
-}
-.thinking-button {
-  border-radius: 999px;
-  min-height: 30px;
-  padding: 0 10px;
-  font-weight: 700;
 }
 .composer-region {
   flex-direction: column;
@@ -4357,12 +3966,6 @@ body[data-view='studio']:not([data-chat='open']) .chat-panel {
 /* « Agent » and « Générer » as one group at the right of the bar: they wrap together. */
 .studio-actionbar {
   container: actionbar / inline-size;
-}
-.studio-go-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-left: auto;
 }
 #studio-view .studio-go-group .studio-agent,
 #studio-view .studio-go-group .studio-go {
@@ -4436,11 +4039,7 @@ body[data-view='studio'][data-chat='open'] .chat-scrim {
   inset: 0;
   z-index: 64;
   border: 0;
-  background: rgba(5, 6, 8, 0.62);
   cursor: pointer;
-}
-:root[data-theme='light'] body[data-view='studio'][data-chat='open'] .chat-scrim {
-  background: rgba(18, 20, 26, 0.34);
 }
 body[data-view='studio'][data-chat='open'] .chat-panel {
   /* The middle of the message box (about 95 px above the foot of the panel) on the middle. */
@@ -4449,13 +4048,8 @@ body[data-view='studio'][data-chat='open'] .chat-panel {
   z-index: 65;
   inset: auto 0 var(--chat-foot) 0;
   margin: 0 auto;
-  width: min(calc(var(--chat-column) + 24px), calc(100% - 2 * var(--pad)));
   max-height: calc(100% - var(--chat-foot) - 32px);
   padding-top: 6px;
-  border-radius: 24px;
-  border: 1px solid var(--line);
-  background: var(--bg);
-  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.6);
   translate: 0 calc(-1 * var(--chat-lift, 0px));
   transition: translate 0.35s ease;
 }
@@ -4487,11 +4081,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   color: var(--muted);
   font-weight: 500;
 }
-.suggestions button {
-  border-radius: 16px;
-  background: var(--surface);
-  border-color: var(--line);
-}
 
 /* ------------------------------------------------------------------ Studio: four blocks */
 #studio-view {
@@ -4502,9 +4091,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   padding: 6px var(--pad) 18px;
   scrollbar-width: thin;
   container: studio / inline-size;
-}
-#studio-view[hidden] {
-  display: none;
 }
 #studio-view .studio-body {
   max-width: none;
@@ -4556,12 +4142,10 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
 .studio-block.is-settings {
   --block: var(--fn-settings);
   grid-area: set;
-  gap: 14px;
 }
 .studio-block.is-output {
   --block: var(--fn-output);
   grid-area: out;
-  --block-pad: 14px 16px;
 }
 
 .studio-desk.is-empty {
@@ -4663,10 +4247,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   border-radius: 10px;
   background: #0b0c0f;
   transition: box-shadow 0.45s ease;
-}
-:root[data-theme='light'] .studio-input-block {
-  border-color: var(--field-line);
-  background: var(--field);
 }
 /* Another model: a light line around the blocks for 0.65 s, which fades in 0.45 s (no colour:
    moodix-design.md 7 bis 17). */
@@ -4841,15 +4421,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   min-height: 0;
   padding: 0;
   overflow: hidden;
-  border: 1px dashed #343944;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-3);
-  transition:
-    border-color 0.15s,
-    background-color 0.15s,
-    color 0.15s,
-    box-shadow 0.15s;
 }
 :root[data-theme='light'] #studio-view .studio-slot-pick {
   border-color: var(--line-strong);
@@ -4871,9 +4442,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   border-color: #3d6bf5;
   background-color: rgba(61, 107, 245, 0.08);
   color: #9db6ff;
-}
-#studio-view .studio-slot.is-filled .studio-slot-pick {
-  border: 0;
 }
 #studio-view .studio-slot.is-filled:not(.is-blocked) .studio-slot-pick:hover:enabled,
 #studio-view .studio-slot.is-filled .studio-slot-pick:focus-visible,
@@ -4989,9 +4557,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   font-weight: 600;
   white-space: nowrap;
 }
-.studio-span-time[hidden] {
-  display: none;
-}
 :root[data-theme='light'] .studio-span-time {
   filter: brightness(0.72);
 }
@@ -5024,16 +4589,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   flex: none;
   width: 13px;
   height: 13px;
-}
-/* A short window: the blocks of the images a little tighter, so that the prompt keeps its lines
-   and the column does not scroll (MiniMax H3: start and end, and references, at 1024 × 640). */
-@media (max-height: 700px) {
-  .studio-inputs {
-    gap: 8px;
-  }
-  .studio-input-block {
-    padding: 9px;
-  }
 }
 /* The check of a character Moodix AI made: the question on a line of its own, then Annuler,
    Autre image, OK (on one line, « OK » was cut at the right of a window of 1280 px). */
@@ -5830,10 +5385,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   display: flex;
   gap: 8px;
 }
-.studio-orbit-ends[hidden],
-#studio-view .studio-orbit-play[hidden] {
-  display: none;
-}
 #studio-view .studio-orbit-end {
   display: flex;
   flex: 1 1 0;
@@ -6017,9 +5568,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
 .studio-guide-warn {
   bottom: 10px;
 }
-.studio-guide-warn[hidden] {
-  display: none;
-}
 /* What a proposal of Moodix AI says of itself, under its inputs. */
 .studio-proposal-note {
   flex: none;
@@ -6073,8 +5621,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   flex: none;
   max-width: 100%;
   border: 0;
-  border-radius: 22px / 18px;
-  background: #000;
   overflow: hidden;
   isolation: isolate;
   transition:
@@ -6255,9 +5801,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   border-color: var(--line-strong);
   box-shadow: 0 12px 32px var(--shadow);
 }
-.studio-format-menu[hidden] {
-  display: none;
-}
 .studio-format-menu button {
   min-height: 40px;
   border: 0;
@@ -6435,9 +5978,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   text-overflow: ellipsis;
   pointer-events: none;
 }
-.studio-progress[hidden] {
-  display: none;
-}
 #studio-view .studio-frame-over .studio-stop {
   position: absolute;
   right: 10px;
@@ -6495,16 +6035,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   flex-direction: column;
   gap: 6px;
 }
-@container studio (min-width: 640px) and (max-width: 899px) {
-  .studio-item {
-    flex-basis: 180px;
-  }
-}
-@container studio (max-width: 639px) {
-  .studio-item {
-    flex-basis: 150px;
-  }
-}
 .studio-thumb-wave {
   position: absolute;
   left: 12px;
@@ -6520,22 +6050,14 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   margin: 0;
   font-family: var(--font-mono);
   font-size: var(--size-1);
-  color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .studio-item .output-action {
-  min-height: 34px;
-  padding: 0 8px;
-  border-radius: 10px;
   font-size: var(--size-1);
   gap: 5px;
-}
-.studio-item .output-action svg {
-  width: 14px;
-  height: 14px;
 }
 .studio-empty {
   margin: 0;
@@ -6755,9 +6277,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
     transform 0.25s cubic-bezier(0.45, 0, 0.2, 1),
     opacity 0.25s ease;
 }
-.ai-cursor[hidden] {
-  display: none;
-}
 .ai-cursor.is-visible {
   opacity: 1;
 }
@@ -6875,9 +6394,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
 :root[data-theme='light'] {
   --focus: #5a616d;
 }
-.composer:has(textarea:focus-visible) {
-  outline-color: var(--focus);
-}
 :root[data-theme='light'] #chat-form.composer {
   background: var(--surface);
   border-color: var(--line-strong);
@@ -6940,10 +6456,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   }
   /* A window too short for the prompt and its images: they scroll in their block, as the
      settings do, rather than overlapping; the grain of the block stays. */
-  .studio-block.is-input > .studio-block-body {
-    overflow-x: hidden;
-    overflow-y: auto;
-  }
   .studio-block.is-settings > .studio-block-body {
     overflow-y: auto;
     scrollbar-width: thin;
@@ -6958,17 +6470,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
     height: auto;
     min-height: 100px;
     overflow: hidden;
-  }
-  /* Never shorter than its text box: the star and the fade stay at the foot of the text. */
-  .studio-block.is-input .studio-prompt-field {
-    flex: 1 1 auto;
-    min-height: 110px;
-  }
-  .studio-block.is-input .studio-prompt-field textarea {
-    flex: 1 1 auto;
-    min-height: 110px;
-    height: 100%;
-    resize: none;
   }
 }
 @container studio (min-width: 900px) {
@@ -7208,23 +6709,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   justify-content: center;
   text-align: center;
 }
-.studio-strip {
-  flex: 1 1 auto;
-  min-height: 0;
-  align-items: flex-start;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 6px;
-}
-.studio-item {
-  flex-basis: 180px;
-  gap: 4px;
-}
-@container studio (max-width: 639px) {
-  .studio-item {
-    flex-basis: 140px;
-  }
-}
 
 .studio-item .output-action {
   width: 30px;
@@ -7302,9 +6786,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   padding: 0 12px;
   font-size: var(--size-1);
 }
-.llama-install-go[hidden] {
-  display: none;
-}
 .llama-install-own {
   flex: none;
   padding: 0;
@@ -7321,22 +6802,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
 /* The llama.cpp row takes the whole width: its line under it has room. */
 .component-row[data-id='llama'] {
   grid-column: 1 / -1;
-}
-
-/* « Redémarrer », beside « Fermer l'application », in the same quiet words. */
-.settings-footer .app-restart {
-  margin-right: auto;
-  padding: 8px 0;
-  background: none;
-  border: 0;
-  color: var(--muted);
-  font-size: var(--size-1);
-}
-.settings-footer .app-restart:hover:enabled {
-  color: var(--ink);
-}
-#settings .settings-footer .app-shutdown {
-  margin-right: 18px;
 }
 
 /* ------------------------------------------------------------------ Chat ⇄ Studio */
@@ -7477,13 +6942,6 @@ html[data-switch='open']::view-transition-old(chat) {
   border-radius: 10px;
   background: #0b0c0f;
 }
-:root[data-theme='light'] .studio-set-block {
-  border-color: var(--field-line);
-  background: var(--field);
-}
-.studio-set-block[hidden] {
-  display: none;
-}
 /* Bloc Modèle: the name of the model, its list without a box of its own. */
 .studio-set-model {
   flex-direction: row;
@@ -7568,7 +7026,6 @@ html[data-switch='open']::view-transition-old(chat) {
 }
 #studio-view .studio-bar {
   --fill: 0;
-  --bar-rest: #262a33;
   position: relative;
   z-index: 1;
   -webkit-appearance: none;
@@ -7580,14 +7037,6 @@ html[data-switch='open']::view-transition-old(chat) {
   padding: 0;
   border: 0;
   border-radius: 0;
-  background:
-    linear-gradient(
-        to right,
-        transparent calc(4px + var(--fill) * (100% - 8px)),
-        var(--bar-rest) calc(4px + var(--fill) * (100% - 8px))
-      )
-      center / 100% 2px no-repeat,
-    linear-gradient(90deg, #3d6bf5, #22a060, #f6c343, #e8402f) center / 100% 2px no-repeat;
   cursor: pointer;
 }
 :root[data-theme='light'] #studio-view .studio-bar {
@@ -7600,12 +7049,8 @@ html[data-switch='open']::view-transition-old(chat) {
 }
 #studio-view .studio-bar::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 8px;
-  height: 8px;
-  margin-top: -3px;
   border: 0;
   border-radius: 50%;
-  background: #eceef2;
 }
 #studio-view .studio-bar::-moz-range-track {
   height: 2px;
@@ -7613,11 +7058,8 @@ html[data-switch='open']::view-transition-old(chat) {
   background: transparent;
 }
 #studio-view .studio-bar::-moz-range-thumb {
-  width: 8px;
-  height: 8px;
   border: 0;
   border-radius: 50%;
-  background: #eceef2;
 }
 :root[data-theme='light'] #studio-view .studio-bar::-webkit-slider-thumb {
   background: #12141a;
@@ -7646,9 +7088,6 @@ html[data-switch='open']::view-transition-old(chat) {
   border-radius: 1px;
   background: #3a3f4a;
   pointer-events: none;
-}
-:root[data-theme='light'] .studio-bar-notch {
-  background: #c4cad4;
 }
 /* Bloc LoRA: « LoRA · n / 3 » and its « + », then a line each: its name, its strength, its
    switch when it is left to the assistant, × (or a padlock for those of the workflow). */
@@ -7776,18 +7215,8 @@ html[data-switch='open']::view-transition-old(chat) {
 /* « ··· »: a small pill at the right under the LoRAs; open, a darker ground, and under it the
    block of the rare settings (fine lines between its lines). */
 #studio-view .studio-more-pill {
-  align-self: flex-end;
   flex: none;
-  height: 22px;
   min-height: 0;
-  padding: 0 10px;
-  border: 1px solid #262a33;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--soft);
-  font-family: var(--font-mono);
-  font-size: var(--size-1);
-  line-height: 1;
   letter-spacing: 1px;
 }
 #studio-view .studio-more-pill:hover,
@@ -7819,9 +7248,6 @@ html[data-switch='open']::view-transition-old(chat) {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: start;
   gap: 10px 22px;
-}
-.studio-more-window .studio-rare[hidden] {
-  display: none;
 }
 .studio-more-window .studio-rare > * {
   min-width: 0;
@@ -7874,15 +7300,10 @@ html[data-switch='open']::view-transition-old(chat) {
 #studio-view .studio-field.is-idle > :is(input, select, textarea) {
   opacity: 0.45;
 }
-.studio-seed {
-  grid-template-columns: 52px minmax(0, 1fr) 30px;
-}
 #studio-view .studio-seed input {
   height: 30px;
   min-height: 0;
-  padding: 0 8px;
   border-radius: 8px;
-  font-size: var(--size-2);
 }
 #studio-view .studio-dice {
   display: grid;
@@ -7913,25 +7334,14 @@ html[data-switch='open']::view-transition-old(chat) {
    its bottom right (Prolonger, Animer); the bin and « Détails » on hover, on focus, and always on
    a screen without hover; a menu (right click, long press) and the question of a deletion on the
    picture itself. */
-#studio-view .studio-block.is-output {
-  --block-pad: 14px 14px 16px;
-}
 #studio-view .studio-strip {
   display: flex;
   flex: 1 1 auto;
-  align-items: flex-start;
-  gap: 14px;
   min-height: 0;
-  padding: 4px;
   overflow-x: auto;
   overflow-y: hidden;
 }
 #studio-view .studio-item {
-  position: relative;
-  display: block;
-  flex: 0 0 auto;
-  width: 208px;
-  height: 117px;
   border-radius: 6px;
   outline: 2px solid transparent;
   outline-offset: 2px;
@@ -7945,14 +7355,7 @@ html[data-switch='open']::view-transition-old(chat) {
 #studio-view .studio-item-pick {
   position: relative;
   display: block;
-  width: 100%;
-  height: 100%;
   min-height: 0;
-  padding: 0;
-  overflow: hidden;
-  border: 0;
-  border-radius: 6px;
-  background: #000;
   cursor: pointer;
 }
 #studio-view .studio-item-pick:focus-visible {
@@ -7996,20 +7399,7 @@ html[data-switch='open']::view-transition-old(chat) {
   place-items: center;
   min-height: 0;
   padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(11, 12, 15, 0.82);
   color: var(--text-1);
-}
-#studio-view .studio-item-main {
-  right: 6px;
-  bottom: 6px;
-  width: 28px;
-  height: 28px;
-}
-#studio-view .studio-item-main svg {
-  width: 14px;
-  height: 14px;
 }
 /* (0.6.240) « Changer la caméra », at the left of « Prolonger » on a clip. */
 #studio-view .studio-item-main.studio-item-second {
@@ -8025,14 +7415,8 @@ html[data-switch='open']::view-transition-old(chat) {
 }
 
 #studio-view .studio-item-del {
-  width: 26px;
-  height: 26px;
   opacity: 0;
   transition: opacity 0.15s;
-}
-#studio-view .studio-item-del svg {
-  width: 13px;
-  height: 13px;
 }
 #studio-view .studio-item:hover .studio-item-del,
 #studio-view .studio-item:focus-within .studio-item-del {
@@ -8239,10 +7623,6 @@ html[data-switch='open']::view-transition-old(chat) {
   background: rgba(238, 232, 222, 0.1);
   color: var(--text-1);
 }
-#studio-view .studio-sort svg {
-  width: 15px;
-  height: 15px;
-}
 /* Empty (moodix-design.md 7 bis 18): the icon of the mode and what it says, centred, without a
    frame; dashes are kept for the empty image slots, where a file can really be dropped. */
 .studio-empty-strip {
@@ -8256,9 +7636,6 @@ html[data-switch='open']::view-transition-old(chat) {
   margin: 4px;
   color: var(--text-3);
   font-size: var(--size-2);
-}
-:root[data-theme='light'] .studio-empty-strip {
-  color: var(--muted);
 }
 .studio-empty-strip svg {
   width: 18px;
@@ -8325,9 +7702,6 @@ html[data-switch='open']::view-transition-old(chat) {
    logo, under the timeline and under « Agent », the band of « Générer », the gradient of the bars
    and the blue of the image slots on hover; nowhere else in the Studio (a soft light line while an
    image is dragged over the column of the prompt). */
-#studio-view .studio-block {
-  border: 1px solid #1a1d24;
-}
 :root[data-theme='light'] #studio-view .studio-block {
   border-color: var(--line);
 }
@@ -8369,26 +7743,7 @@ body {
 .workspace {
   position: relative;
   box-sizing: border-box;
-  height: calc(100dvh - 20px);
-  margin: 10px 10px 10px 0;
-  border: 1px solid var(--window-line);
-  border-radius: 16px;
-  background: var(--window);
   overflow: hidden;
-}
-@media (max-width: 1099px) {
-  .workspace {
-    margin-left: 10px;
-  }
-}
-/* Wide, the window follows the logo of the sidebar: its top edge (27 to 28 px, its border) on the
-   letters, which begin at 27.5 px; as far from the frame at its bottom (on the foot of the actions)
-   and at its right (15/11: 10 px there was too low, too far right). */
-@media (min-width: 1100px) {
-  .workspace {
-    height: calc(100dvh - 54px);
-    margin: 27px 27px 27px 0;
-  }
 }
 
 /* The model starting: the dot of ⏻ in the top bar breathes (#top .engine-button, part 4). */
@@ -8416,9 +7771,7 @@ body[data-view='library'] .library-view {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 28px;
   min-height: 0;
-  padding: 24px 32px 40px;
   overflow-y: auto;
   scrollbar-width: thin;
 }
@@ -8429,35 +7782,10 @@ body[data-view='library'] .library-view {
 }
 
 /* Tout / Images / Vidéos / Sons: a dark track, the one in use white, as the modes of the Studio. */
-.library-kinds {
-  display: inline-flex;
-  gap: 2px;
-  margin-left: auto;
-  padding: 2px;
-  border-radius: 9px;
-  background: var(--sidebar);
-}
-.library-kind {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-2);
-  font-size: var(--size-2);
-  font-weight: 650;
-}
 .library-kind svg {
   width: 15px;
   height: 15px;
   stroke-width: 2;
-}
-.library-kind:hover:enabled {
-  background: var(--hover);
-  color: var(--text-1);
 }
 .library-kind[aria-checked='true'],
 .library-kind[aria-checked='true']:hover:enabled {
@@ -8579,13 +7907,6 @@ button.library-from:hover {
   }
 }
 @media (max-width: 720px) {
-  body[data-view='library'] .library-view {
-    gap: 22px;
-    padding: 18px 16px 32px;
-  }
-  .library-kinds {
-    margin-left: 0;
-  }
   .library-grid {
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     gap: 12px;
@@ -8645,9 +7966,6 @@ body[data-view='library'] .chat-panel {
   border-radius: 14px;
   background: #15171c;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-}
-.ref-picker[hidden] {
-  display: none;
 }
 .ref-picker-item {
   display: grid;
@@ -8720,9 +8038,6 @@ body[data-view='library'] .chat-panel {
   background: #15171c;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
   pointer-events: none;
-}
-.ref-peek[hidden] {
-  display: none;
 }
 .ref-peek img {
   display: block;
@@ -8860,11 +8175,7 @@ button.message-cited-item:focus-visible {
   line-height: 1.4;
   letter-spacing: 0;
   text-transform: none;
-  white-space: pre-line;
   pointer-events: none;
-}
-.help-bubble[hidden] {
-  display: none;
 }
 .help-bubble[data-kind='help'] {
   padding: 9px 11px;
@@ -9069,10 +8380,6 @@ html:not([data-theme='light']) {
   height: 1280px;
   translate: -50% -50%;
 }
-.room-veil[hidden],
-.room-glow[hidden] {
-  display: none;
-}
 .room-veil {
   mix-blend-mode: multiply;
   filter: invert(1) brightness(var(--light-strength, 1)) invert(1);
@@ -9251,19 +8558,6 @@ body:has(dialog[open]) .room-grain {
 }
 
 /* ------------------------------------------------------------------ glass and shapes */
-/* Le verre fumé : translucide, il floute ce qui est derrière lui (24 px, saturation 1,15), liseré
-   clair à 5 %. Pas de verre dans du verre : un verre posé dans un autre ne floute plus. */
-.glass {
-  background: var(--glass);
-  -webkit-backdrop-filter: blur(24px) saturate(1.15);
-  backdrop-filter: blur(24px) saturate(1.15);
-  box-shadow: inset 0 0 0 1px var(--glass-line);
-}
-.glass .glass {
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  background: rgba(var(--room-glass), 0.35);
-}
 /* Ce qui se clique est un carré arrondi : 8 px sous 38 px de haut (tous les boutons d'icône), 10 px
    à partir de 38 px ; chaque écran prend les siens en étant redessiné. */
 :root:not([data-theme='light']) .icon-button {
@@ -9405,9 +8699,6 @@ body {
   transition: transform 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
   pointer-events: none;
 }
-.top-line[hidden] {
-  display: none;
-}
 @media (prefers-reduced-motion: reduce) {
   .top-line {
     transition: none;
@@ -9469,10 +8760,6 @@ body {
 }
 #top .engine-button.is-running::after {
   background: #78c08f;
-}
-#top .engine-button.is-running.is-busy::after,
-#top .engine-button.is-paused::after {
-  background: #e0a35c;
 }
 #top .engine-button.is-running.is-busy::after {
   animation: mdx-engine-wait 1.6s ease-in-out infinite;
@@ -9999,7 +9286,7 @@ body[data-view='chat'] .workspace:has(#messages:empty) > .chat-panel {
 #chat-form .tool-separator {
   display: none;
 }
-#chat-form :is(#attach, #thinking) {
+#chat-form #attach {
   display: grid;
   place-items: center;
   width: 34px;
@@ -10011,19 +9298,14 @@ body[data-view='chat'] .workspace:has(#messages:empty) > .chat-panel {
   background: transparent;
   color: var(--text-2);
 }
-#chat-form :is(#attach, #thinking) svg {
+#chat-form #attach svg {
   width: 16px;
   height: 16px;
   margin: 0;
 }
-#chat-form :is(#attach, #thinking):hover:enabled {
+#chat-form #attach:hover:enabled {
   background: rgba(238, 232, 222, 0.06);
   color: var(--text-1);
-}
-/* La Réflexion active, en couleur d'accent. */
-#chat-form #thinking[aria-pressed='true'] {
-  background: rgba(238, 232, 222, 0.08);
-  color: var(--accent);
 }
 #chat-form .send-button {
   display: grid;
@@ -10361,7 +9643,6 @@ body:not([data-view='chat']) .resume {
 }
 #messages .generation-grid[data-takes]::before {
   content: attr(data-takes);
-  flex: 0 0 100%;
   margin: 0 0 -2px;
   color: var(--text-3);
   font: 500 var(--size-label)/1 var(--font-ui);
@@ -10382,9 +9663,6 @@ body:not([data-view='chat']) .resume {
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-}
-#messages .generation-card.is-video {
-  width: min(560px, 100%);
 }
 #messages .generation-card.is-audio {
   width: min(420px, 100%);
@@ -10448,8 +9726,6 @@ body:not([data-view='chat']) .resume {
 }
 #messages .take-duration {
   position: absolute;
-  bottom: 31px;
-  left: 10px;
   padding: 5px 7px;
   border-radius: 6px;
   background: rgba(12, 11, 14, 0.72);
@@ -10484,12 +9760,9 @@ body:not([data-view='chat']) .resume {
 #messages .output-action {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
   min-height: 0;
   padding: 0;
   border: 0;
-  border-radius: var(--radius-s);
   background: transparent;
   color: var(--text-1);
 }
@@ -10497,8 +9770,6 @@ body:not([data-view='chat']) .resume {
   display: none;
 }
 #messages .output-action svg {
-  width: 15px;
-  height: 15px;
   margin: 0;
 }
 #messages .output-action:hover:enabled,
@@ -10646,9 +9917,6 @@ body:not([data-view='chat']) .resume {
 }
 .take-play:hover {
   background: rgba(14, 13, 17, 0.8);
-}
-.take-play[hidden] {
-  display: none;
 }
 /* A tooltip of two lines: the name of an action, its help under it. */
 .help-bubble {
@@ -11151,9 +10419,6 @@ body:not([data-view='chat']) .resume {
 #studio-view .studio-prompt-field .studio-prompt-more:hover {
   border-color: rgba(238, 232, 222, 0.42);
 }
-#studio-view .studio-prompt-field .studio-prompt-more[hidden] {
-  display: none;
-}
 #studio-view .studio-prompt-more svg {
   width: 14px;
   height: 14px;
@@ -11230,9 +10495,6 @@ body:not([data-view='chat']) .resume {
   height: 5px;
   border-radius: 50%;
   background: var(--accent);
-}
-.studio-screen-head .studio-progress[hidden] {
-  display: none;
 }
 /* How long the take under way has been in the making (0.6.93), beside its step, in mono: the count
    of the server (studio.mjs), as on its card in the conversation. */
@@ -11319,9 +10581,6 @@ body:not([data-view='chat']) .resume {
 .studio-explain-more:hover {
   border-color: rgba(238, 232, 222, 0.42);
 }
-.studio-explain-more[hidden] {
-  display: none;
-}
 .studio-explain-more svg {
   width: 13px;
   height: 13px;
@@ -11395,8 +10654,6 @@ body:not([data-view='chat']) .resume {
 }
 #studio-view .studio-frame-label.is-take {
   position: absolute;
-  top: 12px;
-  left: 12px;
   z-index: 3;
   display: block;
   padding: 5px 7px;
@@ -11451,8 +10708,6 @@ body:not([data-view='chat']) .resume {
   display: none;
 }
 #studio-view .studio-actionbar .output-action svg {
-  width: 16px;
-  height: 16px;
   margin: 0;
 }
 #studio-view .studio-actionbar .output-action:hover:enabled,
@@ -11475,16 +10730,6 @@ body:not([data-view='chat']) .resume {
 }
 #studio-view .studio-go-group > :is(.studio-go, .studio-agent, .studio-stop) {
   margin: 0;
-}
-#studio-view .studio-go-group:not(.is-checking) {
-  gap: 0;
-  height: 46px;
-  overflow: hidden;
-  border: 1px solid rgba(238, 232, 222, 0.24);
-  border-radius: 10px;
-  background: rgba(238, 232, 222, 0.09);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
 }
 #studio-view .studio-go-group.is-proposal {
   overflow: visible;
@@ -11512,8 +10757,6 @@ body:not([data-view='chat']) .resume {
   background: rgba(238, 232, 222, 0.06);
 }
 #studio-view .studio-go-group .studio-go[role='progressbar'] .studio-go-label {
-  font: 500 var(--size-label)/1 var(--font-ui);
-  letter-spacing: 0.22em;
   text-transform: uppercase;
 }
 #studio-view .studio-go-group .studio-go-bar {
@@ -11540,9 +10783,6 @@ body:not([data-view='chat']) .resume {
 #studio-view .studio-go-group .studio-agent svg {
   width: 21px;
   height: 21px;
-}
-#studio-view .studio-go-group .studio-agent-word {
-  display: none;
 }
 #studio-view .studio-go-group:not(.is-checking) :is(.studio-agent, .studio-stop):is(:hover, :focus-visible) {
   background: rgba(238, 232, 222, 0.06);
@@ -11607,7 +10847,6 @@ body:not([data-view='chat']) .resume {
 }
 #studio-view .studio-set-format {
   display: flex;
-  align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
@@ -11881,14 +11120,10 @@ body #studio-view .studio-screen-head .kind-tab[aria-selected='true'] {
   min-width: var(--strip-h);
 }
 #studio-view .studio-item-caption {
-  width: 0;
-  min-width: 100%;
   letter-spacing: 0.06em;
 }
 #studio-view .studio-item-meta {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* The chat of the Agent over the Studio (capture 26): the Studio in « mise au point » (blurred 8 px,
@@ -11994,7 +11229,6 @@ body[data-view='library'] .library-view {
 }
 .library-head {
   display: flex;
-  align-items: center;
   gap: 18px;
   margin: 0 0 16px;
 }
@@ -12017,9 +11251,6 @@ body[data-view='library'] .library-view {
   max-width: none;
   color: var(--text-1);
   font-weight: 500;
-}
-.thread-button span[hidden] {
-  display: none;
 }
 .library-total {
   flex: none;
@@ -12100,10 +11331,6 @@ body[data-view='library'] .library-view {
 /* Each take in its format, 196 px high: upright ones narrow, square ones square, wide ones wide. */
 #library-view .library-tile {
   position: relative;
-  flex: none;
-  width: calc(196px * var(--ratio, 1));
-  max-width: 100%;
-  height: 196px;
   border-radius: 6px;
 }
 #library-view .library-pick {
@@ -12140,9 +11367,6 @@ body[data-view='library'] .library-view {
   opacity: 0;
 }
 /* A sound: a card of glass, « PRISE n » and its kind, its stripes, ▶, its name and its length. */
-#library-view .library-tile.is-sound {
-  width: 332px;
-}
 #library-view .library-tile.is-sound .library-pick {
   background: rgba(var(--room-glass), 0.5);
   outline-color: rgba(238, 232, 222, 0.12);
@@ -12263,12 +11487,9 @@ body[data-view='library'] .library-view {
 #library-view .output-action {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
   min-height: 0;
   padding: 0;
   border: 0;
-  border-radius: 8px;
   background: transparent;
   color: var(--text-1);
 }
@@ -12276,8 +11497,6 @@ body[data-view='library'] .library-view {
   display: none;
 }
 #library-view .output-action svg {
-  width: 15px;
-  height: 15px;
   margin: 0;
 }
 #library-view .output-action:hover:enabled,
@@ -12386,9 +11605,6 @@ body[data-view='library'] .library-view {
   padding: 40px 0 80px;
   text-align: center;
 }
-.library-empty[hidden] {
-  display: none;
-}
 .library-empty-title {
   margin: 0;
   color: var(--text-1);
@@ -12430,10 +11646,6 @@ body[data-view='library'] .library-view {
   .library-head {
     flex-wrap: wrap;
   }
-  #library-view .library-tile {
-    height: 140px;
-    width: calc(140px * var(--ratio, 1));
-  }
 }
 
 /* ------------------------------------------------------------------ a take opened (phase 4) */
@@ -12471,7 +11683,6 @@ body[data-view='library'] .library-view {
 }
 #original-dialog .media-stage {
   position: relative;
-  min-height: 0;
   border: 0;
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.35);
@@ -12495,9 +11706,6 @@ body[data-view='library'] .library-view {
   font: 400 var(--size-label)/1 var(--font-mono);
   letter-spacing: 0.12em;
   pointer-events: none;
-}
-.media-take[hidden] {
-  display: none;
 }
 #original-dialog .media-information {
   display: flex;
@@ -12542,9 +11750,6 @@ body[data-view='library'] .library-view {
 .media-conversation:hover {
   color: var(--text-1);
 }
-.media-conversation[hidden] {
-  display: none;
-}
 .media-prompt-row {
   display: flex;
   align-items: flex-start;
@@ -12568,9 +11773,6 @@ body[data-view='library'] .library-view {
 }
 #original-dialog .media-copy:hover {
   color: var(--text-1);
-}
-#original-dialog .media-copy[hidden] {
-  display: none;
 }
 #original-dialog #media-metadata {
   display: grid;
@@ -12672,12 +11874,9 @@ body[data-view='library'] .library-view {
 .media-take-actions .output-action {
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
   min-height: 0;
   padding: 0;
   border: 1px solid rgba(238, 232, 222, 0.14);
-  border-radius: 10px;
   background: transparent;
   color: var(--text-1);
 }
@@ -12700,8 +11899,6 @@ body[data-view='library'] .library-view {
   display: none;
 }
 .media-take-actions .output-action svg {
-  width: 15px;
-  height: 15px;
   margin: 0;
 }
 .media-take-actions .output-action:disabled {
@@ -12723,9 +11920,6 @@ body[data-view='library'] .library-view {
   background: rgba(16, 15, 20, 0.7);
   color: var(--text-1);
   transform: translateY(-50%);
-}
-.media-step[hidden] {
-  display: none;
 }
 .media-step.is-prev {
   left: 4px;
@@ -12894,9 +12088,6 @@ body:has(#settings[data-tab='interface'][open]) :is(#top, .workspace) {
 }
 #settings .settings-panel.is-single {
   display: block;
-}
-#settings .settings-panel[hidden] {
-  display: none;
 }
 .settings-panel-title {
   margin: 0 0 18px;
@@ -13281,9 +12472,6 @@ body:has(#settings[data-tab='interface'][open]) :is(#top, .workspace) {
   width: 14px;
   height: 14px;
 }
-.settings-reset[hidden] {
-  display: none;
-}
 .settings-cancel {
   min-height: 0;
   padding: 10px 12px;
@@ -13380,9 +12568,6 @@ body:has(#settings[data-tab='interface'][open]) :is(#top, .workspace) {
   border: 1px solid rgba(238, 232, 222, 0.08);
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.18);
-}
-.proposal-body > .proposal-shelf[hidden] {
-  display: none;
 }
 .proposal-shelf-title {
   display: flex;
@@ -13851,16 +13036,10 @@ body:has(#settings[data-tab='interface'][open]) :is(#top, .workspace) {
   max-height: 260px;
   overflow-y: auto;
 }
-#conversation-dialog .project-picker-menu[hidden] {
-  display: none;
-}
 
 /* A take opened (16/11). The prompt whole: the panel scrolls, never the prompt cut. */
 #original-dialog .media-information > * {
   flex-shrink: 0;
-}
-#original-dialog .media-information > .media-actions {
-  margin-top: auto;
 }
 /* (17/11) Its actions stay at the foot of its panel, never scrolled away: what is above passes
    under them, blurred as it nears them. The prompt takes the room that is left (three lines at
@@ -13893,13 +13072,6 @@ body:has(#settings[data-tab='interface'][open]) :is(#top, .workspace) {
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000);
   mask-image: linear-gradient(to bottom, transparent, #000);
   pointer-events: none;
-}
-/* Workflow editor: a prompt kept in the workflow and shown as it is, not a field to fill. */
-#workflow-editor textarea[readonly] {
-  color: var(--text-2);
-  background: rgba(238, 232, 222, 0.03);
-  cursor: default;
-  resize: none;
 }
 /* The last line above the actions keeps clear of their blur when nothing scrolls. */
 #original-dialog .media-information > .media-more {
@@ -13949,9 +13121,6 @@ body:has(#settings[data-tab='interface'][open]) :is(#top, .workspace) {
 #original-dialog .media-prompt-more:hover {
   border-color: rgba(238, 232, 222, 0.42);
 }
-#original-dialog .media-prompt-more[hidden] {
-  display: none;
-}
 #original-dialog .media-prompt-more svg {
   width: 14px;
   height: 14px;
@@ -13985,9 +13154,6 @@ body:has(#settings[data-tab='interface'][open]) :is(#top, .workspace) {
   --text-3: #8b8891;
   --ink: #eee8de;
   --accent: #eee8de;
-}
-.take-player[hidden] {
-  display: none;
 }
 .take-player > .take-player-play {
   position: absolute;
@@ -14309,15 +13475,6 @@ body:has(#settings[data-tab='interface'][open]) :is(#top, .workspace) {
   font-family: var(--font-ui);
 }
 
-/* Workflows (16/11, capture 44): one workflow a line, on one column; its dot, its name and its kind
-   in mono (« VOUS » in the accent for the user's own), a sentence under them, the actions at the
-   right; « Rétablir » discreet. */
-#settings #workflow-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
 /* Mise à jour (16/11, capture 48): « Version installée » and when it was looked for under it, the
    number in mono at the right; a version waiting in a frame (a dot of accent, Installer). The
    sentence of a component goes to the line rather than being cut. */
@@ -14352,9 +13509,6 @@ body:has(#settings[data-tab='interface'][open]) :is(#top, .workspace) {
   border: 1px solid rgba(238, 232, 222, 0.12);
   border-radius: 12px;
   background: rgba(238, 232, 222, 0.04);
-}
-.update-offer[hidden] {
-  display: none;
 }
 .update-offer-dot {
   flex: none;
@@ -14395,7 +13549,6 @@ body:has(#settings[data-tab='interface'][open]) :is(#top, .workspace) {
 /* The search of the settings (16/11, capture 49): « 2 réglages pour « lora » » in place of the title
    of a tab, the settings found in every tab together, each line on its own, the word marked; the
    titles of the tabs and the summaries of the folded parts go while it lasts. */
-.settings-results[hidden],
 .is-search-hidden {
   display: none !important;
 }
@@ -14502,9 +13655,6 @@ body[data-setup='incomplete'] #resume-last {
   background: var(--glass);
   -webkit-backdrop-filter: blur(24px) saturate(1.15);
   backdrop-filter: blur(24px) saturate(1.15);
-}
-.setup-card[hidden] {
-  display: none;
 }
 .setup-head {
   display: flex;
@@ -14752,49 +13902,6 @@ body[data-setup='incomplete'] #resume-last {
   padding: 24px 16px;
   text-align: center;
 }
-#studio-view .studio-blank-mark {
-  width: 24px;
-  height: 24px;
-  margin-bottom: 4px;
-  opacity: 0.45;
-}
-#studio-view .studio-blank-title {
-  margin: 0;
-  color: var(--text-1);
-  font: 400 23px/1.2 var(--font-display, 'Gloock', serif);
-  opacity: 0.8;
-}
-#studio-view .studio-blank-text {
-  max-width: 360px;
-  margin: 0;
-  color: var(--text-3);
-  font: 400 13.5px/1.55 var(--font-ui);
-}
-/* Never out of its frame, nor cut in the middle of a word, whatever the format (0.6.101): a frame of
-   9:16 is 150 px wide in a window of 720 px. The title follows the width of the frame, 23 px at most and
-   12 % of it, so that its longest word holds on a line of its own; a frame too narrow or too low for how
-   to begin leaves it out, then a very low one the Éclipse: the title stays. (The frame is a
-   container of its own size, « the take in its frame » below.) */
-#studio-view .studio-blank-title {
-  font-size: min(23px, 12cqw);
-  overflow-wrap: normal;
-  hyphens: manual;
-}
-@container (max-width: 239px) {
-  #studio-view .studio-blank-text {
-    display: none;
-  }
-}
-@container (max-height: 160px) {
-  #studio-view .studio-blank-text {
-    display: none;
-  }
-}
-@container (max-height: 120px) {
-  #studio-view .studio-blank-mark {
-    display: none;
-  }
-}
 /* (0.6.186) In the group of « Générer », its words are lit whatever it is (the rule of the group comes after
    the one that dims a button that cannot be pressed, and is as precise). Greyed for a model that cannot run
    here, or while another conversation makes a creation, it looked ready; only one without a prompt was dim.
@@ -14957,9 +14064,6 @@ body[data-setup='incomplete'] #resume-last {
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
   transition: opacity 0.4s ease;
-}
-.return-band[hidden] {
-  display: none;
 }
 .return-band.is-leaving {
   opacity: 0;
@@ -15166,9 +14270,6 @@ body[data-setup='incomplete'] #resume-last {
   font: 500 13.5px/1 var(--font-ui);
   white-space: nowrap;
   cursor: pointer;
-}
-.composer-recover[hidden] {
-  display: none;
 }
 .composer-recover:hover {
   background: rgba(238, 232, 222, 0.14);
@@ -15539,9 +14640,6 @@ button.glass-select::after {
   max-width: min(420px, calc(100vw - 16px));
   padding: 6px;
 }
-.glass-menu[hidden] {
-  display: none;
-}
 .glass-menu-item {
   position: relative;
   min-height: 36px;
@@ -15768,9 +14866,6 @@ button.glass-select::after {
   cursor: pointer;
   transition: color 0.15s ease;
 }
-#messages .reasoning-label[hidden] {
-  display: none;
-}
 #messages .reasoning-label:is(:hover, :focus-visible, [aria-expanded='true']) {
   outline: none;
   color: #aaa7af;
@@ -15806,9 +14901,6 @@ button.glass-select::after {
   background: none;
   color: #8b8891;
   font: 400 13.5px/21px var(--font-ui);
-}
-#messages .reasoning[hidden] {
-  display: none;
 }
 #messages .reasoning::before {
   content: '';
@@ -15883,9 +14975,6 @@ button.glass-select::after {
   color: #aaa7af;
   font: 400 13px/21px var(--font-ui);
   cursor: pointer;
-}
-#messages .reasoning-more[hidden] {
-  display: none;
 }
 #messages .reasoning-more:is(:hover, :focus-visible) {
   outline: none;
@@ -16304,9 +15393,6 @@ button.glass-select::after {
   color: var(--text-1);
   font-family: var(--font-ui);
 }
-.work-mini[hidden] {
-  display: none;
-}
 .work-mini-back {
   display: flex;
   flex-direction: column;
@@ -16382,9 +15468,6 @@ button.glass-select::after {
   width: 100%;
   height: 100%;
   object-fit: contain;
-}
-.work-mini-still[hidden] {
-  display: none;
 }
 .work-mini-line {
   display: flex;
@@ -16463,9 +15546,6 @@ button.glass-select::after {
   border-radius: 1px;
   background: rgba(255, 255, 255, 0.12);
 }
-.work-mini-bar[hidden] {
-  display: none;
-}
 .work-mini-fill {
   position: absolute;
   inset: 0;
@@ -16511,9 +15591,6 @@ button.glass-select::after {
 }
 .work-mini-close {
   right: 36px;
-}
-.work-mini-close[hidden] {
-  display: none;
 }
 .work-mini-fold:is(:hover, :focus-visible),
 .work-mini-close:is(:hover, :focus-visible) {
@@ -16651,9 +15728,6 @@ body:not([data-view='studio']) .ai-cursor {
   background: rgba(238, 232, 222, 0.05);
   color: var(--text-2);
   font: 400 13px/1.5 var(--font-ui);
-}
-.settings-held[hidden] {
-  display: none;
 }
 
 /* ------------------------------------------------------------------ Paramètres › Modèles (0.6.119) */
@@ -17085,9 +16159,6 @@ body:not([data-view='studio']) .ai-cursor {
 #settings .model-hero-text.is-warning {
   color: var(--warning);
 }
-#settings .model-hero-text[hidden] {
-  display: none;
-}
 #settings .model-hero-switch {
   min-height: 0;
   border: 0;
@@ -17181,12 +16252,6 @@ body:not([data-view='studio']) .ai-cursor {
 }
 .set-line:is(:hover, :focus-within) {
   background: rgba(238, 232, 222, 0.04);
-}
-.set-line[hidden],
-.set-base[hidden],
-#settings .set-help[hidden],
-#settings .set-note[hidden] {
-  display: none;
 }
 .set-file {
   grid-template-columns: 212px minmax(0, 1fr) auto auto 30px;
@@ -17416,9 +16481,6 @@ body:not([data-view='studio']) .ai-cursor {
   display: block;
   margin: 0 38px 10px 12px;
 }
-#settings #workflow-editor .set-more[hidden] {
-  display: none;
-}
 .set-more > summary {
   padding: 4px 0 8px;
   color: var(--text-2);
@@ -17430,9 +16492,6 @@ body:not([data-view='studio']) .ai-cursor {
   padding: 13px 12px;
   color: var(--text-3);
   font: 400 14px/1.3 var(--font-ui);
-}
-#settings .set-empty[hidden] {
-  display: none;
 }
 #settings .set-remove {
   width: 28px;
@@ -17463,22 +16522,6 @@ body:not([data-view='studio']) .ai-cursor {
   }
 }
 
-/* (0.6.137) « Montage », the fourth mode of the Studio (public/montage.mjs; maquettes M2 à M4 du 20/11):
-   the same four blocks, the foot being the timeline, taller than the Sortie. Greys and ivory only. */
-@container studio (min-width: 900px) {
-  #studio-view .studio-desk.is-montage {
-    --out-h: 292px;
-    min-height: 0;
-    grid-template-columns: 300px minmax(0, 1fr) 268px;
-    grid-template-rows: minmax(0, 1fr) var(--out-h);
-    grid-template-areas: 'in prev set' 'out out out';
-  }
-}
-@media (max-height: 760px) {
-  #studio-view .studio-desk.is-montage {
-    --out-h: 262px;
-  }
-}
 .montage-label,
 .montage-track-name {
   font: 500 10.5px/1 var(--font-ui);
@@ -17486,23 +16529,6 @@ body:not([data-view='studio']) .ai-cursor {
   text-transform: uppercase;
   color: var(--muted);
   white-space: nowrap;
-}
-/* The takes of the project: a panel as the settings are, in the place of the inputs. */
-#studio-view .studio-block.montage-takes {
-  grid-area: in;
-  align-self: stretch;
-  --block-pad: 14px 16px 12px;
-}
-#studio-view .studio-block.montage-takes > .studio-block-body {
-  gap: 10px;
-  overflow: hidden;
-}
-/* The foot is the timeline: no « Sortie » written above it. */
-#studio-view .studio-block.montage-timeline {
-  padding: 0;
-}
-#studio-view .studio-block.montage-timeline > .studio-block-body::before {
-  content: none;
 }
 .montage-head {
   display: flex;
@@ -17584,18 +16610,6 @@ body:not([data-view='studio']) .ai-cursor {
   z-index: 1;
   text-shadow: 0 1px 4px #000;
 }
-.montage-take-number {
-  left: 6px;
-  top: 6px;
-  font: 500 9.5px/1 var(--font-ui);
-  letter-spacing: 0.12em;
-}
-.montage-take-length {
-  right: 6px;
-  bottom: 5px;
-  font: 400 10px/1 var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
 .montage-none {
   margin: 0;
   font: 400 11.5px/1.4 var(--font-ui);
@@ -17606,9 +16620,6 @@ body:not([data-view='studio']) .ai-cursor {
   padding: 8px 0;
 }
 /* The screen. */
-.montage-screen > .studio-block-body {
-  gap: 10px;
-}
 .montage-stage {
   flex: 1 1 auto;
   align-self: stretch;
@@ -17633,9 +16644,6 @@ body:not([data-view='studio']) .ai-cursor {
   width: 100%;
   height: 100%;
   object-fit: contain;
-}
-.montage-frame > [hidden] {
-  display: none;
 }
 .montage-blank {
   position: absolute;
@@ -17698,11 +16706,6 @@ body:not([data-view='studio']) .ai-cursor {
 .montage-clock-total {
   margin-left: -8px;
   color: var(--muted);
-}
-/* The timeline. */
-.montage-timeline > .studio-block-body {
-  gap: 0;
-  padding: 0;
 }
 /* The name of the montage is its title: the list of the montages of the project opens from it. */
 .montage-status {
@@ -17816,7 +16819,6 @@ body:not([data-view='studio']) .ai-cursor {
   background: #0c0b0f center / cover no-repeat;
   color: var(--ink);
   text-align: left;
-  cursor: pointer;
 }
 .montage-piece:not(.is-sound)::before {
   content: '';
@@ -17896,18 +16898,7 @@ body:not([data-view='studio']) .ai-cursor {
   background: #0c0b0f;
   opacity: 0.75;
 }
-/* Pendant qu'on tire : le même curseur partout, et aucun texte sélectionné au passage. */
-.studio-desk.is-montage[data-held] {
-  user-select: none;
-}
-.studio-desk.is-montage[data-held='move'] * {
-  cursor: grabbing !important;
-}
-.studio-desk.is-montage[data-held='trim'] * {
-  cursor: ew-resize !important;
-}
 /* Le bureau et la timeline prennent les touches (Espace : lire) sans se cerner d'un trait. */
-.studio-desk.is-montage:focus,
 .montage-timeline:focus {
   outline: none;
 }
@@ -18079,9 +17070,6 @@ html[data-page-hidden='true'] .montage-piece.is-making::after {
   max-width: calc(100% - 20px);
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.montage-piece.is-making > .montage-piece-length {
-  display: none;
 }
 .montage-piece-bar {
   position: absolute;
@@ -18457,9 +17445,6 @@ body[data-view='bobine'] .chat-panel {
   text-transform: uppercase;
   color: var(--ink);
 }
-.montage-frame > [hidden] {
-  display: none;
-}
 /* « À créer », toujours là (capture 70). */
 #bobine-view .studio-block.bobine-create {
   --block-pad: 18px 18px 16px;
@@ -18515,8 +17500,6 @@ body[data-view='bobine'] .chat-panel {
   color: var(--warning);
 }
 #bobine-view .bobine-desk textarea.bobine-line-words {
-  height: 58px;
-  min-height: 0;
   padding: 9px 11px;
   border-radius: 10px;
   font-size: 13px;
@@ -18629,9 +17612,6 @@ body[data-view='bobine'] .chat-panel {
 .bobine-go-part:enabled:hover,
 .bobine-go-main:enabled:hover {
   background: rgba(238, 232, 222, 0.06);
-}
-.bobine-go-part[hidden] {
-  display: none;
 }
 /* La timeline, sur toute la largeur. */
 #bobine-view .studio-block.montage-timeline {
@@ -18887,9 +17867,6 @@ body[data-view='bobine'] .chat-panel {
   background: rgba(238, 232, 222, 0.03);
   color: rgba(238, 232, 222, 0.62);
   pointer-events: none;
-}
-.bobine-ghost[hidden] {
-  display: none;
 }
 .bobine-ghost-plus {
   font: 300 18px/1 var(--font-ui);
@@ -19369,10 +18346,6 @@ body[data-view='bobine'] .chat-panel {
 #bobine-view .montage-pop {
   transform: translateX(-50%);
 }
-#bobine-view .montage-pop[data-inside='true'] {
-  top: 6px;
-  bottom: auto;
-}
 /* « À créer » qui défile : un fondu au bas de la liste, la phrase ambre jamais sur une carte. */
 .bobine-lines[data-more='true'] {
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent);
@@ -19651,9 +18624,6 @@ body[data-view='bobine'] .chat-panel {
   border-radius: 0 9px 9px 0;
   pointer-events: none;
 }
-.bobine-edge-hint[hidden] {
-  display: none;
-}
 
 /* ------------------------------------------------------------------ La Bobine, relecture du 20/11 (0.6.159) */
 /* Une prise en cours de création, sur la piste (capture 87) : elle garde son contour pointillé et son verre ;
@@ -19715,9 +18685,6 @@ body[data-view='bobine'] .chat-panel {
   mask-position: top left, bottom left;
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
-}
-#bobine-view .montage-frame-words[hidden] {
-  display: none;
 }
 #bobine-view .montage-frame[data-end='true'] > .montage-frame-words {
   max-width: calc(100% - 144px);
@@ -19881,9 +18848,6 @@ body[data-view='bobine'] .chat-panel {
   width: max-content;
   min-width: 100%;
   max-width: min(520px, 86vw);
-}
-.bobine-ask-answer[hidden] {
-  display: none;
 }
 .bobine-ask-done,
 .bobine-ask-said {
@@ -20746,9 +19710,6 @@ body[data-view='bobine'] .chat-panel {
   font: 400 12px/1.35 var(--font-ui);
   text-align: center;
 }
-.camera-block-why[hidden] {
-  display: none;
-}
 #studio-view .camera-block-speeds {
   margin-top: 12px;
 }
@@ -21259,10 +20220,6 @@ body:has(dialog[open]) :is(.camera-ball, .camera-menu-option) :is(.camera-ball-l
   letter-spacing: 0.06em;
   white-space: nowrap;
   pointer-events: none;
-}
-#studio-view .studio-frame > .studio-frame-size[hidden],
-#studio-view .studio-frame > .studio-loupe[hidden] {
-  display: none;
 }
 /* (0.6.262) Above the page (popover="manual"): placed in the window, never cut by the frame, the stage or the block of
    the screen (studio.mjs, magnifier). */

@@ -10526,7 +10526,8 @@ test('(0.6.258) the styles of the loupe: round, 200 px, cut in two; the size in 
   assert.match(part, /\.studio-loupe-half > img \{[^}]*max-width: none;/);
   assert.match(part, /\.studio-frame-size \{[^}]*font: 500 12px\/1\.2 var\(--font-mono\);/);
   assert.match(part, /\.output-action-compare \{\s*margin-top: 8px;/);
-  assert.match(part, /\.studio-loupe\[hidden\] \{\s*display: none;/);
+  // (0.6.281) Hidden, never drawn: by the rule of the whole page, which wins over its display: grid.
+  assert.match(css, /\n\[hidden\] \{\n  display: none !important;\n\}/);
   for (const [, size] of part.matchAll(/(\d+(?:\.\d+)?)px\/|font-size: (\d+)px/g)) if (size) assert.ok(Number(size) >= 12);
   // Its pictogram, beside those of the other actions.
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');

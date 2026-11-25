@@ -86,7 +86,9 @@ test('the Archives: a page of its own, headed by the fil of the Chat and the Stu
   // Its own scroll; the sheet by day, each take at its format on rows of 196 px (capture 31).
   assert.match(css, /body\[data-view='library'\] \.library-view \{[^}]*overflow-y: auto;/);
   assert.match(css, /\.library-row \{\n {2}display: flex;\n {2}flex-wrap: wrap;\n {2}gap: 10px;/);
-  assert.match(css, /#library-view \.library-tile \{[^}]*width: calc\(196px \* var\(--ratio, 1\)\);[^}]*height: 196px;/);
+  // (0.6.281) The rule that sizes them: 196 px times their ratio as a start, at their format (the width and
+  // the height of 196 px written before it never acted).
+  assert.match(css, /#library-view \.library-tile,\n#library-view \.library-tile\.is-sound \{\n  flex: var\(--ratio, 1\) 1 calc\(196px \* var\(--ratio, 1\)\);[^}]*aspect-ratio: var\(--ratio, 1\);/);
   assert.doesNotMatch(css, /\.library-pill|\.library-project-more|\.library-title|\.library-doors/);
   // « Tous les projets » alone; the number of takes of a line of the menus in mono.
   assert.match(css, /\.thread\[data-scope='all'\] :is\(\.thread-slash, \.thread-conversation\) \{\n {2}display: none;/);
@@ -160,7 +162,9 @@ test('the model in its capsule: one icon ⏻ whatever its state, a dot says it, 
   assert.match(app, /\$\('engine-name'\)\.textContent =\n {4}model\?\.name \|\|/);
   assert.match(css, /#top \.engine-button::after \{[^}]*top: 5px;[^}]*right: 5px;[^}]*width: 6px;[^}]*height: 6px;[^}]*border-radius: 50%;/);
   assert.match(css, /#top \.engine-button\.is-running::after \{\n {2}background: #78c08f;/);
-  assert.match(css, /#top \.engine-button\.is-running\.is-busy::after,\n#top \.engine-button\.is-paused::after \{\n {2}background: #e0a35c;/);
+  // (0.6.281) Amber: the colour of the alert (#e0a35c, written before it, never acted).
+  assert.match(css, /#top \.engine-button\.is-running\.is-busy::after,\n#top \.engine-button\.is-paused::after \{\n {2}background: var\(--alert\);/);
+  assert.match(css, /:root \{\n  --alert: #e7b76a;\n\}/);
   // While the model loads, its dot breathes; still with less motion asked.
   assert.match(css, /#top \.engine-button\.is-running\.is-busy::after \{\n {2}animation: mdx-engine-wait 1\.6s ease-in-out infinite;/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n {2}#top \.engine-button\.is-running\.is-busy::after \{\n {4}animation: none;/);
@@ -212,8 +216,8 @@ test('the welcome: no logo, an invitation in Gloock; a box of glass; « 0 % » u
   assert.match(css, /\.composer:has\(textarea:focus-visible\),\n\.composer:focus-within \{\n {2}outline: none;/);
   assert.match(css, /:root:not\(\[data-theme='light'\]\) #chat-form\.composer \{[^}]*background: var\(--glass\);[^}]*backdrop-filter: blur\(24px\) saturate\(1\.15\);/);
   assert.match(css, /:root:not\(\[data-theme='light'\]\) #chat-form\.composer:focus-within \{\n {2}border-color: rgba\(238, 232, 222, 0\.17\);/);
-  // Joindre and Réflexion of 34 px (corners of 8), Envoyer of 38 px (corners of 10).
-  assert.match(css, /#chat-form :is\(#attach, #thinking\) \{[^}]*width: 34px;[^}]*height: 34px;[^}]*border-radius: var\(--radius-s\);/);
+  // Joindre of 34 px (corners of 8), Envoyer of 38 px (corners of 10).
+  assert.match(css, /#chat-form #attach \{[^}]*width: 34px;[^}]*height: 34px;[^}]*border-radius: var\(--radius-s\);/);
   assert.match(css, /#chat-form \.send-button \{[^}]*width: 38px;[^}]*height: 38px;[^}]*border-radius: var\(--radius-l\);/);
   // The share of the context: hidden, its room kept; shown over the box, on focus, or nearly full.
   assert.match(css, /\.context-meter \{\n {2}opacity: 0;/);

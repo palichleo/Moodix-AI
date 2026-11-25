@@ -2433,7 +2433,8 @@ test('the styles of the Bobine: a take being made fills from the left, no moving
   // (0.6.169) Cut inside its plate, not by it: no fourth line half shown in its margin.
   assert.doesNotMatch(rule('#bobine-view .montage-frame-words'), /line-clamp|overflow/);
   assert.match(rule('#bobine-view .montage-frame-text'), /-webkit-line-clamp: 3;[\s\S]*overflow: hidden;/);
-  assert.match(rule('#bobine-view .montage-frame-words[hidden]'), /display: none;/);
+  // (0.6.281) Hidden, never drawn: by the rule of the whole page, which wins over any display of its own.
+  assert.match(css, /\n\[hidden\] \{\n  display: none !important;\n\}/);
   assert.match(rule("#bobine-view .montage-frame[data-end='true'][data-tall='true'] > .montage-frame-words"), /bottom: 82px;/);
 });
 
@@ -2923,7 +2924,7 @@ test('the styles of the request: it grows upwards from its row, what is laid is 
   assert.match(rule('#bobine-view .bobine-desk textarea.bobine-ask-words::placeholder'), /white-space: nowrap;\n  text-overflow: ellipsis;/);
   assert.match(css, /#bobine-view \.bobine-desk textarea\.bobine-ask-words \{\n  flex: 1 1 auto;\n  field-sizing: content;[\s\S]*?max-height: calc\(5lh \+ 14px\);/);
   assert.match(rule('.bobine-ask-answer'), /width: max-content;\n  min-width: 100%;/);
-  assert.match(rule('.bobine-ask-answer[hidden]'), /display: none;/);
+  assert.match(css, /\n\[hidden\] \{\n  display: none !important;\n\}/);
   assert.match(rule("#bobine-view .montage-frame[data-asked='true'] > .montage-frame-words"), /bottom: 46px;/);
   assert.match(rule("#bobine-view .montage-frame[data-asked='open'] > .montage-frame-words"), /display: none;/);
 });
