@@ -3338,3 +3338,30 @@ test('a message that answers a card leaves only from where it was written (0.6.3
   await kept.over();
   assert.equal(kept.requests.at(-1).messages.at(-1).content, 'Non, plutôt la nuit');
 });
+
+test('a creation of the Studio that makes nothing in a new conversation shows its welcome (0.6.333)', async () => {
+  const proposal = { call: functionCall('create_image', 'call_s'), mediaType: 'image', args: { prompt: 'un phare' } },
+    routes = {
+      [`gallery/${ID}?images=0`]: () => Response.json({ runs: [] }),
+      'history/delete': () => Response.json({}),
+    },
+    create = async requestTool => {
+      const studio = page({ requestTool, routes, state: { conversationId: ID, view: 'studio' } });
+      // A new conversation: its welcome is there.
+      studio.$('welcome').hidden = false;
+      const hooks = { signal: new AbortController().signal, onProgress() {}, conversationId: ID };
+      await studio.context.runInStudio(proposal, hooks).catch(() => {});
+      return [studio.$('messages').children.length, studio.$('welcome').hidden];
+    };
+  // Refused or stopped (no take: the Studio says why), or a fault before any take was kept.
+  const refused = async () => ({ content: '{"status":"error"}', images: [], failed: true, error: 'Mémoire pleine' });
+  assert.deepEqual(await create(refused), [0, false]);
+  assert.deepEqual(
+    await create(async () => {
+      throw new Error('Le moteur a planté');
+    }),
+    [0, false],
+  );
+  // A take made: its line in the conversation, no welcome.
+  assert.deepEqual(await create(async () => made(undefined, 'image')), [1, true]);
+});

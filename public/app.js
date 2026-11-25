@@ -4835,6 +4835,8 @@ async function runInStudio(proposal, { signal, onProgress, conversationId = stat
     talk.archiveSnapshot = previous?.messages?.length ? previous : { messages: [...before], incomplete: false };
     if (talk.archiveSnapshot.messages.length) await persistConversation(talkId);
     else if (!existed) await forgetConversation(talkId);
+    // Shown, its thread ends as before it (0.6.333): a new one had lost its welcome, the page left empty.
+    if (shownHere(talkId)) unsentNote();
   };
   let result,
     found = false;
