@@ -3472,3 +3472,28 @@ test('a message of pictures alone is read back without words: « Décris les ima
   assert.equal(read(shown.context.userContent('Décris le chat.', [image])).text, 'Décris le chat.');
   assert.equal(read('Décris les images.').text, 'Décris les images.');
 });
+
+test('the copy an image was looked at with is for its turn: not sent again at the next message (0.6.341)', async t => {
+  const store = await historyStore(t),
+    run = 'b2222222-2222-4222-8222-222222222222',
+    record = { id: run, conversationId: ID, mediaType: 'image' },
+    content = JSON.stringify({ status: 'success', run_id: run }),
+    made = { content, images: ['data:image/png;base64,AAA'], record },
+    call = functionCall('create_image', 'call_1'),
+    creation = called({ call, workflowName: 'Krea 2', requestId: 'r1', autoAllow: true }),
+    parts = message => (Array.isArray(message.content) ? message.content : []),
+    pictures = messages => messages.flatMap(parts).filter(part => part.type === 'image_url').length;
+  // « Analyser les images »: the model looks at what it made.
+  const shown = page({
+    store,
+    state: { generation: { maxIterations: 5, reviewImages: true } },
+    requestTool: async () => made,
+    chat: (body, n) => (n === 1 ? creation : said(n === 2 ? 'Le renard est net.' : 'En hiver, alors.')),
+  });
+  await shown.send('Un renard dans la neige');
+  assert.equal(pictures(shown.requests[1].messages), 1, 'looked at in its turn');
+  // Kept as the disk keeps it (lib/history.mjs): its words, without the copy.
+  assert.deepEqual([pictures(shown.state.messages), pictures((await store.read(ID)).messages)], [0, 0]);
+  await shown.send('Et maintenant en hiver ?');
+  assert.equal(pictures(shown.requests.at(-1).messages), 0, 'the next message');
+});

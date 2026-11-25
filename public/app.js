@@ -3173,7 +3173,16 @@ function userContent(text, images) {
  * its result (closedCalls: the card of a video that waits is saved before its answer, 0.6.27).
  */
 function archiveMessages(messages) {
-  return closedCalls(messages.filter(message => !message.resourceId && !message.outputId));
+  // The copies of a take the model looked at (« analyser les images ») are for their turn too (0.6.341): the disk
+  // never keeps them (lib/history.mjs), and kept here they went to the model again at every message of the page.
+  const copy = part => part?.type === 'image_url' && !part.file,
+    copied = message => message.internal && Array.isArray(message.content) && message.content.some(copy),
+    words = message => ({ ...message, content: message.content.filter(part => !copy(part)) });
+  return closedCalls(
+    messages
+      .filter(message => !message.resourceId && !message.outputId)
+      .map(message => (copied(message) ? words(message) : message)),
+  );
 }
 
 /**
