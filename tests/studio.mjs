@@ -4520,6 +4520,14 @@ test('Ctrl+E improves the prompt from the Studio; an image pasted or dropped on 
     stopped = 0;
     body.find('studio-write')[0].onpaste({ clipboardData: { files: [] }, preventDefault: () => stopped++ });
     assert.equal(stopped, 0);
+    // (0.6.331) Text that comes with a picture of itself (cells of Excel) too: the picture takes no case.
+    const before = notices.length;
+    body.find('studio-write')[0].onpaste({
+      clipboardData: { files: [file('cells.png')], getData: type => (type === 'text/plain' ? 'a\tb' : '') },
+      preventDefault: () => stopped++,
+    });
+    await settle();
+    assert.deepEqual([stopped, notices.length], [0, before]);
 
     // A sound: no wand, and Ctrl+E does nothing.
     mode(2);

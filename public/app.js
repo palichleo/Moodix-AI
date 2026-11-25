@@ -5976,7 +5976,9 @@ $('image-input').onchange = event => {
   addFiles(files);
 };
 $('prompt').onpaste = event => {
-  const files = [...event.clipboardData.files];
+  // Cells of Excel (a paragraph of Word) come with a picture of themselves: their text is what is pasted, the
+  // picture is not joined as a reference in its place (0.6.331). A picture alone (a screenshot) still is.
+  const files = event.clipboardData.getData('text/plain').trim() ? [] : [...event.clipboardData.files];
   if (files.length) {
     event.preventDefault();
     addFiles(files);

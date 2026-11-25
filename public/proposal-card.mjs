@@ -223,6 +223,8 @@ export function proposalCard({
     void addFile(roleAt(event.target), file);
   });
   card.addEventListener?.('paste', event => {
+    // (0.6.331) Text that comes with a picture of itself (cells of Excel): left to the field, as in the Chat.
+    if (event.clipboardData?.getData?.('text/plain')?.trim()) return;
     const file = [...(event.clipboardData?.files ?? [])].find(item => item.type?.startsWith('image/'));
     if (!file) return;
     event.preventDefault();

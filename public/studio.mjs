@@ -7251,6 +7251,8 @@ export function setupStudio({
       else notice('Seules les images PNG, JPEG ou WebP vont dans les cases.');
     };
     write.onpaste = event => {
+      // (0.6.331) Text that comes with a picture of itself (cells of Excel): pasted in the prompt, as in the Chat.
+      if (event.clipboardData?.getData?.('text/plain')?.trim()) return;
       const file = imageFile(event.clipboardData?.files);
       if (!file) return;
       event.preventDefault();

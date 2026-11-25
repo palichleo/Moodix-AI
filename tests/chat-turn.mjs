@@ -3276,3 +3276,27 @@ test('the label of a shortcut stays while nothing leaves, and begins what leaves
   assert.equal(alone.requests.at(-1).messages.at(-1).content[0].text, 'Crée une vidéo :');
   assert.equal(alone.$('prompt-label').hidden, true);
 });
+
+test('text pasted from Word or Excel stays text, never joined as the picture that comes with it (0.6.331)', () => {
+  const prompt = new El('textarea'),
+    added = [],
+    // Whether the browser pastes what it holds (its text) or the page takes it (a file joined).
+    paste = (files, words = '') => {
+      let pasted = true;
+      prompt.onpaste({
+        preventDefault: () => (pasted = false),
+        clipboardData: { files, getData: type => (type === 'text/plain' ? words : '') },
+      });
+      return pasted;
+    };
+  const listener = cut("$('prompt').onpaste", "$('chat-form').ondragover");
+  runInNewContext(listener, { $: () => prompt, addFiles: files => added.push(...files) });
+  const picture = { name: 'image.png', type: 'image/png' };
+  // Cells of Excel: their text, and a picture of them. The text goes in the box, nothing is joined.
+  assert.equal(paste([picture], 'Un renard\tbleu\nUn loup\tgris'), true);
+  assert.deepEqual(added, []);
+  // A picture alone (a screenshot, « Copier l’image »), or with nothing but spaces: joined, as before.
+  assert.equal(paste([picture]), false);
+  assert.equal(paste([picture], ' \n'), false);
+  assert.deepEqual(added.map(file => file.name), ['image.png', 'image.png']);
+});

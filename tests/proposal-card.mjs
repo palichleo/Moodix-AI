@@ -243,6 +243,13 @@ test('an image dropped or pasted on the card is kept in the project, then goes i
   assert.deepEqual(card.revised.at(-1)[1].edits.add, { role: 'end_image', source: { resource: 'res-1' } });
   // Pasted: the same way; a text pasted is left to the field.
   card.card.fire('paste', { clipboardData: { files: [] }, preventDefault: () => assert.fail('a text is not taken') });
+  // (0.6.331) Nor the picture that comes with a text (cells of Excel): the text is what is pasted.
+  card.card.fire('paste', {
+    clipboardData: { files: [{ name: 'cells.png', type: 'image/png' }], getData: type => (type === 'text/plain' ? 'a\tb' : '') },
+    preventDefault: () => assert.fail('a text that comes with its picture is not taken'),
+  });
+  await wait(0);
+  assert.deepEqual(kept, ['falaise.png']);
   card.card.fire('paste', { clipboardData: { files: [{ name: 'image.webp', type: 'image/webp' }] }, preventDefault() {} });
   await wait(0);
   assert.deepEqual(kept, ['falaise.png', 'image.webp']);
