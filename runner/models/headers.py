@@ -24,6 +24,22 @@ DTYPES = {
 }
 
 
+# The longest header a safetensors file begins with here: beyond, its first bytes are those of another kind of file.
+MAX_HEADER = 64 * 1024**2
+
+
+def header_size(prefix):
+    """The length of its header a safetensors file says in its first 8 bytes, or a refusal. (0.6.370) Read
+    without a bound where the files are loaded and converted, the first bytes of a GGUF said 13 GiB and those of
+    a ZIP (a « .ckpt ») 80: the whole file was read before being refused, as text that is not JSON."""
+    if len(prefix) != 8:
+        raise ValueError('Truncated safetensors header')
+    size = struct.unpack('<Q', prefix)[0]
+    if not 2 <= size <= MAX_HEADER:
+        raise ValueError('Invalid safetensors header size')
+    return size
+
+
 def unique_object(pairs):
     result = {}
     for key, value in pairs:
@@ -37,11 +53,8 @@ def header(path):
     path = Path(path)
     file_size = path.stat().st_size
     with path.open('rb') as source:
-        prefix = source.read(8)
-        if len(prefix) != 8:
-            raise ValueError('Truncated safetensors header')
-        size = struct.unpack('<Q', prefix)[0]
-        if not 2 <= size <= 64 * 1024**2 or size > file_size - 8:
+        size = header_size(source.read(8))
+        if size > file_size - 8:
             raise ValueError('Invalid safetensors header size')
         value = json.loads(source.read(size), object_pairs_hook=unique_object)
     if not isinstance(value, dict):

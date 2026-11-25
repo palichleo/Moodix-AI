@@ -16,9 +16,10 @@ through its mapping as before.
 
 import json
 import os
-import struct
 import threading
 from collections import OrderedDict
+
+from runner.models.headers import header_size
 
 GiB = 1024**3
 RESERVE = 12 * GiB  # never let arenas push free RAM below this
@@ -60,7 +61,7 @@ _DTYPES = {
 
 def _header(path):
     with open(path, 'rb') as handle:
-        length = struct.unpack('<Q', handle.read(8))[0]
+        length = header_size(handle.read(8))
         header = json.loads(handle.read(length))
     return header, 8 + length
 

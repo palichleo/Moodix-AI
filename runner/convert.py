@@ -31,6 +31,8 @@ import struct
 import sys
 import time
 
+from runner.models.headers import header_size
+
 GROUP = 256
 NOTE = json.dumps({'format': 'int8_tensorwise', 'convrot': True, 'convrot_groupsize': GROUP}).encode()
 # 8-bit floats of a safetensors file, and the scale some files store beside them under two names.
@@ -80,7 +82,7 @@ def quantise(weight):
 
 def _safetensors_header(path):
     with open(path, 'rb') as handle:
-        (length,) = struct.unpack('<Q', handle.read(8))
+        length = header_size(handle.read(8))
         header = json.loads(handle.read(length))
     metadata = header.pop('__metadata__', None) or {}
     return header, {key: value for key, value in metadata.items() if isinstance(value, str)}

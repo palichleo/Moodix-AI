@@ -130,6 +130,32 @@ class ContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'Invalid tensor data offsets'):
                     header(path)
 
+    def test_what_is_no_safetensors_file_is_refused_at_its_first_bytes_wherever_it_is_read(self):
+        # (0.6.370) The check of the headers bounded the length it reads; the loading and the conversion did not.
+        from runner import convert
+        from runner.models import residency
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'model.safetensors'
+            # A GGUF (13 GiB said by its first bytes), a ZIP (80 GiB), a length of nothing, one of a single byte.
+            others = (b'GGUF' + struct.pack('<I', 3), b'PK' + bytes([3, 4, 20, 0, 0, 0]), bytes(8), bytes([1]) + bytes(7))
+            for first in others:
+                path.write_bytes(first + b'{}' * 64)
+                for read in (residency._header, convert._safetensors_header, header):
+                    with self.assertRaisesRegex(ValueError, 'Invalid safetensors header size'):
+                        read(path)
+            path.write_bytes(b'GGUF')
+            for read in (residency._header, convert._safetensors_header, header):
+                with self.assertRaisesRegex(ValueError, 'Truncated safetensors header'):
+                    read(path)
+            # A real one is read as it was, by each.
+            raw = b'{"__metadata__":{"kind":"test"},"x":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}'
+            path.write_bytes(struct.pack('<Q', len(raw)) + raw + bytes(4))
+            entries, base = residency._header(path)
+            self.assertEqual((sorted(entries), base), (['__metadata__', 'x'], 8 + len(raw)))
+            self.assertEqual(convert._safetensors_header(path), ({'x': entries['x']}, {'kind': 'test'}))
+            self.assertEqual(header(path)['x'], entries['x'])
+
 
 if __name__ == '__main__':
     unittest.main()
