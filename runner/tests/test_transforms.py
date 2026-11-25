@@ -275,6 +275,35 @@ class TransformTests(unittest.TestCase):
         )
         self.assertEqual((probe(path)['width'], probe(path)['height']), (126, 590))
 
+    def test_an_enlarged_picture_becomes_bytes_in_one_copy_and_the_same_bytes(self):
+        # (0.6.378) Each of « bound, multiply, round » made a whole picture in 32 bits beside the result.
+        import torch
+
+        from runner.pipelines.realesrgan import as_bytes
+
+        torch.manual_seed(7)
+        # Below 0, above 1, and halves that round to the even number as they always did.
+        values = torch.rand(1, 3, 5, 7) * 1.4 - 0.2
+        values[0, 0, 0, :4] = torch.tensor([0.5 / 255, 1.5 / 255, 2.5 / 255, 254.5 / 255])
+        for dtype in (torch.float32, torch.float16):
+            result = values.to(dtype)
+            before = result.clone()
+            expected = (result[0].permute(1, 2, 0).float().clamp(0, 1) * 255).round().to(torch.uint8)
+            got = as_bytes(result)
+            self.assertEqual((got.dtype, tuple(got.shape)), (torch.uint8, (5, 7, 3)))
+            self.assertTrue(torch.equal(got, expected), dtype)
+            if dtype is torch.float32:
+                # Already in 32 bits: no copy at all, computed where it is.
+                self.assertTrue(torch.equal(result[0].permute(1, 2, 0), got.float()))
+            else:
+                # In 16 bits (the card): one copy, the result of the network left as it was.
+                self.assertTrue(torch.equal(result, before))
+        # What the network gives was made in the mode of inference: computed in place all the same.
+        with torch.inference_mode():
+            made = values.clone()
+        self.assertTrue(made.is_inference())
+        self.assertTrue(torch.equal(as_bytes(made), expected))
+
     def test_video_upscale_keeps_frames_rate_and_sound(self):
         from runner.video.stream import probe
 

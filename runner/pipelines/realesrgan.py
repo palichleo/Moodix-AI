@@ -16,6 +16,19 @@ def _target(width, height, scale, max_side):
     return width, height
 
 
+def as_bytes(result):
+    """A picture (1, 3, H, W) in [0, 1] as its bytes (H, W, 3), where it is. (0.6.378) One copy in 32 bits at
+    the most, then computed in it: bounding, multiplying and rounding each made a whole picture of their own,
+    24 bytes a pixel at the most beside the result, some 8 GiB for the largest image the family gives
+    (16384 x 16384). The same values, bit for bit."""
+    import torch
+
+    # (What the network gives is a tensor of inference: computed in place only in that mode.)
+    with torch.inference_mode():
+        values = result[0].permute(1, 2, 0).float()
+        return values.clamp_(0, 1).mul_(255).round_().to(torch.uint8)
+
+
 def _model_scale(path):
     from runner.models.rrdbnet import layout, state_dict
 
@@ -73,7 +86,7 @@ def generate(job, config, progress):
         # as it was, and the video refused it (a frame of another size than its file).
         if tuple(result.shape[-2:]) != (height, width):
             result = F.interpolate(result.float(), size=(height, width), mode='area')
-        return (result[0].permute(1, 2, 0).float().clamp(0, 1) * 255).round().to(torch.uint8).cpu().numpy()
+        return as_bytes(result).cpu().numpy()
 
     metadata = dict(job=job, backend='pytorch-rrdbnet', scale=model.scale, tile=tile, device=device)
     if job['mediaType'] == 'image':
