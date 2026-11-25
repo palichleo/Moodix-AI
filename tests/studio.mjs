@@ -11143,3 +11143,49 @@ test('the × of « À refilmer » leaves its change of camera: a continuation is
     page.restore();
   }
 });
+
+test('a continuation of the Chat is never « À refilmer » while followed; that page comes back (0.6.323)', async () => {
+  // (Report 4, new point N2 of the sorting: point 10 without its ×. « Changer la caméra » open on a clip, a
+  // continuation of the same clip asked in the Chat was followed « À refilmer ». Once it is over, the page of the
+  // user is given back as it was, after an image of the Chat too.)
+  const picture = {
+    requestId: 'qi',
+    approvalToken: 'ti',
+    tool: 'create_image',
+    mediaType: 'image',
+    workflowName: 'Krea 2',
+    resolution: { width: 1024, height: 1024 },
+    call: { id: 'call-i', type: 'function', function: { name: 'create_image', arguments: '{}' } },
+    plan: {
+      prompt: 'un phare',
+      stage: 'final',
+      parameters: { prompt: 'un phare', width: 1024, height: 1024, seed: 3 },
+      editable: { prompt: true, stages: [], parameters: [], references: [] },
+      references: [],
+    },
+  };
+  const followed = async request => {
+    const { tools, runs } = continuing();
+    let take = null;
+    const page = await studioPage({ ...tools, refilm_video: [refilmer] }, {}, { runs, extra: { making: () => take } });
+    try {
+      const { body, studio } = page,
+        shown = () => [body.find('studio-refilm').length, prolonged(body)];
+      refilmOn(page);
+      take = chatTakeOf(request, { label: 'Génération…' });
+      studio.watch();
+      const during = shown();
+      Object.assign(take, { running: false, ended: { type: 'failed', record: null, message: 'rien' } });
+      studio.watch();
+      page.mode(1);
+      return { during, after: [...shown(), body.find('studio-go-label')[0].textContent] };
+    } finally {
+      page.restore();
+    }
+  };
+  const refilmed = [1, ['À refilmer · PRISE 1 · 05.04 S'], 'Changer la caméra'],
+    going = await followed(continuation()),
+    still = await followed(picture);
+  assert.deepEqual(going, { during: [0, ['À prolonger · PRISE 1 · 05.04 S']], after: refilmed });
+  assert.deepEqual(still.after, refilmed);
+});

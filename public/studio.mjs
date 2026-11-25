@@ -5950,6 +5950,9 @@ export function setupStudio({
       seedBefore = draft.seed,
       size = request.resolution ?? {};
     // A continuation shows the clip it continues (a take, or a file of the disk), as proposed.
+    // (0.6.323) Never as a clip filmed again: on « Changer la caméra », a continuation of that clip asked in the Chat
+    // was followed « À refilmer ». The page of the user comes back with its camera once it is over (asItWas).
+    refilmId = null;
     extending =
       target !== 'video'
         ? null
