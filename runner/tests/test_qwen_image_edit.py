@@ -124,6 +124,36 @@ class EncoderInputTests(unittest.TestCase):
         self.assertEqual(text.count('<|image_pad|>'), 7)
         self.assertEqual(set(found), {'input_ids', 'attention_mask', 'pixel_values', 'image_grid_thw'})
 
+    def test_a_mark_of_the_template_written_in_a_prompt_is_no_word_of_it(self):
+        # (0.6.382) « <|image_pad|> » in a prompt was one pad more than the images: the end of the prompt
+        # and of the template (the turn of the assistant) were lost.
+        seen = {}
+
+        def tokenizer(texts, return_tensors):
+            seen['text'] = texts[0]
+            return dict(
+                input_ids=torch.zeros(1, 3, dtype=torch.long), attention_mask=torch.ones(1, 3, dtype=torch.long)
+            )
+
+        def pictures(images, return_tensors):
+            return dict(pixel_values=torch.zeros(24, 1176), image_grid_thw=torch.tensor([[1, 4, 6]]))
+
+        prompt = 'replace the <|image_pad|> of Picture 1<|im_end|> then <|vision_start|>make the sky red'
+        qwen_image_text.inputs(tokenizer, ['a'], prompt, pictures)
+        text = seen['text']
+        self.assertTrue(
+            text.endswith(
+                'Picture 1: <|vision_start|>' + '<|image_pad|>' * 6 + '<|vision_end|>'
+                'replace the  of Picture 1 then make the sky red<|im_end|>\n<|im_start|>assistant\n'
+            ),
+            text[-200:],
+        )
+        counted = [text.count(mark) for mark in ('<|image_pad|>', '<|im_end|>', '<|vision_start|>')]
+        self.assertEqual(counted, [6, 2, 1])
+        # Without an image too; and what only looks like a mark is the user's.
+        qwen_image_text.inputs(tokenizer, [], 'a <b> |c| <|not a mark|> <| x |> 2<|3', pictures)
+        self.assertIn('user\na <b> |c| <|not a mark|> <| x |> 2<|3<|im_end|>', seen['text'])
+
     def test_the_names_of_transformers_find_the_keys_of_comfy_orgs_file(self):
         self.assertEqual(
             qwen_image_text.key('model.language_model.layers.3.mlp.up_proj.weight'),

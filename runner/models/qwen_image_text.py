@@ -14,6 +14,7 @@ the rows read go to the card. The tokenizer is Krea 2's (qwen25_tokenizer: the s
 """
 
 import gc
+import re
 import time
 
 TEMPLATE = (
@@ -26,6 +27,8 @@ TEMPLATE = (
 DROP = 64
 PICTURE = 'Picture {}: <|vision_start|><|image_pad|><|vision_end|>'
 PAD = '<|image_pad|>'
+# A mark of the template, as the tokenizer reads them: « <|im_end|> », « <|image_pad|> », « <|vision_start|> ».
+MARK = re.compile(r'<\|[A-Za-z0-9_]{1,40}\|>')
 # The area each image is seen at by the encoder (diffusers' CONDITION_IMAGE_SIZE).
 SEEN_AREA = 384 * 384
 # Qwen/Qwen-Image-Edit-2511, processor/preprocessor_config.json.
@@ -174,6 +177,10 @@ def inputs(tokenizer, images, prompt, pictures=None):
     """The model's inputs for one prompt read with `images` (PIL, as `seen` gives them):
     dict(input_ids, attention_mask, pixel_values, image_grid_thw), on the processor's side."""
     pictures = pictures or processor()
+    # (0.6.382) The marks of the template are no words of the user: written in a prompt, « <|image_pad|> » was
+    # one pad more than the images, and the end of the prompt and of the template were lost with it (the rest
+    # of the instruction, and the turn of the assistant the model answers from).
+    prompt = MARK.sub('', prompt)
     text = TEMPLATE.format(''.join(PICTURE.format(index + 1) for index in range(len(images))) + prompt)
     found = {}
     if images:
