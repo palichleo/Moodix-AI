@@ -242,6 +242,19 @@ def _free():
     torch.cuda.empty_cache()
 
 
+def _decoded_sound(state, parameters, paths):
+    """The state once the sound of the video is decoded, that sound and its sampling rate; none for a video
+    asked without sound. (0.6.374) Its decoder was loaded and the sound decoded for these too, then left out."""
+    if not parameters.get('audio', True):
+        return state, None, None
+    from runner.models import minimax_h3_vae
+
+    audio_vae = minimax_h3_vae.audio_vae(paths['audioVae'])
+    state = _stage('decode.audio', dict(audio_vae=audio_vae), state)
+    del audio_vae
+    return state, state.get('audio'), state.get('sampling_rate')
+
+
 @contextmanager
 def _conditioner(path):
     """The conditioner and its open store, for the time a prompt is encoded: the store is closed after it
@@ -795,10 +808,7 @@ def _generate(job, config, progress, key, holder):
 
         pixels = smaller([frames_of, *([alone] if pool.gpu else []), unbound], torch)
         _free()
-        audio_vae = minimax_h3_vae.audio_vae(paths['audioVae'])
-        state = _stage('decode.audio', dict(audio_vae=audio_vae), state)
-    audio, rate = state.get('audio'), state.get('sampling_rate')
-    del audio_vae
+        state, audio, rate = _decoded_sound(state, p, paths)
     _free()
     progress(stage='video decoded')
     if len(pixels) != p['frames']:

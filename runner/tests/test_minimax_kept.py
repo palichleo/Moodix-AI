@@ -147,6 +147,30 @@ class KeptModelTests(unittest.TestCase):
         ]
         self.assertEqual(len(said), 1, 'and it is what the take says of its model')
 
+    def test_the_sound_of_a_video_asked_without_sound_is_not_decoded(self):
+        # (0.6.374) « Son » turned off: the decoder of the sound was loaded all the same, and the sound decoded.
+        from runner.models import minimax_h3_vae
+        from runner.pipelines import minimax_h3 as pipeline
+
+        asked = []
+
+        def stage(name, components, state):
+            asked.append((name, components['audio_vae']))
+            return dict(state, audio='the sound', sampling_rate=48000)
+
+        with (
+            mock.patch.object(minimax_h3_vae, 'audio_vae', lambda path: 'decoder of ' + path),
+            mock.patch.object(pipeline, '_stage', stage),
+        ):
+            paths, state = dict(audioVae='audio.safetensors'), dict(latents='video')
+            self.assertEqual(pipeline._decoded_sound(state, dict(audio=False), paths), (state, None, None))
+            self.assertEqual(asked, [])
+            # With its sound (said, or not said: an older job), as it always was.
+            for parameters in (dict(audio=True), dict()):
+                after, sound, rate = pipeline._decoded_sound(state, parameters, paths)
+                self.assertEqual((sound, rate, after['latents']), ('the sound', 48000, 'video'))
+            self.assertEqual(asked, [('decode.audio', 'decoder of audio.safetensors')] * 2)
+
     def test_the_decode_asks_for_its_decoder_and_more_for_a_larger_picture(self):
         from runner.pipelines.minimax_h3 import decode_gib
 
