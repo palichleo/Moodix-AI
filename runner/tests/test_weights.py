@@ -539,6 +539,15 @@ class RoomTest(unittest.TestCase):
         self.assertIn('demande environ 8,0 Go de mémoire vidéo libre', asked(final, 7.0))
         self.assertIn('7,0 Go sont libres', asked(final, 7.0))
         self.assertIn('réduisez la taille ou la durée de la vidéo', asked(final, 7.0))
+        self.assertTrue(
+            asked(final, 7.0).endswith(
+                'Fermez ce qui occupe la carte graphique, ou réduisez la taille ou la durée de la vidéo.'
+            )
+        )
+        # (0.6.283) Nothing the user may make smaller (Qwen-Image-Edit without its own size): no such advice.
+        with patch.dict(sys.modules, torch=card(7.0)), self.assertRaises(RuntimeError) as refused:
+            module.require('Qwen-Image-Edit', 8.0, None)
+        self.assertTrue(str(refused.exception).endswith('7,0 Go sont libres. Fermez ce qui occupe la carte graphique.'))
         # Never more than before: a job whose estimate passes 9 GiB still runs with 9 free.
         large = video(1920, 1088)
         self.assertGreater(large, module.FLOOR_GIB)

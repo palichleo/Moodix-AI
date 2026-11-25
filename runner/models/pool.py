@@ -38,7 +38,7 @@ def require(label, working_gib, smaller, measured=None):
     video memory that is free now. The weights are not counted: a share of them stays on the card
     where there is room, the rest passes through, so a model in smaller files fits a smaller card.
     `working_gib` is what the pipeline itself sets aside beside them for this job (it grows with
-    the picture), `smaller` what the user may reduce.
+    the picture), `smaller` what the user may reduce (None when there is nothing: 0.6.283).
 
     `working_gib` is an estimate, asked up to the floor only (FLOOR_GIB). `measured` is what such a
     job was seen to hold at the least, its margin included: it is asked in place of the estimate,
@@ -56,9 +56,10 @@ def require(label, working_gib, smaller, measured=None):
     need = measured if measured else min(working_gib, FLOOR_GIB)
     if free < need:
         said = lambda value: f'{value:.1f}'.replace('.', ',')  # noqa: E731
+        advice = f', ou réduisez {smaller}' if smaller else ''
         raise RuntimeError(
             f'{label} demande environ {said(need)} Go de mémoire vidéo libre pour cette création ; '
-            f'{said(free)} Go sont libres. Fermez ce qui occupe la carte graphique, ou réduisez {smaller}.'
+            f'{said(free)} Go sont libres. Fermez ce qui occupe la carte graphique{advice}.'
         )
 
 

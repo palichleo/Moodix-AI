@@ -436,7 +436,10 @@ def _generate(job, config, report, key, loras, holder):
     width, height = made_size(p, images[0].size)
     megapixels = width * height / 1024**2
     reserve = RESERVE_GIB + RESERVE_PER_MEGAPIXEL_GIB * megapixels
-    require('Qwen-Image-Edit', reserve + AHEAD_GIB, 'la taille de l’image')
+    # (0.6.283) Without its own width and height, the picture has the size of the image to modify at a megapixel:
+    # nothing the user may make smaller (the advice of Krea 2, copied, could not be followed).
+    sized = p.get('width') and p.get('height')
+    require('Qwen-Image-Edit', reserve + AHEAD_GIB, 'la taille de l’image' if sized else None)
     start = time.perf_counter()
     torch.cuda.reset_peak_memory_stats()
     timeline = []

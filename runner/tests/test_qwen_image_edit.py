@@ -444,10 +444,11 @@ class GenerateTests(unittest.TestCase):
     """The real generate and _generate, one image after the other, on the processor: the card, the
     encoder, the VAE and the steps of the model faked (0.6.273)."""
 
-    def images(self, count, short=()):
+    def images(self, count, short=(), sized=True):
         """Makes `count` images with the same job. `short`: the images (0, the first) whose first
-        step runs out of memory once. Returns their sheets; the budgets of the models built are left
-        in `self.builds`."""
+        step runs out of memory once. `sized`: the job gives a width and a height (256 x 256). Returns
+        their sheets; the budgets of the models built are left in `self.builds`, what was asked of
+        pool.require in `self.required`."""
         from contextlib import ExitStack
         from unittest import mock
 
@@ -458,7 +459,7 @@ class GenerateTests(unittest.TestCase):
         from runner.pipelines import ltx25
 
         sigmas = qwen_image_edit.schedule()
-        builds, pools, short, made, prepared = [], [], list(short), [0], []
+        builds, pools, short, made, prepared, required = [], [], list(short), [0], [], []
 
         def build(loaded, _job, _loras, budget, _progress):
             builds.append(budget)
@@ -503,7 +504,8 @@ class GenerateTests(unittest.TestCase):
             path = Path(folder) / 'a.png'
             Image.new('RGB', (64, 48), 'red').save(path)
             given = job(references=[dict(input='source', role='edit_image', path=str(path))])
-            given['parameters'] = dict(given['parameters'], width=256, height=256)
+            if sized:
+                given['parameters'] = dict(given['parameters'], width=256, height=256)
             for name, value in (('is_available', True), ('reset_peak_memory_stats', None), ('empty_cache', None)):
                 enter(mock.patch.object(torch.cuda, name, return_value=value))
             for name in ('memory_reserved', 'memory_allocated', 'max_memory_allocated'):
@@ -512,7 +514,7 @@ class GenerateTests(unittest.TestCase):
             enter(mock.patch.object(torch.Tensor, 'cuda', lambda tensor, *_device: tensor))
             enter(mock.patch.object(torch, 'tensor', on_the_processor(torch.tensor)))
             enter(mock.patch.object(hardware, 'free_bytes', lambda _torch: 10 * qwen_image_edit.GiB))
-            enter(mock.patch.object(pool, 'require', lambda *_args, **_measured: None))
+            enter(mock.patch.object(pool, 'require', lambda *args, **_measured: required.append(args)))
             enter(mock.patch.object(ltx25, 'memory', dict))
             enter(mock.patch.object(conditioning, 'stamp', side_effect=str))
             enter(mock.patch.object(preview, 'send', lambda *_args: None))
@@ -531,8 +533,16 @@ class GenerateTests(unittest.TestCase):
                     sheets.append(qwen_image_edit.generate(given, dict(cacheRoot=folder), lambda **_stage: None))
             finally:
                 kept._kept.clear()
-        self.builds, self.prepared = builds, prepared
+        self.builds, self.prepared, self.required = builds, prepared, required
         return sheets
+
+    def test_a_refusal_for_memory_says_to_make_the_picture_smaller_only_when_its_size_is_set(self):
+        # (0.6.283) The shipped workflow gives no width and no height: the picture has the size of the image to
+        # modify at a megapixel, and there is nothing to make smaller. With its own size, there is.
+        self.images(1, sized=False)
+        self.assertEqual([asked[2] for asked in self.required], [None])
+        self.images(1)
+        self.assertEqual([asked[2] for asked in self.required], ['la taille de l’image'])
 
     def test_the_sheet_of_an_image_made_with_the_model_kept_counts_its_own_weights(self):
         first, second = self.images(2)
