@@ -465,6 +465,19 @@ test('in a card a source says what is done with it, « À MODIFIER », « À PRO
   assert.deepEqual(captions(card('image', 'Agrandir', ['source_image'], [{ input: 'source', role: 'source_image', label: 'Prise 1' }], [])), ['À agrandir']);
   assert.deepEqual(captions(card('video', 'Autre', ['source_video'], [{ input: 'source', role: 'source_video', label: 'Prise 1' }], [])), ['À prolonger']);
   assert.deepEqual(captions(card('video', 'Autre', ['driving_video'], [{ input: 'video', role: 'driving_video', label: 'Prise 1' }], [])), ['À suivre']);
+  // (0.6.271) Qwen-Image-Edit: the image it modifies is a source (« edit_image », as: source), not « Sujet 1 »;
+  // the case for one more takes an other image (« reference_image »), never a second image to modify.
+  const qwen = card('image', 'Qwen-Image-Edit', ['edit_image', 'reference_image', 'reference_image'], [
+    { input: 'source', role: 'edit_image', as: 'source', roleLabel: 'Image à modifier', label: '#ref1' },
+  ]);
+  assert.deepEqual(captions(qwen), ['À modifier', '', 'Sujet']);
+  const box = node('section'),
+    form = renderProposal(box, qwen, { node, card: true });
+  assert.deepEqual(form.emptyRoles(), ['reference_image']);
+  // A source is no case to drop on: an image dropped there would replace the image to modify.
+  const roles = all(box).filter(item => item.className?.startsWith?.('proposal-input')).map(item => item.attributes?.['data-role'] ?? '');
+  assert.deepEqual(roles.filter(Boolean), ['reference_image']);
+  assert.deepEqual(captions(card('image', 'Qwen-Image-Edit', ['edit_image'], [{ input: 'source', role: 'edit_image', label: '#ref1' }], [])), ['À modifier']);
 });
 
 test('(0.6.209) the pieces of a card: the words of the Studio, « #ref3 » under the word of a reference named, what is left out greyed with its reason', async () => {

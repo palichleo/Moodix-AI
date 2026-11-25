@@ -28,11 +28,20 @@ const numeric = value => typeof value === 'number' && Number.isFinite(value);
 // « Sujet 1 », « À prolonger »…), written as a sentence writes them: the card shows them in capitals by its
 // style sheet (« DÉBUT »), as before.
 const PLACES = { start_image: PIECE_WORDS.start_image, end_image: PIECE_WORDS.end_image };
-const SOURCES = new Set(['source_video', 'driving_video', 'source_image', 'img2img']);
+// (0.6.271) Every role a family says « as: source » (runner/families): Qwen-Image-Edit's « edit_image » was
+// missing, and its image to modify was shown as « Sujet 1 », a drop on it replacing it.
+const SOURCES = new Set(['source_video', 'driving_video', 'source_image', 'img2img', 'edit_image', 'refilm_source']);
 // (0.6.190) What a source is for, said under it in a card instead of « SOURCE »: the end of the name the
 // server gives its role (« Image à modifier », « Vidéo à prolonger », « Vidéo à suivre »); by its role alone
 // when the proposal names none.
-const DOING = { img2img: PIECE_WORDS.source, source_image: 'À agrandir', source_video: PIECE_WORDS.prolong, driving_video: PIECE_WORDS.follow };
+const DOING = {
+  img2img: PIECE_WORDS.source,
+  edit_image: PIECE_WORDS.source,
+  source_image: 'À agrandir',
+  source_video: PIECE_WORDS.prolong,
+  driving_video: PIECE_WORDS.follow,
+  refilm_source: PIECE_WORDS.refilm,
+};
 const doing = (label, role) => {
   const said = /(?:^|\s)à\s(.+)$/i.exec(String(label ?? ''))?.[1];
   return said ? 'À ' + said.toLowerCase() : (DOING[role] ?? 'Entrée');
