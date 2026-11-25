@@ -25,17 +25,26 @@ def check(job, family):
 
 
 def _sizes(width, height, parameters):
-    """Size after each pass; the last pass is reduced to max_side if needed."""
+    """Size after each pass, none beyond the largest side (`max_side`, 8192 at most).
+
+    (0.6.302) Only the last pass was brought back to it. 3000 px enlarged twice in three passes went through
+    12 000 px, where the model has no way back (more than 375 000 tokens for 262 000 at 8192), then was made
+    smaller by a pass more; 2048 px ended on a third pass from 8192 to 8192, a whole diffusion that enlarged
+    nothing. Each pass stops at the limit, and a pass that would enlarge nothing more is not made. The first
+    one always is; passes that do not enlarge at all (scale 1) are restorations, all made.
+    """
     scale, passes, max_side = parameters.get('scale', 2), parameters.get('passes', 1), parameters.get('max_side', 0)
+    limit = min(max_side or MAX_SIDE, MAX_SIDE)
     sizes = []
     for _ in range(passes):
-        width, height = round(width * scale), round(height * scale)
-        sizes.append((width, height))
-    limit = min(max_side or MAX_SIDE, MAX_SIDE)
-    width, height = sizes[-1]
-    if max(width, height) > limit:
-        ratio = limit / max(width, height)
-        sizes[-1] = (max(16, round(width * ratio)), max(16, round(height * ratio)))
+        wide, high = round(width * scale), round(height * scale)
+        if max(wide, high) > limit:
+            ratio = limit / max(wide, high)
+            wide, high = max(16, round(wide * ratio)), max(16, round(high * ratio))
+        if sizes and scale > 1 and (wide, high) == (width, height):
+            break
+        sizes.append((wide, high))
+        width, height = wide, high
     return sizes
 
 

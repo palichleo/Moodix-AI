@@ -4,6 +4,42 @@ import unittest
 HAS_TORCH = importlib.util.find_spec('torch') is not None
 
 
+class SeedVR2SizesTest(unittest.TestCase):
+    """(0.6.302) The size of each pass: none beyond the largest side, none that enlarges nothing."""
+
+    def sizes(self, width, height, **parameters):
+        from runner.pipelines import seedvr2
+
+        return seedvr2._sizes(width, height, parameters)
+
+    def test_no_pass_goes_beyond_the_largest_side_nor_is_made_for_nothing(self):
+        # One pass, as the Studio asks it (« Agrandir »): as before, brought back to 8192 when it goes beyond.
+        self.assertEqual(self.sizes(1024, 768, scale=2), [(2048, 1536)])
+        self.assertEqual(self.sizes(1024, 768, scale=4, passes=1), [(4096, 3072)])
+        self.assertEqual(self.sizes(4032, 3024, scale=4), [(8192, 6144)])
+        # Several, as Moodix AI may ask them. It went through 12 000 px, then was made smaller by a third pass.
+        self.assertEqual(self.sizes(3000, 2000, scale=2, passes=3), [(6000, 4000), (8192, 5461)])
+        # It ended on a pass from 8192 to 8192: a whole diffusion that enlarged nothing.
+        self.assertEqual(self.sizes(2048, 1152, scale=2, passes=3), [(4096, 2304), (8192, 4608)])
+        # It went through 16 128 px at its first pass.
+        self.assertEqual(self.sizes(4032, 3024, scale=4, passes=2), [(8192, 6144)])
+        # Under the limit nothing changes.
+        self.assertEqual(self.sizes(512, 512, scale=2, passes=3), [(1024, 1024), (2048, 2048), (4096, 4096)])
+        self.assertEqual(self.sizes(640, 360, scale=1.5, passes=2), [(960, 540), (1440, 810)])
+        # The side the request gives is the limit, never beyond 8192.
+        self.assertEqual(self.sizes(1024, 1024, scale=2, passes=3, max_side=3000), [(2048, 2048), (3000, 3000)])
+        self.assertEqual(self.sizes(1024, 1024, scale=2, passes=1, max_side=1500), [(1500, 1500)])
+        self.assertEqual(self.sizes(4096, 4096, scale=4, max_side=20000), [(8192, 8192)])
+        # The first pass is always made: an image already at the limit is restored there, one beyond it brought back.
+        self.assertEqual(self.sizes(8192, 4608, scale=2), [(8192, 4608)])
+        self.assertEqual(self.sizes(8192, 4608, scale=2, passes=3), [(8192, 4608)])
+        self.assertEqual(self.sizes(10000, 5000, scale=2), [(8192, 4096)])
+        # Passes that do not enlarge (scale 1) are restorations: all made, as before.
+        self.assertEqual(self.sizes(1024, 768, scale=1, passes=3), [(1024, 768)] * 3)
+        # Never under 16 px on a side.
+        self.assertEqual(self.sizes(8192, 8, scale=2), [(8192, 16)])
+
+
 @unittest.skipUnless(HAS_TORCH, 'torch is not installed')
 class SeedVR2Test(unittest.TestCase):
     def test_windows_cover_every_token_once(self):
