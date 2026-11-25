@@ -9,13 +9,14 @@ import { resolve } from 'node:path';
  * replaced for the time of `work` (module.syncBuiltinESMExports). Resolves with the number of
  * refusals of each file: 2 for a file put in its place once its refusals were tried again.
  * `onRefused(path)`: at each refusal, while the work waits (what it says meanwhile, 0.6.87).
+ * `times`: the refusals of each file when not two (0.6.384: more than a file of the data waits for).
  */
-export async function held(paths, work, { onRefused = () => {} } = {}) {
+export async function held(paths, work, { onRefused = () => {}, times = 2 } = {}) {
   const rename = fs.rename,
     refused = new Map(paths.map(path => [resolve(path), 0]));
   fs.rename = async (from, to) => {
     const count = refused.get(resolve(to));
-    if (count === undefined || count >= 2) return rename(from, to);
+    if (count === undefined || count >= times) return rename(from, to);
     refused.set(resolve(to), count + 1);
     const code = count ? 'EBUSY' : 'EPERM';
     onRefused(resolve(to));

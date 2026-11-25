@@ -4,7 +4,10 @@ import { mkdtemp, mkdir, readFile, writeFile, rm, readdir, symlink, rename } fro
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import * as module from '../lib/update-files.mjs';
+import { held as heldRenames, twice } from './fixtures/held-renames.mjs';
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'atelier-installer-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -214,3 +217,58 @@ test('a rename that waits says it once, at its first refusal, and nothing when i
   await module.renameWithRetry(from, to, { onWait: () => waits++ });
   assert.equal(waits, 1);
 });
+
+test('a source that Windows holds for an instant is waited for, on the way in and on the way back (0.6.384)', async t => {
+  // Given up at the first refusal, an update by the button started the version of before again; refused on
+  // the way back too, it left the sources mixed.
+  const { root, workspace } = await fixture(t),
+    backup = join(workspace, 'backup'),
+    into = [join(root, 'server.mjs'), join(root, 'public'), join(backup, 'public'), join(backup, 'package.json')];
+  assert.deepEqual(await heldRenames(into, () => module.replaceSources({ root, workspace })), twice(into));
+  assert.equal(await readFile(join(root, 'server.mjs'), 'utf8'), 'new server');
+  assert.equal(await readFile(join(root, 'public', 'index.html'), 'utf8'), 'new page');
+  assert.match(await readFile(join(root, 'package.json'), 'utf8'), /0\.3\.0/);
+  assert.equal(await readFile(join(backup, 'public', 'index.html'), 'utf8'), 'old page');
+  assert.deepEqual(await readdir(join(workspace, 'stage')), []);
+  const back = [join(root, 'server.mjs'), join(root, 'public')];
+  assert.deepEqual(await heldRenames(back, () => module.restoreSources({ root, workspace })), twice(back));
+  assert.equal(await readFile(join(root, 'server.mjs'), 'utf8'), 'old server');
+  assert.equal(await readFile(join(root, 'public', 'index.html'), 'utf8'), 'old page');
+  assert.match(await readFile(join(root, 'package.json'), 'utf8'), /0\.2\.0/);
+  assert.deepEqual(await readdir(backup), []);
+});
+
+test('a source of an update is waited for longer than a file of the data (0.6.384)', async t => {
+  // Read by an antivirus for longer, as what was just downloaded: fourteen refusals, where a file of the
+  // data is given up at the thirteenth.
+  const { root, workspace } = await fixture(t),
+    into = [join(root, 'public'), join(workspace, 'backup', 'server.mjs')],
+    back = [join(root, 'public')],
+    counts = async (paths, work) => Object.values(await heldRenames(paths, work, { times: 14 }));
+  assert.deepEqual(await counts(into, () => module.replaceSources({ root, workspace })), [14, 14]);
+  assert.equal(await readFile(join(root, 'public', 'index.html'), 'utf8'), 'new page');
+  assert.equal(await readFile(join(root, 'server.mjs'), 'utf8'), 'new server');
+  assert.deepEqual(await counts(back, () => module.restoreSources({ root, workspace })), [14]);
+  assert.equal(await readFile(join(root, 'public', 'index.html'), 'utf8'), 'old page');
+  assert.equal(await readFile(join(root, 'server.mjs'), 'utf8'), 'old server');
+});
+
+test(
+  'the way back waits for a folder of the new version that a program has not left yet (0.6.384)',
+  { skip: process.platform !== 'win32' && 'Only Windows refuses to remove the folder a program is in.' },
+  async t => {
+    const { root, workspace } = await fixture(t);
+    await module.replaceSources({ root, workspace });
+    // A program whose current folder is `public`: Windows refuses to remove that folder until it ends.
+    const child = spawn(process.execPath, ['-e', 'console.log(1); setTimeout(() => {}, 500)'], {
+      cwd: join(root, 'public'),
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    t.after(() => child.kill());
+    await once(child.stdout, 'data');
+    await module.restoreSources({ root, workspace });
+    assert.equal(await readFile(join(root, 'public', 'index.html'), 'utf8'), 'old page');
+    assert.equal(await readFile(join(root, 'server.mjs'), 'utf8'), 'old server');
+    assert.deepEqual(await readdir(join(workspace, 'backup')), []);
+  },
+);
