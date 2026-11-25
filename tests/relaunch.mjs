@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { createApplication, startLauncher } from '../server.mjs';
 
 test('the application relaunches itself only when its files changed', async () => {
@@ -56,10 +58,16 @@ test('the launcher is started in its own window on Windows, in the background el
   startLauncher({ root: '/opt/atelier', port: 9000 }, { platform: 'linux', spawnProcess });
   const [windows, linux] = calls;
   assert.equal(windows.command, 'cmd.exe');
-  assert.deepEqual(windows.args.slice(0, 5), ['/c', 'start', 'Atelier local', '/D', 'F:\\Atelier']);
-  assert.equal(windows.args[5], process.execPath);
-  assert.match(windows.args[6], /scripts.launch\.mjs$/);
-  assert.deepEqual(windows.args.slice(-2), ['--port=8787', '--wait-idle']);
+  // (0.6.386) One line for cmd.exe, as written here (`windowsVerbatimArguments`), every path in quotes.
+  assert.deepEqual(windows.args, [
+    '/d',
+    '/s',
+    '/c',
+    `"start "Atelier local" /D "F:\\Atelier" "${process.execPath}" "${join('F:\\Atelier', 'scripts', 'launch.mjs')}"` +
+      ' --port=8787 --wait-idle"',
+  ]);
+  assert.equal(windows.options.windowsVerbatimArguments, true);
+  assert.equal(linux.options.windowsVerbatimArguments, undefined);
   assert.equal(linux.command, process.execPath);
   assert.deepEqual(linux.args.slice(-2), ['--port=9000', '--wait-idle']);
   for (const { options } of calls) assert.deepEqual([options.detached, options.stdio], [true, 'ignore']);
@@ -119,3 +127,48 @@ test('the launcher started by « Redémarrer » carries --restart', () => {
   startLauncher({ root: '/opt/atelier', port: 9000, restart: true }, { platform: 'linux', spawnProcess });
   assert.deepEqual(calls[0].slice(-3), ['--port=9000', '--wait-idle', '--restart']);
 });
+
+test(
+  '« Redémarrer » starts the launcher of a folder named with « & », « ^ », « % », spaces and accents (0.6.386)',
+  { skip: process.platform !== 'win32' && 'Only cmd.exe reads that line.' },
+  async () => {
+    // « F:\R&D\Moodix » : cmd.exe cut the folder at « & », and nothing started.
+    const parent = await mkdtemp(join(tmpdir(), 'relaunch-cmd-')),
+      root = join(parent, 'R&D ^été 100% (test)');
+    try {
+      await mkdir(join(root, 'scripts'), { recursive: true });
+      // A launcher that only says where and how it was started.
+      await writeFile(
+        join(root, 'scripts', 'launch.mjs'),
+        "import { writeFileSync } from 'node:fs';\n" +
+          "writeFileSync(new URL('../seen.json', import.meta.url), " +
+          'JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(1) }));\n',
+      );
+      let asked;
+      const spawnProcess = (command, args, options) => {
+        asked = { command, args, options };
+        return { once() {}, unref() {} };
+      };
+      startLauncher({ root, port: 8787, restart: true }, { platform: 'win32', spawnProcess });
+      // The line as cmd.exe is given it, run for real: only without a window of its own (« /B ») and waited
+      // for (« /WAIT »), where the application opens a console and lets it live.
+      const line = asked.args.at(-1),
+        quiet = line.replace('start "Atelier local"', 'start "Atelier local" /B /WAIT');
+      assert.notEqual(quiet, line);
+      const child = spawn(asked.command, [...asked.args.slice(0, -1), quiet], {
+        cwd: root,
+        stdio: 'ignore',
+        windowsHide: true,
+        windowsVerbatimArguments: asked.options.windowsVerbatimArguments,
+      });
+      await once(child, 'exit');
+      const seen = JSON.parse(await readFile(join(root, 'seen.json'), 'utf8')),
+        same = async (a, b) => assert.equal((await realpath(a)).toLowerCase(), (await realpath(b)).toLowerCase());
+      await same(seen.cwd, root);
+      await same(seen.argv[0], join(root, 'scripts', 'launch.mjs'));
+      assert.deepEqual(seen.argv.slice(1), ['--port=8787', '--wait-idle', '--restart']);
+    } finally {
+      await rm(parent, { recursive: true, force: true, maxRetries: 15, retryDelay: 100 });
+    }
+  },
+);

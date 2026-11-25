@@ -3207,9 +3207,20 @@ export function startLauncher({ root, port, restart = false }, { platform = proc
     '--wait-idle',
     ...(restart ? ['--restart'] : []),
   ];
-  const [command, ...args] =
-    platform === 'win32' ? ['cmd.exe', '/c', 'start', 'Atelier local', '/D', root, ...script] : script;
-  const child = spawnProcess(command, args, { cwd: root, stdio: 'ignore', detached: true, windowsHide: true });
+  const options = { cwd: root, stdio: 'ignore', detached: true, windowsHide: true },
+    quoted = value => `"${value}"`,
+    // (0.6.386) The line cmd.exe reads, written here with every path in quotes: given as separate arguments,
+    // Node quoted only those with a space, and cmd.exe cut a folder named « R&D » at its « & » (« ^ » was
+    // lost): « Redémarrer » did nothing, without a word.
+    [program, launcher, ...flags] = script,
+    line = ['start', quoted('Atelier local'), '/D', quoted(root), quoted(program), quoted(launcher), ...flags],
+    child =
+      platform === 'win32'
+        ? spawnProcess('cmd.exe', ['/d', '/s', '/c', quoted(line.join(' '))], {
+            ...options,
+            windowsVerbatimArguments: true,
+          })
+        : spawnProcess(script[0], script.slice(1), options);
   child.once('error', () => {});
   child.unref();
 }
