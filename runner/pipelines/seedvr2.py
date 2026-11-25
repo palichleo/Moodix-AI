@@ -99,11 +99,13 @@ def generate(job, config, progress):
                 resized = current.resize((width, height), Image.LANCZOS)
                 reference = torch.from_numpy(np.asarray(resized)).to('cuda').permute(2, 0, 1)[None].float() / 255
                 pad_h, pad_w = -height % 16, -width % 16
-                pixels = torch.nn.functional.pad(reference, (0, pad_w, 0, pad_h)) * 2 - 1
                 progress(stage='encoding', step=done, total=total)
+                # (0.6.379) In 16 bits at once. The picture completed in 32 bits was kept beside it under a
+                # name to the end of the pass, through the encoding, the steps and the decoding (0.75 GiB of
+                # the card at 8192 x 8192), read by nobody.
+                source = (torch.nn.functional.pad(reference, (0, pad_w, 0, pad_h)) * 2 - 1).to(torch.bfloat16)
                 # Whole where it fits (tiles see other statistics of the group norms), else in
                 # tiles of 2048 pixels, then of 1024: 3072 x 3072 did not fit 12 GiB whole (17/11).
-                source = pixels.to(torch.bfloat16)
                 encoders = [
                     lambda side=side: seedvr2_vae.tiled(vae.encode, source, 1 / 8, side, 256)
                     for side in ENCODE_TILES
@@ -149,7 +151,7 @@ def generate(job, config, progress):
                     (corrected[0].permute(1, 2, 0) * 255).round().to(torch.uint8).cpu().numpy()
                 )
                 timeline.append(dict(pass_=index + 1, size=[width, height], seconds=round(time.perf_counter() - start, 2)))
-                del latent, condition, x, decoded, corrected, reference, pixels
+                del latent, condition, x, decoded, corrected, reference
             cache = dict(gpu_cache_gib=round(pool.bytes / 1024**3, 3), residency=RESIDENCY.summary())
             del dit
         finally:

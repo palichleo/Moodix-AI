@@ -41,6 +41,36 @@ class SeedVR2SizesTest(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_TORCH, 'torch is not installed')
+class SeedVR2MemoryTest(unittest.TestCase):
+    def test_the_picture_completed_in_32_bits_is_not_kept_through_a_pass(self):
+        # (0.6.379) Converted to 16 bits for the encoder, its 32-bit copy stayed on the card under a name of
+        # its own until the end of the pass: 12 bytes a pixel that the steps and the decoding could not have.
+        import ast
+        import inspect
+
+        from runner.pipelines import seedvr2
+
+        tree = ast.parse(inspect.getsource(seedvr2.generate))
+        named = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+        self.assertNotIn('pixels', named)
+        # What the encoder reads is made in one expression, and given back before the steps.
+        made = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign) and any(getattr(target, 'id', '') == 'source' for target in node.targets)
+        ]
+        self.assertEqual(len(made), 1)
+        self.assertIn('bfloat16', ast.unparse(made[0].value))
+        self.assertIn('pad(reference', ast.unparse(made[0].value))
+        deleted = [
+            getattr(target, 'id', '')
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Delete)
+            for target in node.targets
+        ]
+        self.assertIn('source', deleted)
+
+
 class SeedVR2Test(unittest.TestCase):
     def test_windows_cover_every_token_once(self):
         import torch
