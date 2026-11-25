@@ -11324,3 +11324,21 @@ test('the model of a request is found by its identifier, not by a name two model
     page.restore();
   }
 });
+
+test('a Studio settings file whose « models » is null is read as none kept, and written again (0.6.327)', async () => {
+  // (Report 4, detail d1. A file changed by hand or damaged, `"models": null`: all() gave null, « Enregistrer » failed,
+  // and so did every proposal of Moodix AI, the server reading there the styles kept for its model.)
+  const { StudioPresets } = await import('../lib/studio-presets.mjs'),
+    { readFile } = await import('node:fs/promises'),
+    folder = await mkdtemp(join(tmpdir(), 'atelier-presets-'));
+  try {
+    const file = join(folder, 'studio-presets.json');
+    await writeFile(file, JSON.stringify({ schemaVersion: 1, models: null }));
+    const presets = new StudioPresets(file);
+    assert.deepEqual(await presets.all(), {});
+    assert.equal((await presets.save('krea', { seed: '42' })).seed, '42');
+    assert.deepEqual(Object.keys(JSON.parse(await readFile(file, 'utf8')).models), ['krea']);
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+});
