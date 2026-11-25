@@ -76,6 +76,71 @@ for (const fail of [false, true])
     },
   );
 
+test(
+  'sources of before left in the backup are an error, the application started all the same (0.6.385)',
+  { timeout: 30000 },
+  async () => {
+    // A source refused for good on the way in, then on the way back: the version of before starts and answers,
+    // without its README, left in the backup. It was said « la version précédente a été restaurée ».
+    const root = await mkdtemp(join(tmpdir(), 'atelier-worker-mixed-')),
+      workspace = join(root, 'data/updates/mixed'),
+      socket = net.createServer();
+    await new Promise(resolve => socket.listen(0, '127.0.0.1', resolve));
+    const port = socket.address().port;
+    await new Promise(resolve => socket.close(resolve));
+    let child;
+    try {
+      await mkdir(join(workspace, 'stage'), { recursive: true });
+      const sources = { 'package.json': '{"name":"atelier-local","version":"0.2.0","type":"module"}' };
+      Object.assign(sources, { 'server.mjs': fixtureServer('0.2.0'), 'README.md': 'old readme' });
+      for (const [name, text] of Object.entries(sources)) await writeFile(join(root, name), text);
+      const staged = { 'package.json': '{"name":"atelier-local","version":"0.3.0","type":"module"}' };
+      Object.assign(staged, { 'server.mjs': fixtureServer('0.3.0'), 'README.md': 'new readme' });
+      for (const [name, text] of Object.entries(staged)) await writeFile(join(workspace, 'stage', name), text);
+      for (const [from, to] of [
+        ['lib/update-files.mjs', 'update-files.mjs'],
+        ['lib/update-archive.mjs', 'update-archive.mjs'],
+        ['scripts/apply-update.mjs', 'worker.mjs'],
+      ])
+        await cp(join(project, from), join(workspace, to));
+      const plan = { root, workspace, port, version: '0.3.0', previousVersion: '0.2.0', confirmTimeout: 20000 };
+      await writeFile(join(workspace, 'plan.json'), JSON.stringify(plan));
+      child = fork(join(workspace, 'worker.mjs'), [join(workspace, 'plan.json')], {
+        stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+        windowsHide: true,
+        execArgv: ['--import', pathToFileURL(join(project, 'tests/fixtures/refused-renames.mjs')).href],
+        // Nothing is put at README.md any more, the new one nor the one of before.
+        env: { ...process.env, REFUSED_RENAMES: JSON.stringify([join(root, 'README.md')]) },
+      });
+      const exited = once(child, 'exit');
+      await new Promise((resolve, reject) => {
+        child.once('message', resolve);
+        child.once('error', reject);
+      });
+      child.send({ apply: true });
+      child.disconnect();
+      await exited;
+      const result = JSON.parse(await readFile(join(root, 'data/update-status.json'), 'utf8'));
+      assert.equal(result.state, 'error', JSON.stringify(result));
+      assert.ok(result.error.includes(join(workspace, 'backup')), result.error);
+      assert.match(result.error, /n’a pas pu être remise en entier/);
+      assert.doesNotMatch(result.error, /a été restaurée/);
+      // Started all the same: the version of before answers, and its process is named.
+      const live = await (await fetch(`http://127.0.0.1:${port}/api/bootstrap`)).json();
+      assert.equal(live.version, '0.2.0');
+      assert.equal(typeof result.pid, 'number');
+      assert.equal(await readFile(join(workspace, 'backup/README.md'), 'utf8'), 'old readme');
+    } finally {
+      try {
+        await (await fetch(`http://127.0.0.1:${port}/quit`)).text();
+      } catch {}
+      child?.kill();
+      await new Promise(resolve => setTimeout(resolve, 150));
+      await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    }
+  },
+);
+
 for (const mode of ['unresponsive', 'status-write-failure'])
   test(
     mode === 'unresponsive'

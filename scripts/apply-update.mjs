@@ -1,4 +1,4 @@
-import { readFile, open } from 'node:fs/promises';
+import { readFile, readdir, open } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -35,11 +35,26 @@ process.once('message', async message => {
     try {
       if (installed) await restoreSources(plan);
       const pid = await restart(plan.previousVersion);
-      await status(
-        'rolled-back',
-        'La mise à jour a échoué ; la version précédente a été restaurée. ' + error.message,
-        pid,
-      );
+      // (0.6.385) Sources of before still in the backup: the way back was refused too, and what was started
+      // is a mix of two versions. Started all the same (without it there is no application at all), but
+      // no longer said « restaurée »: an error, with where the rest of the version of before is.
+      const backup = join(plan.workspace, 'backup'),
+        left = await readdir(backup).catch(() => []);
+      if (left.length)
+        await status(
+          'error',
+          'La mise à jour a échoué, et la version précédente n’a pas pu être remise en entier : une partie de ' +
+            `ses fichiers est restée dans ${backup}. Moodix a été relancé ; refaites la mise à jour pour tout ` +
+            'remettre en place. ' +
+            error.message,
+          pid,
+        );
+      else
+        await status(
+          'rolled-back',
+          'La mise à jour a échoué ; la version précédente a été restaurée. ' + error.message,
+          pid,
+        );
     } catch (failure) {
       await status(
         'error',
