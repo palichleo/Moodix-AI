@@ -2,7 +2,9 @@
 # Before each commit that touches the page, the server or its library: the interface is gone
 # through in a headless browser on an empty copy of the server (scripts/check-ui.mjs); an error
 # of the page stops the commit. Without a Chromium browser, the check is skipped, never blocking.
-if git diff --cached --name-only | grep -qE '^(public/|server\.mjs|lib/)'; then
+# (0.6.269) What the engine ships is shown by the page too: a family, a workflow, a download (Qwen-Image-Edit,
+# added under runner/ alone in 0.6.264, made a fourteenth model nobody saw the check fail on), and the check.
+if git diff --cached --name-only | grep -qE '^(public/|server\.mjs|lib/|runner/(families|workflows)/|runner/(downloads|workflow-history)\.json|scripts/check-ui\.mjs)'; then
   node scripts/check-ui.mjs || exit 1
 fi
 # What is committed must still be installable by the copies already installed: their own check of an
