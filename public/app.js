@@ -3550,7 +3550,11 @@ async function sendMessage(event) {
   // anything of the message is kept or shown, so that a « non » leaves nothing (its images copied, the
   // identifier of a conversation not begun, under which its draft was kept then).
   if (!mayBeginBeside()) return;
-  const text = $('prompt').value.trim();
+  // The label of a shortcut (« Image × », the listener of the capture) begins it (0.6.330); with an image
+  // alone, what it asks is the message (it left as « Décris les images. »).
+  const typed = $('prompt').value.trim(),
+    asked = event.label?.dataset.prompt ?? '',
+    text = !asked || typed.startsWith(asked.trim()) ? typed : typed ? asked + typed : asked.trim();
   state.conversationId ||= crypto.randomUUID();
   // The conversation of this turn: the user may open another page meanwhile (0.6.81); what the turn
   // writes goes to it, on screen or set aside (`talk()`), never to the one shown.
@@ -3606,6 +3610,8 @@ async function sendMessage(event) {
   turnActions();
   $('welcome').hidden = true;
   $('prompt').value = '';
+  // Its label goes with it; one chosen meanwhile is for the next message (0.6.330).
+  if (event.label && event.label === promptLabel) setPromptLabel(null);
   state.images = [];
   state.videos = [];
   renderAttachments();
@@ -5951,16 +5957,14 @@ $('prompt-label-clear').onclick = () => {
   setPromptLabel(null);
   $('prompt').focus();
 };
-// Before the message leaves (a listener of the capture: it runs before sendMessage).
+// Before the message leaves (a listener of the capture: it runs before sendMessage), the label it is sent with.
+// Written in the box here, it was gone even when nothing left (Moodix answering, a work elsewhere): sendMessage
+// begins the message with it once it leaves, and it goes then (0.6.330).
 $('chat-form').addEventListener(
   'submit',
-  () => {
+  event => {
     // A message sent again (« Régénérer », « Reprendre la demande ») keeps its own words.
-    if (!promptLabel || state.resent) return;
-    const text = $('prompt').value.trim(),
-      asked = promptLabel.dataset.prompt;
-    if (text && !text.startsWith(asked.trim())) $('prompt').value = asked + text;
-    setPromptLabel(null);
+    if (promptLabel && !state.resent) event.label = promptLabel;
   },
   true,
 );

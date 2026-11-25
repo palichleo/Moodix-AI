@@ -3240,3 +3240,39 @@ test('the answer before a message left in the box is not said partial (0.6.329)'
   stoppedAgain.context.restoreSession(plain({ ...session, archiveSnapshot: { messages: cut, incomplete: true } }));
   assert.equal(partial(stoppedAgain), true);
 });
+
+test('the label of a shortcut stays while nothing leaves, and begins what leaves (0.6.330)', async () => {
+  const shortcut = (prompt, label) => Object.assign(new El('button'), { dataset: { prompt, label } }),
+    box = shown => [shown.requests.length, shown.$('prompt').value, shown.$('prompt-label').hidden];
+  // Entrée while « Envoyer » is greyed (Moodix answers): nothing leaves, the box and its label stay as they were.
+  const held = page({ state: { conversationId: ID, messages: exchange() } });
+  held.context.setPromptLabel(shortcut('Crée une image : ', 'Image'));
+  held.$('prompt').value = 'un chat roux';
+  held.$('send').disabled = true;
+  held.$('chat-form').requestSubmit();
+  await held.turn();
+  assert.deepEqual(box(held), [0, 'un chat roux', false]);
+  // Sent once it may be: the label begins the message, and goes.
+  held.$('send').disabled = false;
+  held.$('chat-form').requestSubmit();
+  await held.turn();
+  assert.equal(held.requests.at(-1).messages.at(-1).content, 'Crée une image : un chat roux');
+  assert.deepEqual(box(held), [1, '', true]);
+  // A creation in another conversation: the message waits, said, with its label.
+  const elsewhere = page({ state: { conversationId: ID, work: { kind: 'studio', conversationId: ELSEWHERE } } });
+  elsewhere.context.workHeld = () => 'Une création est en cours dans une autre conversation.';
+  elsewhere.context.setPromptLabel(shortcut('Crée une vidéo : ', 'Plan'));
+  elsewhere.$('prompt').value = 'la mer';
+  elsewhere.$('chat-form').requestSubmit();
+  await elsewhere.turn();
+  assert.deepEqual(box(elsewhere), [0, 'la mer', false]);
+  assert.equal(elsewhere.notices.at(-1), 'Une création est en cours dans une autre conversation.');
+  // An image alone (its « #ref1 » erased): what is asked leaves with it, not « Décris les images. ».
+  const file = `original-${'a'.repeat(64)}.png`,
+    alone = page({ state: { images: [{ name: 'a.png', url: 'data:image/png;base64,iVBORw0KGgo=', file, view: '/a' }] } });
+  alone.context.setPromptLabel(shortcut('Crée une vidéo : ', 'Plan'));
+  alone.$('chat-form').requestSubmit();
+  await alone.turn();
+  assert.equal(alone.requests.at(-1).messages.at(-1).content[0].text, 'Crée une vidéo :');
+  assert.equal(alone.$('prompt-label').hidden, true);
+});

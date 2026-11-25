@@ -102,8 +102,9 @@ test('a new conversation suggests what the application makes: an image, a shot, 
   // Nothing written in the box any more: a label, the shortcut chosen underlined.
   assert.doesNotMatch(app, /\$\('prompt'\)\.value = button\.dataset\.prompt/);
   assert.match(app, /item\.setAttribute\('aria-pressed', String\(item === promptLabel\)\)/);
-  // Sent: the label becomes the start of the message, before sendMessage reads it (capture).
-  assert.match(app, /if \(text && !text\.startsWith\(asked\.trim\(\)\)\) \$\('prompt'\)\.value = asked \+ text;\n {4}setPromptLabel\(null\);\n {2}\},\n {2}true,\n\);/);
+  // Sent: the label is handed to sendMessage (capture), which begins the message with it once it leaves (0.6.330).
+  assert.match(app, /if \(promptLabel && !state\.resent\) event\.label = promptLabel;\n {2}\},\n {2}true,\n\);/);
+  assert.match(app, /asked = event\.label\?\.dataset\.prompt \?\? '',/);
 });
 
 test('the bar of the chat stays on one line: the name of the model gives way first, then the reflection, then the sentence at the right', async () => {
