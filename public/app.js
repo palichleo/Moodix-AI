@@ -3868,6 +3868,8 @@ async function sendMessage(event) {
       ) {
         try {
           await workflowsUI.saveReview(reviewRecord, output, request ? 'correction_requested' : 'reviewed');
+          // One analysis per take (0.6.337): the words after a call sent back (« retry ») wrote over it.
+          reviewRecord = null;
         } catch (error) {
           notice(`Analyse de galerie non enregistrée : ${error.message}`);
         }

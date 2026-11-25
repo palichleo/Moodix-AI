@@ -3418,3 +3418,41 @@ test('a step that waits for its conversation to be shown, stopped already, does 
     shown.state.conversationId = ID;
   }
 });
+
+test('an image looked at keeps its analysis, after a call sent back too (0.6.337)', async () => {
+  const runs = ['b2222222-2222-4222-8222-222222222222', 'b3333333-3333-4333-8333-333333333333'],
+    creation = (id, requestId) =>
+      called({ call: functionCall('create_image', id), workflowName: 'Krea 2', requestId, autoAllow: true }),
+    analysed = 'Analyse : le renard est flou, je corrige.',
+    // The model looks at its image, and makes its call again: sent back before any generation (« retry »).
+    again = functionCall('create_image', 'call_2', '{"prompt":"chat"}'),
+    sentBack = called({ kind: 'retry', call: again, message: 'Trop court.' }, analysed),
+    turn = async after => {
+      let made = 0;
+      const reviews = [],
+        shown = page({
+          state: { generation: { maxIterations: 6, reviewImages: true } },
+          requestTool: async () => {
+            const id = runs[made++],
+              record = { id, conversationId: ID, mediaType: 'image' },
+              content = JSON.stringify({ status: 'success', run_id: id });
+            return { content, images: ['data:image/png;base64,AAA'], record };
+          },
+          chat: (body, n) => (n === 1 ? creation('call_1', 'r1') : n === 2 ? sentBack : after(n)),
+        });
+      // What the gallery keeps of each analysis (server.mjs: the last one written stays).
+      shown.context.workflowsUI.saveReview = async (record, words, status) => {
+        reviews.push([record.id, words, status]);
+      };
+      await shown.send('Un renard dans la neige');
+      return reviews;
+    };
+  // Then the image kept: « D’accord, je garde cette image. » took the place of its analysis.
+  const kept = await turn(() => said('D’accord, je garde cette image.'));
+  assert.deepEqual(kept, [[runs[0], analysed, 'correction_requested']]);
+  // Then made again: each image its own analysis, none lost.
+  assert.deepEqual(await turn(n => (n === 3 ? creation('call_3', 'r3') : said('La 2e image est nette.'))), [
+    [runs[0], analysed, 'correction_requested'],
+    [runs[1], 'La 2e image est nette.', 'reviewed'],
+  ]);
+});
