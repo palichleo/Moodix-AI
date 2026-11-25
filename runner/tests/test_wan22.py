@@ -191,6 +191,17 @@ class LayoutTests(unittest.TestCase):
             ('wan22_flow_lightning.safetensors', None),
             ('slow_motion_wan22.safetensors', None),
             ('highlights_wan22.safetensors', None),
+            # (0.6.380) « low » and « high » said of the card or of the picture tell nothing of the noise.
+            ('wan22_i2v_14B_low_vram.safetensors', None),
+            ('wan22_i2v_14B_low-res.safetensors', None),
+            ('wan22_i2v_14B_low memory.safetensors', None),
+            ('wan22_i2v_14B_high_resolution.safetensors', None),
+            ('wan22_i2v_high_noise_14B_low_vram.safetensors', 'high'),
+            ('wan22_low_noise_high_res.safetensors', 'low'),
+            # The files given with the application, and a word that only begins like one of those.
+            ('wan2.2_i2v_high_int8_convrot.safetensors', 'high'),
+            ('wan2.2_i2v_low_int8_convrot.safetensors', 'low'),
+            ('wan22_i2v_low_rescaled.safetensors', 'low'),
         ):
             self.assertEqual(wan22.expert({}, 'D:\\loras\\' + name), said, name)
 

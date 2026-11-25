@@ -206,6 +206,12 @@ def validate_layout(header, camera=False):
     return found
 
 
+EXPERT = re.compile(
+    r'(?<![a-z])(high|low)(?:[ _-]?noise)?(?![a-z])'
+    r'(?![ _-]?(?:vram|ram|mem(?:ory)?|res(?:olution)?)(?![a-z]))'
+)
+
+
 def expert(header, path=''):
     """'high' or 'low': which of the two models a file is, as the file says it (`model_type` of its
     metadata: « Wan2_2-I2V-A14B-HIGH »), else as its name does; None when neither tells."""
@@ -213,7 +219,10 @@ def expert(header, path=''):
     for text in (said, str(path).replace('\\', '/').rsplit('/', 1)[-1]):
         # As a word of its own (« high_noise », « -LOW_ », « HighNoise »): a step LoRA is told by its
         # name alone, and « flow », « slow » or « lowvram » say nothing of the model it is for.
-        tells = set(re.findall(r'(?<![a-z])(high|low)(?:[ _-]?noise)?(?![a-z])', text.lower()))
+        # (0.6.380) Nor « low vram », « low_res », « high-res », « low memory »: said of the card or of the
+        # picture, not of the noise. A file named « …_low_vram » given as the model of the strong noise was
+        # refused, « échangez les deux fichiers ».
+        tells = set(re.findall(EXPERT, text.lower()))
         if len(tells) == 1:
             return tells.pop()
     return None
