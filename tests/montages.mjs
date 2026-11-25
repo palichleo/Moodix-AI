@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -161,6 +161,79 @@ test('the montages of a project are files of it: kept, listed, read, and set asi
   assert.equal(aside.length, 1);
   assert.equal(JSON.parse(await readFile(join(dir, project, 'corbeille', aside[0]), 'utf8')).name, 'Autre nom');
   await assert.rejects(montages.remove(project, id(900)), { status: 404 });
+});
+
+test('the montages of a project that goes follow its takes, as they are, and write over nothing (0.6.289)', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'moodix-montages-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const montages = new Montages({ dir }),
+    project = '22222222-2222-4222-8222-222222222222',
+    names = async where => (await montages.list(where)).map(item => item.name).sort(),
+    files = async (...parts) => (await readdir(join(dir, ...parts)).catch(() => null))?.sort() ?? null;
+  // A bobine put in the Archives, one that is not, one set aside, a file nobody reads, a note left by a hand.
+  await montages.save(project, film(), { archive: true });
+  await montages.save(project, film({ name: 'Le pêcheur, changé depuis', plans: film().plans.slice(0, 1) }));
+  await montages.save(project, newMontage({ id: id(901), name: 'La seconde' }));
+  await montages.save(project, newMontage({ id: id(903), name: 'Mise de côté' }));
+  await montages.remove(project, id(903));
+  await writeFile(join(dir, project, id(902) + '.json'), '{ not json');
+  await writeFile(join(dir, project, 'notes.json'), '{}');
+  // Where they arrive: a bobine of the same identifier as the second, and a file of the same name set aside.
+  await montages.save('inbox', newMontage({ id: id(901), name: 'Déjà là' }));
+  const [asideName] = await files(project, 'corbeille');
+  await montages.save('inbox', newMontage({ id: id(903), name: 'Autre, mise de côté' }));
+  await montages.remove('inbox', id(903));
+  const there = join(dir, 'inbox', 'corbeille');
+  await rename(join(there, (await files('inbox', 'corbeille'))[0]), join(there, asideName));
+  const archived = await readFile(join(dir, project, id(900) + '.json'), 'utf8'),
+    card = (await montages.list(project)).find(item => item.id === id(900)).archived;
+  assert.deepEqual([card.plans, card.seconds], [3, 10], 'the card of the Archives is the bobine as it was put there');
+  assert.deepEqual(await montages.uses('inbox'), new Map());
+
+  assert.deepEqual(await montages.moveProject(project, 'inbox'), { moved: 3 });
+  // The bobine of the Archives: the same file, byte for byte, its card with it.
+  assert.equal(await readFile(join(dir, 'inbox', id(900) + '.json'), 'utf8'), archived);
+  assert.deepEqual((await montages.list('inbox')).find(item => item.id === id(900)).archived, card);
+  // The one whose identifier was taken: both are there, the one that came under another identifier.
+  assert.deepEqual(await names('inbox'), ['Déjà là', 'La seconde', 'Le pêcheur, changé depuis']);
+  assert.equal((await montages.read('inbox', id(901))).name, 'Déjà là');
+  const came = (await montages.list('inbox')).find(item => item.name === 'La seconde');
+  assert.notEqual(came.id, id(901));
+  assert.equal((await montages.read('inbox', came.id)).id, came.id, 'its file says its new identifier');
+  // The file nobody reads came as it was; those set aside too, none over another.
+  assert.equal(await readFile(join(dir, 'inbox', id(902) + '.json'), 'utf8'), '{ not json');
+  assert.deepEqual(await files('inbox', 'corbeille'), [asideName.replace('.json', '-2.json'), asideName].sort());
+  const aside = await Promise.all(
+    (await files('inbox', 'corbeille')).map(async name => JSON.parse(await readFile(join(there, name), 'utf8')).name),
+  );
+  assert.deepEqual(aside.sort(), ['Autre, mise de côté', 'Mise de côté']);
+  // What uses a take is known again where its takes are now (« Supprimer la prise 12 ? »).
+  assert.deepEqual((await montages.uses('inbox')).get(C + '/' + id(12)), ['Le pêcheur, changé depuis']);
+  // Of the project, only what was not a bobine is left; nothing of it is listed any more.
+  assert.deepEqual([await files(project), await montages.list(project)], [['notes.json'], []]);
+
+  // Asked again (a deletion stopped, then asked anew), for the same place, or for a project that has none: nothing.
+  assert.deepEqual(await montages.moveProject(project, 'inbox'), { moved: 0 });
+  assert.deepEqual(await montages.moveProject('inbox', 'inbox'), { moved: 0 });
+  assert.deepEqual(await montages.moveProject('33333333-3333-4333-8333-333333333333', 'inbox'), { moved: 0 });
+  assert.equal((await montages.list('inbox')).length, 3);
+  await assert.rejects(montages.moveProject('../autre', 'inbox'), /Projet invalide/);
+  // A project that held bobines only leaves no folder behind.
+  const other = '44444444-4444-4444-8444-444444444444';
+  await montages.save(other, newMontage({ id: id(904), name: 'Seule' }));
+  await montages.remove(other, id(904));
+  await montages.save(other, newMontage({ id: id(905), name: 'Dernière' }));
+  assert.deepEqual(await montages.moveProject(other, 'inbox'), { moved: 1 });
+  assert.equal(await files(other), null);
+  // An unreadable file whose identifier is taken comes under another name, as it is.
+  const third = '55555555-5555-4555-8555-555555555555';
+  await mkdir(join(dir, third));
+  await writeFile(join(dir, third, id(905) + '.json'), '{ not json either');
+  assert.deepEqual(await montages.moveProject(third, 'inbox'), { moved: 1 });
+  assert.equal((await montages.read('inbox', id(905))).name, 'Dernière');
+  const kept = (await files('inbox')).filter(name => name.endsWith('.json')),
+    raw = await Promise.all(kept.map(name => readFile(join(dir, 'inbox', name), 'utf8')));
+  assert.equal(raw.filter(text => text === '{ not json either').length, 1);
 });
 
 test('what the engine assembles is the montage with the file of each take (0.6.136)', async () => {

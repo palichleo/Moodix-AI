@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { createApplication } from '../server.mjs';
 import { Projects, projectId } from '../lib/projects.mjs';
 import { Gallery } from '../lib/gallery.mjs';
+import { newMontage } from '../lib/montages.mjs';
 const png = 'data:image/png;base64,iVBORw0KGgo=';
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'atelier-projects-')),
@@ -297,4 +298,32 @@ test('deleting a project keeps its conversations, which go back to Conversations
   assert.deepEqual(conversations.map(item => item.projectId).sort(), ['inbox', 'inbox']);
   assert.equal((await (await f.call('history/' + inside)).json()).messages[0].content, 'Inside');
   assert.equal((await f.call('projects/delete', { id: project.id, confirm: true })).status, 404);
+});
+
+test('deleting a project keeps its bobines too: they follow its takes to « Sans projet », as the Archives had them (0.6.289)', async t => {
+  const f = await fixture(t),
+    project = (await (await f.call('projects/save', { name: 'Film' })).json()).project,
+    bobines = async () => (await (await f.call('library')).json()).bobines,
+    listed = async where => (await (await f.call('montages/' + where)).json()).montages.map(item => item.name).sort();
+  const montage = newMontage({ name: 'Le renard' });
+  assert.equal((await f.call('montages/save', { project: project.id, montage, archive: true })).status, 200);
+  const before = await bobines();
+  assert.deepEqual(
+    before.map(item => [item.name, item.project]),
+    [['Le renard', project.id]],
+  );
+  assert.equal((await f.call('projects/delete', { id: project.id, confirm: true })).status, 200);
+  // Listed again where its takes went, in the Bobine and in the Archives: no list read its folder any more.
+  assert.deepEqual(await listed('inbox'), ['Le renard']);
+  assert.deepEqual(
+    (await bobines()).map(item => [item.name, item.project, item.archived.at]),
+    [['Le renard', 'inbox', before[0].archived.at]],
+  );
+  // A tab left on the project gone: its bobine is refused in words; kept there, nothing would show it.
+  const late = await f.call('montages/save', { project: project.id, montage: newMontage({ name: 'Trop tard' }) });
+  assert.deepEqual([late.status, (await late.json()).error], [404, 'Projet introuvable.']);
+  assert.equal((await f.call('montages/save', { project: randomUUID(), montage: newMontage() })).status, 404);
+  assert.equal((await f.call('montages/save', { montage: newMontage() })).status, 400);
+  assert.equal((await f.call('montages/save', { project: 'inbox', montage: newMontage({ name: 'Ici' }) })).status, 200);
+  assert.deepEqual(await listed('inbox'), ['Ici', 'Le renard']);
 });

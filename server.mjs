@@ -1504,7 +1504,11 @@ export async function createApplication({
       // (0.6.136) A montage kept, set aside, or made into its film: a take of the conversation it is
       // asked from, assembled by the engine from the takes of its project.
       // (0.6.154) `archive`: « Enregistrer » puts the bobine in the Archives as it is now.
-      if (path === '/api/montages/save') return send(200, await montages.save(body.project, body.montage, { archive: body.archive === true }));
+      if (path === '/api/montages/save') {
+        // (0.6.289) In a project that exists: a tab left on one deleted since wrote a bobine no list would show.
+        if (projectId(body?.project) !== 'inbox') await projects.require(body.project);
+        return send(200, await montages.save(body.project, body.montage, { archive: body.archive === true }));
+      }
       if (path === '/api/montages/remove') return send(200, await montages.remove(body.project, body.id));
       if (path === '/api/montages/export') {
         if (closing || relaunching) throw problem('L’application est en cours de fermeture.', 409);
@@ -2515,6 +2519,8 @@ export async function createApplication({
           }
           // Its references follow its conversations.
           await resources.moveProject(body.id, 'inbox');
+          // (0.6.289) And its bobines their takes: left in the folder of a project gone, nothing listed them any more.
+          await montages.moveProject(body.id, 'inbox');
           await projects.remove(body.id);
           return send(200, { deleted: body.id, moved });
         } finally {

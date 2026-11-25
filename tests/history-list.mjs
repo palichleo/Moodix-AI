@@ -726,7 +726,7 @@ test('a project is renamed with its pencil and deleted with its bin; a right cli
     .onclick();
   assert.equal($('project-delete-dialog').open, true);
   // What happens to its conversations and their takes, said before anything is done.
-  assert.match($('project-delete-description').textContent, /2 conversations seront déplacées dans « Sans projet », avec leurs prises\. Aucune conversation ni prise n’est effacée\./);
+  assert.match($('project-delete-description').textContent, /2 conversations seront déplacées dans « Sans projet », avec leurs prises et les bobines du projet\. Aucune conversation, prise ni bobine n’est effacée\./);
 
   project().tool('Supprimer le projet').onclick();
   await $('project-delete-confirm').onclick();

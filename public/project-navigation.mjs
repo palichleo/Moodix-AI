@@ -135,7 +135,7 @@ export function setupProjectNavigation({
     $('project-dialog').showModal();
     $('project-name').focus();
   }
-  // Deleting a project keeps its conversations: they go to « Sans projet ».
+  // Deleting a project keeps its conversations: they go to « Sans projet », and its bobines with them (0.6.289).
   let deleting = null;
   function remove(project) {
     if (project.id === 'inbox' || moving()) return;
@@ -146,7 +146,7 @@ export function setupProjectNavigation({
     const count = state.historyItems?.filter(item => (item.projectId || 'inbox') === project.id).length ?? 0;
     $('project-delete-title').textContent = `Supprimer le projet « ${project.name} » ?`;
     $('project-delete-description').textContent = count
-      ? `${count > 1 ? `Ses ${count} conversations seront déplacées` : 'Sa conversation sera déplacée'} dans « Sans projet », avec leurs prises. Aucune conversation ni prise n’est effacée.`
+      ? `${count > 1 ? `Ses ${count} conversations seront déplacées` : 'Sa conversation sera déplacée'} dans « Sans projet », avec leurs prises et les bobines du projet. Aucune conversation, prise ni bobine n’est effacée.`
       : 'Ce projet est vide. Aucune conversation ni prise n’est effacée.';
     $('project-delete-error').hidden = true;
     $('project-delete-confirm').disabled = false;
