@@ -11007,3 +11007,19 @@ test('Ctrl+E rewrites no hidden prompt: neither on « Agrandir » nor on « Chan
     filming.restore();
   }
 });
+
+test('an enriched prompt keeps the quotes of words said in it; only a pair around it all goes (0.6.318)', () => {
+  // (Report 4, point 5. `A man says: "Hello."` came back as `A man says: "Hello.`: the guide of a continuation asks
+  // for the words said between quotes, and those at the end of the answer lost their closing quote.)
+  for (const kept of [
+    'A man says: "Hello."',
+    '"Hello," says the man, smiling.',
+    'She whispers « Reviens »',
+    "The sign reads 'OPEN'",
+    '"Hello," she says. "Come back."',
+  ])
+    assert.equal(enrichedPrompt(kept), kept);
+  assert.equal(enrichedPrompt('"A red fox sits in fresh snow."'), 'A red fox sits in fresh snow.');
+  assert.equal(enrichedPrompt("'A fox's tail in the snow'"), "A fox's tail in the snow");
+  assert.equal(enrichedPrompt('Prompt: "A man says: “Hello.”"'), 'A man says: “Hello.”');
+});
