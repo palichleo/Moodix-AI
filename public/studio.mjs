@@ -8273,12 +8273,22 @@ export function setupStudio({
     if (!kind) return notice('Ce fichier n’est ni une image, ni une vidéo, ni un son.');
     const refused = cannotLook(kind);
     if (refused) return notice(refused);
+    // (0.6.325) Read, then copied, for the conversation it was dropped in, as fill() checks it: c2 opened meanwhile
+    // (a clip takes a moment to copy), the file dropped in c1 was shown on the screen of c2, with « Revenir ».
+    const epoch = draftsEpoch,
+      moved = () => epoch !== draftsEpoch;
     const sheet = await fileInfo(file).catch(() => null),
       known = sheet?.id ? runs.find(item => item.id === sheet.id) : null;
+    if (moved()) return notice('Fichier non montré : la conversation a changé entre-temps.');
     if (known) return inspect(known);
     let resource = null;
     if (kind !== 'audio') [resource = null] = await assets.importFiles([file], { project: project() }).catch(() => []);
     if (working || proposal || ai) return;
+    if (moved())
+      return notice(
+        (resource ? 'Fichier gardé dans les références du projet, mais pas montré' : 'Fichier non montré') +
+          ' : la conversation a changé entre-temps.',
+      );
     const address = resource ? resource.originalUrl || resource.previewUrl : (globalThis.URL?.createObjectURL?.(file) ?? '');
     if (!address) return notice('Ce fichier n’a pas pu être lu.');
     inspect(

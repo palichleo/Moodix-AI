@@ -1202,6 +1202,8 @@ async function studioPage(tools, routes = {}, options = {}) {
     // Each file dropped becomes a reference of the project, with its own preview.
     assets: {
       importFiles: async (files, kept) => {
+        // (0.6.325) As the test gives it, late when it wants.
+        if (options.importFiles) return options.importFiles(files, kept);
         importedInto.push(kept?.project);
         return files.map(file => ({
           id: 'r' + ++imported,
@@ -11233,5 +11235,44 @@ test('« Arrêter » before the server has answered cancels there the request it
     ]);
   } finally {
     revising.restore();
+  }
+});
+
+test('a file dropped on the screen is not shown in a conversation opened during its import (0.6.325)', async () => {
+  // (Report 4, point 13, its true half: the copy of a file takes a moment; c2 opened meanwhile, the file dropped in c1
+  // was shown on the screen of c2, with « Revenir ».)
+  let conversation = 'c1',
+    imported;
+  const photo = new File([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])], 'photo.png', { type: 'image/png' }),
+    resource = { id: 'r9', label: '#ref9', name: 'photo.png', previewUrl: '/preview/photo.png' };
+  const page = await studioPage(
+    { create_image: [still] },
+    {},
+    {
+      runs: [reviewed.image('a', 1)],
+      conversation: () => conversation,
+      importFiles: () => new Promise(resolve => (imported = resolve)),
+    },
+  );
+  try {
+    const { body, studio, notices } = page;
+    await settle();
+    dropOn(page, { files: [photo], types: ['Files'] });
+    await until(() => imported);
+    conversation = 'c2';
+    studio.conversationChanged();
+    await settle();
+    imported([{ ...resource, originalUrl: '/photo.png', width: 1280, height: 720 }]);
+    await settle();
+    assert.deepEqual(
+      [screenOf(body.find('studio-frame-result')[0])?.src === '/photo.png', body.find('studio-look-back').length],
+      [false, 0],
+    );
+    assert.equal(
+      notices.at(-1),
+      'Fichier gardé dans les références du projet, mais pas montré : la conversation a changé entre-temps.',
+    );
+  } finally {
+    page.restore();
   }
 });
