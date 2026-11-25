@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { access, mkdir, writeFile } from 'node:fs/promises';
-import { filtered, mediaOf, setupLibrary } from '../public/library.mjs';
+import { filtered, lengthText, mediaOf, setupLibrary } from '../public/library.mjs';
 import { deleteWords, montageWords } from '../public/take-delete.mjs';
 import { setupProjectNavigation } from '../public/project-navigation.mjs';
 import { createApplication } from '../server.mjs';
@@ -132,6 +132,10 @@ function fixture({ runs = RUNS, historyItems = HISTORY, fail = '', conversationI
   });
   return { library, $, state, asked, viewed, opened, created, filters };
 }
+
+test('a length rounded up to the next minute is said with it: « 2:00 », never « 1:60 » (0.6.280)', () => {
+  assert.deepEqual([6.04, 59.996, 75, 119.4, 119.6].map(lengthText), ['06.04 S', '1:00', '1:15', '1:59', '2:00']);
+});
 
 test('a creation is of its media type, or of what its file says; the filters keep a project, a kind, a conversation', () => {
   assert.equal(mediaOf({ mediaType: 'video' }), 'video');

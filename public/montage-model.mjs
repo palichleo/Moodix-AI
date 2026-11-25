@@ -344,8 +344,9 @@ function replacing(plans) {
 export function shownSeconds(seconds) {
   const whole = Math.round(seconds * 10) / 10;
   if (whole < 60) return String(whole).replace('.', ',') + ' s';
-  const minutes = Math.floor(whole / 60);
-  return `${minutes} min ${String(Math.round(whole - minutes * 60)).padStart(2, '0')} s`;
+  // Rounded before it is cut in minutes (0.6.280): 119.6 s is « 2 min 00 s », not « 1 min 60 s ».
+  const total = Math.round(whole);
+  return `${Math.floor(total / 60)} min ${String(total % 60).padStart(2, '0')} s`;
 }
 /** A time of the film as its clock shows it: « 00:06 ». */
 export function clock(seconds) {

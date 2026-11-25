@@ -53,8 +53,11 @@ export function filtered(runs, { project = 'all', media = 'all', conversation = 
 /** A length as everywhere (« 06.04 S » under a minute, « 1:45 » beyond). */
 export function lengthText(seconds) {
   if (!(seconds > 0)) return '';
-  if (seconds >= 60) return `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, '0')}`;
-  return (Math.round(seconds * 100) / 100).toFixed(2).padStart(5, '0') + ' S';
+  const shown = Math.round(seconds * 100) / 100;
+  if (shown < 60) return shown.toFixed(2).padStart(5, '0') + ' S';
+  // Rounded before it is cut in minutes (0.6.280): 119.6 s is « 2:00 », not « 1:60 ».
+  const total = Math.round(seconds);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 /** The length of a creation, from its settings: a clip continued is as long as its file (take-length.mjs). */
 const secondsOf = takeSeconds;

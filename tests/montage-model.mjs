@@ -232,6 +232,10 @@ test('what is kept of a take stays within the take, and never shorter than a ten
   assert.equal(withItemChanged(montage, id(99), { to: 1 }).plans[0], montage.plans[0]);
 });
 
+test('a length rounded up to the next minute is said with it, never « 1 min 60 s » (0.6.280)', () => {
+  assert.deepEqual([60.04, 119.4, 119.6].map(shownSeconds), ['1 min 00 s', '1 min 59 s', '2 min 00 s']);
+});
+
 test('the times of a montage, as a clock and as seconds (0.6.137)', () => {
   assert.deepEqual([0.5, 2.06, 14, 59.96, 65, 600].map(shownSeconds), ['0,5 s', '2,1 s', '14 s', '1 min 00 s', '1 min 05 s', '10 min 00 s']);
   assert.deepEqual([0, 6.9, 59.99, 61, 754].map(clock), ['00:00', '00:06', '00:59', '01:01', '12:34']);
