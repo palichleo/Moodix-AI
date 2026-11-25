@@ -53,6 +53,9 @@ class Journal:
             return
         entry['t'] = round(time.perf_counter() - self.started, 2)
         torch = sys.modules.get('torch')
+        # (0.6.365) The card measured apart from the line written. One `try` held both: after an error of the
+        # card that sticks, every call to it fails, this measure too, and the journal was cut at the very line
+        # that says what failed. That line is written without its measure.
         try:
             if torch is not None and torch.cuda.is_initialized():
                 # (As the engine reads it: the other programs counted, runner.hardware.)
@@ -62,6 +65,9 @@ class Journal:
                     reserved=round(torch.cuda.memory_reserved() / 1024**3, 2),
                     free=round(free / 1024**3, 2),
                 )
+        except Exception:
+            entry.pop('vram', None)
+        try:
             with open(self.path, 'a', encoding='utf8') as handle:
                 handle.write(json.dumps(entry, ensure_ascii=False, default=str) + '\n')
         except Exception:

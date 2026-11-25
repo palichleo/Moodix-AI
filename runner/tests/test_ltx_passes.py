@@ -185,6 +185,50 @@ class JournalTests(unittest.TestCase):
             self.assertLess(path.stat().st_size, 300 * 1024)
             self.assertEqual(json.loads(path.read_text(encoding='utf8').splitlines()[-1])['event'], 'start')
 
+    def test_a_card_that_no_longer_answers_does_not_cut_the_journal_at_the_line_that_says_why(self):
+        # (0.6.365) After an error of the card that sticks (an illegal access, an assertion in a kernel) every
+        # call to it fails, the measure the journal takes for each line too: its line « failed » was lost, and
+        # the journal cut for the rest of the creation, where the error is told.
+        import sys
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        broken = {'now': False}
+
+        def measured():
+            if broken['now']:
+                raise RuntimeError('CUDA error: an illegal memory access was encountered')
+            return (10 * 1024**3, 12 * 1024**3)
+
+        cuda = SimpleNamespace(
+            is_initialized=lambda: True,
+            mem_get_info=measured,
+            memory_allocated=lambda: 2 * 1024**3,
+            memory_reserved=lambda: 3 * 1024**3,
+        )
+        with tempfile.TemporaryDirectory() as directory, patch.dict(sys.modules, torch=SimpleNamespace(cuda=cuda)):
+            journal = Journal({'cacheRoot': str(Path(directory) / 'cache')}, {'id': 'job-1'})
+            journal.write(stage='generating video', step=1, total=8)
+            broken['now'] = True
+            journal.write(event='failed', error='RuntimeError: CUDA error: an illegal memory access was encountered')
+            broken['now'] = False
+            journal.write(stage='released')
+            path = Path(directory) / 'generation-journal.jsonl'
+            rows = [json.loads(line) for line in path.read_text(encoding='utf8').splitlines()]
+            self.assertEqual(
+                [row.get('event') or row['stage'] for row in rows],
+                ['start', 'generating video', 'failed', 'released'],
+            )
+            # Written without the measure it could not take; with it again once the card answers.
+            self.assertEqual(['vram' in row for row in rows], [True, True, False, True])
+            self.assertEqual(rows[1]['vram']['allocated'], 2.0)
+            # A file that cannot be written still ends it, and never stops the creation.
+            path.unlink()
+            path.mkdir()
+            journal.write(stage='after')
+            journal.write(stage='after')
+            self.assertIsNone(journal.path)
+
     def test_a_journal_that_cannot_be_written_never_stops_a_generation(self):
         journal = Journal({'cacheRoot': '/nonexistent/folder/cache'}, {'id': 'x'})
         journal.write(stage='anything')
