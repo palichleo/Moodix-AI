@@ -258,8 +258,9 @@ const WAN22 = { 'patch_embedding.weight': [5120, 36, 1, 2, 2], 'blocks.39.self_a
 // (0.6.213) Wan 2.2 Fun Camera: every tensor of Wan 2.2's, and the adapter that reads the camera
 // (the headers of its two files, read on Hugging Face on 22/11).
 const WAN22_CAMERA = { ...WAN22, 'control_adapter.conv.weight': [5120, 1536, 2, 2], 'control_adapter.residual_blocks.0.conv1.weight': [5120, 5120, 3, 3] };
-// (0.6.264) Qwen-Image-Edit-2511 (the header of Comfy-Org's INT8 file): 64 channels in, the text of Qwen2.5-VL-7B.
-const QWEN_EDIT = { 'img_in.weight': [3072, 64], 'txt_in.weight': [3072, 3584], 'transformer_blocks.59.attn.to_q.weight': [3072, 3072] };
+// (0.6.264) Qwen-Image-Edit-2511 (the header of Comfy-Org's INT8 file): 64 channels in, the text of Qwen2.5-VL-7B,
+// and (0.6.272) the mark by which its file says its given images read timestep 0 (in the user's GGUF of 2511 too).
+const QWEN_EDIT = { 'img_in.weight': [3072, 64], 'txt_in.weight': [3072, 3584], 'transformer_blocks.59.attn.to_q.weight': [3072, 3072], __index_timestep_zero__: [0] };
 const OWN = { ltx25: LTX, minimax_h3: MINIMAX, krea2: KREA, seedvr2: SEEDVR, wan_scail2: SCAIL, wan22: WAN22, wan22_camera: WAN22_CAMERA, qwen_image_edit: QWEN_EDIT };
 const prefixed = (shapes, prefix) => Object.fromEntries(Object.entries(shapes).map(([name, shape]) => [prefix + name, shape]));
 const which = shapes => modelsOf({ shapes });
@@ -294,6 +295,12 @@ test('a file is a version of one model, told by what it holds and not by its nam
   assert.deepEqual(which(prefixed(LTX, 'model.diffusion_model.')), ['ltx25']);
   assert.deepEqual(which(prefixed(LTX, 'diffusion_model.')), ['ltx25']);
   assert.deepEqual(which(prefixed(KREA, 'model.diffusion_model.')), ['krea2']);
+  // (0.6.272) Qwen-Image (to make an image), Qwen-Image-Edit and its 2509 have the same layers as 2511, without
+  // its mark: the engine would read their given images at the step of the picture (runner/models/qwen_image.py),
+  // not as 2511 was trained, with 2511's Lightning. No version of Qwen-Image-Edit 2511; one block more, neither.
+  const { __index_timestep_zero__: mark, ...unmarked } = QWEN_EDIT;
+  assert.deepEqual([which(unmarked), which(prefixed(QWEN_EDIT, 'model.diffusion_model.'))], [[], ['qwen_image_edit']]);
+  assert.deepEqual(which({ ...QWEN_EDIT, 'transformer_blocks.60.attn.to_q.weight': [3072, 3072] }), []);
   // What the looser check of the chooser took: any model with « transformer_blocks » for LTX 2.5…
   assert.deepEqual(which({ 'transformer_blocks.0.attn1.to_q.weight': [2048, 2048] }), []);
   // … one block more, another width, no sound: other models.

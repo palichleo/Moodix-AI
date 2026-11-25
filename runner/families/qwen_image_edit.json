@@ -22,6 +22,27 @@
       "required": true,
       "reads": ["INT8", "BF16", "FP16", "FP32"],
       "note": "Qwen-Image-Edit-2511. Un fichier fait pour ComfyUI le dit par un tenseur « __index_timestep_zero__ » : les images données y sont lues au pas 0, comme 2511 a été entraîné.",
+      "fingerprint": [
+        {
+          "key": "^(?:model\\.diffusion_model\\.)?img_in\\.weight$",
+          "shape": [3072, 64]
+        },
+        {
+          "key": "^(?:model\\.diffusion_model\\.)?txt_in\\.weight$",
+          "shape": [3072, 3584]
+        },
+        {
+          "key": "^(?:model\\.diffusion_model\\.)?transformer_blocks\\.59\\.attn\\.to_q\\.weight$",
+          "shape": [3072, 3072]
+        },
+        {
+          "key": "^(?:model\\.diffusion_model\\.)?transformer_blocks\\.60\\.",
+          "absent": true
+        },
+        {
+          "key": "^(?:model\\.diffusion_model\\.)?__index_timestep_zero__$"
+        }
+      ],
       "signature": [
         {
           "key": "^(?:model\\.diffusion_model\\.)?img_in\\.weight$",
