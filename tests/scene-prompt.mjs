@@ -315,3 +315,61 @@ test('what the user asked with a picture joined is heard too (0.6.304)', () => {
     'le premier\npuis le second',
   );
 });
+
+test('a take made, then a fault after it (« generated »), counts as a creation made (0.6.312)', async () => {
+  const { unaskedSuite } = await import('../lib/unasked-suite.mjs'),
+    { briefMissing } = await import('../lib/video-brief.mjs'),
+    { lastReplacement } = await import('../lib/scene-prompt.mjs');
+  const user = content => ({ role: 'user', content }),
+    result = (id, status, more = {}) => ({ role: 'tool', tool_call_id: id, content: JSON.stringify({ status, ...more }) }),
+    calls = (id, name, args, content = '') => ({
+      role: 'assistant',
+      content,
+      tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }],
+    }),
+    call = (name, args) => ({ function: { name, arguments: JSON.stringify(args) } });
+  // The take exists, in the Sortie and in the project; what failed came after it (the engine not confirmed
+  // free, the chat model that does not start again). Four rules read « success » alone, and judged the
+  // next message as if nothing had been made. A creation that failed, or was refused, is still none.
+  for (const [status, made] of [['success', true], ['generated', true], ['error', false], ['denied', false]]) {
+    // A suite asked and made: « prolonge » no longer counts for the message after it.
+    const extend = { prompt: 'Slow zoom out.', source: { output: 'run-1' } };
+    const suite = [
+      user('prolonge la prise 3'),
+      calls('a', 'extend_video', extend),
+      result('a', status, { run_id: 'run-2' }),
+      user('modifie cette prise, je veux un dézoom lent'),
+    ];
+    assert.equal(unaskedSuite(suite, call('extend_video', extend)), made, `unaskedSuite, ${status}`);
+    // The same video asked again once made: a proposal the user has not seen, put in words again.
+    const swing = { prompt: 'A girl on a swing.', duration: 5 };
+    const again = [
+      user('une vidéo'),
+      { ...calls('p', 'create_video', swing, 'Elle se balance. Ça te va ?'), planned: true },
+      result('p', 'denied'),
+      user('go'),
+      calls('b', 'create_video', swing),
+      result('b', status, { run_id: 'run-3' }),
+      user('encore'),
+    ];
+    assert.equal(briefMissing(again, call('create_video', swing)), made, `briefMissing, ${status}`);
+    // The character of a replacement made is kept for a change asked of its video.
+    const clip = { resource: 'clip' },
+      replaced = [
+        user('remplace la fille'),
+        calls('r', 'replace_character', {}),
+        result('r', status, { run_id: 'video-1', replace_again: { source: clip, reference: { output: 'image-1' } } }),
+      ];
+    assert.deepEqual(
+      lastReplacement(replaced, clip),
+      made ? { source: clip, reference: { output: 'image-1' } } : null,
+      `lastReplacement, ${status}`,
+    );
+    // What the user asked since the last replacement made: their older words are done.
+    assert.equal(
+      askedSince([...replaced, user('il devrait pleuvoir')]),
+      made ? 'il devrait pleuvoir' : 'remplace la fille\nil devrait pleuvoir',
+      `askedSince, ${status}`,
+    );
+  }
+});

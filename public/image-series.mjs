@@ -5,7 +5,15 @@
  * on a card of its own, without asking the model between two. The model then gets one result for
  * its one call: every take, and where the series stopped if it did.
  */
-const MADE = new Set(['success', 'generated']);
+/**
+ * The statuses of a result that say its take was made. « generated »: made, then something failed after it
+ * (takeContent, generation-runtime.mjs: the engine not confirmed free, the chat model that does not start
+ * again, its copies for the analysis missing). (0.6.312) Read here by all who ask whether a creation was
+ * made: four of them knew « success » alone, and took a take that exists for one that was never made.
+ */
+export const MADE = new Set(['success', 'generated']);
+/** The same, in the text of a result nobody parses. */
+export const MADE_TEXT = /"status"\s*:\s*"(?:success|generated)"/;
 
 /**
  * The results of the images of a series (their contents, as requestTool gives them) as one.
