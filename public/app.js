@@ -2386,6 +2386,8 @@ async function restartApplication({ confirmed = false } = {}) {
       session: compactSession(sessionOfPage()),
     });
     const deadline = Date.now() + 120000;
+    // Whether the instance that was to leave is the one that answers still.
+    let same = false;
     while (Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, 750));
       try {
@@ -2397,10 +2399,16 @@ async function restartApplication({ confirmed = false } = {}) {
           location.reload();
           return;
         }
+        same = next?.token === token;
       } catch {
         // Between the two instances: nothing answers for a moment.
+        same = false;
       }
     }
+    // (0.6.357) It never left: the copy it kept for the page that was to come back is given up. Left there, the
+    // next loading of the page took back an older conversation and its draft, « Application redémarrée.
+    // Conversation restaurée. », for a restart that never was.
+    if (same) await api('updates/session/clear', {}).catch(() => {});
     throw Error('Redémarrage non confirmé. Si Moodix ne revient pas, relancez-le avec Lancer-Windows.cmd.');
   } catch (error) {
     state.closingApp = false;

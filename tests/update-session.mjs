@@ -258,3 +258,62 @@ test('the page goes on when the conversation of before cannot be taken back, and
   await back.restore();
   assert.deepEqual([back.seen.band, back.seen.notices], [0, ['La version précédente a été restaurée.']]);
 });
+
+test('a restart that never happened gives up the copy it kept for the page (0.6.357)', async () => {
+  const source = (await readFile(new URL('../public/app.js', import.meta.url), 'utf8')).replace(/\r\n/g, '\n'),
+    from = source.indexOf('async function restartApplication('),
+    body = source.slice(from, source.indexOf('\n}\n', from) + 3);
+  assert.ok(from > 0 && body.length > 800 && body.length < 4000, 'restartApplication is found whole in the page');
+  // `answers`: what /api/bootstrap says at each look (a token, or nothing: no instance answers then).
+  const page = answers => {
+    const seen = { calls: [], notices: [], reloaded: 0, looks: 0 },
+      node = { textContent: '', hidden: false, dataset: {}, disabled: false, close() {}, showModal() {} };
+    let now = 0;
+    const context = {
+      state: { token: 'jeton-a', closingApp: false },
+      $: () => node,
+      settingsGuard: { isDirty: () => false },
+      updateControls() {},
+      persistConversation: async () => true,
+      historyWrite: Promise.resolve(),
+      compactSession: value => value,
+      sessionOfPage: () => ({ prompt: 'brouillon' }),
+      api: async route => {
+        seen.calls.push(route);
+        return { json: async () => ({}) };
+      },
+      notice: text => seen.notices.push(text),
+      location: { reload: () => seen.reloaded++ },
+      // Each wait of the page is 30 s of its clock: four looks before its two minutes are over.
+      setTimeout: done => {
+        now += 30000;
+        done();
+      },
+      Date: { now: () => now },
+      AbortSignal,
+      fetch: async () => {
+        const token = answers[Math.min(seen.looks++, answers.length - 1)];
+        if (!token) throw new TypeError('fetch failed');
+        return { json: async () => ({ token }) };
+      },
+    };
+    runInNewContext(body, context);
+    return { seen, restart: () => context.restartApplication() };
+  };
+  // The launcher was refused, or gave up: the same instance answers to the end. Its copy stayed, and the next
+  // loading of the page took back an older conversation, « Application redémarrée. Conversation restaurée. ».
+  const stayed = page(['jeton-a']);
+  await stayed.restart();
+  assert.deepEqual(stayed.seen.calls, ['relaunch', 'updates/session/clear']);
+  assert.deepEqual([stayed.seen.reloaded, stayed.seen.notices.length], [0, 1]);
+  assert.match(stayed.seen.notices[0], /^Redémarrage non confirmé/);
+  // It left and nothing came back: no instance to ask, and its copy is what the next one gives the page.
+  const gone = page(['jeton-a', null]);
+  await gone.restart();
+  assert.deepEqual(gone.seen.calls, ['relaunch']);
+  assert.match(gone.seen.notices[0], /^Redémarrage non confirmé/);
+  // Started again: the page loads again from the new instance, which holds the copy.
+  const back = page(['jeton-a', null, 'jeton-b']);
+  await back.restart();
+  assert.deepEqual([back.seen.calls, back.seen.reloaded, back.seen.notices], [['relaunch'], 1, []]);
+});
