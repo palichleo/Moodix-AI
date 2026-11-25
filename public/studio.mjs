@@ -7647,15 +7647,21 @@ export function setupStudio({
   }
   async function refresh() {
     if (!info) return;
-    const id = conversation();
+    const id = conversation(),
+      // (0.6.301) Where these takes are read for, said before the request: its answer is dropped when the page
+      // is elsewhere by then (the reading of that place is on its way). Two conversations opened one after the
+      // other, the first answered last: the Sortie showed the takes of the first project in the second, which
+      // could be continued or deleted there, and nothing read them again.
+      asked = where();
     seenConversation = id;
     // Without the copies kept for the model (a storyboard per clip): the Studio shows the files.
     // Those of the whole project, the open conversation with them.
     const route = `project-gallery/${encodeURIComponent(project())}?images=0` + (id ? '&conversation=' + id : '');
     const read = await (await api(route)).json();
+    if (where() !== asked) return;
     runs = read.runs ?? [];
     nextTake = Number.isInteger(read.nextTake) ? read.nextTake : null;
-    runsFor = where();
+    runsFor = asked;
     runsStale = false;
     onRuns(id);
     // (0.6.148) The bobine shows the takes of the project too: one made or removed is shown there.

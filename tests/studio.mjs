@@ -1185,7 +1185,10 @@ async function studioPage(tools, routes = {}, options = {}) {
                 tools,
                 presets: options.presets ?? {},
               }
-            : route.startsWith('gallery/') || route.startsWith('project-gallery/')
+            : (route.startsWith('gallery/') || route.startsWith('project-gallery/')) && options.gallery
+              ? // (0.6.301) Its answers as the test gives them, late when it wants.
+                options.gallery(route)
+              : route.startsWith('gallery/') || route.startsWith('project-gallery/')
               ? {
                   runs: route.includes(STUDIO_ID) ? (options.legacy ?? []) : runs,
                   ...(options.nextTake ? { nextTake: options.nextTake } : {}),
@@ -10844,5 +10847,55 @@ test('a take deleted leaves nothing of it in the Studio: neither the take it loo
     assert.deepEqual([body.dataset.mode, start(body).className.includes('is-filled')], ['video', false]);
   } finally {
     looking.restore();
+  }
+});
+
+test('the takes of a place left while they were read are never shown in the one the page is on (0.6.301)', async () => {
+  // (Report 4, point 6. Two conversations opened one after the other, the first answered last: the Sortie of
+  // the second showed the takes of the project of the first, and opening the Studio did not read them again.)
+  let conversation = 'c1',
+    project = 'p1';
+  const waiting = new Map(),
+    take = (id, conversationId, prompt) => ({ id, conversationId, workflowId: 'w', prompt, parameters: { width: 1024, height: 1024 }, outputs: [{ originalUrl: `/${id}.png`, take: 1 }] }),
+    place = route => /project-gallery\/(p\d)/.exec(route)?.[1];
+  const page = await studioPage(
+    { create_image: [still] },
+    {},
+    {
+      conversation: () => conversation,
+      project: () => project,
+      gallery: route =>
+        place(route) === 'p1'
+          ? { runs: [take('a1', 'c1', 'projet 1')] }
+          : new Promise(resolve => waiting.set(place(route), resolve)),
+    },
+  );
+  try {
+    const { body, studio, asked } = page,
+      sortie = () => body.find('studio-item').map(tile => tile.dataset.id),
+      reads = () => asked.filter(([route]) => route.startsWith('project-gallery/')).length;
+    await settle();
+    assert.deepEqual(sortie(), ['a1']);
+    conversation = 'c2';
+    project = 'p2';
+    studio.conversationChanged();
+    conversation = 'c3';
+    project = 'p3';
+    studio.conversationChanged();
+    await settle();
+    assert.deepEqual([...waiting.keys()], ['p2', 'p3']);
+    // The project the page is on answers first, the one it left after it.
+    waiting.get('p3')({ runs: [take('a3', 'c3', 'projet 3')] });
+    await settle();
+    waiting.get('p2')({ runs: [take('a2', 'c2', 'projet 2')] });
+    await settle();
+    assert.deepEqual(sortie(), ['a3']);
+    // Nothing to read again: what is shown is what was read for this place.
+    const before = reads();
+    await studio.open();
+    await settle();
+    assert.deepEqual([sortie(), reads() - before], [['a3'], 0]);
+  } finally {
+    page.restore();
   }
 });
