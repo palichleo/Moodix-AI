@@ -1075,18 +1075,24 @@ function restoreAside(saved) {
 }
 
 async function restoreUpdate() {
-  const saved = await (await api('updates/session')).json();
-  if (!saved) return;
-  if (saved.aside) restoreAside(saved.aside);
-  restoreSession(saved);
-  await api('updates/session/clear', {});
-  if (saved.restarted) {
-    $('live-status').textContent = 'Application redémarrée. Conversation restaurée.';
-    return;
+  // (0.6.287) What fails here is said, and the page goes on: thrown, it cut the start of the page short
+  // (the conversation of the tab, the welcome, a creation followed elsewhere), at every load.
+  try {
+    const saved = await (await api('updates/session')).json();
+    if (!saved) return;
+    if (saved.aside) restoreAside(saved.aside);
+    restoreSession(saved);
+    await api('updates/session/clear', {});
+    if (saved.restarted) {
+      $('live-status').textContent = 'Application redémarrée. Conversation restaurée.';
+      return;
+    }
+    const result = await (await api('updates/install')).json();
+    if (result.state === 'rolled-back' || result.state === 'error') notice(result.error);
+    else returnBand();
+  } catch (error) {
+    notice('Reprise de la conversation interrompue : ' + error.message);
   }
-  const result = await (await api('updates/install')).json();
-  if (result.state === 'rolled-back' || result.state === 'error') notice(result.error);
-  else returnBand();
 }
 /**
  * Back after an update (etats-maquette.md, 57): a band of glass under the top bar, a green dot

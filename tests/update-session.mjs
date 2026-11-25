@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { updateSession } from '../lib/update-session.mjs';
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { runInNewContext } from 'node:vm';
+import { keptUpdateSession, REJECTED, updateSession } from '../lib/update-session.mjs';
 
 test('restart session retains the pending user turn and incomplete marker even when it is restored as a draft', () => {
   const snapshot = {
@@ -109,4 +113,115 @@ test('a conversation of more than a hundred messages goes through an update or a
   assert.throws(() => updateSession({ ...base, messages: many(1001) }));
   const snapshot = { messages: many(121), incomplete: true };
   assert.equal(updateSession({ ...base, messages: snapshot.messages.slice(0, 120), archiveSnapshot: snapshot }).archiveSnapshot.messages.length, 121);
+});
+
+test('a copy this version refuses is put aside, once; one the disk does not give for now stays (0.6.287)', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'moodix-session-'));
+  try {
+    const file = join(dir, 'update-session.json'),
+      aside = join(dir, REJECTED),
+      good = {
+        messages: [{ role: 'user', content: 'un renard' }],
+        conversationId: null,
+        prompt: 'brouillon',
+        images: [],
+        title: 'Renard',
+        thinking: false,
+      },
+      said = [],
+      take = options => keptUpdateSession(dir, { log: (...words) => said.push(words.join(' ')), ...options });
+    // Nothing kept: nothing said.
+    assert.equal(await take(), null);
+    assert.deepEqual(said, []);
+    // Read as it is: its takes are a list, or none.
+    await writeFile(file, JSON.stringify({ ...good, gallery: { 0: 'x' } }));
+    assert.deepEqual([(await take()).prompt, (await take()).gallery], ['brouillon', []]);
+    await writeFile(file, JSON.stringify({ ...good, gallery: 'x' }));
+    assert.deepEqual((await take()).gallery, []);
+    await writeFile(file, JSON.stringify({ ...good, gallery: [{ id: 'a' }], restarted: true }));
+    assert.deepEqual([(await take()).gallery, (await take()).restarted], [[{ id: 'a' }], true]);
+    assert.deepEqual(said, []);
+    // Refused by the rules of this version (a role it does not know): put aside whole, nothing left to read.
+    const refused = JSON.stringify({ ...good, messages: [{ role: 'system', content: 'x' }] });
+    await writeFile(file, refused);
+    assert.equal(await take(), null);
+    assert.deepEqual(said.splice(0), ['Copie de reprise illisible : Message de session invalide.']);
+    assert.equal(await readFile(aside, 'utf8'), refused);
+    await assert.rejects(access(file), { code: 'ENOENT' });
+    assert.equal(await take(), null);
+    assert.deepEqual(said, []);
+    // Not JSON at all: the same, in the place of the one put aside before.
+    await writeFile(file, '{"messages": [');
+    assert.equal(await take(), null);
+    assert.equal(await readFile(aside, 'utf8'), '{"messages": [');
+    assert.equal(said.splice(0).length, 1);
+    // The disk does not give it for now: said, and left where it is for the reading that follows.
+    await writeFile(file, JSON.stringify(good));
+    const busy = Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' });
+    const refusing = async () => {
+      throw busy;
+    };
+    assert.equal(await take({ read: refusing }), null);
+    assert.deepEqual(said.splice(0), ['Copie de reprise illisible : EBUSY: resource busy or locked']);
+    assert.equal((await take()).prompt, 'brouillon');
+    assert.equal(await readFile(aside, 'utf8'), '{"messages": [');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('the page goes on when the conversation of before cannot be taken back, and says so (0.6.287)', async () => {
+  const source = await readFile(new URL('../public/app.js', import.meta.url), 'utf8'),
+    from = source.indexOf('async function restoreUpdate()'),
+    body = source.slice(from, source.indexOf('/**', from));
+  assert.ok(from > 0 && body.length > 200 && body.length < 2000, 'restoreUpdate is found whole in the page');
+  const page = routes => {
+    const seen = { notices: [], calls: [], restored: [], band: 0, live: { textContent: '' } };
+    const context = {
+      api: async route => {
+        seen.calls.push(route);
+        if (routes[route] instanceof Error) throw routes[route];
+        return { json: async () => routes[route] };
+      },
+      restoreAside: aside => seen.restored.push('aside ' + aside.prompt),
+      restoreSession: saved => seen.restored.push('session ' + saved.prompt),
+      notice: text => seen.notices.push(text),
+      returnBand: () => seen.band++,
+      $: () => seen.live,
+    };
+    runInNewContext(body, context);
+    return { seen, restore: () => context.restoreUpdate() };
+  };
+  const kept = { prompt: 'brouillon', aside: { prompt: 'de côté' } };
+
+  // The server could not answer: said, and the start of the page is not cut short (nothing thrown).
+  const failing = page({ 'updates/session': new Error('Erreur locale inattendue.') });
+  await failing.restore();
+  assert.deepEqual(failing.seen.notices, ['Reprise de la conversation interrompue : Erreur locale inattendue.']);
+  assert.deepEqual([failing.seen.restored, failing.seen.calls], [[], ['updates/session']]);
+
+  // Taken back, but the copy could not be let go: the conversation is on the page, and it is said.
+  const stuck = page({ 'updates/session': kept, 'updates/session/clear': new Error('Disque plein.') });
+  await stuck.restore();
+  assert.deepEqual(stuck.seen.restored, ['aside de côté', 'session brouillon']);
+  assert.deepEqual(stuck.seen.notices, ['Reprise de la conversation interrompue : Disque plein.']);
+
+  // And as before: nothing kept, « Redémarrer », an update that succeeded, one that did not.
+  const none = page({ 'updates/session': null });
+  await none.restore();
+  assert.deepEqual([none.seen.calls, none.seen.notices, none.seen.restored], [['updates/session'], [], []]);
+  const restarted = page({ 'updates/session': { ...kept, restarted: true }, 'updates/session/clear': {} });
+  await restarted.restore();
+  assert.equal(restarted.seen.live.textContent, 'Application redémarrée. Conversation restaurée.');
+  assert.deepEqual(restarted.seen.calls, ['updates/session', 'updates/session/clear']);
+  const updated = page({ 'updates/session': kept, 'updates/session/clear': {}, 'updates/install': { state: 'done' } });
+  await updated.restore();
+  assert.deepEqual([updated.seen.band, updated.seen.notices], [1, []]);
+  const back = page({
+    'updates/session': kept,
+    'updates/session/clear': {},
+    'updates/install': { state: 'rolled-back', error: 'La version précédente a été restaurée.' },
+  });
+  await back.restore();
+  assert.deepEqual([back.seen.band, back.seen.notices], [0, ['La version précédente a été restaurée.']]);
 });

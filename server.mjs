@@ -31,7 +31,7 @@ import { checkForUpdates } from './lib/updates.mjs';
 import { componentVersions, runVersion } from './lib/components.mjs';
 import { prepareUpdate, launchInstaller } from './lib/update-install.mjs';
 import { atomicFile, atomicJson } from './lib/update-files.mjs';
-import { updateSession, readUpdateSession } from './lib/update-session.mjs';
+import { updateSession, keptUpdateSession } from './lib/update-session.mjs';
 import { randomBytes, randomUUID, createHmac, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -645,8 +645,13 @@ export async function createApplication({
     previewUrl: record.ready ? resourceUrl(record.id, 'preview') : null,
   });
   await numberEarlierTakes().catch(error => console.error('Numéros de prise :', error.message));
-  const pendingSession = await readUpdateSession(dataDir).catch(() => null);
-  for (const record of pendingSession?.gallery || []) await gallery.put(record, { persist: false });
+  // (0.6.287) As far as it can be read (lib/update-session.mjs): one refused no longer stops the launch nor the page.
+  const pendingSession = await keptUpdateSession(dataDir);
+  // (0.6.287) One by one: a take the rules of this version refuse stopped the launch itself, at each try.
+  for (const record of pendingSession?.gallery ?? [])
+    await gallery
+      .put(record, { persist: false })
+      .catch(error => console.error('Copie de reprise, une prise écartée :', error.message));
   // Attachments of conversations never saved belong to a session that has ended.
   await history.pruneUnsaved(pendingSession?.conversationId ?? null).catch(error => console.error(error));
   // What waited 30 days in the bin of the history goes for good, its thumbnails with it (0.6.103).
@@ -1249,7 +1254,7 @@ export async function createApplication({
         return send(200, installState);
       }
       if (path === '/api/updates/session' && req.method === 'GET')
-        return send(200, applyingUpdate ? null : sessionView(await readUpdateSession(dataDir)));
+        return send(200, applyingUpdate ? null : sessionView(await keptUpdateSession(dataDir)));
       if (path === '/api/updates' && req.method === 'GET') {
         // Asked again from the update button: a failed check (offline) never hides a known update.
         if (requestURL.searchParams.get('refresh') === '1' && updateChecker && !applyingUpdate) {

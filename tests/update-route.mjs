@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createApplication } from '../server.mjs';
@@ -179,3 +179,51 @@ test(
     }
   },
 );
+
+test('a copy kept for the page that this version refuses stops neither the launch nor the page (0.6.287)', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'atelier-update-refused-'));
+  const file = join(dataDir, 'update-session.json'),
+    aside = join(dataDir, 'update-session.rejected.json'),
+    good = {
+      messages: [{ role: 'user', content: 'un renard' }],
+      conversationId: null,
+      prompt: 'brouillon',
+      images: [],
+      title: 'Renard',
+      thinking: false,
+    };
+  let app;
+  const session = async () => {
+    const { token } = await (await fetch(app.url + '/api/bootstrap')).json();
+    const answer = await fetch(app.url + '/api/updates/session', { headers: { Authorization: 'Bearer ' + token } });
+    return [answer.status, await answer.json()];
+  };
+  const errors = console.error;
+  console.error = () => {};
+  try {
+    // Takes this version refuses among those kept, or no list at all: the launch itself stopped there.
+    for (const gallery of [[{ take: 0 }, 'x'], { 0: 'x' }]) {
+      await writeFile(file, JSON.stringify({ ...good, gallery }));
+      app = await createApplication({ port: 0, dataDir });
+      const [status, kept] = await session();
+      assert.deepEqual([status, kept.prompt], [200, 'brouillon']);
+      await app.close();
+      app = null;
+    }
+    // The copy itself refused: put aside at the launch, and the page that asks is answered.
+    const refused = JSON.stringify({ ...good, messages: [{ role: 'system', content: 'x' }] });
+    await writeFile(file, refused);
+    app = await createApplication({ port: 0, dataDir });
+    assert.deepEqual(await session(), [200, null]);
+    assert.equal(await readFile(aside, 'utf8'), refused);
+    // One that comes while the application runs: answered the same, never a 500 at every page.
+    await writeFile(file, '{"messages": [');
+    assert.deepEqual(await session(), [200, null]);
+    assert.deepEqual(await session(), [200, null]);
+    assert.equal(await readFile(aside, 'utf8'), '{"messages": [');
+  } finally {
+    console.error = errors;
+    await app?.close();
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
