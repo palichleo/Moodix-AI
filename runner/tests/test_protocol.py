@@ -438,6 +438,50 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(rows[2]['error']['message'], 'Invalid release parameters')
         self.assertEqual(rows[3]['error']['message'], 'This method accepts no parameters')
 
+    def test_a_creation_made_is_answered_even_when_the_card_is_not_clean_after_it(self):
+        # (0.6.361) Its file is written: answered « GPU cleanup incomplete » in its place, the take was shown
+        # as failed, minutes of the card lost (0.6.134). The engine still stops there, a clean one starts next.
+        requests = '{"id":1,"method":"generate","params":{}}\n{"id":2,"method":"release","params":{}}\n'
+        logged = []
+
+        def release(between=False):
+            if between:
+                raise RuntimeError('GPU cleanup incomplete: 1.0 GiB still allocated')
+            return dict(released=True, allocatedGiB=0)
+
+        def failing(*args):
+            raise RuntimeError('simulated OOM')
+
+        def made(*args):
+            return {'jobId': 'j', 'outputs': [{'filename': 'take.mp4'}], 'metadata': {}}
+
+        answers = []
+        for generate in (made, failing):
+            destination, errors = io.StringIO(), io.StringIO()
+            with (
+                patch('runner.protocol.generate', generate),
+                patch('runner.protocol.release', release),
+                patch('runner.protocol._log_failure', lambda config, method, exc: logged.append((method, str(exc)))),
+                patch('sys.stderr', errors),
+            ):
+                serve({}, io.StringIO(requests), destination)
+            rows = [json.loads(line) for line in destination.getvalue().splitlines()]
+            # Its own answer, then nothing: the request that followed is left to the engine that starts next.
+            self.assertEqual([row.get('id', row.get('event')) for row in rows], ['ready', 1])
+            self.assertIn('GPU cleanup incomplete: 1.0 GiB still allocated', errors.getvalue())
+            answers.append(rows[1])
+        self.assertEqual(answers[0]['result']['outputs'], [{'filename': 'take.mp4'}])
+        # One that failed says what failed, not what was left on the card after it.
+        self.assertEqual(answers[1]['error'], dict(message='simulated OOM', code='GENERATION_FAILED'))
+        self.assertEqual(
+            logged,
+            [
+                ('release', 'GPU cleanup incomplete: 1.0 GiB still allocated'),
+                ('generate', 'simulated OOM'),
+                ('release', 'GPU cleanup incomplete: 1.0 GiB still allocated'),
+            ],
+        )
+
     def test_failed_generate_cleans_up_and_can_receive_next_request(self):
         source = io.StringIO('{"id":1,"method":"generate","params":{}}\n{"id":2,"method":"release","params":{}}\n')
         destination = io.StringIO()

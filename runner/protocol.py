@@ -123,7 +123,14 @@ def _serve(config, source, destination):
                         # the application asks for a release.
                         release(between=True)
                 except Exception as exc:
-                    emit(dict(id=request_id, error=dict(message=str(exc), code='GPU_RELEASE_FAILED')))
+                    # (0.6.361) The card is not as it should be after it: the engine stops there, as it always
+                    # did, and the next creation starts a clean one. Its answer goes first: a creation made, its
+                    # file written, was answered « GPU cleanup incomplete » in its place and shown as failed
+                    # (the first real video of Wan 2.2, 0.6.134), and one that failed lost what had failed.
+                    # What was left on the card is said in the journal of the errors and on the error output.
+                    _log_failure(config, 'release', exc)
+                    print(f'Release after generate failed: {exc}', file=sys.stderr)
+                    emit(response)
                     return
             emit(response)
             if method == 'shutdown':
