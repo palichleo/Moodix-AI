@@ -5346,6 +5346,10 @@ export function setupStudio({
         settle();
         proposal = null;
         failure = '';
+        // (0.6.316) What it set is given back, as when declined: stopped during « Préparation… » of « Générer »
+        // on it, its seed stayed for every creation by hand after it, and the page « Générer la suite ».
+        if (mine.extending) extending = null;
+        giveBackSeed(mine);
         releaseInputs(mine);
         render();
         letGo();

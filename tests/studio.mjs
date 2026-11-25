@@ -10899,3 +10899,57 @@ test('the takes of a place left while they were read are never shown in the one 
     page.restore();
   }
 });
+
+// ------------------------------------------------------------------ lot 3 du 25/11 (rapport 4)
+/** The seed of the page (« Plus de réglages » opened for it), the clip it continues, the words of « Générer ». */
+const reviewedShown = body => {
+  if (!body.find('studio-seed').length) body.find('studio-more-pill')[0].onclick();
+  const [seed] = body.find('studio-seed'),
+    [go] = body.find('studio-go-label');
+  return { seed: seed.children[1].value, suite: prolonged(body), go: go.textContent };
+};
+
+test('a proposal stopped with its turn gives back its seed and its clip, as declined (0.6.316)', async () => {
+  // (Report 4, point 1. « Arrêter » during « Préparation… » of a proposal changed, then « Générer » on it: the seed 7
+  // of the proposal stayed, hidden under « Plus de réglages », for every creation by hand after it, and the page
+  // still said « Générer la suite ».)
+  const { tools, runs } = continuing();
+  const waiting = await studioPage(tools, {}, { runs });
+  try {
+    const { body, studio } = waiting,
+      turn = new AbortController(),
+      answer = studio.propose(continuation(), turn.signal);
+    await until(() => body.find('studio-decline').length === 1);
+    assert.equal(reviewedShown(body).seed, '7');
+    turn.abort();
+    await assert.rejects(answer);
+    await studio.settled({ error: 'Génération arrêtée.' });
+    assert.deepEqual(reviewedShown(body), { seed: '', suite: [], go: 'Générer' });
+  } finally {
+    waiting.restore();
+  }
+  let revised;
+  const turn = new AbortController(),
+    sending = await studioPage(
+      tools,
+      { 'tools/revise': () => new Promise(resolve => (revised = resolve)) },
+      { runs, extra: { stopTurn: () => turn.abort() } },
+    );
+  try {
+    const { body, studio } = sending,
+      answer = studio.propose(continuation(), turn.signal);
+    await until(() => body.find('studio-decline').length === 1);
+    sending.prompt().value = 'Le renard saute dans la neige';
+    sending.prompt().oninput();
+    const going = body.find('studio-go')[0].onclick();
+    await settle();
+    body.find('studio-stop')[0].onclick();
+    revised({ requestId: 'q2', approvalToken: 't2', plan: { parameters: {} } });
+    await assert.rejects(answer);
+    await going;
+    await studio.settled({ error: 'Génération arrêtée.' });
+    assert.deepEqual(reviewedShown(body), { seed: '', suite: [], go: 'Générer' });
+  } finally {
+    sending.restore();
+  }
+});
