@@ -4189,6 +4189,15 @@ export function setupStudio({
   /** The first image of files pasted or dropped, if any. */
   const imageFile = files => [...(files ?? [])].find(file => IMAGE_TYPES.includes(file.type)) ?? null;
   /**
+   * (0.6.299) A case the page shown does not draw: the clip a suite or a change of camera starts from (the take
+   * chosen in the Sortie, its first piece). « Agrandir » and « Interpoler » draw none at all (NO_FILE). A file
+   * dropped or pasted on the column filled it all the same: imported as a reference of the project, nothing on
+   * screen, no word, and found later as « Image à modifier » or « Vidéo à suivre » of the page behind.
+   */
+  const hiddenCase = role => role === 'source' && mode === 'video' && Boolean(extending);
+  const NO_FILE = 'Cette page part d’une prise de la Sortie : elle ne prend pas de fichier.',
+    NO_VIDEO = 'Cette page part de la prise choisie dans la Sortie : elle ne prend pas d’autre vidéo.';
+  /**
    * An image pasted or dropped on the column of the prompt goes to the first free slot the model
    * takes, in the order of its slots, never to one that would not combine with those given.
    */
@@ -4198,6 +4207,7 @@ export function setupStudio({
       return notice(
         'Les images de cette proposition sont celles de Moodix AI : demandez-lui dans le chat pour en changer.',
       );
+    if (finishOn()) return notice(NO_FILE);
     const draft = drafts[mode];
     let taken = false;
     for (const [role, spec] of Object.entries(workflow.roles ?? {})) {
@@ -4214,8 +4224,10 @@ export function setupStudio({
   /** A video dropped on the column of the prompt goes to the slot of the model that takes one. */
   function placeVideo(workflow, file) {
     if (working || answering()) return;
+    if (finishOn()) return notice(NO_FILE);
     for (const [role, spec] of Object.entries(workflow.roles ?? {}))
       if (takesVideo(workflow, role)) {
+        if (hiddenCase(role)) return notice(NO_VIDEO);
         for (let index = 0; index < spec.count; index++)
           if (!drafts[mode].inputs[role]?.[index]) return void fill(role, index, file, 'video');
         return notice('La case de la vidéo est prise : retirez-la d’abord.');

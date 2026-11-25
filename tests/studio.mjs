@@ -10678,3 +10678,72 @@ test('« Animer » and « Modifier » of a take leave the page « Agrandir » or
     growing.restore();
   }
 });
+
+test('a file dropped or pasted on the column never goes to a case the page does not draw (0.6.299)', async () => {
+  // (Report 4, point 3. On « Agrandir » the image was imported as a reference of the project, nothing changed on
+  // screen and no word was said; it came back later as « Image à modifier » of the page behind.)
+  const { seedvr, editor, image } = reviewed,
+    png = name => ({ name, type: 'image/png' }),
+    mp4 = name => ({ name, type: 'video/mp4' }),
+    drop = (body, file) => body.find('studio-write')[0].ondrop({ preventDefault() {}, dataTransfer: { files: [file] } }),
+    paste = (body, file) => body.find('studio-write')[0].onpaste({ preventDefault() {}, clipboardData: { files: [file] } }),
+    filled = body => body.find('studio-slot').filter(slot => slot.className.includes('is-filled')).map(slot => slot.dataset.slot),
+    NO_FILE = 'Cette page part d’une prise de la Sortie : elle ne prend pas de fichier.';
+  const growing = await studioPage(
+    { create_image: [editor], upscale: [seedvr] },
+    { 'tools/actions': () => ({ upscale: ['image'] }) },
+    { runs: [image('a', 1)] },
+  );
+  try {
+    const { body, notices } = growing;
+    await settle();
+    body.find('studio-rail')[0].find('output-action-upscale')[0].onclick();
+    const before = importedInto.length;
+    drop(body, png('photo.png'));
+    paste(body, png('collée.png'));
+    drop(body, mp4('film.mp4'));
+    await settle();
+    // Nothing imported, and why said each time; the page is still « Agrandir ».
+    assert.deepEqual([importedInto.length - before, notices, body.find('studio-finish').length], [0, [NO_FILE, NO_FILE, NO_FILE], 1]);
+    // The page left: the case of the page behind it is as it was, empty.
+    body.find('studio-finish')[0].find('studio-slot-remove')[0].onclick();
+    assert.deepEqual(filled(body), []);
+    // There, as before: the image dropped goes to its case.
+    drop(body, png('photo.png'));
+    await settle();
+    assert.deepEqual([importedInto.length - before, filled(body)], [1, ['source-0']]);
+  } finally {
+    growing.restore();
+  }
+
+  // « Prolonger »: the clip it goes on from is the take chosen, never a file dropped; an image goes to a case it draws.
+  const { tools, runs } = continuing(),
+    [extend] = tools.extend_video;
+  extend.roles = { ...extend.roles, end_image: { count: 1, media: ['image'] } };
+  const going = await studioPage(tools, {}, { runs });
+  try {
+    const { body, notices } = going;
+    prolonger(body).onclick();
+    assert.deepEqual(prolonged(body), ['À prolonger · PRISE 1 · 05.04 S']);
+    const before = importedInto.length;
+    drop(body, mp4('autre.mp4'));
+    await settle();
+    assert.deepEqual(
+      [importedInto.length - before, notices.at(-1), prolonged(body)],
+      [0, 'Cette page part de la prise choisie dans la Sortie : elle ne prend pas d’autre vidéo.', ['À prolonger · PRISE 1 · 05.04 S']],
+    );
+    drop(body, png('fin.png'));
+    await settle();
+    // (The clip it goes on from is drawn as its first piece, the case « source » of the page: still that take.)
+    assert.deepEqual(
+      [importedInto.length - before, filled(body), prolonged(body)],
+      [1, ['source-0', 'end_image-0'], ['À prolonger · PRISE 1 · 05.04 S']],
+    );
+    // Its only case of an image taken: said as such, and nothing goes behind the clip.
+    drop(body, png('autre.png'));
+    await settle();
+    assert.deepEqual([importedInto.length - before, notices.at(-1)], [1, 'Toutes les cases d’images sont prises.']);
+  } finally {
+    going.restore();
+  }
+});
