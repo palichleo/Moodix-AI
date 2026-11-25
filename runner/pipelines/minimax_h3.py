@@ -171,6 +171,27 @@ def model_kind(header):
     return 'reference' if source == 'transformer_ref' else 'base'
 
 
+def check_subject(job, header):
+    """A subject asked of a checkpoint that takes none is refused. FastH3 Omni also runs text-only and start or
+    end image requests: their packed sequences only add keyframe condition rows, which the reference model
+    reads like LongForge does. A file the workflow names for reference images (MiniMax's Ref2VA) takes them too.
+
+    (0.6.373) Checked before the creation (preflight), while the chat model is still loaded: said once the
+    creation had begun, the chat model had been unloaded for nothing, and the MiniMax model kept from the video
+    before was thrown away (its shape differs)."""
+    roles = {ref['role'] for ref in job['references']}
+    if (
+        model_kind(header) == 'base'
+        and 'reference_image' in roles
+        and model_path(job) != job['components'].get('referenceModel')
+    ):
+        # (0.6.198) In the words of the page: « sujet », and the field as Paramètres › Modèles names it.
+        raise ValueError(
+            'Ce modèle MiniMax H3 ne prend pas de sujet : utilisez FastH3 Omni, ou donnez-lui son '
+            '« Modèle pour les sujets » (Ref2VA) dans Paramètres › Modèles.'
+        )
+
+
 def preflight(job, config):
     from runner.models.headers import header
     from runner.models import minimax_h3
@@ -178,6 +199,7 @@ def preflight(job, config):
     model = header(model_path(job))
     minimax_h3.validate(model)
     check_steps(job, model)
+    check_subject(job, model)
     # A video the card cannot hold is said now, not after half a minute of loading.
     refused = too_large(job['parameters'], hardware.card_gib())
     if refused:
@@ -422,16 +444,8 @@ def _generate(job, config, progress, key, holder):
     dit_header = header(paths['model'])
     steps = check_steps(job, dit_header)
     kind = model_kind(dit_header)
-    roles = {ref['role'] for ref in job['references']}
-    # FastH3 Omni also runs text-only and start/end-image requests: their packed sequences
-    # only add keyframe condition rows, which the reference model reads like LongForge does.
-    # A file the workflow names for reference images (MiniMax's Ref2VA) takes them too.
-    if kind == 'base' and 'reference_image' in roles and paths['model'] != paths.get('referenceModel'):
-        # (0.6.198) In the words of the page: « sujet », and the field as Paramètres › Modèles names it.
-        raise ValueError(
-            'Ce modèle MiniMax H3 ne prend pas de sujet : utilisez FastH3 Omni, ou donnez-lui son '
-            '« Modèle pour les sujets » (Ref2VA) dans Paramètres › Modèles.'
-        )
+    # (Refused before the creation, in preflight; here again for who calls it without one.)
+    check_subject(job, dit_header)
     references = []
     keyframe_inputs = {}
     source = next((ref for ref in job['references'] if ref['role'] == 'source_video'), None)

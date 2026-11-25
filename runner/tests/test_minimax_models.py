@@ -56,6 +56,32 @@ class MiniMaxModels(unittest.TestCase):
         self.assertEqual(pipeline.model_path(_job(['reference_image'])), 'fl2va.safetensors')
         self.assertEqual(pipeline.model_path(_job(['reference_image'], referenceModel='')), 'fl2va.safetensors')
 
+    def test_a_subject_no_model_of_the_job_takes_is_refused_before_the_creation(self):
+        # (0.6.373) Said once the creation had begun, after the chat model was unloaded for it.
+        from unittest import mock
+
+        from runner.models import headers, minimax_h3
+
+        base, omni = _header(), dict(_header(heads=32, gates=True), __metadata__={'source': 'transformer_ref'})
+        subject = _job(['reference_image'])
+        with self.assertRaisesRegex(ValueError, 'ne prend pas de sujet.*Modèle pour les sujets'):
+            pipeline.check_subject(subject, base)
+        # FastH3 Omni takes it; so does the file the workflow names for the subjects; without one, nothing to say.
+        self.assertIsNone(pipeline.check_subject(subject, omni))
+        self.assertIsNone(pipeline.check_subject(_job(['reference_image'], referenceModel='ref2va.safetensors'), base))
+        for roles in ([], ['start_image', 'end_image'], ['source_video']):
+            self.assertIsNone(pipeline.check_subject(_job(roles), base))
+        # The check made before the chat model is unloaded says it, before the card is asked anything.
+        asked = []
+        with (
+            mock.patch.object(headers, 'header', lambda path: asked.append(path) or base),
+            mock.patch.object(minimax_h3, 'validate', lambda header: None),
+            mock.patch.object(pipeline, 'too_large', lambda *args: self.fail('refused before the size is weighed')),
+        ):
+            with self.assertRaisesRegex(ValueError, 'ne prend pas de sujet'):
+                pipeline.preflight(subject, {})
+        self.assertEqual(asked, ['fl2va.safetensors'])
+
     def test_the_family_takes_both_step_counts_and_an_optional_second_file(self):
         manifest = family('minimax_h3')
         self.assertEqual(manifest['parameters']['steps']['choices'], [8, 20])
