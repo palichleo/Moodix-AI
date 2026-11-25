@@ -101,6 +101,35 @@ class ContractTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     header(path)
 
+    def test_an_empty_tensor_is_accepted_wherever_the_header_lists_it(self):
+        # (0.6.369) The mark of a « scaled » fp8 file is a tensor of no value, at the place where the next one
+        # begins. Written by another tool with its names sorted, it comes after that one in the header.
+        import json
+
+        def write(path, entries):
+            raw = json.dumps(entries).encode()
+            size = max(entry['data_offsets'][1] for entry in entries.values())
+            path.write_bytes(struct.pack('<Q', len(raw)) + raw + bytes(size))
+
+        empty = dict(dtype='F32', shape=[0, 4], data_offsets=[0, 0])
+        first = dict(dtype='F32', shape=[2], data_offsets=[0, 8])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'marked.safetensors'
+            for entries in ({'empty': empty, 'a': first}, {'a': first, 'empty': empty}):
+                write(path, entries)
+                self.assertEqual(set(header(path)), {'a', 'empty'}, list(entries))
+            # In the middle and at the end of the file too, listed last.
+            second = dict(dtype='F32', shape=[1], data_offsets=[8, 12])
+            write(path, {'b': second, 'a': first, 'mark': dict(dtype='I8', shape=[0], data_offsets=[8, 8])})
+            self.assertEqual(len(header(path)), 3)
+            write(path, {'a': first, 'mark': dict(dtype='I8', shape=[0], data_offsets=[8, 8])})
+            self.assertEqual(len(header(path)), 2)
+            # Tensors that overlap, or leave a hole, are still refused.
+            for offsets in ([4, 8], [12, 16]):
+                write(path, {'a': first, 'b': dict(dtype='F32', shape=[1], data_offsets=offsets)})
+                with self.assertRaisesRegex(ValueError, 'Invalid tensor data offsets'):
+                    header(path)
+
 
 if __name__ == '__main__':
     unittest.main()

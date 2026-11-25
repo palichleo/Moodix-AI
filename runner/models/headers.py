@@ -68,7 +68,10 @@ def header(path):
         if not isinstance(offsets, list) or len(offsets) != 2 or any(type(n) is not int for n in offsets):
             raise ValueError('Invalid tensor offsets')
     cursor = 0
-    for key, entry in sorted(entries.items(), key=lambda item: item[1]['data_offsets'][0]):
+    # (0.6.369) By where each begins, then ends, as the mapping sorts them (residency.Mapped): by its beginning
+    # alone, an empty tensor (the mark « scaled_fp8 » of a file) listed after the one that begins where it does
+    # was refused, « Invalid tensor data offsets ». A file whose names are sorted by another tool lists it so.
+    for key, entry in sorted(entries.items(), key=lambda item: item[1]['data_offsets']):
         shape = entry['shape']
         offsets = entry['data_offsets']
         dtype = entry['dtype']
