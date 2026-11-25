@@ -1440,6 +1440,9 @@ export function setupStudio({
       // Left by its × and by « Retirer »: a new video, as « Annuler » of the banner did.
       leave = () => {
         extending = null;
+        // (0.6.322) Nor filmed again any more: left by its × on « Changer la caméra », a continuation of the same
+        // clip followed from the Chat afterwards was shown « À refilmer ».
+        refilmId = null;
         pieceOpen = null;
         render();
       };

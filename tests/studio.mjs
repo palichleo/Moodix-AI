@@ -11124,3 +11124,22 @@ test('« Revenir » gives back « Changer la caméra » as it was, not a continu
     page.restore();
   }
 });
+
+test('the × of « À refilmer » leaves its change of camera: a continuation is one again (0.6.322)', async () => {
+  // (Report 4, point 10, its part `leave`: left by its ×, the clip stayed the one filmed again for the page, and a
+  // continuation of that clip followed from the Chat was shown « À refilmer ».)
+  const { tools, runs } = continuing();
+  let take = null;
+  const page = await studioPage({ ...tools, refilm_video: [refilmer] }, {}, { runs, extra: { making: () => take } });
+  try {
+    const { body, studio } = page;
+    refilmOn(page);
+    body.find('studio-prolong')[0].find('studio-slot-remove')[0].onclick();
+    assert.equal(body.find('studio-refilm').length, 0);
+    take = chatTakeOf(continuation(), { label: 'Génération…' });
+    studio.watch();
+    assert.deepEqual([body.find('studio-refilm').length, prolonged(body)], [0, ['À prolonger · PRISE 1 · 05.04 S']]);
+  } finally {
+    page.restore();
+  }
+});
