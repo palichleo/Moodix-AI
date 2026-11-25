@@ -287,6 +287,8 @@ export function setupMontage({
     fetchError = '',
     // (0.6.154) A drag of the timeline being made: all its moves are one step of « Annuler ».
     dragging = null,
+    // (0.6.350) What lets go of the timeline pressed now (follow), for leave.
+    letGo = null,
     // (0.6.154) The bobine as « Enregistrer » put it in the Archives (contentKey), or null; « Enregistrer »
     // being done; the menu of « Exporter » open; the bobine to open when those of the project are read.
     archivedKey = null,
@@ -3356,6 +3358,7 @@ export function setupMontage({
       ['pointercancel', onUp],
     ];
     function onUp() {
+      if (letGo === onUp) letGo = null;
       for (const [type, listener] of heard) page.removeEventListener(type, listener);
       if (!moved) return;
       held = ghost = dragging = null;
@@ -3367,6 +3370,7 @@ export function setupMontage({
       update();
     }
     for (const [type, listener] of heard) page.addEventListener(type, listener);
+    letGo = onUp;
   }
 
   function draw() {
@@ -3605,6 +3609,9 @@ export function setupMontage({
     },
     /** Leaving the page: nothing goes on playing, what is not kept yet is. */
     leave() {
+      // (0.6.350) The timeline pressed is let go with the page (left by a key, or a view the application
+      // changed): its first move read the page gone, and the two gestures after it made one step of « Annuler ».
+      letGo?.();
       stop();
       // (0.6.169) Nothing goes on moving behind another page: the Flux of a take being made, a take opened late.
       media?.flux?.stop();

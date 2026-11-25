@@ -4402,3 +4402,28 @@ test('« Créations du projet » offers every image of the project, not the firs
   const picks = f.get('bobine-pick-item');
   assert.deepEqual([picks.length, picks.at(-1).attributes['aria-label']], [45, 'Prendre : Prise 144']);
 });
+
+test('the page left while a take is pressed lets it go: the hand moves nothing after (0.6.350)', async () => {
+  // Left with the button of the mouse down (a key, a view changed by the application): its first move read the
+  // page gone (« Cannot read properties of null »), and the two gestures after it made one step of « Annuler ».
+  for (const moved of [false, true]) {
+    const f = await setup().open();
+    f.get('montage-take')[0].ondblclick();
+    await f.later();
+    f.press(f.plans()[0], 100);
+    if (moved) f.pointer.move(300);
+    await f.ui.leave();
+    const left = f.ui.state().montage;
+    assert.equal(f.pointer.held(), 0, 'let go with the page');
+    f.pointer.move(400);
+    f.pointer.up();
+    assert.equal(f.ui.state().montage, left, 'the hand moves nothing behind another page');
+    f.root = f.ui.desk();
+    await settle();
+    const before = f.ui.state().past;
+    f.get('montage-take')[1].ondblclick();
+    f.get('montage-take')[2].ondblclick();
+    await f.later();
+    assert.equal(f.ui.state().past - before, 2, moved ? 'moved, then left' : 'left before it moved');
+  }
+});
