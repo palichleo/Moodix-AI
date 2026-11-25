@@ -1621,7 +1621,13 @@ try {
   await run('Modèles : lignes de 46 px', async () => {}, () =>
     js(`(() => { const rows = [...document.querySelectorAll('#workflow-list .model-row')], panel = document.getElementById('settings-panel-workflows'), gone = id => !document.getElementById(id); return rows.length === 14 && rows.every(row => Math.round(row.getBoundingClientRect().height) === 46) && panel.scrollWidth <= panel.clientWidth + 1 && gone('workflow-add') && gone('native-workflow-import') && !document.querySelector('#workflow-list .workflow-state') && document.querySelectorAll('#workflow-list .model-download').length >= 5; })()`), { within: 700 });
   // The chevron unfolds the versions under the line, which stays as tall; « Réglages » is then in sight.
-  await run('Modèles : versions dépliées', () => click('#workflow-list .model-line[data-model="LTX 2.5"] .model-chevron'), () =>
+  // (0.6.290) Clicked once it is free: the tab reads its list again as it opens, its buttons greyed meanwhile
+  // (setBusy), and a click that came then did nothing. Some fifty milliseconds too early on a busy machine
+  // (a game running): this step and « quitter l'éditeur » failed ten times in eleven, on the code of before too.
+  await run('Modèles : versions dépliées', async () => {
+    await until(() => js(`${ltx}?.querySelector('.model-chevron')?.disabled === false`), 5000);
+    return click('#workflow-list .model-line[data-model="LTX 2.5"] .model-chevron');
+  }, () =>
     js(`(() => { const line = ${ltx}; return line?.dataset.open === 'true' && Boolean(line.querySelector('.model-versions')) && Math.round(line.querySelector('.model-row').getBoundingClientRect().height) === 46 && line.querySelector('.model-chevron').getAttribute('aria-expanded') === 'true' && getComputedStyle(line.querySelector('.model-settings')).opacity === '1'; })()`), { within: 700 });
   // The page of a model, behind « Réglages », named after it (0.6.128: « Proposé à Moodix AI » at its
   // head, a line of 46 px a file and a setting, neither « Fixe » nor « Assistant »).

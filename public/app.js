@@ -4533,8 +4533,13 @@ async function sendMessage(event) {
       output = '';
       reasoning = '';
     }
-    if (output || reasoning || usedTool) {
-      if (output || reasoning) {
+    // (0.6.290) The model answered with nothing at all (no word, no thought, no tool): an answer all the same,
+    // an empty one. Left out, the user's message was in no list: the next message erased it from the
+    // conversation and from the disk, « Régénérer » under the empty bubble sent the message before it and
+    // erased this one everywhere, and the conversation opened again put it back in the message box.
+    const nothing = complete && !output && !reasoning && !usedTool;
+    if (output || reasoning || usedTool || nothing) {
+      if (output || reasoning || nothing) {
         render();
         if (!output) view.body.replaceChildren(node('div', 'text-block', 'Aucune réponse finale reçue.'));
         view.thought?.end();

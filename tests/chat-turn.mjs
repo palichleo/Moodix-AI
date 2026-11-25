@@ -2959,3 +2959,54 @@ test('a turn whose save is refused asks the model nothing more on its older copy
   assert.deepEqual(roles(first.state.messages), roles(kept.messages), 'read again: the copy of the other tab');
   assert.ok(first.notices.some(text => /elle a été rechargée/.test(text)));
 });
+
+test('an answer with nothing in it is an answer all the same: its message stays in the conversation (0.6.290)', async t => {
+  const store = await historyStore(t),
+    words = messages => messages.map(message => message.content),
+    answers = (body, n) => (n === 1 ? said('Voici un renard.') : n === 2 ? said('') : said('Le voici en pull bleu.'));
+  const first = page({ store, chat: answers });
+  await first.send('un renard');
+  await first.send('en pull bleu');
+  // Said under the message, kept as its answer, and the turn is whole: nothing waits to be sent again.
+  assert.deepEqual(
+    first.views.at(-1).body.children.map(part => part.textContent),
+    ['Aucune réponse finale reçue.'],
+  );
+  assert.deepEqual(roles(first.state.messages), ['user', 'assistant', 'user', 'assistant']);
+  assert.deepEqual(words(first.state.messages), ['un renard', 'Voici un renard.', 'en pull bleu', '']);
+  assert.equal(first.state.archiveSnapshot.incomplete, false);
+  const kept = await store.read(ID);
+  assert.deepEqual([words(kept.messages), Boolean(kept.incomplete)], [words(first.state.messages), false]);
+  // « Modifier » and « Régénérer » are those of this message, not of the one before it.
+  assert.equal(transcript.lastExchange(first.state.messages), 2);
+  // Opened again: the message is in its thread over its empty answer, not back in the message box.
+  const reopened = page({ store: await diskCopy(t, store) });
+  await reopened.context.loadConversation(ID);
+  assert.deepEqual([reopened.$('prompt').value, reopened.state.messages.length], ['', 4]);
+  assert.match(reopened.$('messages').words, /en pull bleu.*Aucune réponse finale reçue\./s);
+  assert.doesNotMatch(reopened.$('messages').words, /Réponse partielle restaurée/);
+
+  // The message that follows goes with it: the server takes the conversation as it is, the disk keeps it.
+  const going = page({ store: await diskCopy(t, store), chat: body => (accepted(body.messages), said('Avec un chapeau.')) });
+  await going.context.loadConversation(ID);
+  await going.send('et un chapeau');
+  assert.deepEqual(words(going.requests.at(-1).messages).slice(-4), ['Voici un renard.', 'en pull bleu', '', 'et un chapeau']);
+  // « Régénérer » under the empty answer asks the same message again (it asked the one before, and erased this one).
+  await first.context.takeBack(true);
+  await first.turn();
+  assert.equal(first.requests.at(-1).messages.at(-1).content, 'en pull bleu');
+  assert.deepEqual(words((await store.read(ID)).messages), ['un renard', 'Voici un renard.', 'en pull bleu', 'Le voici en pull bleu.']);
+
+  // Stopped before anything came: no answer at all, as before. The message goes back to the message box.
+  let stop;
+  const stopped = page({
+    chat: (body, n, options) =>
+      new Promise((_, refuse) => {
+        options.signal.addEventListener('abort', () => refuse(options.signal.reason));
+        stop();
+      }),
+  });
+  stop = () => stopped.$('cancel').onclick();
+  await stopped.send('un loup');
+  assert.deepEqual([stopped.state.messages.length, stopped.$('prompt').value], [0, 'un loup']);
+});
