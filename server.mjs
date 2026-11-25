@@ -920,8 +920,16 @@ export async function createApplication({
       try {
         await engine.start(config);
         const deadline = Date.now() + 330000;
-        while (engine.state === 'loading' && !closing && Date.now() < deadline)
+        while (engine.state === 'loading' && !closing && !leaving && Date.now() < deadline)
           await new Promise(resolve => setTimeout(resolve, 250));
+        // (0.6.390) The application closing while the model loads: stopped on purpose too, as below. It was
+        // counted against the build (« ne démarre pas avec le modèle »), the engine of before put back in the
+        // settings: the installation was to be asked again. And a stop waited for that load to end (330 s).
+        if ((closing || leaving) && engine.state === 'loading') {
+          const error = `Application fermée pendant le chargement du modèle sur llama.cpp ${kept.tag}.`;
+          Object.assign(job, { state: 'error', step: '', error });
+          return;
+        }
         // Stopped meanwhile on purpose (the Studio took the card): nothing said against the build,
         // which stays and is tried at the next start. A failure is the engine's error, or a load
         // that never ends.

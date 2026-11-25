@@ -176,3 +176,48 @@ test('a build of llama.cpp installed while the application stops is not put in s
     await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
+
+
+test('closing while the model loads on a build just installed says nothing against that build (0.6.390)', async () => {
+  // Counted as a failure of the build, the engine of before was put back in the settings, and the stop
+  // waited for a load that never ended.
+  const engines = [];
+  let enginePath;
+  // The engine of before loads the model; on the build just installed, it never ends loading.
+  const spawnProcess = (command, args, options) => {
+    if (args[0] === '--version' || command !== enginePath)
+      return spawn(process.execPath, [fakeEngine, ...args], options);
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], options);
+    engines.push(child);
+    return child;
+  };
+  const made = await fixture({ spawnProcess }),
+    { root, app, api, until, setting, finish } = made;
+  enginePath = made.enginePath;
+  let closed;
+  try {
+    const modelPath = join(root, 'model.gguf');
+    await writeFile(modelPath, Buffer.from('GGUF\x03\0\0\0'));
+    const settings = { enginePath: process.execPath, modelPath, projectorPath: '', contextSize: 4096 };
+    assert.equal((await api('config', { ...settings, maxOutputTokens: 1024, gpuLayers: 0 })).status, 200);
+    assert.equal((await api('start', {})).status, 202);
+    await until(async () => (await (await api('status')).json()).state === 'ready', 'the model never loaded');
+    assert.equal((await api('llama/install', {})).status, 202);
+    finish();
+    await until(async () => engines.length && (await (await api('status')).json()).state === 'loading');
+    assert.match((await (await api('llama')).json()).step, /^Chargement du modèle sur llama\.cpp b12110/);
+    closed = app.close();
+    const done = await Promise.race([
+      closed.then(() => true),
+      new Promise(resolve => setTimeout(() => resolve(false), 6000)),
+    ]);
+    assert.equal(done, true, 'the application was still waiting for the load after 6 s');
+    // The build stays the engine of the settings: it is tried at the next start.
+    assert.equal(await setting(), enginePath);
+  } finally {
+    for (const child of engines) child.kill();
+    finish();
+    await (closed ?? app.close());
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
