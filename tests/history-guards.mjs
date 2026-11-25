@@ -380,3 +380,41 @@ test('a conversation kept in the bin is never replaced there by a folder of atta
   assert.equal(await history.pruneUnsaved(), 1);
   assert.equal((await history.trash()).find(item => item.id === other).saved, false);
 });
+
+test('a damaged conversation read from several places at once is repaired once (0.6.358)', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'moodix-mend-turn-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  // (The order of the readings is not the same from one time to the next: several rounds.)
+  for (let round = 0; round < 6; round++) {
+    const directory = join(root, 'history-' + round),
+      notes = [],
+      history = new History(directory, { journal: { write: entry => notes.push(entry.event) } }),
+      id = randomUUID();
+    await history.save({ id, title: 't', messages: [{ role: 'user', content: 'un' }] });
+    const first = await history.read(id);
+    await history.save({
+      id,
+      title: 't',
+      revision: first.revision,
+      messages: [
+        { role: 'user', content: 'un' },
+        { role: 'assistant', content: 'deux' },
+      ],
+    });
+    // Damaged in place, its version before kept beside it: the page lists and opens it at the same moment.
+    await writeFile(join(directory, id, 'conversation.json'), '{"id": "' + id + '", "messa');
+    const [one, two, opened] = await Promise.allSettled([history.list(), history.list(), history.read(id)]);
+    // Each reading repaired it on its own: one list left it out, the opening said « introuvable », and its
+    // repair was written twice in the journal and told twice to the page.
+    for (const listed of [one, two]) {
+      assert.equal(listed.status, 'fulfilled', `round ${round}`);
+      assert.deepEqual([listed.value.conversations.map(item => item.id), listed.value.skipped], [[id], 0], `round ${round}`);
+    }
+    assert.equal(opened.status, 'fulfilled', `round ${round} : ${opened.reason?.message}`);
+    assert.equal(opened.value.messages.length, 1);
+    assert.deepEqual(notes.filter(event => event === 'illisible' || event === 'reprise'), ['illisible', 'reprise'], `round ${round}`);
+    assert.equal(history.recoveredUntold.length, 1, `round ${round}`);
+    const kept = (await readdir(join(directory, id))).filter(name => name.startsWith('conversation.illisible-'));
+    assert.equal(kept.length, 1, `round ${round} : the damaged file is kept aside, once`);
+  }
+});
