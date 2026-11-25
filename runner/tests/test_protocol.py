@@ -482,6 +482,61 @@ class ProtocolTests(unittest.TestCase):
             ],
         )
 
+    def test_what_cannot_be_written_as_json_stops_neither_the_creation_nor_the_engine(self):
+        # (0.6.362) The protocol is strict JSON. A value of a progress that is not (a NaN, a number of numpy)
+        # stopped the creation it only told of; an answer that is not ended the process, outside every `try`.
+        source = io.StringIO(
+            '{"id":1,"method":"generate","params":{}}\n'
+            '{"id":2,"method":"diagnostics","params":{}}\n'
+            '{"id":3,"method":"release","params":{}}\n'
+        )
+        destination = io.StringIO()
+        logged = []
+
+        def generate(job, config, progress):
+            progress(stage='denoising', step=1)
+            progress(stage='denoising', value=float('nan'))
+            progress(stage='denoising', step=object())
+            progress(stage='denoising', step=3)
+            return {'jobId': 'j', 'outputs': [], 'metadata': {}}
+
+        with (
+            patch('runner.protocol.generate', generate),
+            patch('runner.protocol.diagnostics', lambda config: {'families': {'ltx25', 'krea2'}}),
+            patch('runner.protocol.release', lambda **_: dict(released=True, allocatedGiB=0)),
+            patch(
+                'runner.protocol._log_failure',
+                lambda config, method, exc: logged.append((method, type(exc).__name__)),
+            ),
+        ):
+            serve({}, source, destination)
+        rows = [json.loads(line) for line in destination.getvalue().splitlines()]
+        # The two lines that are JSON are said, the two others left out, and the creation is answered.
+        self.assertEqual([row['data'].get('step') for row in rows if row.get('event') == 'progress'], [1, 3])
+        self.assertEqual(rows[3]['result']['jobId'], 'j')
+        # An answer that is not JSON: an error of its request, and the engine answers the next one.
+        self.assertEqual((rows[4]['id'], rows[4]['error']['code']), (2, 'GENERATION_FAILED'))
+        self.assertIn('not JSON', rows[4]['error']['message'])
+        self.assertEqual(rows[5], dict(id=3, result=dict(released=True, allocatedGiB=0)))
+        self.assertEqual(logged, [('diagnostics', 'TypeError')])
+
+        # A pipe that no longer takes what is written still stops the creation: that is no value to pass over.
+        class Closed(io.StringIO):
+            def write(self, text):
+                if '"progress"' in text:
+                    raise BrokenPipeError(32, 'Broken pipe')
+                return super().write(text)
+
+        with (
+            patch('runner.protocol.generate', generate),
+            patch('runner.protocol.release', lambda **_: dict(released=True, allocatedGiB=0)),
+            patch('runner.protocol._log_failure', lambda *args: None),
+        ):
+            gone = Closed()
+            serve({}, io.StringIO('{"id":1,"method":"generate","params":{}}\n'), gone)
+        said = [json.loads(line) for line in gone.getvalue().splitlines()]
+        self.assertEqual(said[1]['error']['code'], 'GENERATION_FAILED')
+
     def test_failed_generate_cleans_up_and_can_receive_next_request(self):
         source = io.StringIO('{"id":1,"method":"generate","params":{}}\n{"id":2,"method":"release","params":{}}\n')
         destination = io.StringIO()

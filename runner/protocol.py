@@ -37,11 +37,29 @@ def serve(config, source=None, destination=None):
 def _serve(config, source, destination):
     writing = threading.Lock()
 
-    def emit(value):
+    def encoded(value):
+        return json.dumps(value, ensure_ascii=False, allow_nan=False) + '\n'
+
+    def write(text):
         # (One line at a time: the thread that imports the libraries may have one to say.)
         with writing:
-            destination.write(json.dumps(value, ensure_ascii=False, allow_nan=False) + '\n')
+            destination.write(text)
             destination.flush()
+
+    def emit(value):
+        write(encoded(value))
+
+    def answer(response, method):
+        """(0.6.362) The answer of a request, written once it is known to be JSON. One that is not (a set, a
+        number of numpy, a NaN in a result) raised outside every `try`: the process ended there, « Le moteur
+        Python s'est arrêté (1) », the model it kept lost. Said as an error of that request; the engine goes on."""
+        try:
+            text = encoded(response)
+        except (TypeError, ValueError) as exc:
+            _log_failure(config, method, exc)
+            failed = dict(message=f'Engine answer is not JSON: {exc}', code='GENERATION_FAILED')
+            text = encoded(dict(id=response.get('id'), error=failed))
+        write(text)
 
     emit(dict(event='ready', protocol=1, capabilities=capabilities()))
     # Ready first, then its libraries in the background (0.6.105): the application has its answer
@@ -89,7 +107,14 @@ def _serve(config, source, destination):
                     raise ValueError('This method accepts no parameters')
 
                 def progress(**data):
-                    emit(dict(event='progress', id=request_id, data=data))
+                    # (0.6.362) What it tells of is not worth the creation: a value that is not JSON (a number
+                    # of numpy, a NaN) stopped it, « INVALID_REQUEST ». That line is left out. A pipe that is
+                    # closed still stops it: only what cannot be written as JSON is passed over.
+                    try:
+                        text = encoded(dict(event='progress', id=request_id, data=data))
+                    except (TypeError, ValueError):
+                        return
+                    write(text)
 
                 # One thread imports at a time: what the worker imports in the background stands
                 # aside for a request that needs the libraries, and goes on after it.
@@ -130,9 +155,9 @@ def _serve(config, source, destination):
                     # What was left on the card is said in the journal of the errors and on the error output.
                     _log_failure(config, 'release', exc)
                     print(f'Release after generate failed: {exc}', file=sys.stderr)
-                    emit(response)
+                    answer(response, method)
                     return
-            emit(response)
+            answer(response, method)
             if method == 'shutdown':
                 break
     finally:
