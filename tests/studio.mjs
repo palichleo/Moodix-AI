@@ -11023,3 +11023,50 @@ test('an enriched prompt keeps the quotes of words said in it; only a pair aroun
   assert.equal(enrichedPrompt("'A fox's tail in the snow'"), "A fox's tail in the snow");
   assert.equal(enrichedPrompt('Prompt: "A man says: “Hello.”"'), 'A man says: “Hello.”');
 });
+
+test('the tries of a series « × n » on a continuation draw their seed for its own model (0.6.319)', async () => {
+  // (Report 4, point 7. Its model has a seed « Fixe », the one of Vidéo none: the page left the continuation after
+  // the first try, the next one read the model of Vidéo and went with no new seed, the same as the first.)
+  const { tools, runs } = continuing(),
+    [, film] = runs;
+  tools.extend_video[0] = { ...tools.extend_video[0], id: 'x', seeded: false, seedFixed: 5 };
+  let made = 0;
+  const take = () => ({
+    ...film,
+    id: 'n' + ++made,
+    workflowId: 'x',
+    outputs: [{ originalUrl: `/n${made}.mp4`, take: 10 + made }],
+  });
+  const page = await studioPage(
+    tools,
+    {
+      'tools/action': () => ({ requestId: 'q' + (made + 1), approvalToken: 't', plan: { parameters: {} } }),
+      'tools/revise': ({ requestId, edits }) => ({ requestId: requestId + 'b', plan: { parameters: edits } }),
+      'tools/execute': () => {
+        const record = take();
+        page.runs.unshift(record);
+        return { id: 'j', state: 'done', record };
+      },
+    },
+    { runs },
+  );
+  const { body, asked } = page;
+  try {
+    page.mode(1);
+    prolonger(body).onclick();
+    page.prompt().value = 'Le renard saute';
+    page.prompt().oninput();
+    body.find('studio-tries')[0].onclick();
+    body.find('studio-tries-menu')[0].children[1].onclick();
+    await body.find('studio-go')[0].onclick();
+    await until(() => made === 2);
+    await settle();
+    const [first] = asked.filter(([route]) => route === 'tools/action').map(([, sent]) => sent.arguments),
+      revised = asked.filter(([route]) => route === 'tools/revise').map(([, sent]) => sent.edits);
+    assert.equal(first.seed, undefined);
+    assert.equal(revised.length, 1, 'the second try has a seed of its own');
+    assert.ok(Number.isSafeInteger(revised[0].seed) && revised[0].seed !== 5);
+  } finally {
+    page.restore();
+  }
+});

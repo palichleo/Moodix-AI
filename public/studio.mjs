@@ -4624,7 +4624,9 @@ export function setupStudio({
    * (0.6.254) The next try of a series: what the first asked, with a new seed. The seed the user named goes with
    * the first one only; a model that draws one by itself draws again; a seed « Fixe » of its model is replaced.
    */
-  function anotherTry(wanted, workflow = current()) {
+  // (0.6.319) The model of the first try (request): a continuation is left once its first try is made, and current()
+  // then read the model of Vidéo (a seed « Fixe » of the model of the continuation, and no new seed went).
+  function anotherTry(wanted, workflow = wanted.model ?? current()) {
     const seed = Math.floor(Math.random() * 2 ** 31),
       args = { ...wanted.args },
       edits = { ...wanted.edits };
@@ -4753,7 +4755,7 @@ export function setupStudio({
     const loras = loraArgs(workflow, draft);
     if (loras) args.loras = loras;
     const styles = workflow.styled && mode !== 'audio' && !extending ? draft.styles.filter(style => style.name) : [];
-    return { verb, args, edits, styles };
+    return { verb, args, edits, styles, model: workflow };
   }
   // The user sets the Studio to make something: the chat model leaves the GPU now, not at the
   // first « Générer ». Asked in the background, never under an answer, a message waiting for the
