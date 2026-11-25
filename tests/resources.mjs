@@ -665,3 +665,20 @@ test('the local model lost in the middle of its answer is said in words, and wri
   );
   assert.equal(next[0]?.choices?.[0]?.delta?.content, 'Resource inspected.');
 });
+
+test('a reference removed twice is said gone the second time, not an unexpected error (0.6.355)', async t => {
+  const f = await apiFixture(t),
+    record = await f.upload();
+  const logged = [],
+    real = console.error;
+  console.error = (...said) => logged.push(said);
+  t.after(() => (console.error = real));
+  assert.equal((await f.request('resources/delete', { id: record.id })).status, 200);
+  // « Supprimer » pressed twice, or in two tabs: it answered 500, « Erreur locale inattendue », its trace in the terminal.
+  const again = await f.request('resources/delete', { id: record.id });
+  console.error = real;
+  assert.deepEqual([again.status, (await again.json()).error], [404, 'Ressource introuvable.']);
+  assert.deepEqual(logged, []);
+  // An identifier that is none is still refused as such.
+  assert.equal((await f.request('resources/delete', { id: '../outside' })).status, 400);
+});
