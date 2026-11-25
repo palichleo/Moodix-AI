@@ -96,19 +96,34 @@ def load(path):
     return model.eval()
 
 
+def _enlarged(model, piece):
+    """The network over one piece. (0.6.376) A model x2 folds its picture by two before it reads it (x1: by
+    four), and refuses a side that is not a multiple of that: an image or a clip of an odd side, or a tile of
+    an odd size, stopped the creation on the words of PyTorch, « pixel_unshuffle expects height to be
+    divisible ». Such a piece is completed by its last row and column, and what comes of them is cut off. One
+    whose sides fold is given as it is, nothing copied: every creation until now."""
+    unit = model.unshuffle
+    height, width = piece.shape[-2:]
+    down, right = -height % unit, -width % unit
+    if not (down or right):
+        return model(piece)
+    completed = F.pad(piece, (0, right, 0, down), mode='replicate')
+    return model(completed)[:, :, : height * model.scale, : width * model.scale]
+
+
 @torch.inference_mode()
 def upscale(model, image, tile=512, overlap=16):
     """Upscales a (1, 3, H, W) tensor in [0, 1], in overlapping tiles to bound memory."""
     scale = model.scale
     _, _, height, width = image.shape
     if not tile or (height <= tile and width <= tile):
-        return model(image).clamp_(0, 1)
+        return _enlarged(model, image).clamp_(0, 1)
     output = image.new_zeros((1, 3, height * scale, width * scale))
     for top in range(0, height, tile):
         for left in range(0, width, tile):
             y0, x0 = max(top - overlap, 0), max(left - overlap, 0)
             y1, x1 = min(top + tile + overlap, height), min(left + tile + overlap, width)
-            result = model(image[:, :, y0:y1, x0:x1])
+            result = _enlarged(model, image[:, :, y0:y1, x0:x1])
             # Keep only the tile's own area; the overlap only gives the network context.
             oy, ox = (top - y0) * scale, (left - x0) * scale
             th, tw = (min(top + tile, height) - top) * scale, (min(left + tile, width) - left) * scale

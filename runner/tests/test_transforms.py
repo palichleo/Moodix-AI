@@ -208,6 +208,48 @@ class TransformTests(unittest.TestCase):
         )
         self.assertEqual(Image.open(path).size, (90, 60))
 
+    def test_an_image_or_a_tile_of_an_odd_side_is_enlarged_all_the_same(self):
+        # (0.6.376) A model x2 reads its picture folded by two: an odd side, of the image or of a tile cut in it,
+        # was refused by PyTorch at the first piece.
+        import numpy as np
+        import torch
+        from PIL import Image
+        from torch.nn import functional as F
+
+        from runner.models import rrdbnet
+
+        odd = Path(self.folder.name) / 'odd.png'
+        Image.fromarray(np.random.default_rng(3).integers(0, 255, (41, 61, 3), dtype=np.uint8)).save(odd)
+        for tile in (0, 16, 15):
+            _, path = self.run_job(
+                'realesrgan_image', 'image', 'upscaler', self.upscaler, {'tile': tile}, 'source_image', odd
+            )
+            self.assertEqual(Image.open(path).size, (122, 82), tile)
+        # A tile of an odd size on an image whose sides are even.
+        _, path = self.run_job(
+            'realesrgan_image', 'image', 'upscaler', self.upscaler, {'tile': 15}, 'source_image', self.image
+        )
+        self.assertEqual(Image.open(path).size, (120, 80))
+        # What it gives is the picture completed by its last row and column, less what comes of them; x1 too
+        # (folded by four). A piece whose sides fold is given to the network as it is.
+        torch.manual_seed(5)
+        for scale, size in ((2, (41, 61)), (1, (42, 61)), (4, (41, 61))):
+            model = rrdbnet.RRDBNet(scale, features=8, blocks=1, growth=4).eval()
+            image = torch.rand(1, 3, *size)
+            unit = model.unshuffle
+            completed = F.pad(image, (0, -size[1] % unit, 0, -size[0] % unit), mode='replicate')
+            with torch.inference_mode():
+                expected = model(completed)[:, :, : size[0] * scale, : size[1] * scale].clamp(0, 1)
+            got = rrdbnet.upscale(model, image, tile=0)
+            self.assertEqual(tuple(got.shape), (1, 3, size[0] * scale, size[1] * scale))
+            self.assertTrue(torch.equal(got, expected), scale)
+        seen = []
+        model = rrdbnet.RRDBNet(2, features=8, blocks=1, growth=4).eval()
+        model.register_forward_pre_hook(lambda module, inputs: seen.append(inputs[0]))
+        even = torch.rand(1, 3, 40, 60)
+        rrdbnet.upscale(model, even, tile=0)
+        self.assertIs(seen[0], even)
+
     def test_video_upscale_keeps_frames_rate_and_sound(self):
         from runner.video.stream import probe
 
