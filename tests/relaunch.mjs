@@ -172,3 +172,17 @@ test(
     }
   },
 );
+
+
+test('the short answer names the process of the instance, for the launcher that replaces it (0.6.388)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bootstrap-pid-')),
+    app = await createApplication({ port: 0, dataDir: root, launcher: () => {} });
+  try {
+    const brief = await (await fetch(app.url + '/api/bootstrap?brief=1')).json();
+    assert.equal(brief.pid, process.pid);
+    assert.equal(brief.application, 'atelier-local');
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

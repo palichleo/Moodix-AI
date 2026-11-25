@@ -498,3 +498,73 @@ test('a server slow to listen is given a minute, as the installer of an update g
   const live = await (await fetch(`http://127.0.0.1:${port}/api/bootstrap`)).json();
   assert.equal(live.token, 'bare-instance');
 });
+
+// An instance that is replaced: asked to close, its port closes at once, and its process ends 2.5 s later (its
+// Python engine, its history), the instant written in a file. It says its process when asked to (« pid »).
+const CLOSING_INSTANCE = `import http from 'node:http';
+import { writeFileSync } from 'node:fs';
+const [port, ended, installationId, sourceRevision, says] = process.argv.slice(2);
+const server = http.createServer((req, res) => {
+  res.setHeader('content-type', 'application/json');
+  if (req.url.startsWith('/api/bootstrap'))
+    return res.end(
+      JSON.stringify({
+        application: 'atelier-local',
+        token: 'closing-instance',
+        controlled: false,
+        installationId,
+        sourceRevision,
+        version: '0.2.0',
+        status: {},
+        ...(says === 'pid' ? { pid: process.pid } : {}),
+      }),
+    );
+  if (req.url !== '/api/shutdown') return res.writeHead(404).end('{}');
+  res.writeHead(202).end('{}', () => {
+    server.close();
+    server.closeAllConnections();
+    setTimeout(() => {
+      writeFileSync(ended, String(Date.now()));
+      process.exit(0);
+    }, 2500);
+  });
+});
+server.listen(Number(port), '127.0.0.1');
+setTimeout(() => process.exit(0), 20000).unref();
+`;
+
+test('the new server is started once the process of the instance it replaces has ended (0.6.388)', async t => {
+  const { runLauncher } = await import('../scripts/launch.mjs');
+  for (const says of ['pid', 'nothing'])
+    await t.test(says === 'pid' ? 'an instance that says its process' : 'one of an earlier version', async t => {
+      const { root, port, quit } = await bareRoot(t),
+        aside = await mkdtemp(join(tmpdir(), 'atelier-ancienne-')),
+        sources = await appSources(root),
+        [ended, started] = [join(aside, 'ended'), join(aside, 'started')],
+        at = async path => Number(await readFile(path, 'utf8').catch(() => 0));
+      await writeFile(join(aside, 'closing.mjs'), CLOSING_INSTANCE);
+      const args = [join(aside, 'closing.mjs'), String(port), ended, sources.installationId, sources.sourceRevision];
+      const old = spawn(process.execPath, [...args, says], { stdio: 'ignore', windowsHide: true });
+      t.after(async () => {
+        old.kill();
+        await rm(aside, { recursive: true, force: true, maxRetries: 15, retryDelay: 100 });
+      });
+      await until(async () => {
+        try {
+          const response = await fetch(`http://127.0.0.1:${port}/api/bootstrap`, { signal: AbortSignal.timeout(300) });
+          return (await response.json()).token === 'closing-instance';
+        } catch {
+          return false;
+        }
+      }, 'The instance to replace did not start');
+      process.env.FAKE_STARTED = started;
+      await runLauncher({ root, port, restart: true, signal: AbortSignal.timeout(15000) });
+      await until(async () => (await at(ended)) > 0, 'The instance replaced never ended');
+      if (says === 'pid')
+        // It was started as soon as nothing listened: both on the card while the first closed its engine.
+        assert.ok((await at(started)) >= (await at(ended)), `${await at(started)} before ${await at(ended)}`);
+      // An earlier version does not say its process: its replacement starts at once, as before.
+      else assert.ok((await at(started)) < (await at(ended)), `${await at(started)} after ${await at(ended)}`);
+      await quit();
+    });
+});

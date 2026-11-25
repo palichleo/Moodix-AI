@@ -69,6 +69,25 @@ export async function runLauncher({
     }
     throw Error('Le démarrage de l’application n’a pas pu être confirmé.');
   }
+  /**
+   * (0.6.388) Waits for the process of an instance to end, 15 s at most. Its port closes first, then it
+   * closes its Python engine and its history: the new server was started as soon as nothing listened, and
+   * the two met on the card for a second or two. An instance that does not say its process (an earlier
+   * version) is not waited for: started at once, as before.
+   */
+  async function ended(pid) {
+    if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return;
+    const end = Date.now() + 15000;
+    while (Date.now() < end) {
+      try {
+        process.kill(pid, 0);
+      } catch (error) {
+        // Not allowed to ask: it is still there.
+        if (error.code !== 'EPERM') return;
+      }
+      await delay(100, undefined, { signal });
+    }
+  }
   try {
     signal.throwIfAborted();
     boot = await bootstrap();
@@ -122,7 +141,8 @@ export async function runLauncher({
             throw Error('L’instance a changé pendant la relance. Relancez le lanceur.');
           boot = again;
         }
-        const previousToken = boot.token;
+        const previousToken = boot.token,
+          previousPid = boot.pid;
         if (!response.ok) {
           let message;
           try {
@@ -144,6 +164,7 @@ export async function runLauncher({
           await delay(100, undefined, { signal });
         }
         if (boot) throw Error('L’ancienne instance termine sa fermeture. Relancez dans quelques secondes.');
+        await ended(previousPid);
       }
     }
     if (!boot) {

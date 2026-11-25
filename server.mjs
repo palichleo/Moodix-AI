@@ -1192,6 +1192,8 @@ export async function createApplication({
             version: applicationVersion,
             updateNonce: process.env.ATELIER_UPDATE_NONCE || '',
             updating: applyingUpdate,
+            // (0.6.388) Its process: the launcher that replaces this instance waits for its end.
+            pid: process.pid,
           });
         const native = await generation.snapshot();
         // (0.6.356) A list of the models that cannot be read (its file damaged) is none listed, and said: it
