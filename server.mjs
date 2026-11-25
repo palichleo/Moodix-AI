@@ -783,6 +783,31 @@ export async function createApplication({
     );
   }
   /**
+   * (0.6.284) The chat model held for a request of its own, outside a conversation (the wand, the words of a
+   * plan, the plan of a bobine): refused while a generation has the card, while it is not ready or answers
+   * already; stopped when the page goes away (`signal`); let go by `release`, in a `finally`.
+   */
+  function holdChat(res) {
+    if (runtime.active) throw problem('La génération utilise le GPU.', 409);
+    if (chat.state !== 'ready') throw problem('Le moteur n’est pas prêt. Configure-le puis démarre-le.', 503);
+    if (chat.busy) throw problem('Une réponse est déjà en cours.', 409);
+    const controller = new AbortController(),
+      onClose = () => controller.abort();
+    chat.activeRequest = controller;
+    chat.busy = true;
+    res.once('close', onClose);
+    return {
+      signal: controller.signal,
+      release() {
+        res.off('close', onClose);
+        if (chat.activeRequest === controller) {
+          chat.activeRequest = null;
+          chat.busy = false;
+        }
+      },
+    };
+  }
+  /**
    * (0.6.162) The creations of a project as they are kept, the newest first: those of its conversations,
    * and of the one open (`open`), kept or not. What Moodix AI is told of the takes it may name when it
    * arranges a bobine (/api/montages/arrange).
@@ -2104,14 +2129,7 @@ export async function createApplication({
         const fromPictures = body.verb === 'replace_character' && Boolean(body.source && body.reference);
         if (typeof body.prompt !== 'string' || (!body.prompt.trim() && !fromPictures))
           throw problem('Écrivez d’abord quelques mots à enrichir.');
-        if (runtime.active) throw problem('La génération utilise le GPU.', 409);
-        if (chat.state !== 'ready') throw problem('Le moteur n’est pas prêt. Configure-le puis démarre-le.', 503);
-        if (chat.busy) throw problem('Une réponse est déjà en cours.', 409);
-        const controller = new AbortController();
-        chat.activeRequest = controller;
-        chat.busy = true;
-        const onClose = () => controller.abort();
-        res.once('close', onClose);
+        const held = holdChat(res);
         try {
           // A character put in a video: the prompt is written from the video and the image handed
           // over (lib/scene-prompt.mjs), what is typed kept as what the user asks for. Words alone
@@ -2155,7 +2173,7 @@ export async function createApplication({
               reasoning_format: 'deepseek',
               chat_template_kwargs: { enable_thinking: false },
             },
-            { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(enrichTimeoutMs)]) },
+            { signal: AbortSignal.any([held.signal, AbortSignal.timeout(enrichTimeoutMs)]) },
           );
           if (!upstream.ok)
             throw problem(`Le moteur refuse la requête (${upstream.status}). ${(await upstream.text()).slice(0, 500)}`, 502);
@@ -2174,11 +2192,7 @@ export async function createApplication({
             );
           throw error;
         } finally {
-          res.off('close', onClose);
-          if (chat.activeRequest === controller) {
-            chat.activeRequest = null;
-            chat.busy = false;
-          }
+          held.release();
         }
       }
       // (0.6.146) What happens in a plan to make of a montage, written by the chat model from the
@@ -2190,14 +2204,7 @@ export async function createApplication({
         if (!(seconds > 0 && seconds <= 120) || !['create_video', 'extend_video'].includes(body.verb)) throw problem('Demande invalide.');
         // (0.6.190) « image », no longer « photo »: the words of the Bobine.
         if (!source(body.start) || !source(body.end) || (!body.start && !body.end)) throw problem('Ce plan n’a aucune image à regarder.');
-        if (runtime.active) throw problem('La génération utilise le GPU.', 409);
-        if (chat.state !== 'ready') throw problem('Le moteur n’est pas prêt. Configure-le puis démarre-le.', 503);
-        if (chat.busy) throw problem('Une réponse est déjà en cours.', 409);
-        const controller = new AbortController();
-        chat.activeRequest = controller;
-        chat.busy = true;
-        const onClose = () => controller.abort();
-        res.once('close', onClose);
+        const held = holdChat(res);
         try {
           const written = await planPrompt(
             { start: body.start, end: body.end, seconds, verb: body.verb, previous: typeof body.previous === 'string' ? body.previous : '', preferences: instructions },
@@ -2208,7 +2215,7 @@ export async function createApplication({
               outputFrames,
               original: outputPicture,
               conversationId: typeof body.conversationId === 'string' ? body.conversationId : null,
-              signal: controller.signal,
+              signal: held.signal,
               timeoutMs: enrichTimeoutMs,
             },
           );
@@ -2219,11 +2226,7 @@ export async function createApplication({
             throw problem(`Le modèle de chat n’a pas répondu en ${Math.round(enrichTimeoutMs / 1000)} secondes. Réessayez dans un moment.`, 504);
           throw error;
         } finally {
-          res.off('close', onClose);
-          if (chat.activeRequest === controller) {
-            chat.activeRequest = null;
-            chat.busy = false;
-          }
+          held.release();
         }
       }
       // (0.6.162) The plan of a request written in the Bobine (« invente la suite »), asked to the chat
@@ -2247,18 +2250,11 @@ export async function createApplication({
             const record = takes.find(run => run.id === source?.runId && run.conversationId === source?.conversationId);
             return record ? takeSeconds(record) : null;
           };
-        if (runtime.active) throw problem('La génération utilise le GPU.', 409);
-        if (chat.state !== 'ready') throw problem('Le moteur n’est pas prêt. Configure-le puis démarre-le.', 503);
-        if (chat.busy) throw problem('Une réponse est déjà en cours.', 409);
-        const controller = new AbortController();
-        chat.activeRequest = controller;
-        chat.busy = true;
-        const onClose = () => controller.abort();
-        res.once('close', onClose);
+        const held = holdChat(res);
         try {
           const made = await arrangePlan(
             { montage, takes, lengthOf, request, previous, preferences: instructions },
-            { engine: chat, signal: controller.signal, timeoutMs: enrichTimeoutMs },
+            { engine: chat, signal: held.signal, timeoutMs: enrichTimeoutMs },
           );
           if (!made.arrangement) throw problem(made.reason, 502);
           return send(200, { arrangement: made.arrangement, problems: made.problems });
@@ -2267,11 +2263,7 @@ export async function createApplication({
             throw problem(`Le modèle de chat n’a pas répondu en ${Math.round(enrichTimeoutMs / 1000)} secondes. Réessayez dans un moment.`, 504);
           throw error;
         } finally {
-          res.off('close', onClose);
-          if (chat.activeRequest === controller) {
-            chat.activeRequest = null;
-            chat.busy = false;
-          }
+          held.release();
         }
       }
       if (path === '/api/tools/execute') {

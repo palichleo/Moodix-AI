@@ -579,7 +579,8 @@ test('a style the model does not write in time is said as such, and the model is
   const app = await createApplication({
     port: 0,
     dataDir: directory,
-    enrichTimeoutMs: 400,
+    // (0.6.284) Long enough for three requests to be refused while it is held, on a loaded computer too.
+    enrichTimeoutMs: 1500,
     spawnProcess: (_command, args, options) =>
       spawn(
         process.execPath,
@@ -625,9 +626,30 @@ test('a style the model does not write in time is said as such, and the model is
   assert.equal(blind.status, 502);
   assert.match((await blind.json()).error, /ne voit pas les images/);
   assert.equal((await api('studio/enrich', { prompt: '', verb: 'replace_character' })).status, 400);
-  const late = await api('studio/enrich', { prompt: 'aquarelle, sans réponse', verb: 'create_image' });
+  const asking = api('studio/enrich', { prompt: 'aquarelle, sans réponse', verb: 'create_image' });
+  // (0.6.284) While it is held, every request that holds the chat model on its own is refused the same way:
+  // the wand, the words of a plan, the plan of a bobine (server.mjs, holdChat).
+  for (let tries = 0; tries < 200 && !(await (await api('status')).json()).busy; tries++)
+    await new Promise(resolve => setTimeout(resolve, 10));
+  const bobine = { schemaVersion: 1, id: '0e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b', name: 'Sans titre', format: '16:9' };
+  for (const [route, body] of [
+    ['studio/enrich', { prompt: 'une autre idée', verb: 'create_image' }],
+    ['montages/describe', { seconds: 5, verb: 'create_video', start: { resource: '11111111-1111-4111-8111-111111111111' } }],
+    ['montages/arrange', { project: 'inbox', request: 'un film', montage: { ...bobine, width: 1344, height: 768, fps: 24, plans: [], sounds: [] } }],
+  ]) {
+    const refused = await api(route, body);
+    assert.deepEqual([refused.status, (await refused.json()).error], [409, 'Une réponse est déjà en cours.'], route);
+  }
+  const late = await asking;
   assert.equal(late.status, 504);
-  assert.match((await late.json()).error, /n’a pas répondu en 0 secondes.*carte graphique/);
+  assert.match((await late.json()).error, /n’a pas répondu en 2 secondes.*carte graphique/);
+  assert.equal((await (await api('status')).json()).busy, false);
+  // Each lets it go, whatever its answer: the words of a plan, asked of a model that does not see the images.
+  const unseen = await api('montages/describe', { seconds: 5, verb: 'create_video', start: { resource: '11111111-1111-4111-8111-111111111111' } });
+  assert.deepEqual(
+    [unseen.status, (await unseen.json()).error],
+    [502, 'Ce modèle de chat ne voit pas les images : écrivez vous-même ce qui se passe dans cette prise.'],
+  );
   const status = await (await api('status')).json();
   assert.deepEqual([status.state, status.busy], ['ready', false]);
 });
