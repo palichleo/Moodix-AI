@@ -18,7 +18,8 @@ function imageName(name, fallback = 'image') {
   if (typeof name !== 'string' || !name.trim() || name.length > 255) throw new Error('Nom d’image invalide.');
   return name;
 }
-function dataBlob(url) {
+/** The image a « data: » address holds, read here: never asked of the network (see storeAttachments, app.js). */
+export function dataBlob(url) {
   const header = typeof url === 'string' && /^data:image\/(png|jpeg|webp);base64,/.exec(url);
   if (!header) throw new Error('Utilisez une image locale PNG, JPEG ou WebP.');
   if (url.length - header[0].length > 4 * Math.ceil(maxBytes / 3)) throw new Error('Cette image dépasse 64 Mo.');

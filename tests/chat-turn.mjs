@@ -13,6 +13,7 @@ import { runSeries } from '../public/image-series.mjs';
 import { takesOf } from '../public/take-recovery.mjs';
 import * as detached from '../public/detached-takes.mjs';
 import { takeContent } from '../public/generation-runtime.mjs';
+import { dataBlob } from '../public/images.mjs';
 import { History, MAX_CONVERSATION_MESSAGES } from '../lib/history.mjs';
 import { nativeFields } from '../lib/native-messages.mjs';
 import { problem } from '../lib/engine.mjs';
@@ -259,6 +260,7 @@ function page({
     renderText(target, words) {
       target.textContent = words;
     },
+    dataBlob,
     notice: words => seen.notices.push(words),
     tabLine: () => seen.lines.push(state.view),
     turnActions() {},
@@ -3009,4 +3011,39 @@ test('an answer with nothing in it is an answer all the same: its message stays 
   stop = () => stopped.$('cancel').onclick();
   await stopped.send('un loup');
   assert.deepEqual([stopped.state.messages.length, stopped.$('prompt').value], [0, 'un loup']);
+});
+
+test('an image of the draft taken back after « Redémarrer » leaves with its message: its copy is read, never fetched (0.6.291)', async () => {
+  const PIXELS = 'data:image/png;base64,iVBORw0KGgo=',
+    kept = [],
+    attachments = async (body, options) => {
+      kept.push([options.headers['Content-Type'], [...new Uint8Array(await body.arrayBuffer())]]);
+      return Response.json({ file: 'original-' + 'a'.repeat(64) + '.png', view: '/v/chat.png' });
+    };
+  // As restoreSession leaves it (after « Redémarrer », an update, a page of a new version): its name and its
+  // copy, neither the file the user chose nor one the history keeps. The page of the test has no `fetch`, as
+  // the page has none for a « data: » address (« connect-src 'self' »).
+  const back = page({
+    state: { images: [{ name: 'chat.png', url: PIXELS, resource: 'c3333333-3333-4333-8333-333333333333' }] },
+    routes: { attachments },
+  });
+  await back.send('Décris ce chat');
+  assert.deepEqual(back.notices.filter(Boolean), []);
+  assert.deepEqual(kept, [['image/png', [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]]]);
+  assert.equal(back.requests.length, 1, 'the message left');
+  const sent = back.requests[0].messages.at(-1).content;
+  assert.deepEqual(
+    sent.map(part => part.type),
+    ['text', 'image_url'],
+  );
+  assert.equal(sent[1].image_url.url, PIXELS);
+  assert.equal(back.state.images.length, 0);
+
+  // What is no image kept by the page is refused in words, and nothing leaves.
+  const wrong = page({ state: { images: [{ name: 'x.png', url: 'https://ailleurs.example/x.png' }] }, routes: { attachments } });
+  await wrong.send('Décris');
+  assert.deepEqual(wrong.notices.filter(Boolean), [
+    'Image jointe non enregistrée : Utilisez une image locale PNG, JPEG ou WebP.',
+  ]);
+  assert.deepEqual([wrong.requests.length, kept.length, wrong.state.images.length], [0, 1, 1]);
 });

@@ -32,7 +32,7 @@ import { installFromButton, compactSession } from './update-ui.mjs';
 import { readSSE } from './stream.mjs';
 import { markdownToHtml } from './markdown.mjs';
 import { setupNativeWorkflows } from './native-workflow-ui.mjs';
-import { prepareImages } from './images.mjs';
+import { dataBlob, prepareImages } from './images.mjs';
 import { isVideo, splitVideos, withVideos } from './chat-videos.mjs';
 import { setupStudio } from './studio.mjs';
 import { proposalCard } from './proposal-card.mjs';
@@ -3202,7 +3202,11 @@ async function storeAttachments(images, conversationId) {
       stored.push(image);
       continue;
     }
-    const blob = image.source || (await (await fetch(image.url)).blob());
+    // (0.6.291) Its copy read here, not fetched: the page may only ask its own server (« connect-src 'self' »),
+    // and the browser refuses to fetch a « data: » address. An image of the draft taken back after « Redémarrer »,
+    // an update or a new version has no file of its own any more: « Image jointe non enregistrée : Failed to
+    // fetch », and its message never left.
+    const blob = image.source || dataBlob(image.url);
     const result = await (
       await api('attachments', blob, {
         raw: true,
