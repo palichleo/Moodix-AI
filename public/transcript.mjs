@@ -106,6 +106,9 @@ export function callNote(call, result) {
   if (data.status === 'cancelled') return `${made} : génération arrêtée avant la fin.`;
   if (data.status === 'error')
     return `${made} : génération non aboutie` + (data.message ? ` (${String(data.message).replace(/\.$/, '')}).` : '.');
+  // A file lacked (its card « Il manque un fichier » gone with the page, 0.6.339): read back, the bubble was empty.
+  if (data.status === 'missing_file')
+    return `${made} : il manque un fichier` + (data.workflow ? ` à ${data.workflow}` : '') + ', rien n’a été généré.';
   return '';
 }
 

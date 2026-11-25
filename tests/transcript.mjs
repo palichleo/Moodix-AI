@@ -290,3 +290,17 @@ test('the consigne of a creation that failed is for the message it failed in, no
   assert.deepEqual(settledNotes([asked, done, asked]), [asked, done, asked]);
   assert.deepEqual(settledNotes([]), []);
 });
+
+test('a creation that lacked a file is told when read back: its message is never an empty bubble (0.6.339)', () => {
+  // As sendMessage keeps it, its card (« Il manque un fichier · Vidéo · LTX 2.5 ») gone with the page.
+  const lacking = workflow => ({
+    status: 'missing_file',
+    ...(workflow ? { workflow } : {}),
+    message: 'Il manque un fichier à ce workflow : l’application propose de le télécharger, puis renvoie la demande.',
+  });
+  assert.equal(
+    callNote(call('create_video'), result(lacking('LTX 2.5'))),
+    'Vidéo : il manque un fichier à LTX 2.5, rien n’a été généré.',
+  );
+  assert.equal(callNote(call('create_audio'), result(lacking())), 'Son : il manque un fichier, rien n’a été généré.');
+});
