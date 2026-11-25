@@ -53,7 +53,10 @@ BESIDE = ('.comfy_quant', '.weight_scale', '.scale_weight', '.scale_input')
 PREFIX = 'model.diffusion_model.'
 # The layers a picture reads once, not at every step (see `modulations`): the embedding of the
 # timesteps, the modulation of each block and that of the output.
-ONCE = re.compile(r'^(?:time_text_embed\.timestep_embedder\.linear_[12]|norm_out\.linear|transformer_blocks\.\d+\.(?:img|txt)_mod\.1)$')
+ONCE = re.compile(
+    r'^(?:time_text_embed\.timestep_embedder\.linear_[12]|norm_out\.linear'
+    r'|transformer_blocks\.\d+\.(?:img|txt)_mod\.1)$'
+)
 
 
 def architecture(layers=LAYERS, heads=HEADS, text_width=TEXT_WIDTH, zero=True, empty=True):
@@ -106,7 +109,9 @@ def validate_layout(header):
     wanted = {name: tuple(parameter.shape) for name, parameter in model.named_parameters()}
     missing = sorted(wanted.keys() - found.keys())
     if missing:
-        raise ValueError('Ce fichier n’est pas un modèle Qwen-Image-Edit complet : il lui manque ' + missing[0] + '.')
+        raise ValueError(
+            'Ce fichier n’est pas un modèle Qwen-Image-Edit complet : il lui manque ' + missing[0] + '.'
+        )
     extra = sorted(found.keys() - wanted.keys())
     if extra:
         raise ValueError('Tenseur inattendu pour Qwen-Image-Edit : ' + found[extra[0]][1])
@@ -372,7 +377,8 @@ def predict(model, prepared, latents, step):
 
 def reference(model, latents, given, text, sigma, grid):
     """diffusers' own forward for the same picture: what `predict` gives, the way diffusers computes
-    it (for the tests, and where the kernels are missing)."""
+    it, for the tests to compare them. (Never run for an image: preflight refuses a card without
+    the kernels, and the model of the steps lacks the layers read once a picture, see split.)"""
     hidden = latents if given is None else torch.cat([latents, given], dim=1)
     timestep = torch.as_tensor(sigma, device=latents.device).reshape(1).to(latents.dtype)
     out = model(
@@ -388,18 +394,13 @@ def reference(model, latents, given, text, sigma, grid):
     return out[:, : latents.shape[1]]
 
 
-def fusable(model=None):
-    """Whether `predict` can run: comfy-kitchen has its kernels, and the blocks are the ones it was
-    written for (queries and keys normalised per head, with a weight)."""
+def fusable():
+    """Whether `predict` can run: comfy-kitchen is there, with its kernels."""
     try:
         import comfy_kitchen
     except ImportError:
         return False
-    if not all(hasattr(comfy_kitchen, name) for name in KERNELS):
-        return False
-    if model is None:
-        return True
-    return all(getattr(module.attn.norm_q, 'weight', None) is not None for module in model.transformer_blocks)
+    return all(hasattr(comfy_kitchen, name) for name in KERNELS)
 
 
 def int8_attention_available():

@@ -45,7 +45,10 @@ def inputs(made=(8, 12), given=((10, 6),), words=7, device='cpu', dtype=torch.fl
 class LayoutTests(unittest.TestCase):
     def header(self, prefix='', zero=True):
         model = qwen_image.architecture()
-        found = {prefix + name: dict(dtype='BF16', shape=list(parameter.shape)) for name, parameter in model.named_parameters()}
+        found = {
+            prefix + name: dict(dtype='BF16', shape=list(parameter.shape))
+            for name, parameter in model.named_parameters()
+        }
         for name in [key for key in found if key.endswith('.to_q.weight')]:
             found[name.removesuffix('.weight') + '.weight_scale'] = dict(dtype='F32', shape=[3072, 1])
             found[name.removesuffix('.weight') + '.comfy_quant'] = dict(dtype='U8', shape=[72])
@@ -57,7 +60,10 @@ class LayoutTests(unittest.TestCase):
         for prefix in ('', qwen_image.PREFIX):
             names, zero = qwen_image.validate_layout(self.header(prefix))
             self.assertTrue(zero)
-            self.assertEqual(names['transformer_blocks.0.attn.to_q.weight'], ('model', prefix + 'transformer_blocks.0.attn.to_q.weight', None))
+            self.assertEqual(
+                names['transformer_blocks.0.attn.to_q.weight'],
+                ('model', prefix + 'transformer_blocks.0.attn.to_q.weight', None),
+            )
             self.assertNotIn('transformer_blocks.0.attn.to_q.weight_scale', names)
             self.assertNotIn(qwen_image.ZERO, names)
         self.assertFalse(qwen_image.validate_layout(self.header(zero=False))[1])
@@ -93,7 +99,9 @@ class SplitTests(unittest.TestCase):
     def test_a_third_of_the_weights_are_read_once(self):
         model = qwen_image.architecture()
         everything = sum(parameter.numel() for parameter in model.parameters())
-        once = sum(parameter.numel() for module in qwen_image.split(model).values() for parameter in module.parameters())
+        once = sum(
+            parameter.numel() for module in qwen_image.split(model).values() for parameter in module.parameters()
+        )
         self.assertAlmostEqual(once / everything, 0.33, delta=0.01)
 
 
@@ -183,7 +191,9 @@ class FusedPassTests(unittest.TestCase):
 class FusedPassOnTheCardTests(unittest.TestCase):
     def run_both(self, int8_attention):
         model = tiny(device='cuda', dtype=torch.bfloat16)
-        latents, held, text, grid = inputs(made=(32, 48), given=((40, 24),), words=40, device='cuda', dtype=torch.bfloat16)
+        latents, held, text, grid = inputs(
+            made=(32, 48), given=((40, 24),), words=40, device='cuda', dtype=torch.bfloat16
+        )
         with torch.no_grad():
             mods = qwen_image.modulations(model, SIGMAS)
             prepared = qwen_image.prepare(model, text, held, grid, mods, int8_attention=int8_attention)

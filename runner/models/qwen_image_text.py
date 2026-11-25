@@ -96,16 +96,16 @@ CONFIG = dict(
     vision_start_token_id=151652,
     vision_end_token_id=151653,
 )
-# Video memory left beside the share of the encoder on the card while it reads, in GiB: what a
-# pass takes (a few hundred tokens) and the margin of the engine (the trial's value).
+# Video memory left beside the share of the encoder on the card while it reads, in GiB: the
+# trial's value, made without the ceiling the engine sets 1 GiB below what was free
+# (runner.engine._vram_ceiling). Under it, an encoder too large to stay whole on the card reads
+# with half a gigabyte; beside a model left there, the reading counts that gigabyte on top
+# (runner.pipelines.qwen_image_edit, BESIDE_RESERVE_GIB).
 RESERVE_GIB = 1.5
 # The RAM the share laid on the card leaves free while it is read at once, as the model's
 # (runner.pipelines.qwen_image_edit, RAM_RESERVE_GIB): it leaves the RAM as soon as it is there.
 # Without it, the default reserve of 12 GiB sends 8 GiB of the encoder through the mapping.
 GATHER_RESERVE_GIB = 4
-# The file of Comfy-Org says it is « fp8 scaled » with this tensor; its layers also carry a scale
-# for their input, which the pool does not apply: it must be 1 (it is, in that file).
-MARK = 'scaled_fp8'
 _CHECKED = set()
 
 
@@ -189,7 +189,9 @@ def inputs(tokenizer, images, prompt, pictures=None):
 
 
 def check_scales(store):
-    """The scale every layer of the file asks for its input must be 1 (see MARK)."""
+    """The scale every layer of the file asks for its input must be 1: the file of Comfy-Org (an
+    « fp8 scaled » one, its tensor `scaled_fp8` says) gives one to its layers, which the pool does
+    not apply (it is 1 in that file)."""
     if store.path in _CHECKED:
         return
     odd = [name for name in store.keys() if name.endswith('.scale_input') and store.get_tensor(name).item() != 1]

@@ -1,7 +1,9 @@
 """Qwen-Image-Edit-2511: an image made from one to three images and a prompt, in the steps of
 Lightning (lightx2v, 8 steps, a fixed shift of 3, no guidance), as the trial of 23/11 made them
 (claude_design/essais-qwen-angles of the worktree wonderful-kirch-517c63): the same encoder, the
-same sizes, the same schedule, the same noise for a seed.
+same schedule, the same noise for a seed, the same sizes for one image given. With more, the
+picture made takes the ratio of the image to modify, where diffusers and the trial take the last
+image's (made_size).
 
 Copied from the pipelines of Krea 2 (its VAE, the same file), of Wan 2.2 (a share of the model on
 the card, read from its file in one go; the rest locked in RAM once and copied ahead of the
@@ -112,34 +114,31 @@ def images_of(job):
 
 def step_lora(job):
     """Lightning, the LoRA of the steps, as the job's other LoRAs are given: always applied at 1."""
-    path = job['components'].get('stepLora')
-    return [dict(id='stepLora', path=path, strength=1.0)] if path else []
+    return [dict(id='stepLora', path=job['components']['stepLora'], strength=1.0)]
 
 
 def check(job, family):
+    # (Guidance is refused before, by runner.registry: the family's only choice of cfg is 1.)
     if not job['references']:
         raise ValueError('Qwen-Image-Edit modifie des images : donnez-lui au moins une image.')
-    if job['parameters'].get('cfg', 1) != 1:
-        raise ValueError('Qwen-Image-Edit avec Lightning ne prend pas de guidage (cfg 1).')
     for side in ('width', 'height'):
         if (side in job['parameters']) != (('height' if side == 'width' else 'width') in job['parameters']):
             raise ValueError('Qwen-Image-Edit : la largeur et la hauteur vont ensemble.')
 
 
 def preflight(job, config):
-    """File-level checks run on CPU before the chat model is unloaded."""
-    import importlib.util
-
+    """File-level checks run on CPU before the chat model is unloaded (the images given are
+    checked by runner.engine, after this)."""
     from runner.models import conditioning, qwen_image, qwen_image_text
     from runner.models.headers import header
     from runner.models.lora_keys import validate_lora
 
-    tokenizer = job['components'].get('tokenizer')
-    if not tokenizer or not Path(tokenizer).is_dir():
+    if not Path(job['components']['tokenizer']).is_dir():
         raise ValueError(
-            'Le moteur de Moodix a besoin du tokenizer de Qwen2.5 (dossier qwen25_tokenizer) : choisissez-le dans le workflow.'
+            'Le moteur de Moodix a besoin du tokenizer de Qwen2.5 (dossier qwen25_tokenizer) : '
+            'choisissez-le dans le workflow.'
         )
-    if importlib.util.find_spec('comfy_kitchen') is None or not qwen_image.fusable():
+    if not qwen_image.fusable():
         raise RuntimeError('Qwen-Image-Edit a besoin des noyaux INT8 de comfy-kitchen, absents ou trop anciens.')
     loras = step_lora(job) + job['loras']
     stamps = [(role, conditioning.stamp(path)) for role, path in sorted(job['components'].items())]
@@ -151,11 +150,6 @@ def preflight(job, config):
         for item in loras:
             validate_lora(header(item['path']), model)
         CHECKED.add(repr(stamps))
-    from PIL import Image
-
-    for path in images_of(job):
-        with Image.open(path) as image:
-            image.verify()
 
 
 class Loaded:
@@ -203,7 +197,9 @@ def _build(loaded, job, loras, budget, progress):
     changed = pool.applied()
     for index, item in enumerate(loras):
         if not changed.get('lora' + str(index)):
-            raise ValueError(f'LoRA incompatible avec Qwen-Image-Edit : aucune de ses couches ne s’applique ({item["id"]})')
+            raise ValueError(
+                f'LoRA incompatible avec Qwen-Image-Edit : aucune de ses couches ne s’applique ({item["id"]})'
+            )
     # As runner.pipelines.wan22 (_Expert.open): what stays on the card is read from the file in
     # one go and laid there; what every step copies is locked in RAM once.
     streamed = pool.streamed().get('model', ())
@@ -312,7 +308,8 @@ def texts(config, job, images, progress, beside=None):
         pool.lend(BESIDE_RESERVE_GIB - room(0))
 
         def alone():
-            # Beside the share it still ran out: the share leaves the card whole, its layers built.
+            # Beside the share it still ran out: all of the share leaves the card, its layers built;
+            # the LoRA matrices merged into them stay (runner.models.pool, lend).
             pool.lend(pool.bytes / GiB + 1)
             return read(qwen_image_text.RESERVE_GIB)
 
@@ -352,9 +349,8 @@ def given_latents(config, job, paths, images, held, progress, before=None):
     found, kept = [], 0
     for path, image in zip(paths, images):
         size = size_of(*image.size)
-        entry = conditioning.key(
-            'qwen image edit image', conditioning.stamp(vae_path), hashlib.sha256(Path(path).read_bytes()).hexdigest(), list(size)
-        )
+        digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        entry = conditioning.key('qwen image edit image', conditioning.stamp(vae_path), digest, list(size))
         cached = conditioning.load(config, entry)
         if cached and 'value' in cached[0]:
             found.append(cached[0]['value'])
@@ -478,12 +474,12 @@ def _generate(job, config, report, key, loras, holder):
         given = torch.cat([qwen_image.pack(value) for value in found], dim=1).to(**bf16)
         grid = qwen_image.shapes((height // 8, width // 8), [tuple(value.shape[2:]) for value in found])
         del found
-        if held['vae'] is not None:
-            held['vae'].to('cpu')
         free_card()
 
         # 2. The model: the one the last image left, or built (its share of the card first).
-        sigmas, timesteps = schedule(p.get('steps', STEPS))
+        sigmas, timesteps = schedule(p['steps'])
+        # (0.6.274) comfy-kitchen's INT8 attention where the card runs it (runner.pipelines.minimax_h3).
+        int8 = INT8_ATTENTION and qwen_image.int8_attention_available()
         loaded = holder[0]
         again = loaded is not None
         # (What the share lent to the prompt or to the VAE is free again here, and counted with what is free.)
@@ -513,13 +509,17 @@ def _generate(job, config, report, key, loras, holder):
                     progress(stage='preparing transformer', kept=True, **loaded.facts)
                 mods, mods_kept = modulations(config, loaded, timesteps, progress)
                 prepared = qwen_image.prepare(
-                    loaded.model, text, given, grid, mods, zero=loaded.zero, int8_attention=INT8_ATTENTION
+                    loaded.model, text, given, grid, mods, zero=loaded.zero, int8_attention=int8
                 )
-                progress(stage='denoising ready', modulations_kept=mods_kept, text_kept=text_kept, images_kept=images_kept)
+                progress(
+                    stage='denoising ready', modulations_kept=mods_kept, text_kept=text_kept, images_kept=images_kept
+                )
                 current = noise.clone()
                 for index in range(len(sigmas) - 1):
                     prediction = qwen_image.predict(loaded.model, prepared, current.to(torch.bfloat16), index)
-                    preview.send(report, preview.KREA2, finished, current, prediction, sigmas[index], height // 8, width // 8)
+                    preview.send(
+                        report, preview.KREA2, finished, current, prediction, sigmas[index], height // 8, width // 8
+                    )
                     current = current + prediction.float() * (sigmas[index + 1] - sigmas[index])
                     if not torch.isfinite(current).all():
                         raise RuntimeError('Valeurs non finies : l’image n’est pas enregistrée.')
@@ -568,7 +568,7 @@ def _generate(job, config, report, key, loras, holder):
         peak_vram_gib=round(torch.cuda.max_memory_allocated() / GiB, 3),
         backend='moodix-qwen-image-edit',
         kernel_library='comfy_kitchen',
-        attention='int8' if INT8_ATTENTION else 'cudnn',
+        attention='int8' if int8 else 'cudnn',
         kept_model=again,
         weights=weights,
         timeline=timeline,

@@ -80,10 +80,11 @@ class RulesTests(unittest.TestCase):
     def test_a_job_of_the_shipped_workflow_is_valid(self):
         registry.validate_job(job())
 
-    def test_without_an_image_or_with_guidance_it_is_refused_in_words(self):
+    def test_without_an_image_or_with_guidance_it_is_refused(self):
         with self.assertRaisesRegex(ValueError, 'au moins une image'):
             registry.validate_job(job(references=[]))
-        with self.assertRaisesRegex(ValueError, 'Unsupported|cfg'):
+        # Guidance: by the registry, before the pipeline's own rules (the family's only choice is 1).
+        with self.assertRaisesRegex(ValueError, '^cfg must be one of the supported values$'):
             registry.validate_job(job(parameters=dict(prompt='a', seed=1, steps=8, cfg=4)))
         with self.assertRaisesRegex(ValueError, 'largeur et la hauteur'):
             registry.validate_job(job(parameters=dict(prompt='a', seed=1, steps=8, width=1024)))
@@ -104,7 +105,9 @@ class EncoderInputTests(unittest.TestCase):
 
         def tokenizer(texts, return_tensors):
             seen['text'] = texts[0]
-            return dict(input_ids=torch.zeros(1, 3, dtype=torch.long), attention_mask=torch.ones(1, 3, dtype=torch.long))
+            return dict(
+                input_ids=torch.zeros(1, 3, dtype=torch.long), attention_mask=torch.ones(1, 3, dtype=torch.long)
+            )
 
         def pictures(images, return_tensors):
             # Two images: 4 x 6 then 2 x 2 patches, four patches a token.
@@ -122,9 +125,14 @@ class EncoderInputTests(unittest.TestCase):
         self.assertEqual(set(found), {'input_ids', 'attention_mask', 'pixel_values', 'image_grid_thw'})
 
     def test_the_names_of_transformers_find_the_keys_of_comfy_orgs_file(self):
-        self.assertEqual(qwen_image_text.key('model.language_model.layers.3.mlp.up_proj.weight'), 'model.layers.3.mlp.up_proj.weight')
+        self.assertEqual(
+            qwen_image_text.key('model.language_model.layers.3.mlp.up_proj.weight'),
+            'model.layers.3.mlp.up_proj.weight',
+        )
         self.assertEqual(qwen_image_text.key('model.language_model.embed_tokens.weight'), 'model.embed_tokens.weight')
-        self.assertEqual(qwen_image_text.key('model.visual.blocks.0.attn.qkv.weight'), 'visual.blocks.0.attn.qkv.weight')
+        self.assertEqual(
+            qwen_image_text.key('model.visual.blocks.0.attn.qkv.weight'), 'visual.blocks.0.attn.qkv.weight'
+        )
 
     def test_an_encoder_file_is_checked_against_the_empty_model(self):
         model = qwen_image_text.architecture()
@@ -138,7 +146,9 @@ class EncoderInputTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'il lui manque model.layers.27.mlp.down_proj.weight'):
             qwen_image_text.validate_layout(header, model)
         with self.assertRaisesRegex(ValueError, 'pas l’encodeur Qwen2.5-VL-7B'):
-            qwen_image_text.validate_layout({'model.embed_tokens.weight': dict(dtype='BF16', shape=[151936, 2560])}, model)
+            qwen_image_text.validate_layout(
+                {'model.embed_tokens.weight': dict(dtype='BF16', shape=[151936, 2560])}, model
+            )
 
 
 class TextCacheTests(unittest.TestCase):
@@ -149,7 +159,9 @@ class TextCacheTests(unittest.TestCase):
             root = Path(folder)
             for name in ('qwen_vl.safetensors', 'tokenizer.json'):
                 (root / name).write_bytes(b'x')
-            given = job(components=dict(job()['components'], textEncoder=str(root / 'qwen_vl.safetensors'), tokenizer=str(root)))
+            given = job(
+                components=dict(job()['components'], textEncoder=str(root / 'qwen_vl.safetensors'), tokenizer=str(root))
+            )
             config = dict(cacheRoot=str(root / 'cache'))
             red, blue = Image.new('RGB', (64, 48), 'red'), Image.new('RGB', (64, 48), 'blue')
             calls = []
@@ -173,11 +185,14 @@ class TextCacheTests(unittest.TestCase):
 
 
 class Share:
-    """A share of 6 GiB on the card, lent as WeightPool lends it: its last layers (of 1 GiB) first."""
+    """A share of 6 GiB on the card, lent as WeightPool lends it: its last layers (of 1 GiB) first.
+    The matrices of the LoRAs merged into its layers (`merged` GiB, counted in its bytes) are never
+    lent: they stay on the card."""
 
-    def __init__(self):
+    def __init__(self, merged=0):
         self.gpu = {index: qwen_image_edit.GiB for index in range(6)}
-        self.bytes = self.limit = 6 * qwen_image_edit.GiB
+        self.merged_bytes = int(merged * qwen_image_edit.GiB)
+        self.bytes = self.limit = 6 * qwen_image_edit.GiB + self.merged_bytes
         self.lent = 0
         self.asked = []
 
@@ -221,12 +236,21 @@ class BesideTests(unittest.TestCase):
             root = Path(folder)
             for name in ('qwen_vl.safetensors', 'tokenizer.json'):
                 (root / name).write_bytes(b'x')
-            given = job(components=dict(job()['components'], textEncoder=str(root / 'qwen_vl.safetensors'), tokenizer=str(root)))
+            given = job(
+                components=dict(job()['components'], textEncoder=str(root / 'qwen_vl.safetensors'), tokenizer=str(root))
+            )
             beside = SimpleNamespace(pool=share) if share is not None else None
             # 1 GiB free beside the share.
-            with patch.object(qwen_image_text, 'encode', encode), patch.object(pool, 'room', lambda reserve: 1.0 - reserve):
+            with (
+                patch.object(qwen_image_text, 'encode', encode),
+                patch.object(pool, 'room', lambda reserve: 1.0 - reserve),
+            ):
                 qwen_image_edit.texts(
-                    dict(cacheRoot=str(root / 'cache')), given, [Image.new('RGB', (64, 48), 'red')], lambda **_: None, beside=beside
+                    dict(cacheRoot=str(root / 'cache')),
+                    given,
+                    [Image.new('RGB', (64, 48), 'red')],
+                    lambda **_: None,
+                    beside=beside,
                 )
         return reserves
 
@@ -239,11 +263,14 @@ class BesideTests(unittest.TestCase):
         share = Share()
         self.assertEqual(self.read(0, share), [beside])
         # 1 GiB was free: what the encoder's reserve lacked is lent, two layers of the share.
-        self.assertEqual((share.asked, len(share.gpu), share.lent), ([round(beside - 1.0, 2)], 4, 2 * qwen_image_edit.GiB))
-        # Still out of memory beside it: the share leaves the card whole, the encoder runs alone.
-        share = Share()
+        self.assertEqual(
+            (share.asked, len(share.gpu), share.lent), ([round(beside - 1.0, 2)], 4, 2 * qwen_image_edit.GiB)
+        )
+        # Still out of memory beside it: all of the share leaves the card, but the LoRA matrices
+        # merged into its layers (Lightning's: about 0.8 GiB), and the encoder runs alone.
+        share = Share(merged=0.8)
         self.assertEqual(self.read(1, share), [beside, qwen_image_text.RESERVE_GIB])
-        self.assertEqual((share.gpu, share.lent), ({}, 6 * qwen_image_edit.GiB))
+        self.assertEqual((share.gpu, share.lent, share.bytes), ({}, 6 * qwen_image_edit.GiB, share.merged_bytes))
         # No model on the card: one reading, with the encoder's own reserve, nothing lent.
         self.assertEqual(self.read(0, None), [qwen_image_text.RESERVE_GIB])
         idle = Share()
@@ -313,8 +340,12 @@ class ModulationCacheTests(unittest.TestCase):
                     pass
 
             def made(adapters, timesteps=(1.0, 0.5), zero=True):
-                loaded = SimpleNamespace(stores=stores, adapters=adapters, taken=None, names=None, model=None, zero=zero)
-                qwen_image_edit.modulations(dict(cacheRoot=str(root / 'cache')), loaded, list(timesteps), lambda **_: None)
+                loaded = SimpleNamespace(
+                    stores=stores, adapters=adapters, taken=None, names=None, model=None, zero=zero
+                )
+                qwen_image_edit.modulations(
+                    dict(cacheRoot=str(root / 'cache')), loaded, list(timesteps), lambda **_: None
+                )
                 return asked[-1]
 
             with (
@@ -356,7 +387,8 @@ class BenchTests(unittest.TestCase):
         for name in ('model', 'text-encoder', 'vae', 'step-lora'):
             given += ['--' + name, str(folder / (name + '.safetensors'))]
         given += ['--tokenizer', str(folder / 'qwen25_tokenizer'), '--lora', str(folder / 'angles.safetensors') + ':1']
-        given += ['--reference', 'reference_image=' + str(folder / 'b.png'), '--reference', 'edit_image=' + str(folder / 'a.png')]
+        given += ['--reference', 'reference_image=' + str(folder / 'b.png')]
+        given += ['--reference', 'edit_image=' + str(folder / 'a.png')]
         with patch.object(argparse.ArgumentParser, 'parse_args', stop), self.assertRaises(Read) as read:
             bench.main(given)
         args = read.exception.args[0]
@@ -368,10 +400,13 @@ class BenchTests(unittest.TestCase):
         self.assertEqual(made['parameters'], dict(prompt=prompt, seed=4, steps=8, cfg=1))
         self.assertEqual(made['components']['stepLora'], str(folder / 'step-lora.safetensors'))
         self.assertEqual(qwen_image_edit.images_of(made), [str(folder / 'a.png'), str(folder / 'b.png')])
-        self.assertEqual([(item['path'], item['strength']) for item in made['loras']], [(str(folder / 'angles.safetensors'), 1.0)])
+        self.assertEqual(
+            [(item['path'], item['strength']) for item in made['loras']], [(str(folder / 'angles.safetensors'), 1.0)]
+        )
         registry.validate_job(dict(made, schemaVersion=1, workflowId='bench', workflowDigest='d' * 64))
         args.size = '1024x768'
-        self.assertEqual(qwen_image_edit.made_size(bench.qwen_image_edit_job(args, 1)['parameters'], (10, 10)), (1024, 768))
+        sized = bench.qwen_image_edit_job(args, 1)['parameters']
+        self.assertEqual(qwen_image_edit.made_size(sized, (10, 10)), (1024, 768))
 
 
 class Built:
@@ -423,7 +458,7 @@ class GenerateTests(unittest.TestCase):
         from runner.pipelines import ltx25
 
         sigmas = qwen_image_edit.schedule()
-        builds, pools, short, made = [], [], list(short), [0]
+        builds, pools, short, made, prepared = [], [], list(short), [0], []
 
         def build(loaded, _job, _loras, budget, _progress):
             builds.append(budget)
@@ -439,6 +474,12 @@ class GenerateTests(unittest.TestCase):
             # Each step streams half a gigabyte of the model, read from its file.
             pools[-1].stats['first_gib'] += 0.5
             return torch.zeros_like(current)
+
+        def texts(*_args, **_beside):
+            return torch.zeros(1, 5, 3584), False
+
+        def given_latents(*_args, **_before):
+            return [torch.zeros(1, 16, 8, 8)], 0
 
         class Vae:
             config = SimpleNamespace(latents_mean=[0.0] * 16, latents_std=[1.0] * 16)
@@ -476,11 +517,11 @@ class GenerateTests(unittest.TestCase):
             enter(mock.patch.object(conditioning, 'stamp', side_effect=str))
             enter(mock.patch.object(preview, 'send', lambda *_args: None))
             enter(mock.patch.object(media, 'save_image', lambda _pixels, _config, _job, metadata: metadata))
-            enter(mock.patch.object(qwen_image, 'prepare', lambda *_args, **_options: 'prepared'))
+            enter(mock.patch.object(qwen_image, 'prepare', lambda *_args, **options: prepared.append(options)))
             enter(mock.patch.object(qwen_image, 'predict', predict))
             enter(mock.patch.object(qwen_image_edit, 'schedule', lambda _steps=8: sigmas))
-            enter(mock.patch.object(qwen_image_edit, 'texts', lambda *_args, **_beside: (torch.zeros(1, 5, 3584), False)))
-            enter(mock.patch.object(qwen_image_edit, 'given_latents', lambda *_args, **_before: ([torch.zeros(1, 16, 8, 8)], 0)))
+            enter(mock.patch.object(qwen_image_edit, 'texts', texts))
+            enter(mock.patch.object(qwen_image_edit, 'given_latents', given_latents))
             enter(mock.patch.object(qwen_image_edit, 'modulations', lambda *_args: ({}, False)))
             enter(mock.patch.object(qwen_image_edit, '_build', build))
             enter(mock.patch.object(qwen_image_edit, 'load_vae', lambda _path: Vae()))
@@ -490,7 +531,7 @@ class GenerateTests(unittest.TestCase):
                     sheets.append(qwen_image_edit.generate(given, dict(cacheRoot=folder), lambda **_stage: None))
             finally:
                 kept._kept.clear()
-        self.builds = builds
+        self.builds, self.prepared = builds, prepared
         return sheets
 
     def test_the_sheet_of_an_image_made_with_the_model_kept_counts_its_own_weights(self):
@@ -508,6 +549,24 @@ class GenerateTests(unittest.TestCase):
         self.assertAlmostEqual(self.builds[1], self.builds[0] / 2)
         self.assertEqual([first['kept_model'], second['kept_model']], [False, False])
         self.assertEqual(second['weights']['first_gib'], 4.0)
+
+    def test_int8_attention_is_asked_only_where_the_card_runs_it(self):
+        # (0.6.274) Turned on, the switch asked any card for comfy-kitchen's INT8 kernel, and one
+        # without it would fail at the first step (runner.pipelines.minimax_h3 asks first).
+        from runner.models import qwen_image
+
+        for available in (False, True):
+            with (
+                patch.object(qwen_image_edit, 'INT8_ATTENTION', True),
+                patch.object(qwen_image, 'int8_attention_available', lambda: available),
+            ):
+                (sheet,) = self.images(1)
+            said = 'int8' if available else 'cudnn'
+            self.assertEqual((self.prepared[0]['int8_attention'], sheet['attention']), (available, said))
+        # Off, as shipped: the card is not even asked.
+        with patch.object(qwen_image, 'int8_attention_available', side_effect=AssertionError('asked')):
+            (sheet,) = self.images(1)
+        self.assertEqual((self.prepared[0]['int8_attention'], sheet['attention']), (False, 'cudnn'))
 
 
 if __name__ == '__main__':
