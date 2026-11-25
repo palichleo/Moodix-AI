@@ -11070,3 +11070,36 @@ test('the tries of a series « × n » on a continuation draw their seed for its
     page.restore();
   }
 });
+
+test('the formats of « ··· » are greyed while a creation runs, its menu left open as it was (0.6.320)', async () => {
+  // (Report 4, point 9. Opened before Ctrl+Entrée, its choices still answered: 4:3 changed the frame of the screen
+  // during the take, and the next one went at that format.)
+  let done;
+  const page = await studioPage(
+    { create_image: [still] },
+    {
+      'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }),
+      'tools/execute': () => new Promise(resolve => (done = resolve)),
+    },
+  );
+  try {
+    const { body } = page,
+      checked = () =>
+        body.find('studio-format').find(chip => chip.attributes?.['aria-checked'] === 'true')?.children[0]?.textContent;
+    page.prompt().value = 'un phare';
+    page.prompt().oninput();
+    body.find('studio-format').find(chip => chip.className.includes('is-more')).onclick();
+    page.page['studio-view'].onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {}, target: {} });
+    await settle();
+    const before = checked(),
+      [menu] = body.find('studio-format-menu'),
+      greyed = menu.children.every(choice => choice.disabled);
+    assert.deepEqual([body.find('studio-stop').length, menu.hidden, greyed], [1, false, true]);
+    menu.children.find(choice => choice.children[0]?.textContent === '4:3').onclick();
+    assert.equal(checked(), before);
+    done({ id: 'j', state: 'error', error: 'rien' });
+    await settle();
+  } finally {
+    page.restore();
+  }
+});

@@ -4103,7 +4103,8 @@ export function setupStudio({
     // still answers the pointer with its bubble).
     const held = mode === 'video' && animatedStart() ? 'Le format suit l’image de début.' : '';
     const pick = id => {
-      if (held) return;
+      // (0.6.320) Nor while a creation runs, whatever is still on screen (its choices are greyed, see below).
+      if (held || working) return;
       Object.assign(draft, { format: id, size: null, formatChosen: true });
       formatsOpen = false;
       // The chips and the sizes change with the format (another one may take the place of « ··· »).
@@ -4145,6 +4146,9 @@ export function setupStudio({
       const choice = button('', id, () => pick(id));
       choice.title = FORMATS.find(item => item.id === id).label;
       choice.setAttribute('aria-pressed', String(id === draft.format));
+      // (0.6.320) Greyed as the chips while a creation runs: the menu opened before Ctrl+Entrée stays open, and its
+      // 4:3 changed the frame of the take being made.
+      choice.disabled = Boolean(working);
       menu.append(choice);
     }
     wrap.append(row, menu);
