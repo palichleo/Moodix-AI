@@ -679,6 +679,26 @@ test('a model to download says « Télécharger » and its size in the place of 
   f.ui.cancelSettings();
   await f.ui.refresh();
   assert.equal(confirm('Krea 2'), undefined);
+
+  // (0.6.288) Two clicks before the answer: one request. The refusal of the second (« déjà en cours ») was
+  // written in red under the list while the first download went on.
+  job = { state: 'idle' };
+  await f.ui.refresh();
+  const sent = starts.length;
+  await Promise.all([download('Upscale SeedVR2').onclick(), download('Upscale SeedVR2').onclick()]);
+  assert.deepEqual(starts.slice(sent), [{ id: 'seedvr' }]);
+  // A start that failed lets the next click try again.
+  job = { state: 'idle' };
+  await f.ui.refresh();
+  const answering = f.api;
+  f.api = async (route, body) => {
+    if (route === 'downloads/start') throw new Error('Pas assez de place.');
+    return answering(route, body);
+  };
+  await download('Upscale SeedVR2').onclick();
+  f.api = answering;
+  await download('Upscale SeedVR2').onclick();
+  assert.deepEqual(starts.slice(sent), [{ id: 'seedvr' }, { id: 'seedvr' }]);
 });
 
 test('an existing tokenizer is never replaced by a suggestion, and families without one show no tokenizer', async t => {

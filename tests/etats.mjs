@@ -306,6 +306,30 @@ test('53 · the licences of the files are shown before the download; one with co
   await refused.card.confirm();
   assert.equal(find(refused.host, 'missing-error')[0].textContent, 'Ces fichiers demandent un compte Hugging Face.');
   assert.deepEqual(buttons(refused.host), ['Annuler', 'Télécharger · 1 Mo']);
+
+  // (0.6.288) Two clicks before the answer: one request. The server refuses a second start (« déjà en cours »),
+  // and that refusal put the card back to « Télécharger », an error written over a download that went on.
+  let started = 0;
+  const twice = cardOf([{ file: 'a.safetensors', size: 5, license: apache }], async () => {
+    if (started++) throw new Error('Un téléchargement est déjà en cours.');
+    await settle();
+    return { state: 'running', workflowId: 'h3', received: 0, total: 10 };
+  });
+  await settle();
+  await Promise.all([twice.card.start(), twice.card.start()]);
+  assert.deepEqual(twice.starts(), [{ id: 'h3' }]);
+  assert.deepEqual(find(twice.host, 'missing-error'), []);
+  // And a start that failed lets the next click try again.
+  started = 1;
+  const retried = cardOf([{ file: 'a.safetensors', size: 5, license: apache }], async () => {
+    if (started++ === 1) throw new Error('Pas assez de place.');
+    return { state: 'running', workflowId: 'h3', received: 0, total: 10 };
+  });
+  await settle();
+  await retried.card.start();
+  assert.equal(find(retried.host, 'missing-error')[0].textContent, 'Pas assez de place.');
+  await retried.card.start();
+  assert.deepEqual([retried.starts().length, find(retried.host, 'missing-error')], [2, []]);
 });
 
 test('53 · a verb no ready workflow makes reaches the shipped one that lacks a file; a ready one comes first', async () => {

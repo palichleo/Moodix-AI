@@ -339,6 +339,29 @@ test('nothing starts without room on the disk, for a workflow of the user, or tw
   assert.equal(formatBytes(67061725), '64 Mo');
 });
 
+test('two starts asked at the same instant are one download: the file is whole, the other is refused (0.6.288)', async t => {
+  const f = await fixture(t);
+  // A double click, or two tabs: both asked before the first has read the files and the disk.
+  const asked = await Promise.allSettled([f.downloads.start(f.workflow), f.downloads.start(f.workflow)]);
+  assert.deepEqual(
+    asked.map(answer => answer.status),
+    ['fulfilled', 'rejected'],
+  );
+  assert.deepEqual([asked[1].reason.message, asked[1].reason.status], ['Un téléchargement est déjà en cours.', 409]);
+  const done = await f.finish();
+  assert.equal(done.state, 'done', done.error);
+  // Each file asked for once, and the model as it was published (it was written twice in its .part, then erased).
+  assert.deepEqual(f.requests.map(request => request.url.split('/').at(-1)).sort(), ['krea2_turbo.safetensors', 'vocab.json']);
+  assert.deepEqual(await readFile(join(f.models, 'diffusion_models', 'krea2_turbo.safetensors')), MODEL);
+  assert.equal(done.received, MODEL.length + VOCAB.length);
+
+  // A start that is refused lets the next one begin: nothing stays held.
+  const again = await fixture(t);
+  await assert.rejects(again.downloads.start({ ...again.workflow, builtin: false }), /Seuls les modèles fournis/);
+  await again.downloads.start(again.workflow);
+  assert.equal((await again.finish()).state, 'done');
+});
+
 // (0.6.223) Wan 2.2 Fun Camera is published as 8-bit floats only, which the engine does not read: its
 // two files are downloaded, then written again in the engine's format on this computer.
 async function converting(t, { free = 1024 ** 4, convert } = {}) {

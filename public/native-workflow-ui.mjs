@@ -373,10 +373,15 @@ export function setupNativeWorkflows(options) {
   let models = [];
   const openModels = new Set();
   let speed = 0,
-    sampled = null;
+    sampled = null,
+    startingDownload = false;
 
   /** Starts the download of what `record` lacks; `accepted`: its licences with conditions were read and accepted. */
   async function startDownload(record, accepted) {
+    // (0.6.288) One start at a time: the refusal of a second click (« déjà en cours ») was written in red
+    // under the list while the first download went on.
+    if (startingDownload) return;
+    startingDownload = true;
     try {
       importStatus('');
       licenseAsked = '';
@@ -388,6 +393,8 @@ export function setupNativeWorkflows(options) {
     } catch (failure) {
       renderList();
       importStatus(failure.message, true);
+    } finally {
+      startingDownload = false;
     }
   }
   /**

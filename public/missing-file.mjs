@@ -60,6 +60,7 @@ export function missingFileCard({
     // Said while Windows holds the file just downloaded (0.6.90: the line stood full, without a word).
     waiting = '',
     following = false,
+    starting = false,
     gone = false;
 
   function button(className, text, onclick, glyph) {
@@ -160,6 +161,10 @@ export function missingFileCard({
     render();
   }
   async function download(accepted) {
+    // (0.6.288) One start at a time: a second click before the answer is refused by the server (« déjà en
+    // cours »), and its refusal put the card back to « Télécharger », an error over a download that goes on.
+    if (starting) return;
+    starting = true;
     error = '';
     try {
       const job = await (
@@ -170,6 +175,8 @@ export function missingFileCard({
     } catch (failure) {
       state = 'idle';
       error = failure.message;
+    } finally {
+      starting = false;
     }
     render();
     if (state === 'running') await follow();
