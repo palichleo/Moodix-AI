@@ -13,7 +13,7 @@ import time
 from types import SimpleNamespace
 
 from runner import hardware, preview
-from runner.media import save_image
+from runner.media import open_image, save_image
 from runner.models.headers import header
 from runner.pipelines.sampling import applied_denoise, simple_sigmas, start_latents
 
@@ -202,7 +202,7 @@ def _generate(args, plan, files, job, config, progress_callback, cleanup):
         source = None
         if plan['image']:
             image = ImageOps.fit(
-                Image.open(plan['image']).convert('RGB'),
+                open_image(plan['image']).convert('RGB'),
                 (plan['width'], plan['height']),
                 method=Image.Resampling.LANCZOS,
             )

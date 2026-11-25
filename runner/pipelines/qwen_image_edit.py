@@ -343,6 +343,7 @@ def given_latents(config, job, paths, images, held, progress, before=None):
     called once before the VAE first encodes (to make it room)."""
     import torch
 
+    from runner.media import turned
     from runner.models import conditioning
 
     vae_path = job['components']['vae']
@@ -350,7 +351,9 @@ def given_latents(config, job, paths, images, held, progress, before=None):
     for path, image in zip(paths, images):
         size = size_of(*image.size)
         digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
-        entry = conditioning.key('qwen image edit image', conditioning.stamp(vae_path), digest, list(size))
+        entry = conditioning.key(
+            'qwen image edit image', conditioning.stamp(vae_path), digest, list(size), *turned(path)
+        )
         cached = conditioning.load(config, entry)
         if cached and 'value' in cached[0]:
             found.append(cached[0]['value'])
@@ -419,10 +422,9 @@ def generate(job, config, progress):
 
 def _generate(job, config, report, key, loras, holder):
     import torch
-    from PIL import Image
 
     from runner import preview
-    from runner.media import save_image
+    from runner.media import open_image, save_image
     from runner.models import qwen_image
     from runner.models.pool import require
     from runner.pipelines.ltx25 import memory
@@ -432,7 +434,7 @@ def _generate(job, config, report, key, loras, holder):
         raise RuntimeError('Native Qwen-Image-Edit requires CUDA')
     p = job['parameters']
     paths = images_of(job)
-    images = [Image.open(path).convert('RGB') for path in paths]
+    images = [open_image(path).convert('RGB') for path in paths]
     width, height = made_size(p, images[0].size)
     megapixels = width * height / 1024**2
     reserve = RESERVE_GIB + RESERVE_PER_MEGAPIXEL_GIB * megapixels

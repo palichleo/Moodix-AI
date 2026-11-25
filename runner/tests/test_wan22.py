@@ -614,6 +614,43 @@ class SamplingTests(unittest.TestCase):
             vae.write_bytes(b'another vae')
             self.assertFalse(pipeline.start_latents(config, str(vae), str(first), (768, 448, 81), encode)[1])
 
+    def test_what_was_kept_of_a_photo_read_lying_is_not_taken_for_it_upright(self):
+        # (0.6.303) A photo of a phone kept lying, with a note to turn it, was read as it is kept; it is read
+        # upright now (runner.media.open_image). Its latents kept before, told by what its file holds, are those
+        # of the picture lying: asked again at the same size, they are not found. An image kept upright keeps
+        # the key it had: nothing of it is encoded again.
+        import hashlib
+
+        from PIL import Image
+
+        from runner.models import conditioning
+
+        def before(vae, image, shape):
+            held = hashlib.sha256(image.read_bytes()).hexdigest()
+            return conditioning.key('wan22 start image', conditioning.stamp(str(vae)), held, list(shape))
+
+        with tempfile.TemporaryDirectory() as folder:
+            vae, upright, lying = (Path(folder) / name for name in ('vae.safetensors', 'made.png', 'phone.jpg'))
+            vae.write_bytes(b'vae')
+            Image.effect_noise((16, 16), 60).save(upright)
+            note = Image.Exif()
+            note[0x0112] = 6
+            Image.effect_noise((16, 8), 60).convert('RGB').save(lying, exif=note)
+            config, shape, encoded = dict(cacheRoot=folder), (448, 768, 81), []
+            for image in (upright, lying):
+                conditioning.save(config, before(vae, image, shape), {'value': torch.zeros(1, 16, 3, 4, 4)})
+
+            def encode():
+                encoded.append(1)
+                return torch.ones(1, 16, 3, 4, 4)
+
+            found, kept = pipeline.start_latents(config, str(vae), str(upright), shape, encode)
+            self.assertEqual((kept, float(found.sum()), len(encoded)), (True, 0.0, 0))
+            found, kept = pipeline.start_latents(config, str(vae), str(lying), shape, encode)
+            self.assertEqual((kept, float(found.max()), len(encoded)), (False, 1.0, 1))
+            # Kept anew under its own key: found the next time.
+            self.assertTrue(pipeline.start_latents(config, str(vae), str(lying), shape, encode)[1])
+
     def test_latents_that_are_not_all_numbers_stop_the_job_before_the_decoder(self):
         # (0.6.140) One token not a number, and the clip was kept: the picture for five frames, then
         # black to the end. Said as a failure, nothing is kept.

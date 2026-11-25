@@ -49,8 +49,7 @@ def _sizes(width, height, parameters):
 
 
 def preflight(job, config):
-    from PIL import Image
-
+    from runner.media import open_image
     from runner.models import seedvr2, seedvr2_vae
     from runner.models.headers import header
 
@@ -60,7 +59,7 @@ def preflight(job, config):
         raise ValueError('Ce fichier n’est pas le VAE de SeedVR2 (ema_vae_fp16).')
     # The first check runs before the sources are copied; generation checks again with them.
     if job['references']:
-        with Image.open(job['references'][0]['path']) as image:
+        with open_image(job['references'][0]['path']) as image:
             _sizes(*image.size, job['parameters'])
 
 
@@ -69,7 +68,7 @@ def generate(job, config, progress):
     import torch
     from PIL import Image
 
-    from runner.media import save_image
+    from runner.media import open_image, save_image
     from runner.models.ladder import smaller
     from runner.models import seedvr2, seedvr2_color, seedvr2_vae
     from runner.models.pool import WeightPool
@@ -81,7 +80,7 @@ def generate(job, config, progress):
     torch.cuda.reset_peak_memory_stats()
     p = job['parameters']
     steps, method, seed = p.get('steps', 1), p.get('color_correction', 'lab'), p['seed']
-    with Image.open(job['references'][0]['path']) as image:
+    with open_image(job['references'][0]['path']) as image:
         current = image.convert('RGB')
     source_size = current.size
     sizes = _sizes(*current.size, p)

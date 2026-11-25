@@ -361,10 +361,10 @@ def generate(job, config, progress):
 def _generate(job, config, progress, key, holder):
     import numpy
     import torch
-    from PIL import Image
     from diffusers import MiniMaxH3Scheduler
     from diffusers.modular_pipelines.minimax_h3 import encoders as reference_encoders
     from diffusers.modular_pipelines.minimax_h3.references import MiniMaxH3ImageReference
+    from runner.media import open_image
     from runner.models.headers import header
     from runner.models import conditioning, minimax_h3, minimax_h3_text, minimax_h3_vae
     from runner.models.ladder import smaller
@@ -426,7 +426,7 @@ def _generate(job, config, progress, key, holder):
     for ref in job['references']:
         if ref['role'] == 'source_video':
             continue
-        with Image.open(ref['path']) as image:
+        with open_image(ref['path']) as image:
             pixels = image.convert('RGB')
         if ref['role'] == 'reference_image':
             references.append(MiniMaxH3ImageReference(image=pixels))

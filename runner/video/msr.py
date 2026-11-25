@@ -103,10 +103,11 @@ def pipeline_class():
             masks = []
             positions = []
             for index, ref in enumerate(self.msr_references):
-                from PIL import Image
                 from diffusers.pipelines.ltx2.pipeline_ltx2_condition import LTX2VideoCondition
 
-                with Image.open(ref['path']) as source:
+                from runner.media import open_image
+
+                with open_image(ref['path']) as source:
                     image = source.convert('RGB')
                 frames = [image] * self.msr_frames
                 pixels, _, _, _ = self.preprocess_conditions(

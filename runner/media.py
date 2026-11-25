@@ -7,6 +7,44 @@ import re
 import time
 import uuid
 
+# The tag of an image that says how to turn it to see it upright (EXIF, TIFF and PNG « eXIf » alike).
+ORIENTATION = 0x0112
+
+
+def orientation(path):
+    """How the image of `path` is to be turned to be seen as its author sees it: 1 when it is kept upright
+    (or says nothing), 2 to 8 otherwise. A photo of a phone taken upright is kept lying, with 6 or 8."""
+    from PIL import Image
+
+    with Image.open(path) as image:
+        return image.getexif().get(ORIENTATION, 1)
+
+
+def turned(path):
+    """What a key told by what a file holds says more for an image that is to be turned: nothing for one kept
+    upright (its keys are those of before), else its orientation. What the engine kept of such an image while it
+    read it lying (before 0.6.303) is then never taken for what it shows upright."""
+    kept = orientation(path)
+    return [] if kept == 1 else [f'orientation {kept}']
+
+
+def open_image(path):
+    """(0.6.303) An image handed over, opened as the user sees it: every picture the engine reads goes through
+    here. A photo of a phone taken upright is kept lying in its file, with a note to turn it; the page and the
+    chat model showed it upright (the browser turns it), and the engine read it lying: enlarged, edited, animated
+    or given as a character, it came out lying, in a format in landscape. As `Image.open` gives it (to use in a
+    `with`), turned in place when its note asks for it and only then: nothing is copied for an image kept upright.
+    """
+    from PIL import Image, ImageOps
+
+    image = Image.open(path)
+    try:
+        ImageOps.exif_transpose(image, in_place=True)
+    except BaseException:
+        image.close()
+        raise
+    return image
+
 
 def manifest_path(config, name):
     """Where the manifest of the creation `name` goes: the folder of the manifests when the

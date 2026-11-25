@@ -215,6 +215,42 @@ class Share:
         self.bytes, self.lent = self.limit, 0
 
 
+class GivenLatentsTests(unittest.TestCase):
+    def test_what_was_kept_of_a_photo_read_lying_is_not_taken_for_it_upright(self):
+        # (0.6.303) As for the start image of Wan 2.2: the latents of an image given are kept on the disk, told
+        # by what its file holds. A photo kept upside down has the same size once turned: without its
+        # orientation in the key, what was kept of it before (read as it is kept) was taken for it.
+        import hashlib
+
+        from PIL import Image
+
+        from runner.media import open_image
+        from runner.models import conditioning
+
+        with tempfile.TemporaryDirectory() as folder:
+            vae, upright, turned = (Path(folder) / name for name in ('vae.safetensors', 'made.png', 'phone.jpg'))
+            vae.write_bytes(b'vae')
+            Image.effect_noise((64, 32), 60).save(upright)
+            note = Image.Exif()
+            note[0x0112] = 3
+            Image.effect_noise((64, 32), 60).convert('RGB').save(turned, exif=note)
+            config, job = dict(cacheRoot=folder), dict(components=dict(vae=str(vae)))
+            size = list(qwen_image_edit.size_of(64, 32))
+
+            def key(path, *more):
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                return conditioning.key('qwen image edit image', conditioning.stamp(str(vae)), digest, size, *more)
+
+            # What the version before kept of both; and what this one keeps of the photo.
+            for path in (upright, turned):
+                conditioning.save(config, key(path), {'value': torch.zeros(1, 16, 4, 8)})
+            conditioning.save(config, key(turned, 'orientation 3'), {'value': torch.ones(1, 16, 4, 8)})
+            paths = [str(upright), str(turned)]
+            images = [open_image(path).convert('RGB') for path in paths]
+            found, kept = qwen_image_edit.given_latents(config, job, paths, images, {}, lambda **_said: None)
+            self.assertEqual((kept, [float(value.max()) for value in found]), (2, [0.0, 1.0]))
+
+
 class BesideTests(unittest.TestCase):
     """A new prompt read beside the model the last image left on the card (24/11, on the card:
     the second pose of the bench ran out of video memory in the encoder)."""

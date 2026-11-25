@@ -154,10 +154,10 @@ def backgrounds(job):
 
 
 def image_size(path):
-    """(width, height) of an image, read from its header."""
-    from PIL import Image
+    """(width, height) of an image as it is seen (turned when its file says so, runner.media.open_image)."""
+    from runner.media import open_image
 
-    with Image.open(path) as image:
+    with open_image(path) as image:
         return image.size
 
 
@@ -342,9 +342,10 @@ def find_masks(job, raw, width, height, progress):
 
 def read_image(path):
     import numpy as np
-    from PIL import Image
 
-    with Image.open(path) as image:
+    from runner.media import open_image
+
+    with open_image(path) as image:
         return _picture(np.array(image.convert('RGB')))
 
 

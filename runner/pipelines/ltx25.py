@@ -611,12 +611,13 @@ def _generate(job, config, progress, key, holder, finish=None, read=None):
                 pipe.ic_encoded, pipe.ic_progress = encoded, progress
             images = {}
             if job['references']:
-                from PIL import Image
                 from diffusers.pipelines.ltx2.pipeline_ltx2_condition import LTX2VideoCondition
+
+                from runner.media import open_image
 
                 for ref in job['references']:
                     if ref['role'] in ('start_image', 'end_image'):
-                        with Image.open(ref['path']) as image:
+                        with open_image(ref['path']) as image:
                             images[ref['input']] = image.convert('RGB')
 
             def conditions(refining):

@@ -31,9 +31,9 @@ def preflight(job, config):
     source = job['references'][0]['path']
     max_side = job['parameters'].get('max_side', 0)
     if job['mediaType'] == 'image':
-        from PIL import Image
+        from runner.media import open_image
 
-        with Image.open(source) as image:
+        with open_image(source) as image:
             width, height = _target(*image.size, scale, max_side)
         if max(width, height) > MAX_IMAGE_SIDE:
             raise ValueError(f'The upscaled image would exceed {MAX_IMAGE_SIDE} pixels; set a maximum side')
@@ -74,11 +74,9 @@ def generate(job, config, progress):
 
     metadata = dict(job=job, backend='pytorch-rrdbnet', scale=model.scale, tile=tile, device=device)
     if job['mediaType'] == 'image':
-        from PIL import Image
+        from runner.media import open_image, save_image
 
-        from runner.media import save_image
-
-        with Image.open(source) as image:
+        with open_image(source) as image:
             pixels = np.array(image.convert('RGB'))
         progress(step=1, total=1)
         output = upscale(pixels)

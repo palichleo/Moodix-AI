@@ -230,10 +230,11 @@ def start_latents(config, vae_path, image_path, shape, encode):
     it is (the application hands a copy of the image to each job)."""
     import hashlib
 
+    from runner.media import turned
     from runner.models import conditioning
 
     held = hashlib.sha256(Path(image_path).read_bytes()).hexdigest()
-    key = conditioning.key('wan22 start image', conditioning.stamp(vae_path), held, list(shape))
+    key = conditioning.key('wan22 start image', conditioning.stamp(vae_path), held, list(shape), *turned(image_path))
     found = conditioning.load(config, key)
     if found and 'value' in found[0]:
         return found[0]['value'], True
