@@ -601,10 +601,11 @@ class DispatchTests(unittest.TestCase):
 
         parameters = dict(width=160, height=96, frames=33)
         job = dict(components={'model': 'model'}, loras=[], references=[], parameters=parameters)
-        given = []
+        given, reads = [], []
 
         def run(_job, _config, _progress, key, holder, finish=None, read=None):
             given.append(finish)
+            reads.append(read)
             holder[0] = SimpleNamespace(key=key, locked=True, allocated=0, drop=lambda: None)
             return 'video'
 
@@ -616,6 +617,9 @@ class DispatchTests(unittest.TestCase):
             try:
                 self.assertEqual(ltx25._run(job, {}, None, name=rf.FAMILY, finish=finish), 'video')
                 self.assertEqual((set(kept._kept), given), ({rf.FAMILY}, [finish]))
+                # (0.6.275) What an attempt a Refit ends read of the prompt is kept for the next one
+                # here too (0.6.267): the camera's job is given it like any video.
+                self.assertEqual(reads, [{}])
             finally:
                 kept._kept.clear()
 

@@ -196,7 +196,7 @@ def fits(pool, budget):
     Weighed without it, a share that had lent seemed smaller than it is. On 24/11, with 3 GiB of
     the card taken by another program between two videos and a new prompt, it was taken back
     whole and ran out of memory; the steps then ran with half of it, 1.56 s each instead of 0.50,
-    from other noise than the seed's."""
+    from other noise than the seed's (until 0.6.268: a pass run again now draws the seed's)."""
     whole = pool.bytes + pool.lent
     near = (budget - LOCK_MARGIN_GIB) * 1024**3 <= pool.limit
     return bool(pool.gpu) and near and whole <= (budget + 0.25) * 1024**3
