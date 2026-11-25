@@ -11342,3 +11342,11 @@ test('a Studio settings file whose « models » is null is read as none kept, an
     await rm(folder, { recursive: true, force: true });
   }
 });
+
+test('the words of Moodix AI keep a size written with a star, « 1024*1024 » (0.6.328)', async () => {
+  // (Report 4, detail d6: « Je fais une image en 1024*1024 et 512*512. » was said « en 10241024 et 512512 », its
+  // stars taken for those of italics.)
+  const { plainWords } = await import('../public/studio-explain.mjs');
+  assert.equal(plainWords('Je fais une image en 1024*1024 et 512*512.'), 'Je fais une image en 1024*1024 et 512*512.');
+  assert.equal(plainWords('un *renard* roux de 3*4 m'), 'un renard roux de 3*4 m');
+});

@@ -26,7 +26,8 @@ export function plainWords(text) {
       .replace(/^[ \t]*(?:[-*+•]|\d{1,2}[.)])[ \t]+/gm, '')
       // Bold, italics written with stars, code within a line: the words they hold.
       .replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, '$2')
-      .replace(/\*(?=\S)([^*\n]*?\S)\*/g, '$1')
+      // (0.6.328) Never a star between two figures: « en 1024*1024 et 512*512 » was said « en 10241024 et 512512 ».
+      .replace(/(?<!\d)\*(?=\S)([^*\n]*?\S)\*(?!\d)/g, '$1')
       .replace(/`([^`\n]+)`/g, '$1')
       .replace(/\s+/g, ' ')
       .trim()
