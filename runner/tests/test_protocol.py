@@ -358,6 +358,46 @@ class ProtocolTests(unittest.TestCase):
                     codes.append(json.loads(destination.getvalue().splitlines()[1])['error']['code'])
         self.assertEqual(codes, ['LIBRARIES_FAILED', 'LIBRARIES_FAILED', 'INVALID_REQUEST', 'GENERATION_FAILED'])
 
+    def test_a_library_that_wraps_what_stopped_its_import_is_still_a_library_that_would_not_import(self):
+        # (0.6.360) diffusers imports its modules when they are asked for, in a function, and says what stopped
+        # one in a RuntimeError raised from it: neither an ImportError nor a line of a module in its own trace.
+        # The environment was not checked again, and every creation failed the same way until the next start.
+        from runner.protocol import _code
+
+        def lazily(cause):
+            try:
+                try:
+                    raise cause
+                except Exception as error:
+                    said = f'Failed to import diffusers.models.x because of the following error:\n{error}'
+                    raise RuntimeError(said) from error
+            except RuntimeError as wrapped:
+                return wrapped
+
+        def handled(first, then):
+            # Raised while another was handled, without « from »: only its context, which says nothing of it.
+            try:
+                try:
+                    raise first
+                except Exception:
+                    raise then
+            except Exception as error:
+                return error
+
+        self.assertEqual(_code(lazily(ImportError('DLL load failed while importing _C'))), 'LIBRARIES_FAILED')
+        self.assertEqual(_code(lazily(ModuleNotFoundError("No module named 'sentencepiece'"))), 'LIBRARIES_FAILED')
+        # A cause of a cause, as far as four: beyond, it is no longer looked for.
+        self.assertEqual(_code(lazily(lazily(ImportError('x')))), 'LIBRARIES_FAILED')
+        deep = ImportError('x')
+        for _ in range(4):
+            deep = lazily(deep)
+        self.assertEqual(_code(deep), 'GENERATION_FAILED')
+        # What has another cause, or only a context, is the failure it always was.
+        self.assertEqual(_code(lazily(OSError('No space left on device'))), 'GENERATION_FAILED')
+        optional = ImportError('optional, not there')
+        self.assertEqual(_code(handled(optional, RuntimeError('out of memory'))), 'GENERATION_FAILED')
+        self.assertEqual(_code(handled(ImportError('optional'), ValueError('Invalid job'))), 'INVALID_REQUEST')
+
     def test_a_library_the_worker_cannot_import_as_it_starts_is_said_in_a_line_of_its_own(self):
         from runner import warm
 

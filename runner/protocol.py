@@ -143,14 +143,23 @@ def _import_failed(exc):
     """Whether a request stopped on a library that would not be imported (0.6.110): a module that is
     not there or does not open, or one whose own lines failed while it was imported (a DLL PyTorch
     cannot load is an OSError raised in the lines of its `__init__`). The application then checks
-    the whole environment again (lib/generation-service.mjs), as every start did before."""
-    if isinstance(exc, ImportError):
-        return True
-    trace = exc.__traceback__
-    while trace is not None:
-        if trace.tb_frame.f_code.co_name == '<module>':
+    the whole environment again (lib/generation-service.mjs), as every start did before.
+
+    (0.6.360) What it was raised from too (`raise … from`, four deep at most): diffusers imports its modules
+    when they are asked for, in a function, and wraps what stopped one in a RuntimeError. Never its context
+    alone: an error raised while an optional import was handled is no library that would not import, and the
+    application would start the engine again for it, the model it kept lost."""
+    for _ in range(4):
+        if exc is None:
+            return False
+        if isinstance(exc, ImportError):
             return True
-        trace = trace.tb_next
+        trace = exc.__traceback__
+        while trace is not None:
+            if trace.tb_frame.f_code.co_name == '<module>':
+                return True
+            trace = trace.tb_next
+        exc = exc.__cause__
     return False
 
 
