@@ -119,3 +119,32 @@ test('saved profiles from another OS stay readable without rewriting paths or bl
   assert.equal(response.status, 200);
   assert.equal((await response.json()).models[0].modelPath, modelPath);
 });
+
+test('a list of saved models that cannot be read does not stop the page: none listed, said, its file left (0.6.356)', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'atelier-models-broken-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, 'models.json'),
+    logged = [],
+    real = console.error;
+  console.error = (...said) => logged.push(said.join(' '));
+  t.after(() => (console.error = real));
+  const app = await createApplication({ port: 0, dataDir: directory });
+  t.after(() => app.close());
+  // Cut short, or of another shape: /api/bootstrap answered 500, and the page « Impossible de joindre le serveur local. ».
+  for (const damaged of ['{"version": 1, "models": [', '{"version": 2, "models": []}']) {
+    await writeFile(path, damaged);
+    const response = await fetch(app.url + '/api/bootstrap'),
+      body = await response.json();
+    assert.equal(response.status, 200, damaged);
+    assert.deepEqual(body.models, []);
+    assert.match(body.warning, /liste de vos modèles enregistrés est illisible/);
+    assert.equal(typeof body.token, 'string');
+    assert.equal(await readFile(path, 'utf8'), damaged);
+  }
+  console.error = real;
+  assert.equal(logged.filter(line => line.startsWith('Liste des modèles illisible')).length, 2);
+  // Whole again: listed, and nothing said.
+  await writeFile(path, JSON.stringify({ version: 1, models: [] }));
+  const body = await (await fetch(app.url + '/api/bootstrap')).json();
+  assert.deepEqual([body.models, body.warning], [[], '']);
+});

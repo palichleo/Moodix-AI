@@ -1194,6 +1194,19 @@ export async function createApplication({
             updating: applyingUpdate,
           });
         const native = await generation.snapshot();
+        // (0.6.356) A list of the models that cannot be read (its file damaged) is none listed, and said: it
+        // failed this answer, and the page then showed « Impossible de joindre le serveur local. », nothing
+        // working. Its file is left as it is.
+        let listed = [],
+          modelsWarning = '';
+        try {
+          listed = await models.list();
+        } catch (error) {
+          console.error('Liste des modèles illisible :', error.message);
+          modelsWarning =
+            'La liste de vos modèles enregistrés est illisible (models.json) : elle n’est pas affichée, ' +
+            'et son fichier est laissé tel quel.';
+        }
         return send(200, {
           application: 'atelier-local',
           ...sources,
@@ -1201,18 +1214,17 @@ export async function createApplication({
           token,
           config,
           instructions,
-          models: await models.list(),
+          models: listed,
           modelName:
-            (await models.list()).find(
-              item => item.modelPath === config.modelPath && item.projectorPath === config.projectorPath,
-            )?.name || modelFolderName(config.modelPath),
+            listed.find(item => item.modelPath === config.modelPath && item.projectorPath === config.projectorPath)
+              ?.name || modelFolderName(config.modelPath),
           preferences,
           status: status(),
           generation: native.config,
           runner: native.runner,
           workflows: native.workflows,
           platform: process.platform,
-          warning: configWarning,
+          warning: configWarning || modelsWarning,
           version: applicationVersion,
           updateNonce: process.env.ATELIER_UPDATE_NONCE || '',
           updating: applyingUpdate,
