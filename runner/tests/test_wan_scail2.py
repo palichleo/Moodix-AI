@@ -40,6 +40,46 @@ def inputs(frames=3, height=8, width=8):
     )
 
 
+class CharacterKeyTests(unittest.TestCase):
+    def test_what_clip_read_of_a_character_is_found_again_for_the_same_image_under_another_name(self):
+        # (0.6.381) Each creation is handed a copy of the image under a new name: told by its path and its date,
+        # what CLIP read of it was never found again.
+        import inspect
+        import os
+        import tempfile
+        from pathlib import Path
+
+        from runner.pipelines import wan_scail2
+
+        with tempfile.TemporaryDirectory() as folder:
+            clip = Path(folder, 'clip_vision_h.safetensors')
+            clip.write_bytes(b'clip')
+            first, second, other = (Path(folder, name) for name in ('a1.png', 'b2.png', 'c3.png'))
+            first.write_bytes(b'the character')
+            second.write_bytes(b'the character')
+            os.utime(second, (1_700_000_000, 1_700_000_000))
+            other.write_bytes(b'another one')
+            key = wan_scail2.character_key(clip, first)
+            self.assertEqual(wan_scail2.character_key(clip, second), key)
+            self.assertNotEqual(wan_scail2.character_key(clip, other), key)
+            # Another file of CLIP reads it its own way.
+            newer = Path(folder, 'clip_vision_g.safetensors')
+            newer.write_bytes(b'another clip')
+            self.assertNotEqual(wan_scail2.character_key(newer, first), key)
+            # Kept and found again through the cache of the engine, the reading made once.
+            config, made = dict(cacheRoot=str(Path(folder, 'cache'))), []
+
+            def read():
+                made.append(True)
+                return torch.ones(1, 4)
+
+            wan_scail2._cached(config, 'wan_scail2 image', wan_scail2.character_key(clip, first), read)
+            _value, kept = wan_scail2._cached(config, 'wan_scail2 image', wan_scail2.character_key(clip, second), read)
+            self.assertEqual((made, kept), ([True], 'kept from an earlier generation'))
+        # And it is what a creation tells it by.
+        self.assertIn("character_key(paths['clipVision'], reference_path),", inspect.getsource(wan_scail2))
+
+
 class ForwardTests(unittest.TestCase):
     def test_without_pose_an_animation_is_diffusers_own_computation_on_the_reference_then_the_video(self):
         model, given = small(), inputs()

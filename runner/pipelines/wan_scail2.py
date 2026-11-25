@@ -509,6 +509,20 @@ class _Model:
         torch.cuda.empty_cache()
 
 
+def character_key(clip_path, image_path):
+    """What tells the reading CLIP makes of the image of the character: the file of CLIP, and what the file of
+    the image holds, not where it is. (0.6.381) The application hands a copy of the image under a new name to
+    each creation: told by its path, its size and its date, that reading was never found again. CLIP ViT-H was
+    loaded for one image at every creation (1.2 GiB read), and an entry nobody would read written each time in
+    the cache of the prompts, pushing the useful ones out. As the start image of Wan 2.2 is told (0.6.135)."""
+    import hashlib
+    from pathlib import Path
+
+    from runner.models import conditioning
+
+    return conditioning.stamp(clip_path), hashlib.sha256(Path(image_path).read_bytes()).hexdigest()
+
+
 def _cached(config, name, parts, make):
     """A tensor kept on the disk for the same inputs and files (runner.models.conditioning)."""
     from runner.models import conditioning
@@ -603,7 +617,7 @@ def generate(job, config, progress):
         image, _kept = _cached(
             config,
             'wan_scail2 image',
-            (conditioning.stamp(paths['clipVision']), conditioning.stamp(reference_path)),
+            character_key(paths['clipVision'], reference_path),
             seen,
         )
         if masks_given(job):
