@@ -363,6 +363,16 @@ export function clock(seconds) {
   const whole = Math.max(0, Math.floor(seconds));
   return String(Math.floor(whole / 60)).padStart(2, '0') + ':' + String(whole % 60).padStart(2, '0');
 }
+/**
+ * « 06.04 », « 1:02.50 »: the instants and lengths of the page, in mono (maquette 70). (0.6.345) Written here,
+ * with the bobine, for the server to name a plan by its instants as the page does (lib/montages.mjs `planName`).
+ */
+export function mono(seconds) {
+  const value = Math.max(0, Math.round(seconds * 100) / 100);
+  if (value < 60) return value.toFixed(2).padStart(5, '0');
+  const minutes = Math.floor(value / 60);
+  return minutes + ':' + (value - minutes * 60).toFixed(2).padStart(5, '0');
+}
 
 // ------------------------------------------------------------------ plans to make (0.6.142)
 /**

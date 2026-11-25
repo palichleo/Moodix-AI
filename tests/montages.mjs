@@ -256,7 +256,8 @@ test('what the engine assembles is the montage with the file of each take (0.6.1
     // (A sound that starts after the end of the film, 10 s, is not part of it.)
     sounds: [{ path: 'D:\\sorties\\00000016.mp4', at: 0, from: 0, to: 30, volume: 0.4 }],
   });
-  assert.deepEqual(asked, ['Prise 1', 'Prise 2', 'Prise 3', 'Son 1']);
+  // (0.6.345) Each plan named by its instants, as the page shows them.
+  assert.deepEqual(asked, ['Prise de 00.00 à 05.00', 'Prise de 05.00 à 08.00', 'Prise de 08.00 à 10.00', 'Son 1']);
   // (0.6.149) With holes, each plan says its instant to the engine (runner/video/montage.py makes the
   // holes black and silent); a sound in a hole is part of the film.
   const holed = validateMontage(film({ plans: film().plans.map((plan, at) => ({ ...plan, at: [1, 7, 12][at] })), sounds: [late] }));
@@ -267,7 +268,7 @@ test('what the engine assembles is the montage with the file of each take (0.6.1
   const gone = async (source, label) => {
     throw new Error(`${label} : cette prise n’existe plus.`);
   };
-  await assert.rejects(assemblyOf(validateMontage(film()), gone), /Prise 1 : cette prise n’existe plus/);
+  await assert.rejects(assemblyOf(validateMontage(film()), gone), /Prise de 00.00 à 05.00 : cette prise n’existe plus/);
 });
 
 test('the film of a montage is assembled from the files of its takes and kept as a take of the conversation (0.6.136)', async () => {
@@ -326,11 +327,11 @@ test('the film of a montage is assembled from the files of its takes and kept as
   assert.equal(saved.outputs[0].take, 18);
   // A take that is gone, or of another project, stops the export by the plan that names it; nothing is kept.
   const lacking = validateMontage(film({ plans: [{ id: id(1), source: take(77), kind: 'video', from: 0, to: 2 }], sounds: [] }));
-  await assert.rejects(exportMontage({ montage: lacking, conversationId: C, fileOf, assemble, gallery }), /Prise 1 : cette prise n’existe plus/);
+  await assert.rejects(exportMontage({ montage: lacking, conversationId: C, fileOf, assemble, gallery }), /Prise de 00.00 à 02.00 : cette prise n’existe plus/);
   const elsewhere = takeFiles({ project, gallery, pathOf: async () => 'x', projectOf: async () => 'inbox' });
-  await assert.rejects(exportMontage({ montage: validateMontage(film()), conversationId: C, fileOf: elsewhere, assemble, gallery }), /Prise 1 : cette prise est d’un autre projet/);
+  await assert.rejects(exportMontage({ montage: validateMontage(film()), conversationId: C, fileOf: elsewhere, assemble, gallery }), /Prise de 00.00 à 05.00 : cette prise est d’un autre projet/);
   const unreadable = takeFiles({ project, gallery, pathOf: async () => Promise.reject(new Error('no file')), projectOf: async () => project });
-  await assert.rejects(exportMontage({ montage: validateMontage(film()), conversationId: C, fileOf: unreadable, assemble, gallery }), /Prise 1 : cette prise n’existe plus/);
+  await assert.rejects(exportMontage({ montage: validateMontage(film()), conversationId: C, fileOf: unreadable, assemble, gallery }), /Prise de 00.00 à 05.00 : cette prise n’existe plus/);
   await assert.rejects(exportMontage({ montage: validateMontage(film()), conversationId: C, fileOf, assemble: async () => ({ outputs: [] }), gallery }), /n’a pas rendu de film/);
   assert.equal(kept.length, 1);
 });
@@ -407,7 +408,7 @@ test('« Un fichier par prise »: the takes made, each alone, numbered in a fold
   let count = 0;
   const done = await exportTakes({ montage, fileOf, assemble, outputDir: dir, id: () => id(600 + count), name: () => `2026-11-20_03-00-0${count++}_bobine_ab12` });
   assert.deepEqual(done, { folder: 'bobines/Le pêcheur à l’aube', files: ['01.mp4', '02.mp4'] });
-  assert.deepEqual(labels, ['Prise 1', 'Prise 3']);
+  assert.deepEqual(labels, ['Prise de 00.00 à 03.00', 'Prise de 08.00 à 10.00']);
   assert.deepEqual(asked.map(({ request }) => [request.id, request.outputName, request.exportTo, request.width, request.fps, request.sounds, request.plans.map(plan => [plan.at, plan.kind, plan.from, plan.to, plan.frame, plan.volume])]), [
     [id(600), '2026-11-20_03-00-00_bobine_ab12', 'bobines/Le pêcheur à l’aube/01.mp4', 1344, 24, [], [[0, 'video', 1, 4, 'fill', 0.5]]],
     [id(601), '2026-11-20_03-00-01_bobine_ab12', 'bobines/Le pêcheur à l’aube/02.mp4', 1344, 24, [], [[0, 'image', 0, 2, 'fit', 1]]],
@@ -475,4 +476,28 @@ test('« Un fichier par prise » that cannot be done leaves no folder half fille
   asked.length = 0;
   await assert.rejects(exportTakes({ montage, fileOf, assemble, outputDir: dir }), /disque plein/);
   assert.deepEqual([await there(folder), await there(folder + ' 2')], [['01.mp4', '02.mp4', '03.mp4'], null]);
+});
+
+test('a take not found is named by its instants, as the page shows them, not by its place (0.6.345)', async t => {
+  const { exportMontage, exportTakes, takeFiles } = await import('../lib/montage-export.mjs');
+  const dir = await mkdtemp(join(tmpdir(), 'moodix-bobines-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  // The 13th take of the project is gone; the page shows it « Prise introuvable », from 12 to 17 s, after a
+  // take to create: « Prise 4 », its place, is the name the page gives to the 4th take of the project.
+  const takes = [11, 12, 13].map(n => ({ id: id(n), source: take(n), kind: 'video', from: 0, to: 5 })),
+    todo = { id: id(20), kind: 'video', todo: { prompt: 'Il lève les yeux.' }, from: 0, to: 2 },
+    found = runId => (runId === id(13) ? Promise.reject(new Error('gone')) : { outputs: [{ source: runId }] }),
+    gallery = { get: async (_, runId) => found(runId) },
+    pathOf = async source => `D:/sorties/${source}.mp4`,
+    fileOf = takeFiles({ project: 'inbox', gallery, pathOf, projectOf: async () => 'inbox' }),
+    assemble = async () => ({ outputs: [{ filename: 'x.mp4' }] });
+  const montage = validateMontage(film({ plans: [todo, ...takes], sounds: [] }));
+  await assert.rejects(exportTakes({ montage, fileOf, assemble, outputDir: dir }), {
+    message: 'Prise de 12.00 à 17.00 : cette prise n’existe plus.',
+  });
+  // The film, its takes made: from 10 to 15 s.
+  const made = validateMontage(film({ plans: takes, sounds: [] }));
+  await assert.rejects(exportMontage({ montage: made, conversationId: C, fileOf, assemble, gallery }), {
+    message: 'Prise de 10.00 à 15.00 : cette prise n’existe plus.',
+  });
 });

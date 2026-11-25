@@ -36,6 +36,7 @@ import {
   holeAt,
   isTodo,
   linkOf,
+  mono,
   montageSeconds,
   partsOf,
   placed,
@@ -82,13 +83,9 @@ const ZOOM_MAX = 16;
 const ZOOM_STEP = 1.5;
 // How near a cut of the film a sound dragged stops on it, in pixels of the timeline.
 const NEAR_PIXELS = 8;
-/** « 06.04 », « 1:02.50 »: the instants and lengths of the page, in mono (maquette 70). */
-export function mono(seconds) {
-  const value = Math.max(0, Math.round(seconds * 100) / 100);
-  if (value < 60) return value.toFixed(2).padStart(5, '0');
-  const minutes = Math.floor(value / 60);
-  return minutes + ':' + (value - minutes * 60).toFixed(2).padStart(5, '0');
-}
+// « 06.04 », « 1:02.50 »: the instants and lengths of the page. (0.6.345) Written with the bobine
+// (public/montage-model.mjs), where the server reads it too.
+export { mono };
 const plural = (count, one, many = one + 's') => `${count} ${count > 1 ? many : one}`;
 // (0.6.162) The earlier requests of a bobine said again to Moodix AI with a new one: the last ones.
 const ASKS = 3;
