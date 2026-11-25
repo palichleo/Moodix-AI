@@ -251,3 +251,24 @@ test('the numbers of a list of takes or of references are no length: « les pris
   ])
     assert.equal(inventedLength([user(text)]), false, text);
 });
+
+test('a length said right after the name of a model is kept: « sur ltx 8 s » (0.6.307)', async () => {
+  const { inventedLength } = await import('../lib/tool-runtime.mjs');
+  const user = content => ({ role: 'user', content });
+  // The number was taken for the version of the model, and the « s » left alone says nothing: the eight
+  // seconds asked for were erased, and the video made with the length of its workflow.
+  for (const text of [
+    'anime #ref1 sur ltx 8 s',
+    'avec minimax 6 s',
+    'sur wan 5 s',
+    'sur ltx 12 sec',
+    'avec Krea 2 min',
+    'sur LTX-2.5 8 s',
+    'anime #ref1 avec LTX 2.5 8 s',
+    'sur wan 2.2 5 secondes',
+  ])
+    assert.equal(inventedLength([user(text)]), false, text);
+  // The version of a model is still no length.
+  for (const text of ['prolonge-la avec LTX 2.5', 'sur wan 2.2', 'avec MiniMax H3 Omni', 'pars de l’image faite avec Krea 2', 'sur ltx 2'])
+    assert.equal(inventedLength([user(text)]), true, text);
+});
