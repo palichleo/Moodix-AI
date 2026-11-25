@@ -218,8 +218,10 @@ export function setupLibrary({
       const head = node('span', 'library-sound-head'),
         wave = node('span', 'library-wave');
       head.setAttribute('aria-hidden', 'true');
+      // (0.6.348) Its number written by tile, at each reading.
+      kept.number = node('span', '');
       head.append(
-        node('span', '', Number.isInteger(output.take) ? 'PRISE ' + output.take : 'SON'),
+        kept.number,
         node('span', '', /musi|ace-?step|song/i.test(record.workflowName || '') ? 'MUSIQUE' : 'BRUITAGE'),
       );
       wave.setAttribute('aria-hidden', 'true');
@@ -285,13 +287,10 @@ export function setupLibrary({
     // (0.6.147) The bin at its top left, under the pointer, as in the Sortie of the Studio: on every
     // take, those of the Studio of before and of a conversation never saved too.
     if (remove) {
-      const bin = node('button', 'library-del'),
-        take = output.take;
+      const bin = node('button', 'library-del');
       bin.type = 'button';
       bin.append(icon('trash'));
-      // (0.6.198) « Prise 12 », as its badge says it (« Image #12 » before); without a number, what it is.
-      kept.name = Number.isInteger(take) ? 'Prise ' + take : (NAMES[media] ?? 'Création');
-      bin.setAttribute('aria-label', 'Supprimer · ' + kept.name);
+      // (Its name written by tile, at each reading.)
       bin.onclick = () => ask(kept);
       kept.bin = bin;
       held(kept);
@@ -426,6 +425,14 @@ export function setupLibrary({
     }
     // For a screen reader, everything at once: its take (its kind without one), its prompt, where it was made and when.
     const take = record.outputs?.[0]?.take;
+    // (0.6.348) Its number may change from one reading to the next (its conversation gone to another project, a
+    // project deleted): the card is kept, « PRISE 7 » stayed at the head of a sound and on its bin.
+    if (kept.number) kept.number.textContent = Number.isInteger(take) ? 'PRISE ' + take : 'SON';
+    if (kept.bin) {
+      // (0.6.198) « Prise 12 », as its badge says it (« Image #12 » before); without a number, what it is.
+      kept.name = Number.isInteger(take) ? 'Prise ' + take : (NAMES[kept.media] ?? 'Création');
+      kept.bin.setAttribute('aria-label', 'Supprimer · ' + kept.name);
+    }
     kept.pick.setAttribute(
       'aria-label',
       [Number.isInteger(take) ? 'Prise ' + take : (NAMES[kept.media] ?? 'Création'), record.prompt || '', where, date(record.createdAt)]

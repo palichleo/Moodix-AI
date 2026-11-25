@@ -967,3 +967,27 @@ test('(0.6.154) the bobines put in the Archives: among the takes at their date, 
   bare.library.choose({ media: 'bobine' });
   assert.equal(bare.$('library-empty').children[0].textContent, 'Aucune bobine ici : « Enregistrer », dans la Bobine, en range une dans les Archives.');
 });
+
+test('a take numbered again (its conversation moved) is said with its new number on its card (0.6.348)', async () => {
+  // The card is kept from one reading to the next: « PRISE 7 » at the head of a sound and on its bin stayed, its
+  // name for a screen reader said « Prise 12 ».
+  const sound = { ...RUNS[2], conversationId: 'c1', outputs: [output('c1', 'r3', { take: 7 })] },
+    runs = [sound],
+    f = fixture({ runs, remove: async () => true });
+  await f.library.show();
+  const said = () => {
+    const tile = card(f, 'r3'),
+      head = find(tile, 'library-sound-head').children.map(item => item.textContent);
+    return [head, find(tile, 'library-del').attributes['aria-label']];
+  };
+  assert.deepEqual(said(), [['PRISE 7', 'BRUITAGE'], 'Supprimer · Prise 7']);
+  const first = card(f, 'r3');
+  runs[0] = { ...sound, projectId: 'inbox', outputs: [output('c1', 'r3', { take: 12 })] };
+  f.library.choose({ project: 'all' });
+  await f.library.refresh();
+  assert.deepEqual(said(), [['PRISE 12', 'BRUITAGE'], 'Supprimer · Prise 12']);
+  // The same card (a sound that plays goes on), and its question says it so too.
+  assert.equal(card(f, 'r3'), first);
+  find(card(f, 'r3'), 'library-del').onclick();
+  assert.equal(find(card(f, 'r3'), 'studio-confirm-text').textContent, 'Supprimer la prise 12 ?');
+});
