@@ -3365,3 +3365,35 @@ test('a creation of the Studio that makes nothing in a new conversation shows it
   // A take made: its line in the conversation, no welcome.
   assert.deepEqual(await create(async () => made(undefined, 'image')), [1, true]);
 });
+
+test('the conversation set aside, opened from the Archives, is shown in the Chat at once (0.6.335)', async () => {
+  // Its turn goes on; another is shown, and the Archives are on screen. Opened from the list (not the miniature).
+  const nodes = new El('fragment');
+  nodes.append(new El('article', 'message user', 'Fais un renard'), new El('article', 'message assistant', '…'));
+  const draft = { text: '', images: [], videos: [] },
+    messages = [{ role: 'user', content: 'Fais un renard' }],
+    aside = { conversationId: ID, projectId: 'inbox', messages, draft, nodes },
+    shown = page({
+      state: {
+        view: 'library',
+        conversationId: ELSEWHERE,
+        messages: [
+          { role: 'user', content: 'B' },
+          { role: 'assistant', content: 'b' },
+        ],
+        historyItems: [
+          { id: ID, title: 'Renard', projectId: 'inbox' },
+          { id: ELSEWHERE, title: 'B', projectId: 'inbox' },
+        ],
+        work: { kind: 'turn', conversationId: ID },
+        generating: true,
+        hushLibrary() {},
+        aside: { ...aside, conversationInstructions: '', archiveSnapshot: null, historyDirty: false, title: 'Renard' },
+      },
+    });
+  // The view each drawing of the navigation reads (it sets the screen: body[data-view]).
+  const drawnFor = [];
+  shown.context.projectUI.render = () => drawnFor.push(shown.state.view);
+  await shown.context.loadConversation(ID);
+  assert.deepEqual([shown.state.conversationId, shown.state.view, drawnFor.at(-1)], [ID, 'chat', 'chat']);
+});

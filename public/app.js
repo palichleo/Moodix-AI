@@ -860,6 +860,9 @@ async function loadConversation(id) {
     if (returning) {
       takeBackAside(returning);
       leaveLibrary();
+      // Drawn again for the Chat, as the one shown is (0.6.335): drawn last while the Archives were the view
+      // (takeBackAside, its title), the screen stayed on them, the line of the tabs under « Chat ».
+      projectUI.render();
       turnActions();
       $('settings').close();
       renderAttachments();
