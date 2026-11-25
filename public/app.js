@@ -3525,10 +3525,14 @@ async function sendMessage(event) {
   if (state.generating) {
     // A proposal of Moodix waits (a card, or the Studio): this message answers it instead, and
     // the card goes (Moodix answers with another).
+    const written = state.conversationId;
     if (state.proposalCard) state.proposalCard.decline();
     else if (!state.studio?.decline?.()) return;
     await state.turnEnded;
     if (state.generating) return;
+    // Another conversation opened while that turn ended, or the box emptied (0.6.332): what the box holds now
+    // is not this message (the draft of the other one left in it). Its own waits in the draft of its conversation.
+    if (!shownHere(written) || (!$('prompt').value.trim() && !state.images.length && !state.videos.length)) return;
   }
   // A remote model chosen (remote-llm-ui.mjs) needs neither engine nor file.
   if (!state.status?.remote && (!state.config.enginePath || !state.config.modelPath)) {

@@ -3300,3 +3300,41 @@ test('text pasted from Word or Excel stays text, never joined as the picture tha
   assert.equal(paste([picture], ' \n'), false);
   assert.deepEqual(added.map(file => file.name), ['image.png', 'image.png']);
 });
+
+test('a message that answers a card leaves only from where it was written (0.6.332)', async () => {
+  const proposal = [
+      { role: 'user', content: 'Fais une vidéo' },
+      { role: 'assistant', content: 'Voici ma proposition.' },
+    ],
+    // Entrée while a card of Moodix waits: the card goes, the message waits for the end of its turn.
+    answering = () => {
+      const shown = page({ state: { conversationId: ID, generating: true, messages: [...proposal] } });
+      let end;
+      shown.state.proposalCard = { decline() {} };
+      shown.state.turnEnded = new Promise(resolve => (end = resolve));
+      shown.$('prompt').value = 'Non, plutôt la nuit';
+      const sending = shown.send();
+      const over = () => {
+        Object.assign(shown.state, { generating: false, proposalCard: null });
+        end();
+        return sending;
+      };
+      return Object.assign(shown, { over });
+    };
+  // Another conversation opened meanwhile (its draft in the box): that draft is not sent in its place.
+  const opened = answering();
+  opened.state.conversationId = ELSEWHERE;
+  opened.state.messages = [{ role: 'user', content: 'Conversation B' }];
+  opened.$('prompt').value = 'brouillon de B, pas fini';
+  await opened.over();
+  assert.deepEqual([opened.requests.length, opened.$('prompt').value], [0, 'brouillon de B, pas fini']);
+  // The box emptied meanwhile: nothing leaves (an empty message went, refused by the server).
+  const emptied = answering();
+  emptied.$('prompt').value = '';
+  await emptied.over();
+  assert.equal(emptied.requests.length, 0);
+  // Nothing changed: it answers the card, as before.
+  const kept = answering();
+  await kept.over();
+  assert.equal(kept.requests.at(-1).messages.at(-1).content, 'Non, plutôt la nuit');
+});
