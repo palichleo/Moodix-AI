@@ -343,6 +343,66 @@ class FilmTests(Folder):
             montage.assemble(asked, self.config, lambda **data: None)
         self.assertEqual(file.stat().st_size, size)
 
+    def test_a_film_too_long_for_one_command_line_is_read_from_the_folder_of_the_outputs_0_6_383(self):
+        import imageio.v3 as iio
+        from unittest import mock
+
+        from runner.video.stream import probe
+
+        def made(name):
+            """(the command ffmpeg was started with, where it was started, the film)"""
+            asked = self.asked(watermark='eclipse', outputName='2026-11-26_03-00-00_montage_' + name)
+            with mock.patch.object(subprocess, 'Popen', wraps=subprocess.Popen) as started:
+                result = montage.assemble(asked, self.config, lambda **data: None)
+            (command,), options = started.call_args
+            film = self.root / 'video' / result['outputs'][0]['filename']
+            # (The other tests count what the folder of the videos holds.)
+            self.addCleanup(film.unlink, missing_ok=True)
+            return command, options['cwd'], film
+
+        def named(command, *flags):
+            return [part for before, part in zip(command, command[1:]) if before in flags]
+
+        files = lambda command: named(command, '-i')  # noqa: E731
+        mark = montage.watermark_place('eclipse', 320, 180)[0]
+        # A film that fits is asked as it was: each file by its whole path, ffmpeg started where the engine is.
+        whole, folder, film = made('aa01')
+        self.assertEqual(files(whole), [self.silent, self.heard, self.image, self.music, mark])
+        self.assertEqual(whole[-1], str(self.root / '2026-11-26_03-00-00_montage_aa01.tmp.mp4'))
+        self.assertIsNone(folder)
+        # One character too long that way: ffmpeg is started in the folder of the outputs, each file of the
+        # outputs named from there, the watermark (a file of the engine) by its whole path.
+        with mock.patch.object(montage, 'LONGEST_COMMAND', montage._long(whole) - 1):
+            near, folder, short = made('aa02')
+        self.assertEqual(folder, str(self.root))
+        self.assertEqual(
+            files(near), ['./video/silent.mp4', './video/heard.mp4', './image/red.png', './son/music.wav', mark]
+        )
+        self.assertEqual(near[-1], './2026-11-26_03-00-00_montage_aa02.tmp.mp4')
+        self.assertLess(montage._long(near), montage._long(whole))
+        # But for the files (those read, the graph, the film), the same command.
+        rest = lambda command: [  # noqa: E731
+            part for part in command[:-1] if part not in named(command, '-i', '-filter_complex_script')
+        ]
+        self.assertEqual(rest(near), rest(whole))
+        # The same film: its size, its sound, its pictures.
+        found = probe(short)
+        self.assertEqual((found['width'], found['height'], float(found['fps']), found['audio']), (320, 180, 24.0, True))
+        frames, first = iio.imread(short).astype(int), iio.imread(film).astype(int)
+        self.assertEqual(len(frames), 84)
+        for index in (10, 48, 75):
+            self.assertLess(abs(frames[index] - first[index]).max(), 12, index)
+        # Still too long from there: refused as before, nothing left in the outputs.
+        with mock.patch.object(montage, 'LONGEST_COMMAND', montage._long(near) - 1):
+            with self.assertRaisesRegex(ValueError, 'trop de plans pour un seul export'):
+                made('aa03')
+        self.assertFalse([path.name for path in self.root.rglob('*.tmp.mp4')])
+        self.assertFalse([path.name for path in self.root.rglob('*aa03*')])
+        # « ./ » before every name: a file of the outputs is never read as an option nor as a protocol.
+        self.assertEqual(montage._near(self.root / '-i.mp4', self.root), './-i.mp4')
+        self.assertEqual(montage._near(self.root / 'video' / 'a b.mp4', self.root), './video/a b.mp4')
+        self.assertEqual(montage._near(mark, self.root), mark)
+
     def test_the_worker_assembles_a_film_asked_over_its_protocol(self):
         import sys
 

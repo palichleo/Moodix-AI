@@ -346,6 +346,20 @@ def _audible(path):
         return any(stream.type == 'audio' for stream in source.streams)
 
 
+def _near(path, root):
+    """(0.6.383) A file of the outputs as ffmpeg names it once started in that folder (« ./video/x.mp4 »),
+    any other file as it is. With « ./ », a name is never read as an option nor as a protocol."""
+    try:
+        return './' + Path(path).relative_to(root).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def _long(command):
+    """What a command takes of the line Windows gives a program: each part, its quotes and its space."""
+    return sum(len(part) + 3 for part in command)
+
+
 def assemble(params, config, progress):
     """Writes the film and its manifest as a creation of the outputs; returns what a generation
     returns: {jobId, outputs: [descriptor], metadata}."""
@@ -375,19 +389,28 @@ def assemble(params, config, progress):
         with tempfile.NamedTemporaryFile('w', suffix='.txt', delete=False, encoding='utf-8') as held:
             held.write(filters)
             script = held.name
-        command = [
-            imageio_ffmpeg.get_ffmpeg_exe(), '-nostdin', '-v', 'error', '-y', '-progress', 'pipe:1', '-nostats',
-            *inputs, '-filter_complex_script', script, '-map', '[film]', '-map', sound,
-            '-r', str(plan['fps']), '-fps_mode', 'cfr', '-c:v', 'libx264', '-crf', '18', '-pix_fmt', 'yuv420p',
-            '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', str(temporary),
-        ]  # fmt: skip
-        if sum(len(part) + 3 for part in command) > LONGEST_COMMAND:
+        def command(read, written):
+            return [
+                imageio_ffmpeg.get_ffmpeg_exe(), '-nostdin', '-v', 'error', '-y', '-progress', 'pipe:1', '-nostats',
+                *read, '-filter_complex_script', script, '-map', '[film]', '-map', sound,
+                '-r', str(plan['fps']), '-fps_mode', 'cfr', '-c:v', 'libx264', '-crf', '18', '-pix_fmt', 'yuv420p',
+                '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', written,
+            ]  # fmt: skip
+
+        said, folder = command(inputs, str(temporary)), None
+        if _long(said) > LONGEST_COMMAND:
+            # (0.6.383) Too long with the whole path of every file (200 plans and 64 sounds, the folder of the
+            # outputs far down the disk: the film was refused): ffmpeg is started in the folder of the outputs
+            # and reads each file from there. Only then: a film that fitted is asked as it was.
+            near = [_near(part, root) if before == '-i' else part for before, part in zip([None, *inputs], inputs)]
+            said, folder = command(near, _near(temporary, root)), str(root)
+        if _long(said) > LONGEST_COMMAND:
             raise ValueError('Ce montage compte trop de plans pour un seul export.')
         errors = tempfile.TemporaryFile()
         hidden = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
         told = 0.0
-        piped = dict(stdout=subprocess.PIPE, stderr=errors, text=True, creationflags=hidden)
-        with subprocess.Popen(command, **piped) as process:
+        piped = dict(stdout=subprocess.PIPE, stderr=errors, text=True, creationflags=hidden, cwd=folder)
+        with subprocess.Popen(said, **piped) as process:
             for line in process.stdout:
                 name, _, value = line.strip().partition('=')
                 if name == 'out_time_us' and value.lstrip('-').isdigit() and time.perf_counter() - told > 0.4:
