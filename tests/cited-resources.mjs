@@ -123,3 +123,29 @@ test('a draft promoted is not asked for the image the user names: it takes the i
   // The same request without a draft is still asked for it.
   assert.deepEqual(citedUnused([user('fais la version finale, avec la ref6')], catalog, startOnly), [stairs]);
 });
+
+test('several references named after one word are all cited: « les refs 5 et 6 » (0.6.305)', async () => {
+  const { citedNumbers } = await import('../lib/cited-resources.mjs');
+  const numbers = text => citedNumbers([user(text)]);
+  // Only the first number was read.
+  assert.deepEqual(numbers('anime les refs 1 et 2'), [1, 2]);
+  assert.deepEqual(numbers('mélange la ref 1 et 2'), [1, 2]);
+  assert.deepEqual(numbers('avec les références 1, 2 et 3'), [1, 2, 3]);
+  assert.deepEqual(numbers('les refs n°1, #2, et n°3 puis ref 6'), [1, 2, 3, 6]);
+  assert.deepEqual(numbers('refs 1 & 2 and 3'), [1, 2, 3]);
+  assert.deepEqual(numbers('#ref1 et #ref2'), [1, 2]);
+  // A number after a comma alone is not a reference (eight seconds), nor one with its unit, nor a format,
+  // a size or a number with a comma of its own.
+  assert.deepEqual(numbers('anime #ref1, 8'), [1]);
+  assert.deepEqual(numbers('anime les refs 1 et 2, 8'), [1, 2]);
+  for (const text of ['la ref 1 et 8 s', 'la ref 1 et 8 secondes', 'ref 1 et 2 min', 'ref 1 et 16:9', 'ref 1 et 16/9'])
+    assert.deepEqual(numbers(text), [1], text);
+  for (const text of ['ref 1 et 1152 x 2048', 'ref 1 et 1152×2048', 'ref 1 et 2.5', 'la ref1 et 12345'])
+    assert.deepEqual(numbers(text), [1], text);
+  // A long run of blanks after a label costs nothing.
+  assert.deepEqual(numbers('ref 5' + ' '.repeat(50_000) + 'et'), [5]);
+  // The second one left out of the call is said, as when each is written with its « #ref ».
+  assert.deepEqual(citedUnused([user('anime les refs 5 et 6')], catalog, startOnly), [stairs]);
+  assert.deepEqual(citedUnused([user('les refs 5 et 6')], catalog, call({ prompt: 'x' })), [girl, stairs]);
+  assert.deepEqual(citedImages([user('avec les références 5, 6 et 7')], catalog), [girl, stairs]);
+});
