@@ -309,6 +309,9 @@ export function setupTakeRecovery({
         } catch {
           // Unreadable now: completed when it is opened next.
         }
+        // A work of this page begun in it meanwhile (a message sent, 0.6.334) writes its own messages, as
+        // above: drawn again from these, its message left the page and its snapshot was replaced.
+        if (state.work?.conversationId === id) return;
         let messages = holderOf(id).messages ?? [],
           changed = false;
         for (const item of runs ? done : []) {

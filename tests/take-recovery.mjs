@@ -832,3 +832,18 @@ test('another tab\'s series kept in the page while its next image is awaited: a 
     'its message only in the box, as « Modifier » left it',
   );
 });
+
+test('a turn begun in the conversation while its takes are read writes its own messages (0.6.334)', async () => {
+  const { state, seen, recovery, views } = page({ runs: [take('r1', 'call_1')] });
+  const completing = recovery.complete(ID, views());
+  // The user sends a message while the gallery answers (sendMessage): the turn holds the conversation,
+  // its message drawn, its snapshot kept. Drawn again from the messages read before, that message left the page.
+  const turn = { messages: [...state.messages, { role: 'user', content: 'Et en bleu ?' }], incomplete: true };
+  Object.assign(state, { generating: true, work: { kind: 'turn', conversationId: ID }, archiveSnapshot: turn });
+  await completing;
+  assert.deepEqual([seen.rendered, seen.saves.length, state.archiveSnapshot === turn], [0, 0, true]);
+  // The take is given to its call at the next opening, as for any work of this page (the guard before the wait).
+  state.work = null;
+  await recovery.complete(ID, views());
+  assert.equal(JSON.parse(state.messages[2].content).run_id, 'r1');
+});
