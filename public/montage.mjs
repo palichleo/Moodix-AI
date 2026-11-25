@@ -1401,7 +1401,9 @@ export function setupMontage({
    */
   function modelOf(id) {
     const plan = itemOf(id);
-    if (!plan || !estimate) return null;
+    // (0.6.347) Not for a take made meanwhile (its line still drawn, sayModels): read as one to create, it
+    // threw, and the answer of the server just come for its kind was thrown away with it, asked again later.
+    if (!plan || !isTodo(plan) || !estimate) return null;
     const probe = plan.todo.prompt.trim() ? montage : withItemChanged(montage, id, { prompt: 'Prise.' }),
       wanted = creationOf(probe, id, lengthOf, { limits: limits() });
     if (wanted.reason) return null;

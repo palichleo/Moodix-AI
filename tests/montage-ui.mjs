@@ -4355,3 +4355,36 @@ test('a model said missing is asked again when the settings close or the page is
   const shown = h.get('bobine-go-download')[0];
   assert.deepEqual([h.ui.state().downloading?.stage, shown.textContent], ['running', '5,0 / 20,0 Go']);
 });
+
+test('the model of a take is not looked for once it is made: the answer of the server is kept (0.6.347)', async () => {
+  // The answer comes while the take made is kept, the cursor in « À créer »: its line, a take made now, was
+  // read as one to create (`plan.todo.prompt`), and the answer just come was thrown away, asked again later.
+  const todo = { id: id(901), at: 0, kind: 'video', todo: { prompt: 'Il court.' }, from: 0, to: 5, frame: 'fit' },
+    film = { schemaVersion: 1, id: id(900), name: 'A', format: '16:9', width: 1344, height: 768, fps: 24, sounds: [] },
+    turns = async (count = 4) => {
+      for (let turn = 0; turn < count; turn++) await settle();
+    };
+  let asked = 0,
+    told = null,
+    done = null;
+  const f = await setup({
+    stored: [{ ...film, plans: [todo], updatedAt: '2026-11-20T03:00:00.000Z' }],
+    create: () => new Promise(resolve => (done = resolve)),
+    estimate: () => (asked++, new Promise(resolve => (told = resolve))),
+  }).open();
+  await turns();
+  f.goMain().onclick();
+  await turns();
+  f.goMain().focus();
+  const record = { ...made(50, 121), createdAt: '2026-11-20T04:00:00.000Z' };
+  f.runs.push(record);
+  done(record);
+  told({ workflowName: 'LTX 2.5' });
+  await turns(8);
+  // Another take to create of the same kind, drawn in the void: its model is known, not asked again.
+  f.pressVoid(800);
+  f.pointer.move(900);
+  f.pointer.up();
+  await turns();
+  assert.deepEqual([f.ui.state().montage.plans.map(plan => Boolean(plan.todo)), asked], [[false, true], 1]);
+});
