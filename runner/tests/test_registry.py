@@ -46,6 +46,32 @@ class RegistryTests(unittest.TestCase):
                 template = manifest['template']
                 self.assertTrue(set(template['parameters']) <= set(manifest['parameters']))
 
+    def test_a_manifest_that_cannot_be_read_leaves_no_half_list_of_the_families(self):
+        # (0.6.368) Those read before it stayed in the cache: asked again, the families were these alone.
+        import tempfile
+        from unittest.mock import patch
+
+        from runner import registry
+
+        with tempfile.TemporaryDirectory() as folder:
+            Path(folder, 'alpha.json').write_text(json.dumps({'family': 'alpha'}), encoding='utf-8')
+            Path(folder, 'beta.json').write_text('{"family": "beta",', encoding='utf-8')
+            Path(folder, 'gamma.json').write_text(json.dumps({'family': 'gamma'}), encoding='utf-8')
+            with patch.object(registry, 'FAMILIES', Path(folder)), patch.object(registry, '_cache', {}):
+                for _ in range(2):
+                    with self.assertRaises(ValueError):
+                        registry.families()
+                    self.assertEqual(registry._cache, {})
+                # Mended, they are all there.
+                Path(folder, 'beta.json').write_text(json.dumps({'family': 'beta'}), encoding='utf-8')
+                self.assertEqual(sorted(registry.families()), ['alpha', 'beta', 'gamma'])
+                # A manifest that names another family than its file leaves none either.
+                registry._cache.clear()
+                Path(folder, 'gamma.json').write_text(json.dumps({'family': 'delta'}), encoding='utf-8')
+                with self.assertRaisesRegex(ValueError, 'gamma.json must declare family "gamma"'):
+                    registry.families()
+                self.assertEqual(registry._cache, {})
+
     def test_family_modules_import_without_torch(self):
         code = (
             'import sys; from runner.registry import families, pipeline\n'

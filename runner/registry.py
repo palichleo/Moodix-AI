@@ -23,11 +23,15 @@ _cache = {}
 def families():
     """All manifests by family name, read once per process."""
     if not _cache:
+        # (0.6.368) Read whole before any of them is kept: a manifest that could not be read left those before
+        # it in the cache, and the next call answered with these alone, as if they were all there were.
+        found = {}
         for path in sorted(FAMILIES.glob('*.json')):
             manifest = json.loads(path.read_text(encoding='utf-8'))
             if manifest.get('family') != path.stem or not NAME.match(path.stem):
                 raise ValueError(f'Family manifest {path.name} must declare family "{path.stem}"')
-            _cache[path.stem] = manifest
+            found[path.stem] = manifest
+        _cache.update(found)
     return _cache
 
 
