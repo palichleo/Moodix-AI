@@ -501,3 +501,39 @@ test('a take not found is named by its instants, as the page shows them, not by 
     message: 'Prise de 10.00 à 15.00 : cette prise n’existe plus.',
   });
 });
+
+test('an unreadable bobine is not written over, and goes to the corbeille as it is when asked (0.6.351)', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'moodix-montages-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const montages = new Montages({ dir }),
+    project = '22222222-2222-4222-8222-222222222222',
+    path = n => join(dir, project, id(n) + '.json'),
+    bytes = () => Promise.all([900, 901].map(n => readFile(path(n), 'utf8')));
+  // A file damaged (a hand, a disk) and one a rule of today refuses, while the page holds what it read before.
+  await mkdir(join(dir, project));
+  await writeFile(path(900), `{"schemaVersion": 1, "id": "${id(900)}", "name": `);
+  await writeFile(path(901), JSON.stringify({ ...film({ id: id(901) }), format: '2.39:1' }));
+  const before = await bytes();
+  for (const [n, said] of [
+    [900, /abîmé/],
+    [901, /Format de bobine inconnu/],
+  ]) {
+    await assert.rejects(montages.save(project, film({ id: id(n) })), { status: 409, message: /ne se lit plus/ });
+    await assert.rejects(montages.save(project, film({ id: id(n) }), { archive: true }), { status: 409 });
+    await assert.rejects(montages.read(project, id(n)), { status: 400, message: said });
+  }
+  assert.deepEqual(await bytes(), before, 'nothing written over them');
+  // Asked to go: each set aside as it is, as any bobine.
+  for (const n of [900, 901]) assert.deepEqual(await montages.remove(project, id(n)), { removed: id(n) });
+  const aside = join(dir, project, 'corbeille'),
+    names = (await readdir(aside)).sort();
+  assert.deepEqual(
+    names.map(name => name.slice(0, 36)),
+    [id(900), id(901)],
+  );
+  assert.deepEqual(await Promise.all(names.map(name => readFile(join(aside, name), 'utf8'))), before);
+  await assert.rejects(montages.remove(project, id(900)), { status: 404 });
+  await assert.rejects(montages.remove(project, '../' + id(900)), { status: 400, message: /identifiant invalide/ });
+  // Its place free, the bobine the page holds is kept there anew.
+  assert.equal((await montages.save(project, film())).name, 'Le pêcheur à l’aube');
+});
