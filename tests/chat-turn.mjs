@@ -3180,3 +3180,21 @@ test('the draft comes back whole after « Redémarrer »: its videos, its projec
   both.context.restoreSession(kept({ conversationId: ID, messages: exchange, videos: [] }));
   assert.deepEqual(plain([both.state.aside.draft.videos, both.state.videos]), [[video], []]);
 });
+
+test('the Bobine left for the Chat another way than by its tab is left as by its tab (0.6.296)', () => {
+  // (Another project chosen in the fil, a conversation opened from it: the view changed without a word to
+  // the Bobine, which keeps then what it has not kept yet and stops what plays.)
+  let left = 0,
+    hushed = 0;
+  const studio = { bobine: () => ({ leave: () => void left++ }) },
+    leaving = view => {
+      const shown = page({ state: { view, studio, hushLibrary: () => void hushed++ } });
+      shown.context.leaveLibrary();
+      return shown.state.view;
+    };
+  assert.deepEqual([leaving('bobine'), left, hushed], ['chat', 1, 0]);
+  // The Archives as before (their sound stops); the Studio on screen stays; the Chat is the Chat.
+  assert.deepEqual([leaving('library'), left, hushed], ['chat', 1, 1]);
+  assert.deepEqual([leaving('studio'), left, hushed], ['studio', 1, 1]);
+  assert.deepEqual([leaving('chat'), left, hushed], ['chat', 1, 1]);
+});

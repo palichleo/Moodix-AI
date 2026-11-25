@@ -800,6 +800,9 @@ function savedUser(message) {
 function leaveLibrary() {
   if (state.view === 'studio') return;
   if (state.view === 'library') state.hushLibrary?.();
+  // (0.6.296) The Bobine left this way (another project chosen in the fil, a conversation opened) is left as
+  // by its tab: what it has not kept yet is kept, nothing goes on playing behind the Chat.
+  if (state.view === 'bobine') void state.studio?.bobine?.().leave();
   state.view = 'chat';
   tabLine();
 }

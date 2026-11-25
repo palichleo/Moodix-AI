@@ -4245,3 +4245,59 @@ test('a bobine asked from the Archives is not opened in the place of one whose t
     [true, open, 'Moodix AI écrit dans cette bobine : attendez la fin pour en ouvrir une autre.'],
   );
 });
+
+test('a bobine is kept in the project it was read from, whatever project the page shows meanwhile (0.6.296)', async () => {
+  const sent = f => f.saves().map(call => [call.body.project, call.body.montage.plans.length, call.body.archive === true]),
+    turns = async () => {
+      for (let i = 0; i < 6; i++) await settle();
+    },
+    changed = async (options = {}) => {
+      const f = await setup(options).open();
+      f.get('montage-take')[0].ondblclick();
+      return f;
+    };
+  // Another project chosen in the fil just after a change. The page says it at once, and reads its bobines a
+  // moment later: kept in between, the bobine was written in the other project, its change missing in its own.
+  const f = await changed();
+  f.move('p2');
+  await f.later();
+  assert.deepEqual(sent(f), [['inbox', 1, false]]);
+  // « Enregistrer » the same.
+  const archived = await changed();
+  archived.move('p2');
+  await archived.ui.archive();
+  assert.deepEqual(sent(archived), [['inbox', 1, true]]);
+
+  // The bobines of the other project read before the timer of the change: it was let go with the bobine, never kept.
+  const g = await changed();
+  g.move('p2');
+  g.ui.refreshed();
+  await turns();
+  assert.deepEqual(sent(g), [['inbox', 1, false]]);
+  await g.later();
+  assert.equal(g.saves().length, 1, 'kept once: nothing of it is kept again from the other project');
+
+  // Its answer comes once the other project is on the page: nothing of it is taken for a bobine of that one
+  // (whose own cannot be read here: the page is as it says).
+  const fail = {},
+    k = await changed({ fail });
+  fail['montages/p2'] = 'Projet illisible.';
+  k.move('p2');
+  k.ui.refreshed();
+  await turns();
+  assert.deepEqual(
+    [sent(k), k.ui.state().stored, k.ui.state().list, k.ui.state().status],
+    [[['inbox', 1, false]], false, [], 'Bobines illisibles : Projet illisible.'],
+  );
+  // Refused then: said, since this page will not try again for it; the other project is not said « Non gardée ».
+  const refusing = {},
+    r = await changed({ fail: refusing });
+  refusing['montages/save'] = 'Disque plein.';
+  r.move('p2');
+  r.ui.refreshed();
+  await turns();
+  assert.equal(r.notices.at(-1), '« Sans titre » n’a pas pu être gardée dans son projet : Disque plein.');
+  assert.doesNotMatch(r.ui.state().status, /Non gardée/);
+  await r.later();
+  assert.equal(r.saves().length, 1, 'no try again in the name of the other project');
+});

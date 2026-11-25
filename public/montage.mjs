@@ -530,9 +530,14 @@ export function setupMontage({
     if (!pending) return;
     pending = false;
     const sent = montage,
-      place = project();
+      // (0.6.296) Where it was read from, not the project shown when this is sent: another project chosen on
+      // the page is said at once, its bobines read a moment later (refreshed), and a bobine kept in between
+      // was written in the other project, under its own identifier, its change missing where it belongs.
+      place = readFor ?? project();
     try {
       const kept = await (await api('montages/save', { project: place, montage: sent })).json();
+      // Another project on the page since: kept where it belongs, and nothing here is its own any more.
+      if (readFor !== place) return;
       stored = true;
       retried = false;
       if (montage === sent) montage = { ...sent, createdAt: kept.createdAt, updatedAt: kept.updatedAt };
@@ -541,6 +546,8 @@ export function setupMontage({
       // the bobine in the Archives now, its point says what changed since.
       if (status.startsWith('Non gardée')) status = '';
     } catch (error) {
+      // (0.6.296) Its project left meanwhile: said, since nothing of this page will try again for it.
+      if (readFor !== place) return void notice(`« ${sent.name} » n’a pas pu être gardée dans son projet : ${error.message}`);
       status = 'Non gardée : ' + error.message;
       // (0.6.160) What could not be kept is still to keep. It was held for kept: leaving the page, which
       // « keeps what is not kept yet », found nothing to keep, and the bobine stayed as the disk had it.
@@ -591,7 +598,7 @@ export function setupMontage({
     if (saving) timers.clear(saving);
     saving = null;
     const sent = montage,
-      place = project();
+      place = readFor ?? project();
     pending = false;
     sayFil();
     try {
@@ -3564,6 +3571,9 @@ export function setupMontage({
           filling.controller?.abort();
           filling = null;
         }
+        // (0.6.296) What is not kept yet is kept first, in the project it was read from: a change made less
+        // than half a second before another project was chosen went with it, without a word.
+        void keep();
         montage = fresh();
         stored = false;
         void read();
