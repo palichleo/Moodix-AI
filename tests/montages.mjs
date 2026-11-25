@@ -428,3 +428,51 @@ test('« Un fichier par prise »: the takes made, each alone, numbered in a fold
   // The folder, as Windows takes it.
   assert.deepEqual(['Le renard / l’hiver ?', 'CON', '  ', 'Fin…  .'].map(folderName), ['Le renard l’hiver', 'Bobine CON', 'Bobine', 'Fin…']);
 });
+
+test('« Un fichier par prise » that cannot be done leaves no folder half filled (0.6.344)', async t => {
+  const { exportTakes } = await import('../lib/montage-export.mjs');
+  const dir = await mkdtemp(join(tmpdir(), 'moodix-bobines-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  // The engine writes each file where it is asked, and stops on the `broken`-th (none at 0).
+  const asked = [];
+  let broken = 0;
+  const assemble = async request => {
+    asked.push(request.exportTo);
+    // (Its folder is made before it encodes, as the engine does.)
+    const path = join(dir, ...request.exportTo.split('/'));
+    await mkdir(join(path, '..'), { recursive: true });
+    if (asked.length === broken) throw new Error('Film assembly failed: disque plein');
+    await writeFile(path, 'mp4');
+    return { outputs: [{ filename: path.split(/[\\/]/).pop(), subfolder: 'bobines', type: 'export' }] };
+  };
+  const gone = new Set();
+  const fileOf = async (source, label) => {
+    if (gone.has(source.runId)) throw new Error(`${label} : cette prise n’existe plus.`);
+    return `D:/sorties/video/${source.runId}.mp4`;
+  };
+  const montage = validateMontage(film()),
+    folder = join(dir, 'bobines', 'Le pêcheur à l’aube'),
+    there = path => readdir(path).then(names => names.sort(), () => null);
+  // The third take gone: refused before the first file is encoded, and no folder.
+  gone.add(id(9));
+  await assert.rejects(exportTakes({ montage, fileOf, assemble, outputDir: dir }), /cette prise n’existe plus/);
+  assert.deepEqual([asked, await there(join(dir, 'bobines'))], [[], null]);
+  gone.clear();
+  // The engine stops on the second file: the first goes with its folder; the next export takes its name.
+  broken = 2;
+  await assert.rejects(exportTakes({ montage, fileOf, assemble, outputDir: dir }), /disque plein/);
+  assert.deepEqual([asked.length, await there(folder)], [2, null]);
+  // On the very first one, its folder made and nothing in it: that folder goes too.
+  broken = 1;
+  asked.length = 0;
+  await assert.rejects(exportTakes({ montage, fileOf, assemble, outputDir: dir }), /disque plein/);
+  assert.deepEqual([asked.length, await there(folder)], [1, null]);
+  broken = asked.length = 0;
+  const done = await exportTakes({ montage, fileOf, assemble, outputDir: dir });
+  assert.deepEqual(done, { folder: 'bobines/Le pêcheur à l’aube', files: ['01.mp4', '02.mp4', '03.mp4'] });
+  // A folder there before is never touched: the export goes to the next one, and only that one goes.
+  broken = 3;
+  asked.length = 0;
+  await assert.rejects(exportTakes({ montage, fileOf, assemble, outputDir: dir }), /disque plein/);
+  assert.deepEqual([await there(folder), await there(folder + ' 2')], [['01.mp4', '02.mp4', '03.mp4'], null]);
+});
