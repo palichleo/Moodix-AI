@@ -9,7 +9,6 @@ step. LoRAs are applied as the layers run.
 from contextlib import ExitStack
 import gc
 from pathlib import Path
-import sys
 import time
 from types import SimpleNamespace
 
@@ -84,7 +83,7 @@ def preflight(job, config):
         )
     if importlib.util.find_spec('comfy_kitchen') is None:
         raise RuntimeError('Missing installed comfy-kitchen INT8 kernels')
-    if config['tuned'] and importlib.util.find_spec('triton') is None:
+    if importlib.util.find_spec('triton') is None:
         raise RuntimeError('Missing installed Triton tuned kernels')
     validate_shapes(validate_krea2_components(job))
 
@@ -106,8 +105,6 @@ def generate(job, config, progress):
         loras=[(item, Path(item['path'])) for item in job['loras']],
     )
     args = SimpleNamespace(
-        engine=config['engine'],
-        tuned=config['tuned'],
         cache_gib=config.get('cacheGiB'),
         tokenizer=job['components']['tokenizer'],
     )
@@ -143,8 +140,6 @@ def _generate(args, plan, files, job, config, progress_callback, cleanup):
     megapixels = plan['width'] * plan['height'] / 1024**2
     reserve = RESERVE_GIB + RESERVE_PER_MEGAPIXEL_GIB * megapixels
     require('Krea 2', reserve + AHEAD_GIB, 'la taille de l’image')
-    if plan['sampler'] != 'euler' or plan['scheduler'] != 'simple':
-        raise ValueError('Krea2 implements Euler + simple only')
     if plan['cfg'] != 1:
         raise ValueError('Krea2 implements CFG=1 only')
     dtype, device = torch.bfloat16, 'cuda'
@@ -285,10 +280,9 @@ def _generate(args, plan, files, job, config, progress_callback, cleanup):
         # The share that stays goes to the GPU now, in layer order, before the first step.
         pool.preload()
         progress('transformer weights on the GPU', gpu_gib=round(pool.bytes / 1024**3, 2))
-        if args.tuned:
-            from runner.models.krea2_kernels import install
+        from runner.models.krea2_kernels import install
 
-            install(transformer)
+        install(transformer)
         steps = plan['steps']
         # Denoise only applies to an image to modify: without one the picture is made from pure
         # noise whatever the workflow says (the application resolves the job the same way). The
@@ -300,7 +294,7 @@ def _generate(args, plan, files, job, config, progress_callback, cleanup):
         gh, gw = (height + 1) // 2, (width + 1) // 2
         positions = Krea2Pipeline.prepare_position_ids(conditioning.shape[1], gh, gw, device)
         release()
-        progress('denoising ready', engine=args.engine)
+        progress('denoising ready')
         for i in range(steps):
             padded = F.pad(latents.to(dtype), (0, width % 2, 0, height % 2), mode='circular')
             packed = padded.reshape(1, 16, gh, 2, gw, 2).permute(0, 2, 4, 1, 3, 5).reshape(1, gh * gw, 64)
@@ -332,9 +326,6 @@ def _generate(args, plan, files, job, config, progress_callback, cleanup):
             raise RuntimeError('Non-finite decoded image')
         progress('decoded')
         pixels = ((decoded.float().clamp(-1, 1) + 1) * 127.5).round().byte().permute(1, 2, 0).cpu().numpy()
-        comfy_imported = any(k == 'comfy' or k.startswith('comfy.') for k in sys.modules)
-        if comfy_imported:
-            raise RuntimeError('Unexpected Comfy runtime import')
         metadata = dict(
             job=job,
             parameters=plan,
@@ -342,7 +333,6 @@ def _generate(args, plan, files, job, config, progress_callback, cleanup):
             peak_vram_gib=round(torch.cuda.max_memory_allocated() / 1024**3, 3),
             backend='pytorch-diffusers',
             kernel_library='comfy_kitchen',
-            tuned=args.tuned,
             weights=weights,
             timeline=timeline,
         )

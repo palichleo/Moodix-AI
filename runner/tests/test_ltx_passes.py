@@ -387,7 +387,7 @@ class LentShareTests(unittest.TestCase):
         import torch
 
         from runner import hardware
-        from runner.models import conditioning, headers, ltx25 as model, ltx25_text, residency
+        from runner.models import conditioning, headers, ltx25 as model, ltx25_text, pool, residency
         from runner.pipelines import ltx25 as pipeline
 
         GiB = 1024**3
@@ -417,8 +417,8 @@ class LentShareTests(unittest.TestCase):
             enter(mock.patch.object(conditioning, 'load', lambda *_: next(answers, None)))
             enter(mock.patch.object(ltx25_text, 'encode', self.encode))
             enter(mock.patch.object(model, 'validate_layout', **laid))
-            enter(mock.patch.object(model, 'WeightPool', lambda *_: SimpleNamespace(clear=lambda: None, used=lambda: 0)))
-            enter(mock.patch.object(model, 'load_streamed', return_value=object()))
+            enter(mock.patch.object(pool, 'WeightPool', lambda *_: SimpleNamespace(clear=lambda: None, used=lambda: 0)))
+            enter(mock.patch.object(pool, 'load_streamed', return_value=object()))
             enter(mock.patch.object(residency, 'open_store', lambda *_: nullcontext(SimpleNamespace())))
             try:
                 holder = [None] if after_refit else [loaded]

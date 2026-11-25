@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from runner.contracts import validate_job
+from runner.registry import validate_job
 
 
 def job():

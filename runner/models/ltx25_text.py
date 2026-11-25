@@ -7,7 +7,8 @@ def encode(job, headers, progress):
     import torch
     from tokenizers import Tokenizer
     from runner.models.residency import open_store, prefetch, use_order
-    from runner.models.ltx25 import architectures, mappings, WeightPool, load_streamed
+    from runner.models.ltx25 import architectures, mappings
+    from runner.models.pool import WeightPool, load_streamed
 
     model = architectures(headers, ('textEncoder',))['textEncoder']
     names = mappings(headers)['textEncoder']

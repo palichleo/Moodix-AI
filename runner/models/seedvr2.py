@@ -263,7 +263,7 @@ class SeedVR2(nn.Module):
 
 def load(store, pool):
     """The DiT on CUDA: linears streamed by `pool` (fp8 or int8 ConvRot), the rest resident."""
-    from runner.models.ltx25 import load_streamed
+    from runner.models.pool import load_streamed
 
     with torch.device('meta'):
         model = SeedVR2()

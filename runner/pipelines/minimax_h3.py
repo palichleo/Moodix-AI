@@ -10,7 +10,6 @@ denoise with the streamed DiT, then video and audio decoding.
 from contextlib import ExitStack
 import gc
 import math
-import sys
 import time
 
 from runner import hardware, preview
@@ -214,11 +213,9 @@ def _stage(block_name, components, state, **inputs):
     return pipe(state=state)
 
 
-def _free(*names, scope):
+def _free():
     import torch
 
-    for name in names:
-        scope.pop(name, None)
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -301,7 +298,6 @@ def protect_head(dit, schedulers, calls, video_head, audio_head, target_video_ro
 
 def _encode_tail(vae, audio_vae, path, tail, plan, parameters):
     """Clean packed rows of the source tail: video (rows, 96) and audio (2, latents, 32)."""
-    import math
     import numpy as np
     import torch
     from diffusers.modular_pipelines.minimax_h3.encoders import encode_vae_condition
@@ -310,7 +306,7 @@ def _encode_tail(vae, audio_vae, path, tail, plan, parameters):
     pixels = torch.from_numpy(np.stack([np.asarray(frame.convert('RGB')) for frame in tail]))
     pixels = pixels.to(vae.device).permute(3, 0, 1, 2)[None]
     # Same recipe as the pipeline's own visual conditions (ImageNet pixels, seeded posterior sample).
-    latents = encode_vae_condition(vae, pixels, (0.485, 0.456, 0.406), (0.229, 0.224, 0.225), 42)
+    latents = encode_vae_condition(vae, pixels, PIXEL_MEAN, PIXEL_STD, 42)
     video_head = _patchify(latents.float())
     overlap = plan['overlapFrames']
     count = math.floor(overlap / 24 * AUDIO_LATENTS_PER_SECOND)
@@ -372,8 +368,7 @@ def _generate(job, config, progress, key, holder):
     from runner.models.headers import header
     from runner.models import conditioning, minimax_h3, minimax_h3_text, minimax_h3_vae
     from runner.models.ladder import smaller
-    from runner.models.ltx25 import WeightPool
-    from runner.models.pool import require
+    from runner.models.pool import WeightPool, require
     from runner.models.residency import RESIDENCY, open_store, prefetch, use_order
     from runner.pipelines.ltx25 import memory
     from runner.video.export import save_video
@@ -516,7 +511,7 @@ def _generate(job, config, progress, key, holder):
         text_store.close()
         del text_store, before, written
     state.set('prompt_embeds', state.get('prompt_embeds').to('cuda', torch.bfloat16))
-    _free(scope={})
+    _free()
     progress(
         stage='video prompt encoded',
         tokens=int(state.get('prompt_embeds').shape[1]),
@@ -558,7 +553,7 @@ def _generate(job, config, progress, key, holder):
                 video_head, audio_head = _encode_tail(vae, audio_vae, source['path'], tail, continuation, p)
             continuation['audioProtectedLatents'] = int(audio_head.shape[1])
         del vae, audio_vae
-        _free(scope={})
+        _free()
 
     # 3. Joint denoise: DiT streamed from its file, PDD heads told each step's interval.
     progress(stage='loading video model')
@@ -587,7 +582,7 @@ def _generate(job, config, progress, key, holder):
         if not suits or (sparse is None) != (loaded.sparse is None):
             loaded.drop()
             loaded = holder[0] = None
-            _free(scope={})
+            _free()
             budget = share()
             ahead = read_ahead()
     # A model taken back from the last generation: this one is the next of a run (the Studio).
@@ -617,7 +612,7 @@ def _generate(job, config, progress, key, holder):
                     and minimax_h3.INT8_ATTENTION
                     and minimax_h3.int8_attention_ready()
                 )
-                dit, _heads = minimax_h3.load(dit_header, paths['model'], pool, fast_attention, sparse)
+                dit, _heads = minimax_h3.load(dit_header, pool, fast_attention, sparse)
                 loaded.dit, loaded.fast, loaded.sparse = dit, fast_attention, sparse
             if again:
                 # Its page-locked RAM is the one its last video ran with: nothing is asked again.
@@ -726,7 +721,7 @@ def _generate(job, config, progress, key, holder):
     pool.settle()
     store.reopen()
     state.set('prompt_embeds', None)
-    _free(scope={})
+    _free()
 
     # 4. Decode video and sound. The share lends the decode what it lacks.
     progress(stage='decoding video')
@@ -763,12 +758,12 @@ def _generate(job, config, progress, key, holder):
             return frames_of()
 
         pixels = smaller([frames_of, *([alone] if pool.gpu else []), unbound], torch)
-        _free(scope={})
+        _free()
         audio_vae = minimax_h3_vae.audio_vae(paths['audioVae'])
         state = _stage('decode.audio', dict(audio_vae=audio_vae), state)
     audio, rate = state.get('audio'), state.get('sampling_rate')
     del audio_vae
-    _free(scope={})
+    _free()
     progress(stage='video decoded')
     if len(pixels) != p['frames']:
         raise RuntimeError(f'Decoded {len(pixels)} frames, expected {p["frames"]}')
@@ -781,8 +776,6 @@ def _generate(job, config, progress, key, holder):
         if not torch.isfinite(waveform).all():
             raise RuntimeError('Non-finite audio; no output saved')
         generated_audio = (waveform[:2].T.contiguous().numpy(), int(rate))
-    if any(name == 'comfy' or name.startswith('comfy.') for name in sys.modules):
-        raise RuntimeError('Unexpected Comfy runtime import')
     metadata = dict(
         job=job,
         parameters=p,

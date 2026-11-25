@@ -40,7 +40,6 @@ TEXT_TOKENS = 512
 PATCH = (1, 2, 2)
 # The noise level under which the « low noise » model takes over (wan/configs/wan_i2v_A14B.py).
 BOUNDARY = 0.9
-EXPERTS = ('high', 'low')
 # Fun Camera: the tensors of its adapter in a file, and what the adapter reads: the six numbers of a
 # line of sight for each of the four frames of a latent frame, at the size of the picture, which it
 # first brings to the size of the latents (a pixel of latents is 8 x 8 of the picture).

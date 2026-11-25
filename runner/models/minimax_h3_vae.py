@@ -141,11 +141,6 @@ def audio_model():
     return model
 
 
-def config(header, name):
-    """VAE metadata JSON stored under `name` (latents mean/std and source config)."""
-    return json.loads(header['__metadata__'][name])
-
-
 def _fill(model, tensors, dtype, skip=()):
     """Copy {name: tensor} into an empty model on CUDA; fp32-pinned modules stay float32."""
     import torch

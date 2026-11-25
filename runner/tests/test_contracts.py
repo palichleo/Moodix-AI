@@ -3,8 +3,9 @@ import struct
 import tempfile
 import unittest
 
-from runner.contracts import validate_job, validate_config
+from runner.contracts import validate_config
 from runner.models.headers import header
+from runner.registry import validate_job
 
 
 def job():
@@ -72,8 +73,9 @@ class ContractTests(unittest.TestCase):
             validate_job(candidate)
 
     def test_trusted_config(self):
+        # tokenizerPath, from older launchers, is accepted and left unused.
         value = {k: str(Path.cwd() / k) for k in ('tokenizerPath', 'cacheRoot', 'outputRoot')}
-        self.assertEqual(validate_config(value)['engine'], 'int8')
+        self.assertEqual(validate_config(value), value)
         with self.assertRaises(ValueError):
             validate_config(value | {'cacheGiB': float('inf')})
 

@@ -1,7 +1,7 @@
 """Time a family of the built-in engine, phase by phase, outside the application.
 
-A family leaves ComfyUI for this engine only once it is measured at least as fast, on the same
-files and the same request. This runs the pipeline several times in one process (the worker of
+A change to the engine is kept only once it is measured at least as fast, on the same files and
+the same request. This runs the pipeline several times in one process (the worker of
 the application outlives its jobs the same way: the first run is the cold one) and prints what
 each phase cost, what stayed on the GPU and what was kept in RAM.
 
@@ -392,7 +392,7 @@ def main(argv=None):
     # A family that sets its own reserve is given the one asked for here.
     if args.ram_reserve_gib is not None and hasattr(module, 'RAM_RESERVE_GIB'):
         module.RAM_RESERVE_GIB = args.ram_reserve_gib
-    config = dict(cacheRoot=args.out, outputRoot=args.out, engine='int8', tuned=True)
+    config = dict(cacheRoot=args.out, outputRoot=args.out)
     if args.gpu_gib is not None:
         config['cacheGiB'] = args.gpu_gib
     free, total = torch.cuda.mem_get_info()

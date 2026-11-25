@@ -102,7 +102,7 @@ def generate(job, config, progress):
     progress(stage='encoding sound prompt')
     prompt = f'{parameters["prompt"].strip()} duration: {seconds:.1f}s'
     tokenizer = AutoTokenizer.from_pretrained(str(folder / 'tokenizer'))
-    context, empty = _read_prompts(folder, tokenizer, [prompt, parameters.get('negative_prompt', '')], device)
+    context, empty = _read_prompts(folder, tokenizer, [prompt, ''], device)
 
     progress(stage='loading sound model')
     model = moss_sfx.load_transformer(folder / 'transformer').to(device)

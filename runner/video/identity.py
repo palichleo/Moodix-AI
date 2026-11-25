@@ -78,13 +78,10 @@ class Follower:
         # texts: [(text features, mask, most objects)], one entry a phrase.
         self.model, self.texts = model, texts
         self.threshold, self.kept = threshold, kept
-        self.slots = [slot for index, (_text, _mask, most) in enumerate(texts) for slot in range(most)]
         self.offsets = [sum(most for _t, _m, most in texts[:index]) for index in range(len(texts))]
-        self.count = sum(most for _text, _mask, most in texts)
         self.before = [{} for _ in texts]
         self.known = [set() for _ in texts]
         self.frames = []  # one entry a frame: {object: mask of probabilities [288, 288] on the CPU}
-        self.scores = []
 
     def feed(self, pictures):
         """`pictures`: [batch, 3, height, width] from -1 to 1, the next frames of the video."""
@@ -103,7 +100,6 @@ class Follower:
                     (scores[pick].item(), phrase, masks[pick], solid[pick]) for pick in range(len(scores))
                 ]
         found = [{} for _ in range(batch)]
-        scored = [{} for _ in range(batch)]
         for index in range(batch):
             apart = distinct(candidates[index])
             for phrase, (_text, _mask, most) in enumerate(self.texts):
@@ -117,14 +113,12 @@ class Follower:
                     self.known[phrase].add(place)
                     kept[place] = solid
                     found[index][self.offsets[phrase] + place] = mask.half().cpu()
-                    scored[index][self.offsets[phrase] + place] = round(score, 3)
                 # An object missing from a frame keeps the place it had when last seen.
                 self.before[phrase] = {**self.before[phrase], **kept}
         self.frames += found
-        self.scores += scored
 
 
-def order(frames, count):
+def order(frames):
     """The objects in the order of their colours: first seen first, then from left to right
     (the middle of the mask in the frame where it first shows). Objects never seen are left out."""
     import torch

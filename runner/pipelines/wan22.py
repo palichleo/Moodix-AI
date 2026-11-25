@@ -55,6 +55,7 @@ import time
 from pathlib import Path
 
 from runner import hardware
+from runner.pipelines.wan_scail2 import _one
 
 # With the step LoRAs, as the application ships the model; without them: 20 to 40 steps, 3.5.
 STEPS = 4
@@ -124,11 +125,6 @@ def experts(levels, boundary=None):
 
     limit = wan22.BOUNDARY if boundary is None else boundary
     return ['high' if level >= limit else 'low' for level in levels[:-1]]
-
-
-def _one(job, role):
-    found = [ref['path'] for ref in job['references'] if ref['role'] == role]
-    return found[0] if len(found) == 1 else None
 
 
 def reads_camera(job):

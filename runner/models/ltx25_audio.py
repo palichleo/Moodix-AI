@@ -24,7 +24,8 @@ def vocoder_layout(headers):
 def decode(latents, job, headers, progress):
     import torch
     from runner.models.residency import open_store
-    from runner.models.ltx25 import validate_layout, WeightPool, load_streamed
+    from runner.models.ltx25 import validate_layout
+    from runner.models.pool import WeightPool, load_streamed
 
     with open_store(job['components']['audioVae']) as source, torch.inference_mode():
         models, names = validate_layout(headers, ('audioVae',))

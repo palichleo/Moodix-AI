@@ -292,7 +292,7 @@ def find_masks(job, raw, width, height, progress):
         pieces = sam3.tokenizer(paths['segmenterTokenizer'])
         # The reference: the whole image, as it is.
         one = identity.follow(model, pieces, drawn, [raw])
-        ranked = identity.order(one.frames, one.count)
+        ranked = identity.order(one.frames)
         if not ranked:
             raise ValueError(
                 f'Aucun sujet « {drawn} » n’a été trouvé dans l’image du personnage. Décrivez-le autrement.'
@@ -311,7 +311,7 @@ def find_masks(job, raw, width, height, progress):
             model, pieces, wanted, pictures(), progress=lambda done: progress(stage='finding subjects', frame=done)
         )
         pose = _whole(pose, p['frames'])
-        order = identity.order(follower.frames, follower.count)
+        order = identity.order(follower.frames)
         if not order:
             raise ValueError(
                 f'Aucun sujet « {wanted} » n’a été trouvé dans la vidéo à suivre. Décrivez-le autrement.'

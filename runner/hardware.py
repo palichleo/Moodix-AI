@@ -140,24 +140,16 @@ def cards():
     return _found['cards']
 
 
-# For a family ComfyUI also runs.
-ELSEWHERE = ' ComfyUI peut créer à sa place : réglages, Workflows, moteur externe.'
-
-
-def unmet(label, needs, external=False, found=None):
+def unmet(label, needs, found=None):
     """Why this computer cannot run a family that needs ``needs``, in the user's words; '' when
-    it can, or when nothing says it cannot. ``external``: ComfyUI runs the family too."""
+    it can, or when nothing says it cannot."""
     if not needs or not needs.get('cuda'):
         return ''
     listed = (found or cards)()
     if listed is None:
         return ''
     if not listed:
-        return (
-            label
-            + ' demande une carte graphique NVIDIA : son pilote n’en voit aucune sur cet ordinateur.'
-            + (ELSEWHERE if external else '')
-        )
+        return label + ' demande une carte graphique NVIDIA : son pilote n’en voit aucune sur cet ordinateur.'
     return ''
 
 

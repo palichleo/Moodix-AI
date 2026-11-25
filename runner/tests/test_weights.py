@@ -588,13 +588,6 @@ class RoomTest(unittest.TestCase):
             fixed = re.search(r'mem_get_info\(\)\[0\]\s*<\s*\d|free\s*<\s*\d+\s*\*\s*1024', source)
             self.assertIsNone(fixed, path.name)
 
-    def test_the_pool_is_still_found_where_the_families_import_it(self):
-        from runner.models import ltx25
-        from runner.models import pool as module
-
-        self.assertIs(ltx25.WeightPool, module.WeightPool)
-        self.assertIs(ltx25.load_streamed, module.load_streamed)
-
 
 if __name__ == '__main__':
     unittest.main()

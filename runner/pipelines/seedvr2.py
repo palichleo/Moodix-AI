@@ -63,7 +63,7 @@ def generate(job, config, progress):
     from runner.media import save_image
     from runner.models.ladder import smaller
     from runner.models import seedvr2, seedvr2_color, seedvr2_vae
-    from runner.models.ltx25 import WeightPool
+    from runner.models.pool import WeightPool
     from runner.models.residency import RESIDENCY, open_store
 
     if not torch.cuda.is_available():

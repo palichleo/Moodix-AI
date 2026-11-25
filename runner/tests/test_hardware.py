@@ -123,7 +123,7 @@ class NeedsTest(unittest.TestCase):
     """A family that computes on an NVIDIA card only, on machines of several kinds."""
 
     def test_only_a_card_known_to_be_missing_refuses(self):
-        said = lambda cards, **options: hardware.unmet('Krea2', CUDA, found=lambda: cards, **options)  # noqa: E731
+        said = lambda cards: hardware.unmet('Krea2', CUDA, found=lambda: cards)  # noqa: E731
         self.assertIn('n’en voit aucune', said([]))
         # Any NVIDIA card runs it as far as this goes: how much video memory a generation takes
         # depends on the files chosen, and a smaller model fits a smaller card. So does a machine
@@ -131,8 +131,7 @@ class NeedsTest(unittest.TestCase):
         for card in ('NVIDIA GeForce GTX 1650', 'NVIDIA GeForce RTX 4060', 'NVIDIA GeForce RTX 4090'):
             self.assertEqual(said([card]), '')
         self.assertEqual(said(None), '')
-        # ComfyUI is named only for a family it runs too.
-        self.assertIn('ComfyUI', said([], external=True))
+        # Nothing sends the user to another engine.
         self.assertNotIn('ComfyUI', said([]))
 
     def test_a_family_that_also_runs_on_the_processor_asks_for_nothing(self):
@@ -168,8 +167,6 @@ class CapabilitiesTest(unittest.TestCase):
     def test_a_pipeline_that_needs_cuda_says_so_in_its_manifest(self):
         pipelines = Path(engine.__file__).with_name('pipelines')
         for name, manifest in families().items():
-            if not manifest.get('native', True):
-                continue
             source = (pipelines / (manifest.get('module', name) + '.py')).read_text(encoding='utf-8')
             needs = bool(re.search(r"raise RuntimeError\([^)]*requires (?:a )?CUDA", source))
             self.assertEqual(bool((manifest.get('hardware') or {}).get('cuda')), needs, name)

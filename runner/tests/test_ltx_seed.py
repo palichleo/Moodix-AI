@@ -145,6 +145,7 @@ class SeedTests(unittest.TestCase):
 
         from runner import hardware
         from runner.models import conditioning, headers, ltx25 as model, ltx25_audio, ltx25_block, residency
+        from runner.models import pool as weights
         from runner.pipelines import ltx25 as pipeline
 
         width, height = (1024, 576) if large else (512, 288)
@@ -190,8 +191,8 @@ class SeedTests(unittest.TestCase):
             enter(mock.patch.object(conditioning, 'stamp', side_effect=str))
             enter(mock.patch.object(conditioning, 'load', return_value=[text]))
             enter(mock.patch.object(model, 'validate_layout', layout))
-            enter(mock.patch.object(model, 'WeightPool', pool))
-            enter(mock.patch.object(model, 'load_streamed', built))
+            enter(mock.patch.object(weights, 'WeightPool', pool))
+            enter(mock.patch.object(weights, 'load_streamed', built))
             enter(mock.patch.object(model, 'latent_upscaler', return_value=upscaler))
             enter(mock.patch.object(ltx25_block, 'fuse', return_value=True))
             enter(mock.patch.object(residency, 'open_store', lambda *_args: nullcontext(store)))

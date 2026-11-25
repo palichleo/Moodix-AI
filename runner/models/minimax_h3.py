@@ -10,7 +10,6 @@ pruned checkpoints differ from it in three places, adapted here:
   [gate; value], int8 ConvRot linears streamed from the file.
 """
 
-import json
 import math
 
 import torch
@@ -554,9 +553,9 @@ class PDDHead(torch.nn.Module):
         return F.linear(hidden_states.float(), weight, bias)
 
 
-def load(header, store_path, pool, int8_attention=False, sparse=None):
+def load(header, pool, int8_attention=False, sparse=None):
     """Build the DiT on CUDA: int8 linears streamed through `pool`, small tensors resident."""
-    from runner.models.ltx25 import load_streamed
+    from runner.models.pool import load_streamed
 
     model, heads = architecture(header, int8_attention, sparse)
     mapping = names(header, gate=sparse is not None)

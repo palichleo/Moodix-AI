@@ -263,8 +263,6 @@ def _generate(job, config, progress, key, holder, finish=None, read=None):
     from runner.models.ltx25 import (
         validate_layout,
         video_encoder,
-        WeightPool,
-        load_streamed,
         latent_upscaler,
         chunk_feed_forwards,
         kept_text,
@@ -279,7 +277,7 @@ def _generate(job, config, progress, key, holder, finish=None, read=None):
     if not torch.cuda.is_available():
         raise RuntimeError('Native LTX2.5 requires CUDA')
     from runner.models.ladder import smaller
-    from runner.models.pool import require, room
+    from runner.models.pool import WeightPool, load_streamed, require, room
 
     # Asked for before anything is loaded: what the model computes with for the first pass of
     # this video. Its weights follow the card (see `share` below).
@@ -570,7 +568,6 @@ def _generate(job, config, progress, key, holder, finish=None, read=None):
                 vocoder=None,
             )
             pipe.set_progress_bar_config(disable=True)
-            p = job['parameters']
             # The size being sampled: the first pass of a large video runs at half of it.
             current = dict(width=p['width'], height=p['height'])
 
@@ -785,8 +782,6 @@ def _generate(job, config, progress, key, holder, finish=None, read=None):
 
         generated_audio = decode(audio_latents, job, headers, progress)
         progress(stage='audio decoded')
-    if any(name == 'comfy' or name.startswith('comfy.') for name in sys.modules):
-        raise RuntimeError('Unexpected Comfy runtime import')
     metadata = dict(
         job=job,
         parameters=p,
@@ -1020,9 +1015,9 @@ def decode_pixels(job, headers, latents, progress):
     import numpy
     import torch
     from runner.models.ladder import smaller
-    from runner.models.ltx25 import validate_layout, WeightPool, load_streamed
+    from runner.models.ltx25 import validate_layout
     from runner.models.ltx25_decoder import decode_groups
-    from runner.models.pool import RECENT, room
+    from runner.models.pool import RECENT, WeightPool, load_streamed, room
     from runner.models.residency import open_store
 
     seed = job['parameters']['seed']

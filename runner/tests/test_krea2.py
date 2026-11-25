@@ -147,11 +147,10 @@ assert 'sageattention' not in sys.modules
 
     def test_the_engine_reads_the_model_as_its_file_stores_it(self):
         source = Path(krea2.__file__).read_text(encoding='utf-8')
-        # No second copy of the model on disk, and nothing of ComfyUI in the process.
+        # No second copy of the model on disk.
         for gone in ('PreparedWeights', 'cache_root', 'save_file'):
             self.assertNotIn(gone, source)
         self.assertIn('open_store(str(files[\'transformer\']), reserve=ram_reserve)', source)
-        self.assertIn('Unexpected Comfy runtime import', source)
         # What the card has free decides the share of the model that stays on it, less what is
         # copied in advance of the layers that do not stay.
         self.assertIn('budget = room(reserve + AHEAD_GIB)', source)

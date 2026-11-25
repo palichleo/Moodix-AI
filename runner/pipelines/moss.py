@@ -15,7 +15,6 @@ there, the rest is copied in at each step. The text encoder comes and goes befor
 from contextlib import ExitStack
 import gc
 from pathlib import Path
-import sys
 import time
 
 from runner import hardware, preview
@@ -238,7 +237,7 @@ def _generate(job, config, progress_callback, cleanup):
         sigmas, shift = schedule(parameters)
         total = len(sigmas) - 1
         release()
-        progress('denoising ready', engine=config.get('engine'))
+        progress('denoising ready')
 
         def step(index, total, latents, velocity, sigma):
             preview.send(progress_callback, preview.FLUX2, finished, latents, velocity, sigma)
@@ -262,8 +261,6 @@ def _generate(job, config, progress_callback, cleanup):
             raise RuntimeError('Non-finite decoded image')
         progress('decoded', tiled=tiled)
         pixels = ((decoded.float().clamp(-1, 1) + 1) * 127.5).round().byte().permute(1, 2, 0).cpu().numpy()
-        if any(name == 'comfy' or name.startswith('comfy.') for name in sys.modules):
-            raise RuntimeError('Unexpected Comfy runtime import')
         metadata = dict(
             job=job,
             # What the picture was really made with, beside what was asked: the model's own schedule.

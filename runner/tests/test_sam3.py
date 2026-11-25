@@ -242,14 +242,14 @@ class FollowTests(unittest.TestCase):
             [('girl', 1), ('cloth', 1)],
         )
         self.assertEqual([sorted(frame) for frame in follower.frames], [[0], [0, 1], [0, 1], [0]])
-        self.assertEqual(follower.scores[2], {0: 0.97, 1: 0.3})
+        self.assertTrue(torch.equal(follower.frames[2][1].float(), cloth))
         self.assertTrue(torch.equal(follower.frames[1][1].float(), cloth))
-        self.assertEqual(identity.order(follower.frames, follower.count), [0, 1])
+        self.assertEqual(identity.order(follower.frames), [0, 1])
 
     def test_an_object_not_seen_yet_needs_the_full_score(self):
         follower = self.follow([{'girl': [(0.4, mask(1))]}, {'girl': [(0.45, mask(1))]}, {}], [('girl', 1)])
         self.assertEqual(follower.frames, [{}, {}, {}])
-        self.assertEqual(identity.order(follower.frames, follower.count), [])
+        self.assertEqual(identity.order(follower.frames), [])
 
     def test_two_objects_of_one_phrase_keep_their_places(self):
         one, two = mask(0, 1), mask(5, 6)
@@ -271,8 +271,8 @@ class ColourTests(unittest.TestCase):
 
     def test_colours_go_to_the_objects_first_seen_then_from_left_to_right(self):
         frames = [{2: self.column(6)}, {0: self.column(5), 1: self.column(1), 2: self.column(6)}, {}]
-        self.assertEqual(identity.order(frames, 4), [2, 1, 0])
-        self.assertEqual(identity.order([{0: torch.zeros(8, 8)}], 1), [])
+        self.assertEqual(identity.order(frames), [2, 1, 0])
+        self.assertEqual(identity.order([{0: torch.zeros(8, 8)}]), [])
 
     def test_a_frame_is_painted_in_the_palette_the_first_object_over_the_others(self):
         frame = {0: self.column(0, 1, 2, 3), 1: self.column(3, 4)}

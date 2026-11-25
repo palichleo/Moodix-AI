@@ -34,7 +34,6 @@ from types import SimpleNamespace
 import torch
 import torch.nn.functional as F
 
-DIM = 3072
 HEADS = 24
 HEAD = 128
 LAYERS = 60

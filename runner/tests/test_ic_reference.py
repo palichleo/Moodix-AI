@@ -5,9 +5,9 @@ import unittest
 
 import numpy as np
 
-from runner.contracts import validate_job
 from runner.models.ladder import smaller
 from runner.pipelines.ltx25 import first_pass_size, working_gib
+from runner.registry import validate_job
 from runner.video import ic_reference as ic
 
 

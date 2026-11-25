@@ -25,7 +25,6 @@ def sample(path, count=3, side=512, quality=80):
     """[{'time': seconds, 'url': 'data:image/jpeg;base64,…'}]: `count` pictures of the video, the
     longest side `side` pixels at most, each the first frame at or after its time."""
     import av
-    from PIL import Image
 
     path = Path(path)
     if path.suffix.lower() not in EXTENSIONS or not path.is_file():
