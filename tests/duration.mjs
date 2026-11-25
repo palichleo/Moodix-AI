@@ -226,3 +226,28 @@ test('a clip length the model made up is recognised: nobody spoke of a length', 
   assert.equal(inventedLength([]), false);
   assert.equal(inventedLength([{ role: 'assistant', content: 'une vidéo' }]), false);
 });
+
+test('the numbers of a list of takes or of references are no length: « les prises 3, 4 et 5 » (0.6.306)', async () => {
+  const { inventedLength } = await import('../lib/tool-runtime.mjs');
+  const user = content => ({ role: 'user', content });
+  // After a comma, the numbers of a list stayed in the text and passed for a length: the ten seconds the
+  // model made up were kept.
+  for (const text of [
+    'enchaîne les prises 3, 4 et 5',
+    'avec les refs 1, 2 et 3',
+    'pars des références n°1, n°2, et n°3',
+    'reprends les PRISES 12, 13 et 14 puis la ref 2',
+    'enchaîne les prises 3 et 4',
+  ])
+    assert.equal(inventedLength([user(text)]), true, text);
+  // A length said after one of them is still one: after a comma alone, with its unit, or as a format.
+  for (const text of [
+    'anime #ref1, 8',
+    'la prise 12, 8 s',
+    'la ref 1 et 8 s',
+    'anime la prise 3 et 6 secondes de plus',
+    'les prises 3, 4 et 5, 8 s',
+    'avec les refs 1, 2 et 3 pendant 6 secondes',
+  ])
+    assert.equal(inventedLength([user(text)]), false, text);
+});
