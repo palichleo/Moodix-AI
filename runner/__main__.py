@@ -30,7 +30,30 @@ def main():
     config = validate_config(json.loads(args.config.read_text(encoding='utf-8-sig'), object_pairs_hook=unique_object))
     # The temporary files a worker killed half-way left in the folder of the outputs (old ones only).
     sweep(config)
-    serve(config)
+    serve(config, destination=_protocol_pipe())
+
+
+def _protocol_pipe():
+    """(0.6.359) Where the protocol is written: the pipe the application reads, kept under a descriptor of its
+    own, while the descriptor 1 is turned to the error output. `sys.stdout` covers what Python prints
+    (runner.protocol); C code and the programs the engine starts (a compiler) write to the descriptor itself,
+    and one line that is not JSON there stops the engine. Written as the standard output was: its encoding,
+    its ends of lines, nothing held back. None where the descriptors cannot be set apart: as before then."""
+    import io
+
+    try:
+        sys.stdout.flush()
+        kept = os.dup(1)
+        try:
+            os.dup2(2, 1)
+        except OSError:
+            os.close(kept)
+            raise
+    except (OSError, ValueError, AttributeError):
+        return None
+    return io.TextIOWrapper(
+        io.FileIO(kept, 'w'), encoding=sys.stdout.encoding, errors=sys.stdout.errors, write_through=True
+    )
 
 
 if __name__ == '__main__':

@@ -1,5 +1,6 @@
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -165,6 +166,75 @@ class ProtocolTests(unittest.TestCase):
             self.assertFalse(rows[2]['result']['cudaInitialized'])
             self.assertFalse(rows[2]['result']['torchImported'])
             self.assertEqual(rows[3]['result'], dict(released=True, allocatedGiB=0))
+
+    def test_nothing_printed_between_two_requests_reaches_the_pipe_of_the_protocol(self):
+        # (0.6.359) The output was turned aside for one request at a time. What the libraries are imported by
+        # goes on between them (runner.warm): one that prints as it is imported wrote a line that is not JSON,
+        # and the application stops the engine on it (« Protocole Python : JSON invalide »).
+        from runner import warm
+
+        source = io.StringIO('{"id":1,"method":"release","params":{}}\n{"id":2,"method":"release","params":{}}\n')
+        pipe, errors = io.StringIO(), io.StringIO()
+        waited = warm.await_input
+
+        def between(reading):
+            print('hello again')
+            return waited(reading)
+
+        with (
+            patch('sys.stdout', pipe),
+            patch('sys.stderr', errors),
+            patch('runner.protocol.release', lambda **_: dict(released=True, allocatedGiB=0)),
+            patch.object(warm, 'await_input', between),
+        ):
+            serve({}, source)
+            # Its standard output is given back once it ends.
+            self.assertIs(sys.stdout, pipe)
+        rows = [json.loads(line) for line in pipe.getvalue().splitlines()]
+        self.assertEqual([row.get('id', row.get('event')) for row in rows], ['ready', 1, 2])
+        self.assertEqual(errors.getvalue().count('hello again'), 3)
+
+    def test_what_is_written_to_the_standard_output_of_the_process_never_reaches_the_application(self):
+        # (0.6.359) C code and the programs the engine starts (a compiler) write to the descriptor 1 itself,
+        # which no `sys.stdout` covers: the protocol keeps the pipe under a descriptor of its own.
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / 'config.json'
+            config.write_text(
+                json.dumps({k: str(Path(directory) / k) for k in ('tokenizerPath', 'cacheRoot', 'outputRoot')})
+            )
+            code = (
+                'import os,subprocess,sys;sys.path.insert(0,sys.argv.pop(1));'
+                'import runner.protocol as protocol;real=protocol.diagnostics\n'
+                'def noisy(config):\n'
+                '    os.write(1, b"from the descriptor\\n")\n'
+                '    subprocess.run([sys.executable, "-c", "print(\'from a program started\')"], check=True)\n'
+                '    return real(config)\n'
+                'protocol.diagnostics=noisy\n'
+                'print("before it serves")\n'
+                'from runner.__main__ import main;main()'
+            )
+            result = subprocess.run(
+                [sys.executable, '-u', '-c', code, str(Path.cwd()), '--config', str(config)],
+                input=(
+                    '{"id":"a","method":"diagnostics","params":{}}\n{"id":"é","method":"shutdown","params":{}}\n'
+                ).encode(),
+                capture_output=True,
+                timeout=30,
+                env={**os.environ, 'PYTHONIOENCODING': 'utf-8'},
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            # What is printed before it serves is still its standard output: the first line apart.
+            lines = result.stdout.decode('utf-8').splitlines()
+            self.assertEqual(lines[0], 'before it serves')
+            rows = [json.loads(line) for line in lines[1:]]
+            self.assertEqual([row.get('id', row.get('event')) for row in rows], ['ready', 'a', 'é'])
+            self.assertFalse(rows[1]['result']['torchImported'])
+            said = result.stderr.decode('utf-8', 'replace')
+            self.assertIn('from the descriptor', said)
+            self.assertIn('from a program started', said)
+            # Its lines end as they did (the application reads them one by one).
+            self.assertEqual(result.stdout.count(b'\n'), 4)
+            self.assertEqual(result.stdout.count(b'\r\n'), 4 if os.linesep == '\r\n' else 0)
 
     def test_generate_releases_before_ack_and_dependency_logs_go_to_stderr(self):
         source = io.StringIO('{"id":1,"method":"generate","params":{}}\n')

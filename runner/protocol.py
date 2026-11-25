@@ -22,9 +22,19 @@ def _keep_above(params):
 
 
 def serve(config, source=None, destination=None):
-    source = source or sys.stdin
-    destination = destination or sys.stdout
+    """Answers the requests read from `source`, one line of JSON each, on `destination`.
 
+    (0.6.359) Nothing printed reaches that pipe, between two requests either. The standard output was turned
+    aside for one request at a time, and what imports the libraries in the background (runner.warm) goes on
+    between them: one that prints as it is imported wrote a line that is not JSON, and the application stops
+    the engine on it (« Protocole Python : JSON invalide »), the model it kept lost with it. Given back when
+    it ends."""
+    destination = destination or sys.stdout
+    with redirect_stdout(sys.stderr):
+        _serve(config, source or sys.stdin, destination)
+
+
+def _serve(config, source, destination):
     writing = threading.Lock()
 
     def emit(value):
