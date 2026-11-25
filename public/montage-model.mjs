@@ -133,10 +133,15 @@ function laidAt(plans, block, seconds, near = 0) {
   } else {
     index = plans.filter(plan => plan.at < start).length;
     const before = plans[index - 1],
-      after = plans[index];
-    if (near && before && start - endOf(before) <= near) start = endOf(before);
-    else if (near && after && after.at - (start + length) <= near && after.at - length >= (before ? endOf(before) : 0)) start = after.at - length;
-    else if (near && !before && start <= near) start = 0;
+      after = plans[index],
+      edge = before ? endOf(before) : 0,
+      // (0.6.343) Against the nearer of the two edges, not always the one before: in a hole from 10
+      // to 14 s, a clip of 1 s let go at 12.6 s went to 10, 2.6 s away, rather than to 13.
+      back = near && start - edge <= near ? start - edge : Infinity,
+      fits = near && after && after.at - (start + length) <= near && after.at - length >= edge,
+      forth = fits ? Math.abs(after.at - length - start) : Infinity;
+    if (forth < back) start = after.at - length;
+    else if (back < Infinity) start = edge;
   }
   let at = start;
   const laid = block.map(plan => {
@@ -271,7 +276,12 @@ export function withPlanPlaced(montage, id, seconds, { near = 0 } = {}) {
 export function snapped(montage, seconds, near = 0.2) {
   const { plans } = placed(montage),
     cuts = [0, ...plans.flatMap(plan => [plan.at, endOf(plan)])],
-    close = cuts.find(cut => Math.abs(cut - seconds) <= near);
+    // (0.6.343) The nearest cut, not the first within `near`: on a long bobine `near` is 4 s or more,
+    // and a sound let go at 9 s, between cuts at 5 and 10 s, went to 5.
+    close = cuts.reduce((best, cut) => {
+      const far = Math.abs(cut - seconds);
+      return far <= near && (best === null || far < Math.abs(best - seconds)) ? cut : best;
+    }, null);
   return close ?? Math.max(0, Math.round(seconds * 10) / 10);
 }
 

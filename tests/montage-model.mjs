@@ -241,3 +241,21 @@ test('the times of a montage, as a clock and as seconds (0.6.137)', () => {
   assert.deepEqual([0, 6.9, 59.99, 61, 754].map(clock), ['00:00', '00:06', '00:59', '01:01', '12:34']);
   assert.deepEqual([usualSize('16:9'), usualSize('9:16'), usualSize('1:1'), usualSize('7:5')], [{ width: 1344, height: 768 }, { width: 768, height: 1344 }, { width: 1024, height: 1024 }, null]);
 });
+
+test('dragged near two cuts or two neighbours, a sound or a plan goes to the nearest, not the first met (0.6.343)', () => {
+  // Cuts at 0, 5, 10 and 15 s; on a long bobine, the 8 pixels of the timeline are 4 s or more.
+  let montage = empty();
+  for (const n of [1, 2, 3]) montage = withTake(montage, clip(n, 5), { id: id(10 + n) });
+  assert.deepEqual([9, 6, 7.5, 14.2, 20].map(at => snapped(montage, at, 4.4)), [10, 5, 5, 15, 20]);
+  // A hole from 10 to 14 s: a clip of 1 s let go at 12.6 s goes against the plan after it (0.4 s away),
+  // not against the one before it (2.6 s away); let go at 10.5 s, against the one before it.
+  let holed = withTake(empty(), clip(1, 10), { id: id(11) });
+  holed = withPlanPlaced(withTake(holed, clip(2, 5), { id: id(12) }), id(12), 14);
+  holed = withTake(holed, clip(3, 5), { id: id(13) });
+  const laid = at => withTake(holed, clip(4, 1), { id: id(14), at, near: 3 }).plans.map(plan => [plan.id, plan.at]);
+  assert.deepEqual(laid(12.6), [[id(11), 0], [id(14), 13], [id(12), 14], [id(13), 19]]);
+  assert.deepEqual(laid(10.5), [[id(11), 0], [id(14), 10], [id(12), 14], [id(13), 19]]);
+  // The same for a plan of the bobine dragged into the hole.
+  const moved = withPlanPlaced(withTake(holed, clip(4, 1), { id: id(14) }), id(14), 12.6, { near: 3 });
+  assert.deepEqual(moved.plans.map(plan => [plan.id, plan.at]), [[id(11), 0], [id(14), 13], [id(12), 14], [id(13), 19]]);
+});
