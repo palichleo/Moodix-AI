@@ -2160,6 +2160,8 @@ export async function createApplication({
                 asked: typed,
                 draft: drafted,
                 timeoutMs: enrichTimeoutMs,
+                // (0.6.313) Stopped with the page, as the words alone are below.
+                signal: held.signal,
               });
             if (written !== given) return send(200, { prompt: written.prompt, seen: true });
             throw problem(
@@ -2983,6 +2985,8 @@ export async function createApplication({
                   outputFrames,
                   conversationId: body.conversationId,
                   onSkip: why => (skipped = why),
+                  // (0.6.313) Stopped with the answer (« Interrompre la réponse », the page gone).
+                  signal: controller.signal,
                 };
                 if (replacing && given && given.reference == null) {
                   // No image of the character: the page makes it, the user keeps it or has another
@@ -3023,8 +3027,10 @@ export async function createApplication({
                         written = await withScenePrompt(rest, places);
                       seen = written !== rest;
                       calls[0].function.arguments = JSON.stringify(written);
-                    } catch {
-                      // The call keeps the prompt it came with.
+                    } catch (error) {
+                      // Stopped by the user: no proposal is made for nobody. Else the call keeps the prompt
+                      // it came with.
+                      if (controller.signal.aborted) throw error;
                     }
                   const made = await runtime.request(calls, {
                     conversationId: body.conversationId,

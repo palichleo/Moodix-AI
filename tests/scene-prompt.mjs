@@ -373,3 +373,70 @@ test('a take made, then a fault after it (« generated »), counts as a creation
     );
   }
 });
+
+test('a prompt written from the pictures stops with the request that asked for it (0.6.313)', async () => {
+  // The page gone before the model is asked: it is not asked, and nothing is written for nobody.
+  const gone = new AbortController();
+  gone.abort();
+  const seen = [];
+  await assert.rejects(
+    withScenePrompt(args, { resources: library, engine: asking(answering(written, seen)), signal: gone.signal }),
+    { name: 'AbortError' },
+  );
+  assert.equal(seen.length, 0);
+  // (Whatever the model could have done: one that does not see is not a reason to go on either.)
+  await assert.rejects(
+    withScenePrompt(args, { resources: library, engine: { ...engine, vision: false }, signal: gone.signal }),
+    { name: 'AbortError' },
+  );
+  // Gone while the model writes: the model is stopped with it (its signal), and the caller told so, not
+  // handed a prompt « less good » to go on with.
+  const page = new AbortController(),
+    skipped = [];
+  let heard = null;
+  const slow = (_body, { signal }) =>
+    new Promise((resolve, reject) => {
+      heard = signal;
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      setTimeout(() => page.abort(), 20);
+    });
+  await assert.rejects(
+    withScenePrompt(args, { resources: library, engine: asking(slow), signal: page.signal, onSkip: why => skipped.push(why) }),
+    { name: 'AbortError' },
+  );
+  assert.equal(heard.aborted, true);
+  assert.deepEqual(skipped, []);
+  // A model that answers all the same once stopped: its prompt is not taken either.
+  const late = new AbortController(),
+    deaf = async () => {
+      late.abort();
+      return { ok: true, json: async () => ({ choices: [{ message: { content: written } }] }) };
+    };
+  await assert.rejects(withScenePrompt(args, { resources: library, engine: asking(deaf), signal: late.signal }), { name: 'AbortError' });
+  // Its own delay is still said and never stops the video; a request that is not stopped writes as before.
+  const waiting = (_body, { signal }) => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason)));
+  // (The timer of a delay does not hold the test open by itself.)
+  const open = new AbortController(),
+    held = setTimeout(() => {}, 5000);
+  assert.equal(
+    await withScenePrompt(args, { resources: library, engine: asking(waiting), signal: open.signal, timeoutMs: 30, onSkip: why => skipped.push(why) }),
+    args,
+  );
+  clearTimeout(held);
+  assert.deepEqual(skipped, ['pas de réponse en 0 s']);
+  assert.equal((await withScenePrompt(args, { resources: library, engine: asking(answering(written)), signal: open.signal })).prompt, written);
+});
+
+test('both callers of the prompt written from the pictures hand it their request (0.6.313)', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = (await readFile(new URL('../server.mjs', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  // The Studio (« Enrichir » of a character put in a video) holds the chat model: stopped with its page.
+  assert.match(source, /written = await withScenePrompt\(given, \{[^}]*\bsignal: held\.signal,/);
+  // The Chat: stopped with its answer, and no proposal made once it is.
+  assert.match(source, /const places = \{[^}]*\bsignal: controller\.signal,/);
+  assert.match(
+    source,
+    /written = await withScenePrompt\(rest, places\);[^}]*\} catch \(error\) \{\n(?:\s*\/\/[^\n]*\n)*\s*if \(controller\.signal\.aborted\) throw error;/,
+  );
+  assert.equal(source.split('withScenePrompt(').length - 1, 2, 'every caller is checked above');
+});
