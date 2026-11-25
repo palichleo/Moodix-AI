@@ -3456,3 +3456,19 @@ test('an image looked at keeps its analysis, after a call sent back too (0.6.337
     [runs[1], 'La 2e image est nette.', 'reviewed'],
   ]);
 });
+
+test('a message of pictures alone is read back without words: « Décris les images. » is the model’s (0.6.338)', () => {
+  const shown = page({ state: { conversationId: ID } }),
+    file = `original-${'a'.repeat(64)}.png`,
+    image = { name: 'a.png', url: 'data:image/png;base64,iVBORw0KGgo=', file, view: '/a' },
+    content = shown.context.userContent('', [image]),
+    read = message => plain(shown.context.savedUser({ role: 'user', content: message }));
+  assert.equal(content[0].text, 'Décris les images.', 'what the model is sent');
+  // Opened again: the bubble shows the picture alone, as it did when sent; « Modifier » gives an empty box.
+  assert.deepEqual([read(content).text, read(content).images.length], ['', 1]);
+  shown.context.renderTranscript([{ role: 'user', content }, { role: 'assistant', content: 'Un chat roux.' }]);
+  assert.equal(shown.$('messages').all('user')[0].textContent, '');
+  // Words of the user stay theirs, with pictures or without.
+  assert.equal(read(shown.context.userContent('Décris le chat.', [image])).text, 'Décris le chat.');
+  assert.equal(read('Décris les images.').text, 'Décris les images.');
+});

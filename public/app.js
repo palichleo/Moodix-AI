@@ -780,7 +780,10 @@ function savedUser(message) {
       message.content
         .filter(part => part.type === 'text')
         .map(part => part.text)
-        .join('\n'),
+        .join('\n')
+        // What userContent writes for pictures alone, for the model (0.6.338): read back as words of the user,
+        // it was in the bubble that showed the picture alone, and in the box after « Modifier ».
+        .replace(/^Décris les images\.$/, ''),
     ),
     images: message.content
       .filter(part => part.type === 'image_url')
