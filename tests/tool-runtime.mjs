@@ -907,3 +907,48 @@ test('a call gets an identifier of its own against the takes of its conversation
   const other = seriesFixture({ runs: [{ id: 'run-2', callId: 'call_9' }] });
   assert.equal((await other.ask(2, { messages: [{ role: 'user', content: 'Un phare' }] })).call.id, 'call_1');
 });
+
+test('a proposal changed on its card is kept when what it says of a named image cannot be read (0.6.310)', async () => {
+  const workflow = { id: 'w', name: 'LTX 2.5', digest: 'd', pipeline: 'ltx25', mediaType: 'video', references: [], parameters: { prompt: { policy: 'model' } }, profiles: {} },
+    job = () => ({ workflow, job: { parameters: { prompt: 'p', width: 768, height: 432 } } });
+  // The list of the workflows refused for a moment (Windows, a file being written), then read again.
+  let refused = true;
+  const catalog = {
+    read: async () => workflow,
+    prepare: async () => job(),
+    list: async () => {
+      if (refused) throw Object.assign(new Error('EPERM: operation not permitted, open workflow.json'), { code: 'EPERM' });
+      return [workflow];
+    },
+  };
+  const runtime = new ToolRuntime({ engine: {}, catalog, gallery: {}, resources: {}, getConfig: () => ({ enabled: true }), clientFactory: () => ({}) });
+  const requestId = crypto.randomUUID(),
+    approvalToken = crypto.randomUUID();
+  runtime.pending.set(requestId, {
+    created: Date.now(),
+    approvalToken,
+    digest: 'd',
+    media: 'video',
+    conversationId: crypto.randomUUID(),
+    args: { workflow_id: 'w', prompt: 'p' },
+    approvalArgs: { prompt: 'p' },
+    call: { id: 'call_1', type: 'function', function: { name: 'create_video', arguments: '{}' } },
+    references: [],
+    prepared: job(),
+    overrides: {},
+    notes: [],
+    // The user named #ref2, which the proposal leaves out: what it says of it reads the list of the workflows.
+    cited: [{ id: crypto.randomUUID(), label: '#ref2', reference: 2 }],
+  });
+  await assert.rejects(runtime.revise({ requestId, approvalToken, edits: { prompt: 'p, plus lent' } }), /EPERM/);
+  // The proposal was given up before that reading: « Générer » then said « Cet appel a expiré. Relancez la
+  // demande. », and the user had to ask again.
+  assert.equal(runtime.pending.has(requestId), true);
+  assert.equal(runtime.pending.get(requestId).approvalToken, approvalToken);
+  // The same change, the list read again: the proposal is replaced by its new one, once.
+  refused = false;
+  const revised = await runtime.revise({ requestId, approvalToken, edits: { prompt: 'p, plus lent' } });
+  assert.equal(runtime.pending.has(requestId), false);
+  assert.equal(runtime.pending.size, 1);
+  assert.equal(runtime.pending.has(revised.requestId), true);
+});
