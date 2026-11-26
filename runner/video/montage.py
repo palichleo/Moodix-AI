@@ -41,6 +41,10 @@ from pathlib import Path
 RATE = 48000
 SOUND = f'aresample={RATE},aformat=sample_fmts=fltp:channel_layouts=stereo'
 LIMITS = dict(plans=200, sounds=64, shortest=0.1, longest=600)
+# (0.6.409) The furthest instant of a film: as many plans as it may have, each as long as one may be. It was
+# ten hours (the limit of an instant within a file), less than that; the application says the same
+# (lib/montages.mjs).
+FURTHEST = LIMITS['plans'] * LIMITS['longest']
 SIDES = (128, 4096)
 RATES = (1, 60)
 MOVING = ('.mp4', '.webm')
@@ -180,7 +184,7 @@ def validated(params, root):
         # Its instant: after the end of the one before it (a millisecond of rounding allowed).
         before = result['plans'][-1] if result['plans'] else None
         follows = round(before['at'] + before['to'] - before['from'], 3) if before else 0.0
-        at = _seconds(item['at'], label) if 'at' in item else follows
+        at = _seconds(item['at'], label, high=FURTHEST) if 'at' in item else follows
         if at < follows - 0.001:
             raise ValueError(label + ': starts before the end of the plan before it')
         result['plans'].append(
@@ -205,7 +209,7 @@ def validated(params, root):
         result['sounds'].append(
             {
                 'path': _file(item['path'], root, HEARD, label),
-                'at': _seconds(item['at'], label),
+                'at': _seconds(item['at'], label, high=FURTHEST),
                 'from': start,
                 'to': end,
                 'volume': _volume(item['volume'], label),

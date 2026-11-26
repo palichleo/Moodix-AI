@@ -572,3 +572,17 @@ test('an unreadable bobine is listed as such, by its name, not gone without a wo
   );
   assert.deepEqual(await bytes(), before);
 });
+
+
+test('a take and a sound are kept as far as a bobine may go: 200 takes of ten minutes (0.6.409)', () => {
+  // Their instant was bounded to ten hours, less than the 200 takes of 600 s a bobine may hold.
+  const far = 199 * 600,
+    plan = { id: id(1), source: take(1), kind: 'video', from: 0, to: 600 },
+    sound = film().sounds[0];
+  const kept = validateMontage(film({ plans: [{ ...plan, at: far }], sounds: [{ ...sound, at: far }] }));
+  assert.deepEqual([kept.plans[0].at, kept.sounds[0].at], [far, far]);
+  // Further than any bobine goes: still refused.
+  const beyond = 200 * 600 + 1;
+  assert.throws(() => validateMontage(film({ plans: [{ ...plan, at: beyond }] })), /Prise 1 : durée invalide/);
+  assert.throws(() => validateMontage(film({ sounds: [{ ...sound, at: beyond }] })), /Son 1 : durée invalide/);
+});

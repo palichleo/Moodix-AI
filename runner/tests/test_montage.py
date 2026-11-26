@@ -126,6 +126,24 @@ class RuleTests(Folder):
         with self.assertRaisesRegex(ValueError, 'invalid length'):
             montage.validated(self.asked(plans=[dict(first, **{'from': 0, 'to': 600.001})]), self.root)
 
+    def test_an_instant_is_taken_as_far_as_a_film_may_go_200_plans_of_ten_minutes_0_6_409(self):
+        # It was bounded to ten hours, less than the 200 plans of 600 s a film may have.
+        far = 199 * 600
+        plan = dict(self.asked()['plans'][0], at=far)
+        sound = dict(self.asked()['sounds'][0], at=far)
+        kept = montage.validated(self.asked(plans=[plan], sounds=[sound]), self.root)
+        self.assertEqual((kept['plans'][0]['at'], kept['sounds'][0]['at']), (far, far))
+        self.assertEqual(montage.FURTHEST, 120000)
+        # Further than any film goes: still refused.
+        beyond = 200 * 600 + 1
+        with self.assertRaisesRegex(ValueError, 'Plan 1: invalid time'):
+            montage.validated(self.asked(plans=[dict(plan, at=beyond)], sounds=[]), self.root)
+        with self.assertRaisesRegex(ValueError, 'Son 1: invalid time'):
+            montage.validated(self.asked(plans=[plan], sounds=[dict(sound, at=beyond)]), self.root)
+        # An instant within a file keeps its own limit.
+        with self.assertRaisesRegex(ValueError, 'Plan 1: invalid time'):
+            montage.validated(self.asked(plans=[dict(plan, **{'from': 36001, 'to': 36002})], sounds=[]), self.root)
+
     def test_each_plan_is_cut_sized_and_given_exactly_its_length_then_joined_and_mixed(self):
         plan = montage.validated(self.asked(), self.root)
         inputs, filters, sound, total = montage.graph(plan, [False, True, False])
