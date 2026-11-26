@@ -159,6 +159,16 @@ const staticFiles = new Map([
   ['/markdown.mjs', ['markdown.mjs', 'text/javascript; charset=utf-8']],
 ]);
 
+// (0.6.400) A part of an address, read as it was written. One badly written (« %E0 ») is refused: it was an
+// unexpected error of the server (« Erreur locale inattendue », 500).
+const decoded = text => {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    throw problem('Adresse invalide.');
+  }
+};
+
 async function jsonBody(req, limit = maxBody) {
   if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] || ''))
     throw problem('Le format JSON est attendu.', 415);
@@ -1428,13 +1438,13 @@ export async function createApplication({
       // first, the open one too (even before it is saved). Without the history, the open one alone.
       // (0.6.136) The montages of a project, then one of them by its identifier.
       if (req.method === 'GET' && path.startsWith('/api/montages/')) {
-        const [project, id, more] = path.slice('/api/montages/'.length).split('/').map(decodeURIComponent);
+        const [project, id, more] = path.slice('/api/montages/'.length).split('/').map(decoded);
         if (more !== undefined) throw problem('Bobine introuvable.', 404);
         if (id === undefined) return send(200, { montages: await montages.list(project) });
         return send(200, await montages.read(project, id));
       }
       if (req.method === 'GET' && path.startsWith('/api/project-gallery/')) {
-        const project = projectId(decodeURIComponent(path.slice('/api/project-gallery/'.length))),
+        const project = projectId(decoded(path.slice('/api/project-gallery/'.length))),
           open = requestURL.searchParams.get('conversation'),
           includeImages = requestURL.searchParams.get('images') !== '0',
           ids = new Set(open ? [open] : []);

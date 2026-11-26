@@ -991,3 +991,23 @@ test('a take numbered again (its conversation moved) is said with its new number
   find(card(f, 'r3'), 'library-del').onclick();
   assert.equal(find(card(f, 'r3'), 'studio-confirm-text').textContent, 'Supprimer la prise 12 ?');
 });
+
+
+test('a badly written address is refused, not an unexpected error of the server (0.6.400)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'moodix-address-')),
+    app = await createApplication({ port: 0, dataDir: root });
+  try {
+    const { token } = await (await fetch(app.url + '/api/bootstrap')).json(),
+      headers = { Authorization: 'Bearer ' + token };
+    for (const route of ['project-gallery/%E0', 'montages/%E0', 'montages/inbox/%E0%A4']) {
+      const response = await fetch(app.url + '/api/' + route, { headers });
+      assert.deepEqual([response.status, (await response.json()).error], [400, 'Adresse invalide.'], route);
+    }
+    // One well written is read as before, its escapes too.
+    assert.equal((await fetch(app.url + '/api/project-gallery/inbox?images=0', { headers })).status, 200);
+    assert.deepEqual(await (await fetch(app.url + '/api/montages/in%62ox', { headers })).json(), { montages: [] });
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
