@@ -11,7 +11,7 @@ import {
   resourceReadIds,
 } from './lib/resources.mjs';
 import { citedImages, citedMessage, citedSaid, citedUnused, citedNumbers } from './lib/cited-resources.mjs';
-import { briefMissing, cardBrief, studioBrief } from './lib/video-brief.mjs';
+import { briefMissing, cardBrief, seenBefore, studioBrief } from './lib/video-brief.mjs';
 import { shortTitle, titleRequest } from './lib/conversation-title.mjs';
 import { CAPABLE, CAPABLE_CARD, CAPABLE_STUDIO, capableMessages, screenOf, takesContext, wordingOf } from './lib/model-wording.mjs';
 import { listedSources } from './lib/listed-takes.mjs';
@@ -3109,6 +3109,10 @@ export async function createApplication({
                     request.cardBrief = capable ? CAPABLE_CARD : cardBrief();
                     request.studioBrief = capable ? CAPABLE_STUDIO : studioBrief();
                   }
+                  // (0.6.428) Spared its words because the local model had talked (`talked`), not
+                  // because the user had seen this proposal: it does not start by itself either.
+                  else if (request && !request.missing && !capable && !seenBefore(body.messages, request.call ?? call))
+                    request.autoAllow = false;
                   // Said where the user confirms: what the prompt was written from.
                   if (replacing && request)
                     request.notes = [

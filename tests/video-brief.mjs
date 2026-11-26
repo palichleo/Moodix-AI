@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { briefMissing, cardBrief, studioBrief } from '../lib/video-brief.mjs';
+import { briefMissing, cardBrief, seenBefore, studioBrief } from '../lib/video-brief.mjs';
 import { UNANSWERED } from '../public/transcript.mjs';
 
 const user = content => ({ role: 'user', content });
@@ -193,4 +193,30 @@ test('the small local model: a plan it wrote in words and the user answered is t
     { role: 'user', content: 'Une autre, de nuit' },
   ];
   assert.equal(briefMissing(made, { ...call, id: 'c2' }, { talked: true }), true);
+});
+
+
+test('the small local model: spared its words by a talk, a video the user has not seen does not start by itself (0.6.428)', async () => {
+  const BOAT = { prompt: 'A cat jumps over a fence.', duration: 5 };
+  // « bonjour », an answer, then the video: no words are asked of it (as before), yet nothing of
+  // this video was ever shown. Before, the pointer of the Studio started it when the settings allowed.
+  const hello = [user('bonjour'), says('Bonjour ! Que voulez-vous créer ?'), user('fais une vidéo d’un chat qui saute')];
+  assert.equal(briefMissing(hello, call('create_video', BOAT), { talked: true }), false);
+  assert.equal(seenBefore(hello, call('create_video', BOAT)), false);
+  // Its plan answered « go » reads the same from here: the Studio is set and waits on « Générer ».
+  const plan = [user('une vidéo d’un chat'), says('Le chat saute la barrière, cinq secondes. Cela vous convient ?'), user('go')];
+  assert.equal(seenBefore(plan, call('create_video', BOAT)), false);
+  // Set in the Studio, answered in words, and the same call made again: seen, it may start.
+  const back = [...hello, calls('a', 'create_video', BOAT), result('a', 'denied'), user('oui vas-y')];
+  assert.equal(seenBefore(back, call('create_video', BOAT)), true);
+  assert.equal(seenBefore(back, call('create_video', { ...BOAT, duration: 10 })), false);
+  // Nothing else is held back: an image, a button on an output, a draft promoted to its final.
+  assert.equal(seenBefore(hello, call('create_image', { prompt: 'A cat.' })), true);
+  assert.equal(seenBefore(hello, call('create_video', { ...BOAT, reuse_output: 'run-1' })), true);
+  // The server holds it for the local model only, and only when no words are asked (they hold it too).
+  const server = (await readFile(new URL('../server.mjs', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  assert.match(
+    server,
+    /request\.studioBrief = capable \? CAPABLE_STUDIO : studioBrief\(\);\n\s+\}\n(?:\s+\/\/.*\n)+\s+else if \(request && !request\.missing && !capable && !seenBefore\(body\.messages, request\.call \?\? call\)\)\n\s+request\.autoAllow = false;/,
+  );
 });
