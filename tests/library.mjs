@@ -1011,3 +1011,24 @@ test('a badly written address is refused, not an unexpected error of the server 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('a bobine card follows the bobine its click opens: length, takes, format (0.6.444)', async () => {
+  // (Z6-11) Said by the server of the bobine as it is now; kept from one reading to the next, the card stayed as
+  // it was drawn until the bobine was put in the Archives again.
+  const picture = { conversationId: 'c1', runId: 'r1', output: 0 },
+    archived = { at: '2026-11-14T12:00:00.000Z', seconds: 22.04, plans: 7, pictures: [picture] };
+  let bobines = [{ id: 'b1', name: 'Le renard', format: '16:9', project: 'p1', archived }];
+  const f = fixture({ api: async () => Response.json({ runs: RUNS, bobines }) }),
+    meta = () => find(card(f, 'b1'), 'library-reel-meta').textContent;
+  await f.library.show();
+  assert.equal(meta(), '22.04 S · 7 prises');
+  bobines = [{ ...bobines[0], archived: { ...archived, seconds: 4, plans: 2 } }];
+  await f.library.refresh();
+  assert.equal(meta(), '04.00 S · 2 prises');
+  assert.match(find(card(f, 'b1'), 'library-pick').attributes['aria-label'], / · 04\.00 S · 2 prises · /);
+  // Another format: drawn again, as wide as its pictures are now.
+  const drawn = card(f, 'b1');
+  bobines = [{ ...bobines[0], format: '9:16' }];
+  await f.library.refresh();
+  assert.notEqual(card(f, 'b1'), drawn);
+});

@@ -191,7 +191,8 @@ test('the montages of a project that goes follow its takes, as they are, and wri
   await rename(join(there, (await files('inbox', 'corbeille'))[0]), join(there, asideName));
   const archived = await readFile(join(dir, project, id(900) + '.json'), 'utf8'),
     card = (await montages.list(project)).find(item => item.id === id(900)).archived;
-  assert.deepEqual([card.plans, card.seconds], [3, 10], 'the card of the Archives is the bobine as it was put there');
+  // (0.6.444) The bobine its click opens, as it is now (Z6-11).
+  assert.deepEqual([card.plans, card.seconds], [1, 5], 'the card of the Archives is the bobine its click opens');
   assert.deepEqual(await montages.uses('inbox'), new Map());
 
   assert.deepEqual(await montages.moveProject(project, 'inbox'), { moved: 3 });
@@ -364,8 +365,9 @@ test('« Enregistrer » puts the bobine in the Archives as it is then; what chan
   await montages.save(project, { ...newMontage({ id: id(901) }), archived: { ...content, name: 'Faux', at: '2001-01-01T00:00:00.000Z' } });
   assert.equal('archived' in (await montages.read(project, id(901))), false);
   // Listed with what the Archives show of it: when, how long, how many takes, the first two made.
+  // (0.6.444) All but the when of the bobine its click opens, as it is now: no take any more (Z6-11).
   const listed = (await montages.list(project)).find(item => item.id === id(900));
-  assert.deepEqual(listed.archived, { at: put.archived.at, seconds: 10, plans: 3, pictures: [take(12), take(14)] });
+  assert.deepEqual(listed.archived, { at: put.archived.at, seconds: 0, plans: 0, pictures: [] });
   assert.equal(listed.name, 'Autre nom');
   // A version that cannot be read any more is left out; the bobine itself stays.
   const kept = JSON.parse(await readFile(join(dir, project, id(900) + '.json'), 'utf8'));
@@ -642,4 +644,40 @@ test('a bobine set aside comes back as it was; after 30 days in the corbeille it
   assert.ok(history > 0 && purge > history && purge - history < 300);
   assert.match(server, /path === '\/api\/montages\/restore'/);
   assert.match(server, /send\(200, await montages\.restore\(body\.project, body\.id\)\)/);
+});
+
+test('the Archives card says the bobine its click opens; « Retirer des Archives » keeps it (0.6.444)', async t => {
+  // (Z6-11) Changed since « Enregistrer », a bobine of 2 takes had a card of 3, their pictures, under its name of
+  // today, and a click on it opened the bobine of today.
+  const dir = await mkdtemp(join(tmpdir(), 'moodix-montages-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const montages = new Montages({ dir }),
+    project = '22222222-2222-4222-8222-222222222222',
+    card = async () => (await montages.list(project)).find(item => item.id === id(900)).archived;
+  const put = await montages.save(project, film(), { archive: true }),
+    [first, , third] = film().plans,
+    today = await montages.save(project, film({ name: 'Changée depuis', plans: [third, first] }));
+  assert.deepEqual(await card(), { at: put.archived.at, seconds: 7, plans: 2, pictures: [take(9), take(12)] });
+  // What « Enregistrer » put there stays in its file: the Bobine says by it what changed since.
+  assert.deepEqual((await montages.read(project, id(900))).archived, put.archived);
+  // « Retirer des Archives »: no card any more, the bobine as it was, its date of change kept; again, nothing.
+  assert.deepEqual(await montages.unarchive(project, id(900)), { unarchived: true });
+  const { archived: _, ...rest } = today;
+  assert.deepEqual([await montages.read(project, id(900)), await card()], [rest, undefined]);
+  assert.deepEqual(await montages.unarchive(project, id(900)), { unarchived: false });
+  // Kept again, it does not come back there; « Enregistrer » puts it back.
+  await montages.save(project, rest);
+  assert.equal(await card(), undefined);
+  await montages.save(project, rest, { archive: true });
+  assert.equal((await card()).plans, 2);
+  // Refused: a bobine gone, a file that cannot be read (never written over), a bad identifier.
+  await assert.rejects(montages.unarchive(project, id(901)), { status: 404 });
+  await writeFile(join(dir, project, id(902) + '.json'), '{ not json');
+  await assert.rejects(montages.unarchive(project, id(902)), { status: 409, message: /rien n’est écrit/ });
+  assert.equal(await readFile(join(dir, project, id(902) + '.json'), 'utf8'), '{ not json');
+  await assert.rejects(montages.unarchive(project, '../' + id(900)), { status: 400, message: /identifiant invalide/ });
+  // Its route, beside « Supprimer la bobine ».
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8'),
+    route = "path === '/api/montages/unarchive') return send(200, await montages.unarchive(body.project, body.id));";
+  assert.ok(server.includes(route));
 });

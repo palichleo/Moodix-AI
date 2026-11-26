@@ -345,7 +345,12 @@ export function setupLibrary({
   const keyOf = record => record.id + '|' + (record.outputs?.[0]?.originalUrl || '');
   // (0.6.154) A bobine: drawn again when it is put in the Archives again.
   // (0.6.160) And when the picture of one of its takes comes (a clip whose small picture was just made).
-  const reelKey = bobine => ['bobine', bobine.project, bobine.id, bobine.archived.at, bobine.name, ...reelPictures(bobine)].join('|');
+  // (0.6.444) And when the bobine its click opens changes: its length, its takes, its format (the width of its card),
+  // said by the server of the bobine as it is now (lib/montages.mjs `archivedSummary`).
+  const reelKey = bobine =>
+    ['bobine', bobine.project, bobine.id, bobine.archived.at, bobine.name, bobine.format, ...reelPictures(bobine)]
+      .concat(bobine.archived.seconds, bobine.archived.plans)
+      .join('|');
   /** (0.6.154) The bobines the filter keeps: of the project shown, every conversation, the kind « Tout » or « Bobines ». */
   const reelsShown = () =>
     filter.conversation !== 'all' || (filter.media !== 'all' && filter.media !== 'bobine')

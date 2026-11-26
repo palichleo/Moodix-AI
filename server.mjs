@@ -1575,6 +1575,8 @@ export async function createApplication({
         if (projectId(body?.project) !== 'inbox') await projects.require(body.project);
         return send(200, await montages.restore(body.project, body.id));
       }
+      // (0.6.444) « Retirer des Archives »: the bobine stays, its card of the Archives goes (lib/montages.mjs).
+      if (path === '/api/montages/unarchive') return send(200, await montages.unarchive(body.project, body.id));
       if (path === '/api/montages/export') {
         if (closing || relaunching) throw problem('L’application est en cours de fermeture.', 409);
         const project = projectId(body.project),
