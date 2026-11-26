@@ -824,3 +824,35 @@ test('a failed unpacking leaves no build behind; the downloads go once a build i
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('« Il voit » names the devices llama.cpp lists, not the lines it logs on the way (0.6.395)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'llama-builds-'));
+  // Its error output (unbuffered) and its output, mixed: logs before the list, and between its lines.
+  const output =
+    'ggml_cuda_init: found 2 CUDA devices:\n' +
+    '  Device 0: NVIDIA GeForce RTX 4070 SUPER, compute capability 8.9, VMM: yes\n' +
+    '  Device 1: NVIDIA GeForce RTX 3060, compute capability 8.6, VMM: yes\n' +
+    'load_backend: loaded CUDA backend from C:\\llama\\ggml-cuda.dll\n' +
+    'Available devices:\n' +
+    'load_backend: loaded CPU backend from C:\\llama\\ggml-cpu-alderlake.dll\n' +
+    '  CUDA0: NVIDIA GeForce RTX 4070 SUPER (12281 MiB, 11000 MiB free)\r\n' +
+    'load_backend: loaded RPC backend from C:\\llama\\ggml-rpc.dll\n' +
+    '  Device 0: NVIDIA GeForce RTX 4070 SUPER, compute capability 8.9, VMM: yes\n' +
+    '  CUDA1: NVIDIA GeForce RTX 3060 (12288 MiB, 11500 MiB free)\n';
+  try {
+    const builds = rtx(root, { fetchImpl: flaky(root, RTX).fetchImpl, run: async () => ({ code: 0, output }) });
+    assert.deepEqual((await builds.install()).devices, [
+      'CUDA0: NVIDIA GeForce RTX 4070 SUPER (12281 MiB, 11000 MiB free)',
+      'CUDA1: NVIDIA GeForce RTX 3060 (12288 MiB, 11500 MiB free)',
+    ]);
+    // Without its list, nothing is named: a line set in is not a device by itself (the build still sees
+    // the card, and is kept).
+    const bare = join(root, 'bare'),
+      logged = '  CUDA0: NVIDIA GeForce RTX 4070 SUPER (12281 MiB, 11000 MiB free)\n',
+      unlisted = rtx(bare, { fetchImpl: flaky(bare, RTX).fetchImpl, run: async () => ({ code: 0, output: logged }) }),
+      kept = await unlisted.install();
+    assert.deepEqual([kept.id, kept.devices], ['cuda-13.4', []]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
