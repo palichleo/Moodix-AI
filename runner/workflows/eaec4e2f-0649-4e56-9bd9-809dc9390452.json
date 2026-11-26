@@ -139,6 +139,7 @@
     {
       "id": "reference-slots",
       "asset": "f35e9e78-b899-4af9-965a-61f9a6e2dbd8",
+      "file": "LTX-2.5-Licon-MSR-V1.safetensors",
       "description": "Enable with MSR reference images.",
       "enabled": {
         "policy": "model",

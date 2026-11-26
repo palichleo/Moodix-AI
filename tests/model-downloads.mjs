@@ -495,3 +495,42 @@ test('a file to convert asks for the room of both files, is never written over a
   await assert.rejects(bare.downloads.start(bare.workflow), /se convertissent après le téléchargement/);
   assert.equal(bare.requests.length, 0);
 });
+
+
+test('a LoRA a shipped workflow names and lacks is offered and fetched with its other files (0.6.421)', async t => {
+  const LORA = Buffer.from('lora weights '.repeat(50));
+  const f = await fixture(t, {
+    catalog: {
+      'krea2Turbo.safetensors': { repo: 'Org/Krea', revision: 'abc', path: 'diffusion_models/krea2_turbo.safetensors', size: MODEL.length, sha256: sha(MODEL) },
+      'subjects.safetensors': { repo: 'Org/Subjects', revision: 'v1', path: 'subjects.safetensors', size: LORA.length, sha256: sha(LORA), license: { name: 'Apache-2.0', url: 'https://example.org/licence' } },
+    },
+  });
+  f.bodies['subjects.safetensors'] = LORA;
+  f.downloads.folderOf = (family, role) => join(f.models, role === 'lora' ? 'loras' : 'diffusion_models');
+  const workflow = {
+    ...f.workflow,
+    components: { model: f.workflow.components.model },
+    loras: [
+      { id: 'subjects', asset: 'lora-asset', file: 'subjects.safetensors' },
+      // One of the user's, registered by its id alone: nothing to fetch for it.
+      { id: 'theirs', asset: 'their-asset' },
+    ],
+  };
+  assert.deepEqual((await f.downloads.missing(workflow)).map(item => [item.role, item.file, item.asset, item.license?.name]), [
+    ['model', 'krea2Turbo.safetensors', 'model-asset', undefined],
+    ['lora', 'subjects.safetensors', 'lora-asset', 'Apache-2.0'],
+  ]);
+  const offer = (await f.downloads.offers([workflow])).krea;
+  assert.deepEqual([offer.bytes, offer.complete, offer.files.map(file => file.file)], [MODEL.length + LORA.length, true, ['krea2Turbo.safetensors', 'subjects.safetensors']]);
+  await f.downloads.start(workflow);
+  const done = await f.finish();
+  assert.equal(done.state, 'done', done.error);
+  // In the folder of the LoRAs, registered under the id the workflow gives it, as a LoRA of its model.
+  const lora = join(f.models, 'loras', 'subjects.safetensors');
+  assert.deepEqual(await readFile(lora), LORA);
+  assert.deepEqual([f.registered.get('lora-asset').path, f.registered.get('lora-asset').kind, f.registered.get('lora-asset').family], [lora, 'lora', 'krea2']);
+  assert.deepEqual(await f.downloads.missing(workflow), []);
+  // The model there and the LoRA alone missing: it alone is offered.
+  f.registered.delete('lora-asset');
+  assert.deepEqual((await f.downloads.missing(workflow)).map(item => item.file), ['subjects.safetensors']);
+});

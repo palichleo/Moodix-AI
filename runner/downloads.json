@@ -454,6 +454,18 @@
       "restricted": true
     }
   },
+  "LTX-2.5-Licon-MSR-V1.safetensors": {
+    "repo": "LiconStudio/LTX-2.5-Multiple-Subject-Reference",
+    "revision": "aa19b48f845995525d8ace60cdc89b842e951ce6",
+    "path": "LTX-2.5-Licon-MSR-V1.safetensors",
+    "size": 1308840536,
+    "sha256": "d45cedd720e5819ccbe200a4b0ae01f7ae0e0d2966d700a24ebd4c7739515d4f",
+    "license": {
+      "name": "Apache-2.0",
+      "url": "https://spdx.org/licenses/Apache-2.0.html",
+      "limits": "LoRA des sujets (Multiple Subject Reference V1) de LiconStudio. Il ne sert qu’avec le modèle LTX 2.5, sous sa propre licence."
+    }
+  },
   "krea2TurboOfficialComfy_krea2TurboInt8.safetensors": {
     "repo": "Comfy-Org/Krea-2",
     "revision": "588feaf955b08b9ac4723eeb751752ab045dba71",

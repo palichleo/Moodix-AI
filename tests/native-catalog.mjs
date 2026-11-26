@@ -318,3 +318,59 @@ test('every source names its licence, as the table of the notices gives it; one 
   assert.match(catalog['krea2TurboOfficialComfy_krea2TurboInt8.safetensors'].license.limits, /1 million de dollars/);
   assert.equal(catalog['sam3.1_multiplex_fp16.safetensors'].license.name, 'SAM License');
 });
+
+
+test('a LoRA of a shipped workflow names its file, is found by it, and can be downloaded (0.6.421)', async t => {
+  const { resolveNativeWorkflow } = await import('../lib/native-workflows.mjs');
+  const folder = new URL('../runner/workflows/', import.meta.url),
+    sources = JSON.parse(await readFile(new URL('../runner/downloads.json', import.meta.url), 'utf8')),
+    shipped = [];
+  for (const name of (await readdir(folder)).filter(file => file.endsWith('.json')))
+    shipped.push(JSON.parse(await readFile(new URL(name, folder), 'utf8')));
+  // Every LoRA Moodix ships a workflow with: the name of its file, and where to fetch it. The LoRA of the
+  // subjects of LTX 2.5 had neither: on another computer it was any LoRA of the folder, or nothing.
+  const loras = shipped.flatMap(workflow => (workflow.loras ?? []).map(lora => [workflow.name, lora.id, lora.file]));
+  assert.deepEqual(loras, [['LTX 2.5', 'reference-slots', 'LTX-2.5-Licon-MSR-V1.safetensors']]);
+  for (const [name, id, file] of loras) assert.ok(sources[file]?.sha256 && sources[file].license?.name, `${name} · ${id}: no source`);
+
+  // The registry is asked for it by that name, when the workflow is checked and when a creation takes it.
+  const ltx = shipped.find(workflow => workflow.name === 'LTX 2.5'),
+    asked = [],
+    recording = { resolve: async (id, about) => (asked.push([about.kind, about.file]), { path: join(tmpdir(), id) }), read: async () => null },
+    root = await mkdtemp(join(tmpdir(), 'atelier-lora-names-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const user = join(root, 'workflow'),
+    catalog = new NativeWorkflowCatalog(user, { assets: recording, builtin: fileURLToPath(folder), statePath: join(root, 'state.json') });
+  const read = await catalog.read(ltx.id);
+  assert.equal(read.loras[0].file, 'LTX-2.5-Licon-MSR-V1.safetensors');
+  await catalog.list();
+  assert.ok(asked.some(([kind, file]) => kind === 'lora' && file === 'LTX-2.5-Licon-MSR-V1.safetensors'), 'checked by its name');
+  asked.length = 0;
+  const subject = read.references.find(slot => slot.role === 'msr_image').id,
+    job = await resolveNativeWorkflow(read, { prompt: 'a tiger runs', intention: 'x', references: [{ input: subject, image: 0 }] }, recording, { allowPendingReferences: true });
+  assert.deepEqual(job.loras.map(lora => lora.id), ['reference-slots']);
+  assert.deepEqual(asked.filter(([kind]) => kind === 'lora'), [['lora', 'LTX-2.5-Licon-MSR-V1.safetensors']]);
+
+  // A copy the user saved before this version names no file for it: it takes the name the shipped one gives.
+  const { digest, ...stored } = validateNativeWorkflow(ltx),
+    old = structuredClone(stored);
+  delete old.loras[0].file;
+  old.description = 'Le mien.';
+  await mkdir(user);
+  await writeFile(join(user, ltx.id + '.json'), JSON.stringify(old));
+  const theirs = await catalog.read(ltx.id);
+  assert.deepEqual([theirs.description, theirs.loras[0].file], ['Le mien.', 'LTX-2.5-Licon-MSR-V1.safetensors']);
+  // Another LoRA under the same id is theirs: no name is given it.
+  await writeFile(join(user, ltx.id + '.json'), JSON.stringify({ ...old, loras: [{ ...old.loras[0], asset: '22222222-2222-4222-8222-222222222222' }] }));
+  assert.equal((await catalog.read(ltx.id)).loras[0].file, undefined);
+  // Saved from a page that sends it back without the name: written with it; with the file registered for it
+  // when there is one, as the components are.
+  await catalog.save(old);
+  assert.equal(JSON.parse(await readFile(join(user, ltx.id + '.json'), 'utf8')).loras[0].file, 'LTX-2.5-Licon-MSR-V1.safetensors');
+  recording.read = async id => (id === old.loras[0].asset ? { path: join(root, 'loras', 'Renamed.safetensors') } : null);
+  await catalog.save(old);
+  assert.equal(JSON.parse(await readFile(join(user, ltx.id + '.json'), 'utf8')).loras[0].file, 'Renamed.safetensors');
+  // A name that is no file name is refused, as for a component.
+  for (const file of ['', 'a/b.safetensors', 'a\\b.safetensors', 7, 'x'.repeat(256)])
+    assert.throws(() => validateNativeWorkflow({ ...stored, loras: [{ ...stored.loras[0], file }] }), /Invalid LoRA file name/, String(file));
+});

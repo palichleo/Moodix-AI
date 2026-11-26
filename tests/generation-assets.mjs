@@ -180,3 +180,55 @@ test('a model found again by its name is remembered while it stays there, search
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+test('a LoRA is never stood for by another: by its id, by its name, or it is missing (0.6.421)', async () => {
+  const { isLora } = await import('../lib/generation-assets.mjs'),
+    { basename } = await import('node:path');
+  const directory = await mkdtemp(join(tmpdir(), 'atelier-loras-'));
+  try {
+    const loras = join(directory, 'loras'),
+      models = join(directory, 'vae');
+    await mkdir(loras);
+    await mkdir(models);
+    const assets = new GenerationAssets(join(directory, 'assets.json'), {
+      roots: () => [directory],
+      folder: (family, kind) => [isLora(family, kind) ? loras : models],
+    });
+    const part = (rows, columns, at = 0) => ({ dtype: 'I8', shape: [rows, columns], data_offsets: [at, at + rows * columns] }),
+      // Any LoRA of LTX 2.5 has this layout, any of Wan that one: nothing in them tells one from another.
+      ltx = { 'blocks.0.attn1.to_k.lora_A.weight': part(1, 4096), 'blocks.0.attn1.to_k.lora_B.weight': part(4096, 1, 4096) },
+      wan = { 'blocks.0.self_attn.q.lora_down.weight': part(1, 5120), 'blocks.0.self_attn.q.lora_up.weight': part(5120, 1, 5120) },
+      ID = '11111111-1111-4111-8111-111111111111',
+      MSR = 'LTX-2.5-Licon-MSR-V1.safetensors',
+      missing = asked => assert.rejects(assets.resolve(ID, asked), /not found/);
+    await weights(join(loras, 'a-style.safetensors'), ltx);
+    await weights(join(loras, 'another-wan-lora.safetensors'), wan);
+    // The folder still answers for who asks it (a component no workflow fixes): unchanged.
+    assert.equal(basename((await assets.pick('lora', 'ltx25')).path), 'a-style.safetensors');
+    assert.equal(basename((await assets.pick('stepLora', 'wan22')).path), 'another-wan-lora.safetensors');
+    // The LoRA a workflow names is not there: missing, whatever the folder holds. The style was taken for
+    // the subjects of LTX 2.5, the other LoRA of Wan for each of those of Wan 2.2 and of SCAIL-2.
+    await missing({ kind: 'lora', family: 'ltx25', file: MSR });
+    await missing({ kind: 'lora', family: 'ltx25' });
+    for (const [family, kind] of [['wan22', 'stepLora'], ['wan22', 'stepLoraLow'], ['wan_scail2', 'stepLora'], ['wan_scail2', 'identityLora'], ['ltx25_refilm', 'guideLora'], ['qwen_image_edit', 'stepLora']]) {
+      assert.equal(isLora(family, kind), true, kind);
+      await missing({ kind, family, file: 'absent.safetensors' });
+    }
+    // There under its name: that file, registered under the id the workflow gives it.
+    await weights(join(loras, MSR), ltx);
+    const found = await assets.resolve(ID, { kind: 'lora', family: 'ltx25', file: MSR });
+    assert.deepEqual([basename(found.path), found.id, found.automatic], [MSR, ID, undefined]);
+    // Registered, its file gone since: found again under its name elsewhere, never replaced by another.
+    await rm(join(loras, MSR));
+    await assert.rejects(assets.resolve(ID, { kind: 'lora', family: 'ltx25', file: MSR }), { code: 'ENOENT' });
+    await mkdir(join(directory, 'elsewhere'));
+    await weights(join(directory, 'elsewhere', MSR), ltx);
+    const moved = await assets.resolve(ID, { kind: 'lora', family: 'ltx25', file: MSR });
+    assert.deepEqual([basename(moved.path), moved.automatic], [MSR, true]);
+    // What is not a LoRA is as before: another file of the same layout stands for the one that is gone.
+    assert.deepEqual([isLora('ltx25', 'vae'), isLora('ltx25', 'model'), isLora('unknown', 'model')], [false, false, false]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
