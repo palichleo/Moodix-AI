@@ -394,3 +394,13 @@ test('(0.6.441) the guides of models/ and workflow/ name the pages of today, no 
       }
     }
 });
+
+test('(0.6.443) the models directory of Moodix holds only the folders its models read', async t => {
+  const root = await directory(t),
+    { readdir } = await import('node:fs/promises');
+  await service(t, root).init();
+  const components = Object.values(families()).flatMap(manifest => Object.values(manifest.components));
+  const read = new Set(components.map(spec => spec.folder));
+  // controlnet and audio_encoders were made empty at each start, for no model.
+  assert.deepEqual((await readdir(join(root, 'models'))).filter(name => !read.has(name)), []);
+});

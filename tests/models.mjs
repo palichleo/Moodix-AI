@@ -286,3 +286,14 @@ test('editing model paths replaces that profile and preserves other saved LLMs',
   await assert.rejects(library.get(one.id), { status: 404 });
   await assert.rejects(library.add({ id: two.id, modelPath: c, name: 'Duplicate' }), { status: 409 });
 });
+
+test('(0.6.443) the controlnet and audio_encoders folders of before are never taken for chat models', async t => {
+  // Moodix no longer makes them (lib/model-tree.mjs), but an installation of before keeps them.
+  const { models, library } = await fixture(t);
+  await gguf(join(models, 'controlnet'), 'union.gguf');
+  await gguf(join(models, 'audio_encoders'), 'wav2vec2.gguf');
+  await writeFile(join(models, 'audio_encoders', 'kept for later.txt'), 'Not used by Moodix yet.');
+  await gguf(join(models, 'LLMs', 'Chat'), 'main.gguf');
+  const { detected, errors } = await library.scan();
+  assert.deepEqual([detected.map(item => item.name), errors], [['Chat'], []]);
+});
