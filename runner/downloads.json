@@ -765,5 +765,27 @@
       "url": "https://spdx.org/licenses/MIT.html",
       "limits": "MoGe-2 de Microsoft (MIT), reconditionné par Comfy-Org ; son encodeur, DINOv2 de Meta, est sous Apache-2.0."
     }
+  },
+  "Qwen3-ASR-1.7B-Q8_0.gguf": {
+    "repo": "ggml-org/Qwen3-ASR-1.7B-GGUF",
+    "revision": "3b2c29585c2180452ccb14d3b6b58127f352400d",
+    "path": "Qwen3-ASR-1.7B-Q8_0.gguf",
+    "size": 2165035232,
+    "sha256": "cd5f5ce9d7c9c03ff47d54d7f2726e63a39e61e3001640c5d08b6e4d3aed1e6d",
+    "license": {
+      "name": "Apache-2.0",
+      "url": "https://spdx.org/licenses/Apache-2.0.html"
+    }
+  },
+  "mmproj-Qwen3-ASR-1.7B-BF16.gguf": {
+    "repo": "ggml-org/Qwen3-ASR-1.7B-GGUF",
+    "revision": "3b2c29585c2180452ccb14d3b6b58127f352400d",
+    "path": "mmproj-Qwen3-ASR-1.7B-BF16.gguf",
+    "size": 641774016,
+    "sha256": "bcce9cc8214aa8b853e379df109f9c809d65857e2f20e26603d600a89f0e0ec2",
+    "license": {
+      "name": "Apache-2.0",
+      "url": "https://spdx.org/licenses/Apache-2.0.html"
+    }
   }
 }

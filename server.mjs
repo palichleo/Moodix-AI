@@ -63,6 +63,7 @@ import { takeSeconds } from './public/take-length.mjs';
 import { exportMontage, exportTakes, takeFiles } from './lib/montage-export.mjs';
 import { STUDIO_ID, STUDIO_VERBS, enrichedPrompt, enrichMessages } from './lib/studio.mjs';
 import { LlamaBuilds } from './lib/llama-builds.mjs';
+import { Dictation, MAX_BYTES as DICTATION_BYTES } from './lib/dictation.mjs';
 import { Takes, numbered, takesToOutputs } from './lib/takes.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
@@ -330,6 +331,8 @@ export async function createApplication({
   launcher = startLauncher,
   // The official builds of llama.cpp (lib/llama-builds.mjs); tests pass their own.
   llamaBuilds: givenLlamaBuilds = null,
+  // (0.6.451) The dictation (lib/dictation.mjs); tests pass their own.
+  dictation: givenDictation = null,
   // A generation call with a two-line prompt is sent back once (lib/thin-prompt.mjs).
   fullPrompts = true,
   currentSources = appSources,
@@ -718,6 +721,9 @@ export async function createApplication({
     // The first or last picture of a video (`frame`: "first" or "last" where an image is taken): read
     // from its file by the Python of the engine, kept as a reference of the conversation's project.
     extractStill: (path, at) => generation.videoStill(path, at),
+    // (0.6.451) The dictation leaves the card to a generation (`dictation` is made below, with the builds of
+    // llama.cpp; nothing is generated before).
+    releaseCard: () => dictation.release(),
     projectOf: conversationId => projectFor(conversationId),
     // The LoRAs kept for a model with « Enregistrer », those whose file is still listed (one gone
     // would fail the creation): a creation asked in the Chat is made with them. Those gone are
@@ -911,6 +917,22 @@ export async function createApplication({
   });
   // The official builds of llama.cpp the application installs (Réglages, Composants).
   const llamaBuilds = givenLlamaBuilds ?? new LlamaBuilds({ root: join(dataDir, 'engines', 'llama.cpp') });
+  // (0.6.451) La dictée (Paramètres › Moodix AI › Dictée): a llama-server of its own, on the processor, or on the
+  // card with a build of the chat's; the names of the models and of the LoRAs are words it is told to expect.
+  const dictation =
+    givenDictation ??
+    (await new Dictation({
+      dataDir,
+      modelsDir,
+      catalogPath: builtinWorkflowDir ? join(builtinWorkflowDir, '..', 'downloads.json') : join(dataDir, 'no-downloads'),
+      chatBuilds: llamaBuilds,
+      spawnProcess,
+      names: async () => [
+        ...(await generation.catalog.list()).filter(workflow => !workflow.importDraft).map(workflow => workflow.name),
+        ...(await generation.styles()),
+      ],
+      cardBusy: () => runtime.active,
+    }).load());
   let llamaInstalling = null;
   /**
    * The build of llama.cpp just installed becomes the one the chat model runs on: once nothing
@@ -1325,6 +1347,8 @@ export async function createApplication({
       }
       if (path === '/api/llama' && req.method === 'GET')
         return send(200, { ...llamaBuilds.status(), ours: llamaBuilds.owns(config.enginePath) });
+      // (0.6.451) La dictée: whether its model is here, its download, its engine and its settings.
+      if (path === '/api/dictation' && req.method === 'GET') return send(200, await dictation.status());
       if (path === '/api/components' && req.method === 'GET') {
         // The Update tab asks once when it opens and again on its button: two at once share one answer.
         componentsCheck ||= (async () =>
@@ -1390,6 +1414,23 @@ export async function createApplication({
           replace: req.headers['x-replace'] === '1' && req.headers['x-preview'] !== '1',
         });
         return send(201, { thumbUrl: thumbUrl(conversationId, runId, index) });
+      }
+      // (0.6.451) What was said into the microphone, as a WAV the page made (PCM 16 bits, mono, 16 kHz, two
+      // minutes at most): its text. The sound is kept nowhere, and given up when the page closes the request.
+      if (path === '/api/dictation/transcribe' && req.method === 'POST') {
+        if (applyingUpdate || closing || relaunching) throw problem('L’application est occupée.', 409);
+        if (Number(req.headers['content-length'] || 0) > DICTATION_BYTES)
+          throw problem('La dictée dure deux minutes au plus.', 413);
+        const parts = [];
+        let size = 0;
+        for await (const chunk of req) {
+          size += chunk.length;
+          if (size > DICTATION_BYTES) throw problem('La dictée dure deux minutes au plus.', 413);
+          parts.push(chunk);
+        }
+        const left = new AbortController();
+        res.once('close', () => left.abort());
+        return send(200, await dictation.transcribe(Buffer.concat(parts), { signal: left.signal }));
       }
       const attachmentRead = req.method === 'GET' && path.match(/^\/api\/attachments\/([0-9a-f-]{36})\/([a-z0-9.-]{1,90})$/);
       if (attachmentRead) {
@@ -1787,6 +1828,19 @@ export async function createApplication({
           }
         })();
         return send(202, llamaBuilds.status());
+      }
+      // (0.6.451) La dictée: its download (its build of llama.cpp, then its model), « Retirer », its settings, and
+      // its engine started at the click on the microphone, while the user speaks.
+      if (path === '/api/dictation/download') return send(202, await dictation.download());
+      if (path === '/api/dictation/cancel') {
+        dictation.cancel();
+        return send(200, await dictation.status());
+      }
+      if (path === '/api/dictation/remove') return send(200, await dictation.remove());
+      if (path === '/api/dictation/settings') return send(200, await dictation.save(body));
+      if (path === '/api/dictation/warm') {
+        dictation.warm();
+        return send(202, {});
       }
       // The chat models reached by an address (Paramètres › Moodix AI) and the accounts of the user.
       // Keys and tokens stay here: the page only learns whether one is kept.
@@ -3233,6 +3287,7 @@ export async function createApplication({
         () => models.pending,
         () => runtime.close(),
         () => generation.close(),
+        () => dictation.close(),
         () => chatgpt.close?.(),
         () => openrouter.close(),
         () => chat.stop(),
@@ -3264,6 +3319,7 @@ export async function createApplication({
     leaving = true;
     installController.abort();
     llamaBuilds.cancel();
+    dictation.cancel();
     await installTask;
     await llamaInstalling;
     return closeApplication();
