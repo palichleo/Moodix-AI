@@ -353,6 +353,30 @@ class KeptModelTests(unittest.TestCase):
         # Nothing on the card: nothing to take back.
         self.assertFalse(fits(SimpleNamespace(gpu={}, bytes=0, lent=0, limit=7 * GiB), 7))
 
+    def test_the_share_leaves_the_card_before_the_decode_of_a_video_in_two_passes(self):
+        from runner.pipelines.ltx25 import first_pass_size, share_stays
+
+        # A video of a run sampled in one pass: its share stays for the next one when the decode
+        # has its room beside it, as before.
+        self.assertTrue(share_stays(True, None, 5.0, 4.5))
+        self.assertFalse(share_stays(True, None, 4.0, 4.5))
+        # A first video, or one the chat asked for, gives the card to its decode.
+        self.assertFalse(share_stays(False, None, 9.0, 4.5))
+        # (0.6.446) A video in two passes too, whatever room the decode has: the share it left was
+        # the one of its second pass, and at 1024x576 from an image the next video built its model
+        # anew one time out of two (measured on 26/11: 33.5 to 36.6 s a video, 32.7 to 33.2 without).
+        self.assertFalse(share_stays(True, (512, 288), 9.0, 4.5))
+        components = {'model': 'm', 'upscaler': 'u'}
+        large = first_pass_size({'width': 1024, 'height': 576}, components)
+        self.assertEqual(large, (512, 288))
+        self.assertFalse(share_stays(True, large, 9.0, 4.5))
+        # A draft is sampled in one pass: nothing changes for it.
+        self.assertTrue(share_stays(True, first_pass_size({'width': 384, 'height': 256}, components), 9.0, 4.5))
+        # What _generate asks: the rule, with the size of the first pass it sampled at.
+        source = (Path(__file__).parents[1] / 'pipelines' / 'ltx25.py').read_text(encoding='utf-8')
+        self.assertIn('if not share_stays(again, first, room(0), decode_floor_gib(video.shape)):', source)
+        self.assertNotIn('if not (again and room(0)', source)
+
     def test_a_model_file_named_without_comfyuis_prefix_is_read_the_same(self):
         # The INT8 files name their tensors « model.diffusion_model.… », the « fp8 scaled » ones
         # without it (0.6.107: such a file was refused, « Unsupported LTX2.5 connectors tensor »).

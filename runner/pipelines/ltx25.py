@@ -202,6 +202,25 @@ def fits(pool, budget):
     return bool(pool.gpu) and near and whole <= (budget + 0.25) * 1024**3
 
 
+def share_stays(again, first, free_gib, floor_gib):
+    """Whether the share of the model stays on the card through the decode, for the next video of
+    a run (`again`) to start at its first step: after a video sampled in one pass, when the decode
+    has its room beside it (`free_gib` against `floor_gib`).
+
+    (0.6.446) Never after a video sampled in two passes (`first`, the size of its first pass). The
+    share it leaves is the one of its second pass. The next video weighed it against its first
+    pass, which leaves the model more: at the middle sizes it did not fit, and the model was
+    built anew one video out of two (Refit); where it fitted, the first pass ran with the smaller
+    share. Measured on 26/11 on an RTX 4070 SUPER, videos of 5 s from an image, the model kept:
+    at 1024x576, 32.7 to 33.2 s a video without the share kept against 33.5 to 36.6 s with it
+    (decode in 11.3 s against 12 to 14, no Refit); at 768x512, where the share was taken back,
+    24.8 to 25.6 s against 25.1 to 26.2 s (a first step of 3.4 s instead of 0.8, but steps of
+    0.59 and 2.05 s instead of 0.68 and 2.45, and a decode of 7.5 s instead of 9). Weighing the
+    share against the second pass instead read the file of the model again at the fourth video,
+    with RAM short: 137 s."""
+    return bool(again) and not first and free_gib >= floor_gib
+
+
 def generate(job, config, progress):
     """One video. The model the last generation left on the GPU is taken back when it is the
     one this job asks for (same file, same LoRAs) for a video of the same shape, and left there
@@ -765,11 +784,12 @@ def _generate(job, config, progress, key, holder, finish=None, read=None):
     # The share of the model stays on the GPU through the decode for the next video of a run
     # (`again`), when the decode has its room beside it: the next video then starts at its first
     # step, where reading the share from the disk took 3 s. A first video, or one the chat asked
-    # for, gives the card to its decode as before; so does a video too large for both.
+    # for, gives the card to its decode as before; so does a video too large for both, and
+    # (0.6.446) a video sampled in two passes (share_stays).
     hot.settle()
     gc.collect()
     torch.cuda.empty_cache()
-    if not (again and room(0) >= decode_floor_gib(video.shape)):
+    if not share_stays(again, first, room(0), decode_floor_gib(video.shape)):
         # Its weights and LoRAs leave the GPU; its layers and their order stay with it.
         hot.clear()
     del hot
