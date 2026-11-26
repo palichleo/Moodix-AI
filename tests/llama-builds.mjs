@@ -183,15 +183,19 @@ test('the cards of this computer: NVIDIA with its generation and driver, the oth
     { vendor: 'nvidia', name: 'NVIDIA GeForce RTX 4070 SUPER', computeCap: 8.9, cuda: [13, 3] },
     { vendor: 'intel', name: 'Intel(R) UHD Graphics 770' },
   ]);
-  // No nvidia-smi: no NVIDIA card. Linux reads the makers of its cards from /sys.
+  // Linux reads the makers of its cards from /sys. Without nvidia-smi (Debian ships it apart from the driver),
+  // an NVIDIA card counts all the same (0.6.396), without its generation or the CUDA of its driver.
   const linux = await detectDevice({
     platform: 'linux',
     arch: 'x64',
     run: async () => null,
-    listDir: async () => ['card0', 'card0-DP-1', 'renderD128'],
-    readText: async () => '0x1002\n',
+    listDir: async () => ['card0', 'card0-DP-1', 'card1', 'renderD128'],
+    readText: async path => (path.includes('card1') ? '0x10de\n' : '0x1002\n'),
   });
-  assert.deepEqual(linux.gpus, [{ vendor: 'amd', name: 'card0' }]);
+  assert.deepEqual(linux.gpus, [
+    { vendor: 'amd', name: 'card0' },
+    { vendor: 'nvidia', name: 'card1', computeCap: null, cuda: null },
+  ]);
 });
 
 /** A GitHub that answers with the stable release, its pointer, then the nightly one. */
@@ -855,4 +859,31 @@ test('« Il voit » names the devices llama.cpp lists, not the lines it logs on 
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('an NVIDIA card is seen without nvidia-smi, and CUDA tried, the newest first (0.6.396)', async () => {
+  // Windows: nvidia-smi gives nothing in time (a damaged driver, a computer under load); WMI sees the card.
+  const wmi = 'NVIDIA|NVIDIA GeForce RTX 4070 SUPER\r\nIntel Corporation|Intel(R) UHD Graphics 770\r\n';
+  const windows = await detectDevice({
+    platform: 'win32',
+    arch: 'x64',
+    run: async command => (command === 'nvidia-smi' ? null : { code: 0, output: wmi }),
+  });
+  assert.deepEqual(windows.gpus, [
+    { vendor: 'nvidia', name: 'NVIDIA GeForce RTX 4070 SUPER', computeCap: null, cuda: null },
+    { vendor: 'intel', name: 'Intel(R) UHD Graphics 770' },
+  ]);
+  // Neither its generation nor its driver known: each CUDA build is offered, then Vulkan, then the processor;
+  // the trial of each decides.
+  assert.deepEqual(ids(windows), ['cuda-13.4', 'cuda-12.4', 'vulkan', 'cpu']);
+  // When nvidia-smi answers, its cards are the NVIDIA ones: none twice (here Linux, /sys sees the same card).
+  const linux = await detectDevice({
+    platform: 'linux',
+    arch: 'x64',
+    run: async (_command, args) =>
+      args.length ? { code: 0, output: 'NVIDIA GeForce RTX 3060, 8.6\n' } : { code: 0, output: 'CUDA Version: 12.8' },
+    listDir: async () => ['card0'],
+    readText: async () => '0x10de\n',
+  });
+  assert.deepEqual(linux.gpus, [{ vendor: 'nvidia', name: 'NVIDIA GeForce RTX 3060', computeCap: 8.6, cuda: [12, 8] }]);
 });
