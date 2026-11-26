@@ -1564,7 +1564,6 @@ export function setupStudio({
       head = node('div', 'studio-finish-line'),
       result = node('p', 'studio-finish-result'),
       factor = spec.key ? finishFactor(workflow) : spec.factor,
-      source = sizeOfRecord(finish.record),
       fps = Number(finish.record.parameters?.fps) || null;
     const tell = value => {
       if (!value) {
@@ -1575,33 +1574,32 @@ export function setupStudio({
         result.textContent = fps ? `${Math.round(fps * value)} images par seconde` : `${value} fois plus d’images`;
         return;
       }
-      if (!source) {
-        result.textContent = `${value} fois plus grande`;
-        return;
-      }
-      // Held by the largest side the model makes (Real-ESRGAN for a clip: 3840; SeedVR2: 8192). (0.6.261) Reduced,
-      // each side as its engine rounds it (Python: a half to the even): an even one for Real-ESRGAN, at least 16.
-      const wide = source.width * value,
-        high = source.height * value,
-        largest = Math.max(wide, high);
-      if (!(spec.maxSide && largest > spec.maxSide)) return void (result.textContent = `${Math.round(wide)} × ${Math.round(high)}`);
-      const ratio = spec.maxSide / largest,
-        side = length => (spec.even ? Math.max(2, roundHalfEven((length * ratio) / 2) * 2) : Math.max(16, roundHalfEven(length * ratio)));
-      result.textContent = `${side(wide)} × ${side(high)}`;
+      const made = finishSize(spec, finish.record, value);
+      result.textContent = made ? `${made.width} × ${made.height}` : `${value} fois plus grande`;
     };
+    // (0.6.450) A size the card of this computer cannot make (SeedVR2 beyond its memory, finishRefusal): its factor
+    // greyed, why under the pointer, on a click, and under the size, where it is read without a pointer.
+    const refusals = (spec.key ? spec.choices : factor ? [factor] : []).map(value => finishRefusal(workflow, finish.record, value));
     head.append(node('span', 'studio-label', FINISH[finish.verb].line));
     if (spec.key && spec.choices.length > 1) {
       const chips = node('div', 'studio-finish-chips');
       chips.setAttribute('role', 'radiogroup');
       chips.setAttribute('aria-label', FINISH[finish.verb].line);
-      for (const value of spec.choices) {
-        const chip = button('studio-finish-chip' + (value === factor ? ' is-on' : ''), '× ' + value, () => {
-          finishing.factor = value;
-          render();
-        });
+      for (const [at, value] of spec.choices.entries()) {
+        const why = refusals[at],
+          chosen = value === factor && !why,
+          chip = button('studio-finish-chip' + (chosen ? ' is-on' : '') + (why ? ' is-off' : ''), '× ' + value, () => {
+            if (why) return notice(why);
+            finishing.factor = value;
+            render();
+          });
         chip.setAttribute('role', 'radio');
-        chip.setAttribute('aria-checked', String(value === factor));
-        chip.setAttribute('aria-label', '× ' + value);
+        chip.setAttribute('aria-checked', String(chosen));
+        chip.setAttribute('aria-label', why ? `× ${value}, indisponible. ${why}` : '× ' + value);
+        if (why) {
+          chip.setAttribute('aria-disabled', 'true');
+          chip.title = why;
+        }
         chip.disabled = Boolean(working);
         chips.append(chip);
       }
@@ -1609,7 +1607,15 @@ export function setupStudio({
     } else if (factor) head.append(node('span', 'studio-finish-factor', '× ' + factor));
     result.setAttribute('aria-live', 'polite');
     tell(factor);
-    block.append(head, result);
+    // The smallest of those refused: the larger ones are refused for the same reason. When none can be made, no size
+    // is said as the one to come: the note names it, as the one that cannot be.
+    const refused = refusals.find(Boolean);
+    block.append(head, ...(refusals.every(Boolean) && refused ? [] : [result]));
+    if (refused) {
+      const note = node('p', 'studio-finish-note', refused);
+      note.setAttribute('role', 'note');
+      block.append(note);
+    }
     return block;
   }
   /**
@@ -4324,8 +4330,12 @@ export function setupStudio({
       if (held) return { text: held };
     }
     if (!free) return null;
-    // (0.6.256) Agrandir, Interpoler: nothing to write, nothing to give but the take of the page.
-    if (finishOn()) return null;
+    // (0.6.256) Agrandir, Interpoler: nothing to write, nothing to give but the take of the page. (0.6.450) Unless
+    // no size of the page can be made on the card of this computer.
+    if (finishOn()) {
+      const held = finishHeld(workflow);
+      return held ? { text: held } : null;
+    }
     if (!draft.prompt.trim() && !refilming()) return { text: blankWhy(), light: 'prompt' };
     const role = missingRole(workflow, draft.inputs, extending);
     return role ? { text: inputMissing(workflow, draft.inputs, extending), light: role } : null;
@@ -4829,7 +4839,45 @@ export function setupStudio({
   function finishFactor(workflow) {
     const spec = workflow?.finish;
     if (!spec?.key) return null;
-    return spec.choices.includes(finishing?.factor) ? finishing.factor : spec.standard;
+    const wanted = spec.choices.includes(finishing?.factor) ? finishing.factor : spec.standard,
+      // (0.6.450) Not one the card of this computer cannot make while it can make another: × 2 where × 4 is
+      // beyond it. When none can be made, the one wanted stays, greyed, and nothing is made (finishHeld).
+      can = value => !finishing?.record || !finishRefusal(workflow, finishing.record, value);
+    return can(wanted) ? wanted : (spec.choices.find(can) ?? wanted);
+  }
+  /**
+   * (0.6.261) The size a factor gives the take of the page, as its engine makes it: held by the largest side the
+   * model makes (Real-ESRGAN for a clip: 3840; SeedVR2: 8192), each side then reduced as the engine rounds it
+   * (Python: a half to the even): an even one for Real-ESRGAN, at least 16. Null when the size of the take is
+   * not known.
+   */
+  function finishSize(spec, record, value) {
+    const source = sizeOfRecord(record);
+    if (!source || !value) return null;
+    const wide = source.width * value,
+      high = source.height * value,
+      largest = Math.max(wide, high);
+    if (!(spec.maxSide && largest > spec.maxSide)) return { width: Math.round(wide), height: Math.round(high) };
+    const ratio = spec.maxSide / largest,
+      side = length => (spec.even ? Math.max(2, roundHalfEven((length * ratio) / 2) * 2) : Math.max(16, roundHalfEven(length * ratio)));
+    return { width: side(wide), height: side(high) };
+  }
+  /**
+   * (0.6.450) Why the card of this computer cannot make the take that many times larger with this model: more
+   * pixels than its memory holds (`maxPixels`, which the engine says from the memory of the card: SeedVR2, 5120 ×
+   * 5120 made and 6144 × 6144 not on 12 Go, 26/11). '' when it can, and when nothing says it cannot.
+   */
+  function finishRefusal(workflow, record, value) {
+    const spec = workflow?.finish,
+      made = spec && Number.isFinite(spec.maxPixels) ? finishSize(spec, record, value) : null;
+    if (!made || made.width * made.height <= spec.maxPixels) return '';
+    return `× ${value} donnerait ${made.width} × ${made.height} : c’est trop pour la mémoire de la carte graphique de cet ordinateur.`;
+  }
+  /** (0.6.450) Why the page Agrandir makes nothing here: the factor it would send is beyond the card. */
+  function finishHeld(workflow) {
+    const finish = finishOn(),
+      spec = workflow?.finish;
+    return finish && spec ? finishRefusal(workflow, finish.record, spec.key ? finishFactor(workflow) : spec.factor) : '';
   }
   async function generate(given = null) {
     // (0.6.175) A take of the Bobine that cannot begin is refused with its reason, said there: it got
@@ -7437,6 +7485,14 @@ export function setupStudio({
     if (missing) {
       go.disabled = true;
       go.title = missing;
+    }
+    // (0.6.450) Nor a size the card of this computer cannot make, when the page has no other to offer (an image
+    // already large under SeedVR2): greyed, its tooltip says why, as the note under the size.
+    const tooLarge = finish && !working ? finishHeld(workflow) : '';
+    if (tooLarge) {
+      go.disabled = true;
+      go.title = tooLarge;
+      go.classList.add('is-unavailable');
     }
     // (0.6.240) Nor a camera its model does not make, nor the one of a clip too long for it: greyed, its tooltip
     // says which, and it follows the bars of the tool in place (refilmGate, called by its window).

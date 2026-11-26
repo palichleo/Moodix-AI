@@ -265,3 +265,45 @@ class SeedVR2RefusalTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+
+class SeedVR2ReachTest(unittest.TestCase):
+    """(0.6.450) The most pixels of an image a card makes, for the application to grey what is beyond it."""
+
+    def test_what_twelve_gib_made_is_within_reach_and_what_they_did_not_is_beyond(self):
+        from runner.pipelines.seedvr2 import reach
+
+        # An RTX 4070 SUPER as its driver says it (12 282 MiB), measured on 26/11: 4096 x 4096 and 5120 x 5120
+        # made, 6144 x 6144 not (the steps lacked 3.4 GiB), 8192 x 8192 refused.
+        pixels = reach(12282 / 1024)
+        for side in (2048, 3072, 4096, 5120):
+            self.assertGreaterEqual(pixels, side * side, side)
+        for side in (6144, 8192):
+            self.assertLess(pixels, side * side, side)
+
+    def test_it_is_the_steps_with_no_weights_kept_in_what_a_free_card_gives(self):
+        from runner.pipelines.seedvr2 import CARD_SHARE, CEILING_GIB, reach, share_gib, working_gib
+
+        for card in (8, 12, 16, 24):
+            side = int(reach(card) ** 0.5) // 16 * 16
+            # Within reach: the steps hold under the ceiling of the engine. One notch beyond: they do not, and
+            # the weights have nothing left on the card.
+            self.assertLessEqual(working_gib(side, side) + CEILING_GIB, card * CARD_SHARE, card)
+            self.assertGreater(working_gib(side + 64, side + 64) + CEILING_GIB, card * CARD_SHARE, card)
+            self.assertEqual(share_gib(card * CARD_SHARE, [(side + 64, side + 64)]), 0, card)
+            self.assertGreater(share_gib(card * CARD_SHARE, [(side - 256, side - 256)]), 0, card)
+
+    def test_a_larger_card_reaches_further_and_none_less_than_nothing(self):
+        from runner.pipelines.seedvr2 import reach
+
+        reached = [reach(card) for card in (1, 2, 4, 6, 8, 12, 16, 24, 48)]
+        self.assertEqual(reached[:2], [0, 0])
+        self.assertEqual(reached[2:], sorted(set(reached[2:])))
+        self.assertTrue(all(pixels % 256 == 0 and isinstance(pixels, int) for pixels in reached))
+
+    def test_a_card_whose_memory_is_not_known_has_no_reach(self):
+        from runner.pipelines.seedvr2 import reach
+
+        self.assertIsNone(reach(None))
+        self.assertIsNone(reach(0))

@@ -164,6 +164,59 @@ class CapabilitiesTest(unittest.TestCase):
         self.assertNotIn('hardware', none['rife'])
         self.assertNotIn('hardware', self.said(['NVIDIA GeForce RTX 4060'])['krea2'])
 
+    def test_the_most_pixels_seedvr2_makes_on_the_card_is_said_from_its_memory(self):
+        # (0.6.450) For the application to grey, with why, the sizes of the page Agrandir beyond it.
+        from runner.pipelines import seedvr2
+
+        def said(gib, cards=('NVIDIA GeForce RTX 4070 SUPER',)):
+            with patch.dict(hardware._found, {'cards': cards if cards is None else list(cards), 'gib': gib}):
+                return capabilities()
+
+        twelve = said(12282 / 1024)
+        self.assertEqual(twelve['seedvr2']['maxPixels'], seedvr2.reach(12282 / 1024))
+        self.assertTrue(5120 * 5120 <= twelve['seedvr2']['maxPixels'] < 6144 * 6144)
+        # Of the family whose manifest says it, and of no other.
+        self.assertEqual([name for name, item in twelve.items() if 'maxPixels' in item], ['seedvr2'])
+        self.assertEqual([name for name, manifest in families().items() if manifest.get('reach')], ['seedvr2'])
+        self.assertGreater(said(24)['seedvr2']['maxPixels'], twelve['seedvr2']['maxPixels'])
+        # A card too small for any image: said, as nothing (the application greys every size).
+        self.assertEqual(said(2)['seedvr2']['maxPixels'], 0)
+        # The memory of the card not known: nothing said, nothing greyed; the family is as ready.
+        for cards in (('NVIDIA GeForce RTX 4070 SUPER',), None):
+            unknown = said(None, cards)['seedvr2']
+            self.assertNotIn('maxPixels', unknown)
+            self.assertIs(unknown['ready'], True)
+        # No NVIDIA card: the family is greyed whole with its reason, and has no reach.
+        none = said(12, ())['seedvr2']
+        self.assertEqual([none['ready'], none.get('hardware'), 'maxPixels' in none], [False, True, False])
+
+    def test_saying_it_loads_neither_pytorch_nor_a_model(self):
+        # (0.6.450) The worker says what it runs before anything heavy is loaded: the module of SeedVR2 is read
+        # for its reach, it alone, and brings nothing with it.
+        code = (
+            'import json, sys\n'
+            'from runner import hardware\n'
+            'hardware._found.update(cards=["NVIDIA GeForce RTX 4070 SUPER"], gib=12282 / 1024)\n'
+            'from runner.registry import capabilities\n'
+            'said = capabilities()["seedvr2"]\n'
+            'heavy = sorted(name for name in ("torch", "numpy", "PIL", "safetensors") if name in sys.modules)\n'
+            'read = sorted(name for name in sys.modules if name.startswith("runner.pipelines."))\n'
+            'print(json.dumps([said.get("maxPixels"), heavy, read]))\n'
+        )
+        done = subprocess.run(
+            [sys.executable, '-s', '-c', code],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=str(Path(engine.__file__).resolve().parents[1]),
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        import json
+
+        self.assertEqual(
+            json.loads(done.stdout.strip().splitlines()[-1]), [35320320, [], ['runner.pipelines.seedvr2']]
+        )
+
     def test_a_pipeline_that_needs_cuda_says_so_in_its_manifest(self):
         pipelines = Path(engine.__file__).with_name('pipelines')
         for name, manifest in families().items():

@@ -67,7 +67,12 @@ const shipped = await Promise.all(
 );
 const shippedStudio = {
   enabled: true,
-  tools: await new ToolCatalog({ list: async () => shipped.map(item => ({ ...validateNativeWorkflow(item), ready: true })) }).studio(),
+  tools: await new ToolCatalog({
+    list: async () => shipped.map(item => ({ ...validateNativeWorkflow(item), ready: true })),
+    // (0.6.450) What the engine says of a card of 5 Go (runner/pipelines/seedvr2.py, reach): about 7 million pixels
+    // of an image with SeedVR2. The image in 16:9 of the steps below (1344 × 768) has « × 4 » beyond it.
+    capabilities: { seedvr2: { ready: true, mediaType: 'image', reason: '', maxPixels: 7158272 } },
+  }).studio(),
   styles: ['grain-argentique.safetensors', 'portrait-doux.safetensors', 'styles\\lumiere-70s.safetensors'],
   presets: {},
 };
@@ -1226,6 +1231,55 @@ try {
         return name.includes('output-action-upscale') && pressed === 'true' && visible && page;
       },
     );
+    // (0.6.450) On that page, « × 4 » (5376 × 3072) is beyond the card this copy says it has (shippedStudio): greyed
+    // and struck, not chosen, why written under the size in a text of 12 px at least, whole in the Réglages and
+    // above the Sortie; « × 2 » stays chosen and « Agrandir » lit. Nothing is pressed: the focus stays where it is.
+    await run('Studio : page Agrandir, « × 4 » grisé pour la carte, sa raison sous la taille', async () => {}, async () => {
+      const read = JSON.parse(
+        await js(`(() => {
+          const view = document.querySelector('#studio-view'),
+            style = element => getComputedStyle(element),
+            box = element => element.getBoundingClientRect(),
+            note = view.querySelector('.studio-finish-note'),
+            room = view.querySelector('.studio-block.is-settings'),
+            out = view.querySelector('.studio-block.is-output');
+          return JSON.stringify({
+            chips: [...view.querySelectorAll('.studio-finish-chip')].map(chip => ({
+              name: chip.textContent.trim(),
+              off: chip.classList.contains('is-off'),
+              chosen: chip.getAttribute('aria-checked'),
+              struck: style(chip).textDecorationLine,
+              colour: style(chip).color,
+              // (Its bubble: the page keeps the text of a title for its own bubbles, in data-tip.)
+              why: chip.dataset.tip || chip.title,
+            })),
+            size: view.querySelector('.studio-finish-result')?.textContent ?? '',
+            note: note && { text: note.textContent, font: parseFloat(style(note).fontSize), high: box(note).height, left: box(note).left - box(room).left, right: box(room).right - box(note).right, above: box(out).top - box(note).bottom },
+            go: view.querySelector('.studio-go')?.getAttribute('aria-disabled') ?? null,
+          });
+        })()`),
+      );
+      const wanted = [],
+        why = '× 4 donnerait 5376 × 3072 : c’est trop pour la mémoire de la carte graphique de cet ordinateur.',
+        [two, four] = read.chips;
+      if (read.chips.length !== 2 || two.name !== '× 2' || four.name !== '× 4') wanted.push('les facteurs « × 2 » et « × 4 » (lu : ' + read.chips.map(chip => chip.name).join(', ') + ')');
+      else {
+        if (two.off || two.chosen !== 'true' || two.struck !== 'none') wanted.push('« × 2 » choisi, ni grisé ni barré');
+        if (!four.off || four.chosen !== 'false' || four.struck !== 'line-through') wanted.push('« × 4 » grisé et barré, non choisi');
+        if (four.colour === two.colour) wanted.push('« × 4 » d’une autre couleur que « × 2 »');
+        if (four.why !== why) wanted.push('la raison de « × 4 » dans sa bulle (lu : ' + four.why + ')');
+      }
+      if (read.size !== '2688 × 1536') wanted.push('la taille de « × 2 », 2688 × 1536 (lu : ' + read.size + ')');
+      if (!read.note || read.note.text !== why) wanted.push('la raison écrite sous la taille (lu : ' + (read.note?.text ?? 'rien') + ')');
+      else {
+        if (read.note.font < 12) wanted.push('la raison en 12 px au moins (lu : ' + read.note.font + ')');
+        if (!(read.note.high > 0) || read.note.left < 0 || read.note.right < 0) wanted.push('la raison entière dans les Réglages');
+        if (read.note.above < 0) wanted.push('la raison au-dessus de la Sortie');
+      }
+      if (read.go === 'true') wanted.push('« Agrandir » allumé');
+      for (const what of wanted) problems.push([step, 'état', what]);
+      return wanted.length === 0;
+    });
     await run(
       'Studio : Entrée de nouveau, la page Agrandir quittée, le focus resté sur lui',
       async () => {

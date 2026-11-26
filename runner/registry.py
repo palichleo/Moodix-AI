@@ -4,6 +4,8 @@ A family is ``runner/families/<name>.json`` (what it accepts, shared with the No
 plus ``runner/pipelines/<name>.py`` (how it runs; several families may share one module
 through the manifest's ``module`` field). The module may define ``check(job, family)``
 for rules that a manifest cannot express, and must define ``generate(job, config, progress)``.
+A family whose manifest says ``"reach": true`` also defines ``reach(card_gib)``: the most pixels of
+an image a card of that memory makes with it (None when it cannot be said).
 Adding a family therefore never requires editing this file, the protocol or the server.
 """
 
@@ -64,6 +66,12 @@ def capabilities():
         result[name] = dict(ready=not (reason or lacking), mediaType=manifest['mediaType'], reason=reason or lacking)
         if lacking:
             result[name]['hardware'] = True
+        elif not reason and manifest.get('reach'):
+            # (0.6.450) What the card of this computer makes of it at most (SeedVR2: the pixels of an image), said
+            # by its module from the memory the driver gives the card: the application greys what is beyond.
+            pixels = pipeline(name).reach(hardware.card_gib())
+            if pixels is not None:
+                result[name]['maxPixels'] = pixels
     return result
 
 

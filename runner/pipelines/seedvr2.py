@@ -29,12 +29,28 @@ CEILING_GIB = 1.2
 # (0.6.449) What that estimate was seen to overstate (26/11: 9.3 and 9.5 GiB held at 4096 x 4096 and 5120 x 5120,
 # for 10.2 read from it): an image is refused only when the steps would lack memory even so.
 SURE_GIB = 1.0
+# (0.6.450) What a card gives one program, nothing else open, as a share of its memory: Windows and the driver keep
+# the rest (26/11: 10.8 GiB free of the 12 of an RTX 4070 SUPER).
+CARD_SHARE = 0.9
 
 
 def working_gib(width, height):
     """Video memory the steps need beside the weights for an image of this size, in GiB."""
     tokens = -(-width // 16) * -(-height // 16)
     return BESIDE_GIB + STATES * tokens * TOKEN_BYTES / 1024**3
+
+
+def reach(card_gib):
+    """The most pixels of an image a card of `card_gib` GiB makes, for the application to grey what is beyond it
+    (runner.registry.capabilities); None when the memory of the card is not known, and nothing is greyed.
+
+    (0.6.450) The steps with none of the weights kept on the card, the least `share_gib` leaves them, in what a
+    free card gives. Measured on 12 GiB (26/11): 5120 x 5120 made, 6144 x 6144 not. Elsewhere it is this estimate:
+    what it lets through and the card cannot make is still refused or said by `generate`."""
+    if not card_gib:
+        return None
+    room = card_gib * CARD_SHARE - CEILING_GIB - BESIDE_GIB
+    return max(0, int(room * 1024**3 / (STATES * TOKEN_BYTES))) * 256
 
 
 def share_gib(free_gib, sizes, cache_gib=6):

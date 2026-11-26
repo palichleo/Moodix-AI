@@ -11408,3 +11408,152 @@ test('the pointer of Moodix AI hidden before its first frame does not come back 
   pass(frames);
   assert.deepEqual([[...classes], cursor.hidden, pointer.visible], [['is-visible'], false, true]);
 });
+
+
+test('(0.6.450) the page Agrandir is told the most pixels the card of this computer makes with a model, when its engine says it', async () => {
+  const { readdir, readFile } = await import('node:fs/promises');
+  const { ToolCatalog } = await import('../lib/tool-catalog.mjs');
+  const folder = new URL('../runner/workflows/', import.meta.url);
+  const workflows = [];
+  for (const name of await readdir(folder))
+    workflows.push({ ...JSON.parse(await readFile(new URL(name, folder), 'utf8')), ready: true });
+  const finishes = async capabilities =>
+    Object.fromEntries((await new ToolCatalog({ list: async () => workflows, capabilities }).studio()).upscale.map(item => [item.family, item.finish]));
+  const plain = {
+    seedvr2: { key: 'scale', choices: [2, 4], standard: 2, maxSide: 8192 },
+    realesrgan_video: { factor: 2, maxSide: 3840, even: true },
+    realesrgan_image: { factor: 4, even: true },
+  };
+  // What the worker says of an RTX 4070 SUPER of 12 Go (runner/registry.py, capabilities): SeedVR2 alone has one.
+  const said = { ready: true, mediaType: 'image', reason: '' };
+  assert.deepEqual(await finishes({ seedvr2: { ...said, maxPixels: 35320320 }, realesrgan_image: said, realesrgan_video: said }), {
+    ...plain,
+    seedvr2: { ...plain.seedvr2, maxPixels: 35320320 },
+  });
+  // A card too small for any image: said too (everything is greyed, with why).
+  assert.equal((await finishes({ seedvr2: { ...said, maxPixels: 0 } })).seedvr2.maxPixels, 0);
+  // The memory of the card not known, the engine not started yet, or anything but a count: nothing is greyed.
+  for (const capabilities of [{ seedvr2: said }, {}, undefined, { seedvr2: { ...said, maxPixels: 'beaucoup' } }, { seedvr2: { ...said, maxPixels: -1 } }, { seedvr2: true }])
+    assert.deepEqual(await finishes(capabilities), plain);
+});
+
+test('(0.6.450) a size the card of this computer cannot make is greyed on the page Agrandir, with why: its factor struck, the note under the size, « Agrandir » greyed when no size is left', async () => {
+  // What the engine says of an RTX 4070 SUPER of 12 Go (runner/pipelines/seedvr2.py, reach): on it 5120 × 5120 was
+  // made and 6144 × 6144 was not (26/11).
+  const card = 35320320,
+    spec = { key: 'scale', choices: [2, 4], standard: 2, maxSide: 8192, maxPixels: card },
+    why = (factor, side) => `× ${factor} donnerait ${side} × ${side} : c’est trop pour la mémoire de la carte graphique de cet ordinateur.`;
+  /** The page Agrandir of a square image of `side` under SeedVR2 as `finish` says it, read by `look`. */
+  const opened = async (side, finish, look) => {
+    const page = await studioPage(
+      {
+        create_image: [still],
+        create_video: [wanStudio()],
+        upscale: [{ id: 'sv', name: 'Upscale SeedVR2', media: 'image', verb: 'upscale', roles: { source: { count: 1, media: ['image'], required: true } }, settings: [], finish }],
+      },
+      {
+        'tools/actions': () => ({ upscale: ['image'] }),
+        'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }),
+        'tools/execute': () => {
+          const record = { id: 'u', conversationId: 'c1', prompt: 'un phare', parameters: { pipeline: 'seedvr2', references: [{ role: 'source_image', output_id: 'a' }] }, outputs: [{ originalUrl: '/u.png', take: 2, width: side * 2, height: side * 2 }] };
+          page.runs.unshift(record);
+          return { id: 'j', state: 'done', record };
+        },
+      },
+      { runs: [{ id: 'a', conversationId: 'c1', prompt: 'un phare', outputs: [{ originalUrl: '/a.png', take: 1, width: side, height: side }] }] },
+    );
+    const { body, asked, notices, said, restore } = page;
+    try {
+      await settle();
+      body.find('studio-rail')[0].find('output-action-upscale')[0].onclick();
+      await look({
+        body,
+        notices,
+        said,
+        chips: () => body.find('studio-finish-chip').map(chip => [chip.attributes['aria-label'], chip.attributes['aria-checked'], chip.className.includes('is-off'), chip.attributes['aria-disabled'] ?? null, chip.title ?? null]),
+        size: () => body.find('studio-finish-result')[0]?.textContent,
+        note: () => body.find('studio-finish-note').map(note => [note.textContent, note.attributes.role]),
+        go: () => body.find('studio-go')[0],
+        sent: () => asked.filter(([route]) => route === 'tools/action').map(([, action]) => action.arguments),
+      });
+    } finally {
+      restore();
+    }
+  };
+  // 1024 × 1024: 2048 and 4096 of side, both made on this card. Nothing is greyed, nothing is said.
+  await opened(1024, spec, async ({ chips, size, note, go }) => {
+    assert.deepEqual(chips(), [
+      ['× 2', 'true', false, null, null],
+      ['× 4', 'false', false, null, null],
+    ]);
+    assert.deepEqual([size(), note(), go().disabled], ['2048 × 2048', [], false]);
+  });
+  // 1280 × 1280, × 4: 5120 × 5120, the largest made on this card. Not greyed.
+  await opened(1280, spec, async ({ chips, note }) => assert.deepEqual([chips().map(chip => chip[2]), note()], [[false, false], []]));
+  // 1536 × 1536, × 4: 6144 × 6144, which this card did not make. Greyed, with why.
+  await opened(1536, spec, async ({ chips, note }) => assert.deepEqual([chips().map(chip => chip[2]), note()], [[false, true], [[why(4, 6144), 'note']]]));
+  // 2048 × 2048: × 4 would be 8192 × 8192. Greyed and said, × 2 stays; pressed, it says why and changes nothing.
+  await opened(2048, spec, async ({ body, notices, chips, size, note, go, sent }) => {
+    const drawn = [
+      ['× 2', 'true', false, null, null],
+      ['× 4, indisponible. ' + why(4, 8192), 'false', true, 'true', why(4, 8192)],
+    ];
+    assert.deepEqual(chips(), drawn);
+    assert.deepEqual([size(), note(), go().disabled], ['4096 × 4096', [[why(4, 8192), 'note']], false]);
+    body.find('studio-finish-chip')[1].onclick();
+    assert.deepEqual([notices.at(-1), chips(), size()], [why(4, 8192), drawn, '4096 × 4096']);
+    await go().onclick();
+    await settle();
+    assert.deepEqual(sent(), [{ source: { output: 'a' }, workflow: 'sv', intention: 'Agrandir l’image.', scale: 2 }]);
+  });
+  // The factor the model starts from is the one refused: the page starts from the one this card makes.
+  await opened(2048, { ...spec, standard: 4 }, async ({ chips, size, go, sent }) => {
+    assert.deepEqual([chips().map(chip => chip[1]), size()], [['true', 'false'], '4096 × 4096']);
+    await go().onclick();
+    await settle();
+    assert.equal(sent().at(-1).scale, 2);
+  });
+  // 4096 × 4096: × 2 and × 4 (held to 8192) are both beyond it. None chosen, the smallest said, « Agrandir » greyed
+  // with why; pressed, its reason in its bubble and nothing asked.
+  await opened(4096, spec, async ({ said, chips, size, note, go, sent }) => {
+    assert.deepEqual(chips().map(chip => chip.slice(1, 4)), [
+      ['false', true, 'true'],
+      ['false', true, 'true'],
+    ]);
+    // (No size is said as the one to come: the note names the one that cannot be.)
+    assert.deepEqual([size(), note()], [undefined, [[why(2, 8192), 'note']]]);
+    assert.deepEqual([go().disabled, go().title], [true, why(2, 8192)]);
+    await go().onclick();
+    await settle();
+    assert.deepEqual([sent(), said.at(-1)], [[], why(2, 8192)]);
+  });
+  // A factor the model fixes (no choice on the page): said and greyed the same.
+  await opened(2048, { ...spec, choices: [4], standard: 4 }, async ({ body, chips, note, go }) => {
+    assert.deepEqual([chips(), body.find('studio-finish-factor')[0]?.textContent], [[], '× 4']);
+    assert.deepEqual([note(), go().disabled, go().title], [[[why(4, 8192), 'note']], true, why(4, 8192)]);
+  });
+  // The largest side the user holds the model to (4096) brings × 4 back within reach: not greyed.
+  await opened(2048, { ...spec, maxSide: 4096 }, async ({ chips, note }) => assert.deepEqual([chips().map(chip => chip[2]), note()], [[false, false], []]));
+  // Exactly what the card makes is made; a pixel more is not.
+  await opened(1024, { ...spec, maxPixels: 4096 * 4096 }, async ({ chips }) => assert.deepEqual(chips().map(chip => chip[2]), [false, false]));
+  await opened(1024, { ...spec, maxPixels: 4096 * 4096 - 1 }, async ({ chips }) => assert.deepEqual(chips().map(chip => chip[2]), [false, true]));
+  // A model that has its factor without a setting, were its engine to say what the card makes of it.
+  await opened(2048, { factor: 4, maxPixels: card }, async ({ body, said, note, go, sent }) => {
+    assert.deepEqual([body.find('studio-finish-factor')[0]?.textContent, note(), body.find('studio-finish-result').length], ['× 4', [[why(4, 8192), 'note']], 0]);
+    assert.deepEqual([go().disabled, go().title], [true, why(4, 8192)]);
+    await go().onclick();
+    await settle();
+    assert.deepEqual([sent(), said.at(-1)], [[], why(4, 8192)]);
+  });
+  await opened(1024, { factor: 4, maxPixels: card }, async ({ note, go }) => assert.deepEqual([note(), go().disabled], [[], false]));
+  // The memory of the card not known: nothing is greyed, as before.
+  const { maxPixels, ...unknown } = spec;
+  assert.equal(maxPixels, card);
+  await opened(4096, unknown, async ({ chips, note, go }) => {
+    assert.deepEqual(chips(), [
+      ['× 2', 'true', false, null, null],
+      ['× 4', 'false', false, null, null],
+    ]);
+    assert.deepEqual([note(), go().disabled], [[], false]);
+  });
+});

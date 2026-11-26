@@ -16,6 +16,7 @@
   },
   "tasks": ["upscale"],
   "hardware": { "cuda": true },
+  "reach": true,
   "requires": ["torch", "PIL", "safetensors"],
   "components": {
     "model": {

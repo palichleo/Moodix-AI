@@ -19078,6 +19078,21 @@ body[data-view='bobine'] .chat-panel {
 #studio-view .studio-finish-chip:disabled {
   cursor: default;
 }
+/* (0.6.450) A size the card of this computer cannot make: greyed and struck with a fine line (its figure stays
+   read: the note under the size names it), why under the pointer, on a click, and in that note. */
+#studio-view .studio-finish-chip.is-off,
+#studio-view .studio-finish-chip.is-off:hover:not(:disabled) {
+  color: var(--text-3);
+  opacity: 0.72;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  cursor: default;
+}
+#studio-view .studio-finish-note {
+  margin: 0;
+  color: var(--text-2);
+  font: 400 12px/1.45 var(--font-ui);
+}
 #studio-view .studio-finish-result {
   margin: 0;
   color: var(--text-2);
