@@ -415,7 +415,9 @@ test('a version is named without its model, its format or how it was made; a fil
     ['ltx25', 'ltx25_uncensored_v1.1-int8-convrot.safetensors', 'Uncensored v1.1'],
     ['ltx25', 'ltx25_uncensored_v1.1-fp8_scaled.safetensors', 'Uncensored v1.1'],
     ['minimax_h3', OMNI, 'Omni'],
-    ['minimax_h3', FAST, 'FastH3 v2'],
+    // (0.6.430) FastH3 v2 is described by nobody any more (pi H3 does the same in half the time): a file
+    // of it someone still has is named by its own name, and read as before.
+    ['minimax_h3', FAST, 'Fastvideo fasth3 v2'],
     ['minimax_h3', FL2VA, 'De base'],
     ['seedvr2', 'seedvr2_7b_sharp_fp8_e4m3fn.safetensors', '7B Sharp'],
     ['seedvr2', 'seedvr2_7b_int8_convrot.safetensors', '7B'],

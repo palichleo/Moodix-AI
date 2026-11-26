@@ -9,7 +9,6 @@
     "order": 2,
     "names": [
       { "match": "omni", "name": "Omni" },
-      { "match": "fasth3|fastvideo", "name": "FastH3 v2" },
       { "match": "^(?!.*ref2va).*fl2va", "name": "De base" }
     ]
   },
@@ -74,7 +73,7 @@
           "parameters": { "steps": 8 }
         }
       ],
-      "note": "Checkpoints élagués. Distillés, en 8 étapes : FastH3 Omni (sujets) ou FastH3 v2 (texte, image de début/fin). De base, en 20 étapes : le modèle de MiniMax (FL2VA : texte, image de début/fin).",
+      "note": "Checkpoints élagués. Omni (distillé, 8 étapes) : texte, image de début/fin, sujets. De base (20 étapes, le plus fidèle) : le modèle de MiniMax (FL2VA : texte, image de début/fin ; Ref2VA pour les sujets).",
       "signature": [
         {
           "key": "^adaln_t_table$",
@@ -90,7 +89,7 @@
       "label": "Modèle pour les sujets",
       "folder": "diffusion_models",
       "required": false,
-      "note": "Facultatif. Les modèles de base de MiniMax sont en deux fichiers : celui-ci (Ref2VA) est lu quand la demande a des sujets. FastH3 Omni n’en a pas besoin.",
+      "note": "Facultatif. Les modèles de base de MiniMax sont en deux fichiers : celui-ci (Ref2VA) est lu quand la demande a des sujets. Omni n’en a pas besoin.",
       "signature": [
         {
           "key": "^adaln_t_table$",
@@ -184,7 +183,7 @@
       "type": "integer",
       "min": 1,
       "max": 60,
-      "note": "Chaque version du modèle a ses étapes : 20 pour le modèle de MiniMax, 8 pour un modèle distillé (FastH3). Un fichier qui porte les marques de sa distillation ne se calcule que dans les siennes."
+      "note": "Chaque version du modèle a ses étapes : 20 pour le modèle de MiniMax, 8 pour Omni (distillé). Un fichier qui porte les marques de sa distillation ne se calcule que dans les siennes."
     },
     "frames": {
       "type": "integer",
@@ -217,13 +216,13 @@
     "sparse_attention": {
       "type": "string",
       "choices": ["off", "vsa"],
-      "note": "vsa : attention creuse par cubes de la vidéo (Video Sparse Attention), pour les modèles FastH3 entraînés avec ; off : attention complète."
+      "note": "vsa : attention creuse par cubes de la vidéo (Video Sparse Attention), pour Omni, entraîné avec ; off : attention complète."
     },
     "sparse_keep": {
       "type": "number",
       "min": 0.5,
       "max": 95,
-      "note": "Part des cubes vidéo que chaque cube regarde en entier, en % (FastH3 est entraîné à 10)."
+      "note": "Part des cubes vidéo que chaque cube regarde en entier, en % (Omni est entraîné à 10)."
     },
     "sparse_start": {
       "type": "number",

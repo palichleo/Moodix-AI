@@ -1389,7 +1389,10 @@ test('(0.6.198) MiniMax H3: the file it reads for subjects says « sujets », as
   // of the model: « sujets » too (« images de référence », « FastH3 Omni (références) » before).
   const { components } = familyCatalog().find(item => item.family === 'minimax_h3');
   assert.match(components.referenceModel.note, /celui-ci \(Ref2VA\) est lu quand la demande a des sujets\./);
-  assert.match(components.model.note, /FastH3 Omni \(sujets\)/);
+  // (0.6.430) Its two versions by the names the list gives them, « Omni » and « De base »: « FastH3 » is said nowhere.
+  assert.match(components.model.note, /Omni \(distillé, 8 étapes\) : texte, image de début\/fin, sujets\./);
+  assert.match(components.model.note, /De base \(20 étapes, le plus fidèle\)/);
+  assert.doesNotMatch(JSON.stringify(familyCatalog().filter(item => /minimax_h3|pi_h3/.test(item.family))), /FastH3/);
   assert.doesNotMatch(components.referenceModel.note + components.model.note, /référence/);
 });
 

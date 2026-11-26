@@ -50,7 +50,7 @@
           ]
         }
       ],
-      "note": "Le modèle de base de MiniMax H3 (FL2VA), celui sur lequel l’adaptateur pi H3 a été réglé. Un autre fichier de MiniMax H3 (Ref2VA, FastH3) est refusé."
+      "note": "Le modèle de base de MiniMax H3 (FL2VA), celui sur lequel l’adaptateur pi H3 a été réglé. Un autre fichier de MiniMax H3 (Ref2VA, Omni) est refusé."
     },
     "stepAdapter": {
       "label": "Adaptateur pi H3",
