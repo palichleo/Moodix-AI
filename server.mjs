@@ -1735,6 +1735,8 @@ export async function createApplication({
         runtime.active ||
         exporting > 0 ||
         chat.busy ||
+        // (0.6.454) A dictation being written: what was said is kept nowhere, and was lost.
+        dictation.busy ||
         saving ||
         savingSettings ||
         savingGeneration ||
@@ -2796,6 +2798,9 @@ export async function createApplication({
         // Stopped by hand: the image and video models kept between generations leave RAM and VRAM too.
         await runtime.yieldGpu();
         await generation.unload().catch(error => console.error('Déchargement des modèles :', error.message));
+        // (0.6.454) And the engine of the dictation (3 GB on the processor, 3.6 GB on the card), started again at
+        // the next click on the microphone.
+        await dictation.unload().catch(error => console.error('Arrêt de la dictée :', error.message));
         return send(200, status());
       }
       if (path === '/api/context') {
