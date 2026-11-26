@@ -116,3 +116,39 @@ test('main moved between the check and the click: the version downloaded is the 
   );
   assert.deepEqual((await readdir(root)).sort(), ['lib', 'scripts']);
 });
+
+
+test('the folders of the updates before go, but the last one and the one a failure says it kept (0.6.392)', async t => {
+  // Each kept the sources of the version it replaced, 10 MB more at every update, and none was ever removed.
+  const { utimes } = await import('node:fs/promises');
+  const data = await mkdtemp(join(tmpdir(), 'atelier-installs-')),
+    updates = join(data, 'updates');
+  t.after(() => rm(data, { recursive: true, force: true }));
+  // No update ever: nothing to do.
+  assert.deepEqual(await module.pruneInstalls(data), []);
+  const made = async (name, age) => {
+    await mkdir(join(updates, name, 'backup'), { recursive: true });
+    await writeFile(join(updates, name, 'backup', 'server.mjs'), 'sources of before');
+    const at = new Date(Date.now() - age * 1000);
+    await utimes(join(updates, name), at, at);
+  };
+  await made('install-aaa111', 3000);
+  await made('install-bbb222', 2000);
+  await made('install-ccc333', 1000);
+  // Not its own: the folder of a rescue update, a name that only looks like one, a file.
+  await made('rescue-ddd444', 4000);
+  await made('install-with.dot', 4000);
+  await writeFile(join(updates, 'install-file'), 'not a folder');
+  const others = ['install-file', 'install-with.dot', 'rescue-ddd444'];
+  // The last update failed, and says where it kept the version of before: that folder stays too.
+  const kept = `Redémarrage impossible. La sauvegarde est conservée dans ${join(updates, 'install-aaa111')}. EPERM`;
+  await writeFile(join(data, 'update-status.json'), JSON.stringify({ state: 'error', error: kept }));
+  assert.deepEqual(await module.pruneInstalls(data), ['install-bbb222']);
+  assert.deepEqual((await readdir(updates)).sort(), ['install-aaa111', 'install-ccc333', ...others]);
+  // Once an update went well, only the last folder stays, as it was.
+  await writeFile(join(data, 'update-status.json'), JSON.stringify({ state: 'done', error: kept }));
+  assert.deepEqual(await module.pruneInstalls(data), ['install-aaa111']);
+  assert.deepEqual((await readdir(updates)).sort(), ['install-ccc333', ...others]);
+  assert.equal(await readFile(join(updates, 'install-ccc333', 'backup', 'server.mjs'), 'utf8'), 'sources of before');
+  assert.deepEqual(await module.pruneInstalls(data), []);
+});

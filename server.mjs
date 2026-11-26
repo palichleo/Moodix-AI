@@ -29,7 +29,7 @@ import http from 'node:http';
 import { compactSession } from './public/update-ui.mjs';
 import { checkForUpdates } from './lib/updates.mjs';
 import { componentVersions, runVersion } from './lib/components.mjs';
-import { prepareUpdate, launchInstaller } from './lib/update-install.mjs';
+import { prepareUpdate, launchInstaller, pruneInstalls } from './lib/update-install.mjs';
 import { atomicFile, atomicJson } from './lib/update-files.mjs';
 import { updateSession, keptUpdateSession } from './lib/update-session.mjs';
 import { randomBytes, randomUUID, createHmac, timingSafeEqual } from 'node:crypto';
@@ -665,6 +665,9 @@ export async function createApplication({
   // What waited 30 days in the bin of the history goes for good, its thumbnails with it (0.6.103).
   for (const id of await history.purgeTrash().catch(error => (console.error(error), [])))
     await thumbnails.forget(id).catch(() => {});
+  // (0.6.392) The folders of the updates installed before, but the last one (lib/update-install.mjs): each
+  // kept the sources of the version before, 10 MB more at every update. Not waited for.
+  void pruneInstalls(dataDir).catch(() => {});
   const generation = await new GenerationService({
     root,
     dataDir,

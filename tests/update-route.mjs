@@ -227,3 +227,31 @@ test('a copy kept for the page that this version refuses stops neither the launc
     await rm(dataDir, { recursive: true, force: true });
   }
 });
+
+
+test('the application removes the folders of the updates before when it starts (0.6.392)', async () => {
+  const { mkdir, readdir, utimes } = await import('node:fs/promises');
+  const dataDir = await mkdtemp(join(tmpdir(), 'atelier-update-folders-')),
+    updates = join(dataDir, 'updates');
+  for (const [name, age] of [
+    ['install-old111', 2000],
+    ['install-new222', 1000],
+  ]) {
+    await mkdir(join(updates, name, 'backup'), { recursive: true });
+    await writeFile(join(updates, name, 'restart.log'), 'journal');
+    const at = new Date(Date.now() - age * 1000);
+    await utimes(join(updates, name), at, at);
+  }
+  const app = await createApplication({ port: 0, dataDir });
+  try {
+    // Not waited for by the start: it comes a moment later.
+    const deadline = Date.now() + 5000;
+    while ((await readdir(updates)).length > 1 && Date.now() < deadline)
+      await new Promise(resolve => setTimeout(resolve, 20));
+    assert.deepEqual(await readdir(updates), ['install-new222']);
+    assert.equal(await readFile(join(updates, 'install-new222', 'restart.log'), 'utf8'), 'journal');
+  } finally {
+    await app.close();
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
