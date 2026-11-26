@@ -257,12 +257,36 @@ def read_frames(path, count, width, height, flat=False):
             yield scail.cover(_picture(frame), width, height, flat=flat)
 
 
+def made_count(read, count):
+    """How many frames are made when the video to follow gave `read` of the `count` its file
+    announced: all of them when they are there, else the most it holds, 4n + 1 of them.
+
+    (0.6.447) The count of `clip` is the one of the container, and some only estimate it. A WebM
+    has none: the length of its sound, often longer than its picture, stands for it (24 frames
+    held, 45 announced, for 0.8 s of picture under 1.5 s of sound). A fragmented MP4, or one cut
+    without encoding, counts frames it does not show. The creation then stopped after the prompt,
+    the image and the subjects found on every frame, a minute in, on « The video holds 24 frames,
+    45 are needed », and stopped there every time for that video."""
+    if read >= count:
+        return count
+    kept = (read - 1) // 4 * 4 + 1
+    if kept < 5:
+        raise ValueError('La vidéo à suivre est trop courte : il faut au moins 5 images.')
+    return kept
+
+
 def _whole(found, count):
+    """The frames read, `count` of them, or as many as the video holds (made_count)."""
     import torch
 
-    if len(found) < count:
-        raise ValueError(f'The video holds {len(found)} frames, {count} are needed')
-    return torch.stack(found)
+    return torch.stack(found[: made_count(len(found), count)])
+
+
+def shortened(pose, pose_mask, frames):
+    """(pose, pose masks, frames to make): the two cut to what the shorter of them holds, when
+    that is less than the `frames` announced (made_count); as they are when all are there."""
+    made = made_count(min(len(pose), len(pose_mask)), frames)
+    return pose[:made], pose_mask[:made], made
 
 
 def read_halved(path, count, width, height, flat=False):
@@ -311,7 +335,9 @@ def find_masks(job, raw, width, height, progress):
             model, pieces, wanted, pictures(), progress=lambda done: progress(stage='finding subjects', frame=done)
         )
         pose = _whole(pose, p['frames'])
-        order = identity.order(follower.frames)
+        # (0.6.447) As many as the pose keeps: a video shorter than announced is cut to 4n + 1 frames.
+        followed = follower.frames[: len(pose)]
+        order = identity.order(followed)
         if not order:
             raise ValueError(
                 f'Aucun sujet « {wanted} » n’a été trouvé dans la vidéo à suivre. Décrivez-le autrement.'
@@ -319,7 +345,7 @@ def find_masks(job, raw, width, height, progress):
         pose_mask = torch.stack(
             [
                 scail.halved(identity.coloured(frame, order, height, width, behind_video)[None])[0]
-                for frame in follower.frames
+                for frame in followed
             ]
         )
         facts = dict(
@@ -327,7 +353,7 @@ def find_masks(job, raw, width, height, progress):
             reference_subject=drawn,
             reference_objects=len(ranked),
             objects=[
-                dict(colour=rank, frames=sum(item in frame for frame in follower.frames))
+                dict(colour=rank, frames=sum(item in frame for frame in followed))
                 for rank, item in enumerate(order)
             ],
         )
@@ -628,6 +654,15 @@ def generate(job, config, progress):
             progress(stage='finding subjects')
             pose, pose_mask, reference_mask, subjects = find_masks(job, raw, width, height, progress)
             progress(stage='subjects found', **subjects)
+        # (0.6.447) The video to follow held fewer frames than its file announced (made_count): the
+        # video made is as long as what it holds, and its segments are planned again. Never more
+        # of them nor longer ones: what was asked of the card before the reading still holds.
+        pose, pose_mask, made = shortened(pose, pose_mask, p['frames'])
+        if made != p['frames']:
+            job = dict(job, parameters=dict(p, frames=made))
+            p = job['parameters']
+            segments = scail.plan(made, segment, scail.OVERLAP)
+            longest = scail.tokens(max(count for _first, count in segments), height, width)
         # Alone to replace a character, with its scene to animate one.
         reference = reference_shown(job, raw, reference_mask, width, height)
         del raw

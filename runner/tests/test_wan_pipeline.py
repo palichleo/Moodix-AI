@@ -275,7 +275,12 @@ class InputTests(unittest.TestCase):
             # The middle of the picture is kept: dark on the left, bright on the right.
             self.assertLess(read[:, :, :, :4].mean().item(), -0.8)
             self.assertGreater(read[:, :, :, -4:].mean().item(), 0.8)
-            with self.assertRaises(ValueError):
+            # (0.6.447) Asked 9 frames of a video that holds 6: the 5 it holds, 4n + 1 of them (it was
+            # refused: « The video holds 6 frames, 9 are needed »).
+            self.assertEqual(tuple(pipeline.read_halved(path, 9, 32, 32).shape), (5, 3, 16, 16))
+            # Fewer than 5 frames: nothing to follow.
+            iio.imwrite(path, frames[:4], fps=24, codec='libx264', macro_block_size=None)
+            with self.assertRaisesRegex(ValueError, 'trop courte'):
                 pipeline.read_halved(path, 9, 32, 32)
 
 
@@ -615,6 +620,79 @@ class AnimationTests(unittest.TestCase):
             self.assertEqual(pixels.shape, (13, 352, 256, 3))
             self.assertAlmostEqual(calls[0][5][0, 0, 0, 0, 0].item(), 0.2, places=2)
             self.assertEqual(calls[0][7][0, 0, 0, 0, 0].item(), 0.0)
+
+
+class ShortVideoTests(unittest.TestCase):
+    """(0.6.447) A video to follow that holds fewer frames than its file announces."""
+
+    def test_as_many_frames_are_made_as_the_video_holds_4n_plus_1_of_them(self):
+        # All there, or more than asked: what was asked.
+        self.assertEqual(pipeline.made_count(45, 45), 45)
+        self.assertEqual(pipeline.made_count(60, 45), 45)
+        # Fewer: the most the video holds, 4n + 1 of them.
+        self.assertEqual(pipeline.made_count(24, 45), 21)
+        self.assertEqual(pipeline.made_count(25, 45), 25)
+        self.assertEqual(pipeline.made_count(5, 45), 5)
+        for short in (4, 1, 0):
+            with self.assertRaisesRegex(ValueError, 'trop courte'):
+                pipeline.made_count(short, 45)
+        # The pose and its masks, read from two videos: cut to what the shorter holds.
+        pose, masks = torch.zeros(24, 3, 4, 4), torch.zeros(30, 3, 4, 4)
+        cut = pipeline.shortened(pose, masks, 45)
+        self.assertEqual((len(cut[0]), len(cut[1]), cut[2]), (21, 21, 21))
+        cut = pipeline.shortened(masks, pose, 45)
+        self.assertEqual((len(cut[0]), len(cut[1]), cut[2]), (21, 21, 21))
+        # All there: as they are.
+        whole = pipeline.shortened(pose[:21], masks[:21], 21)
+        self.assertEqual((len(whole[0]), len(whole[1]), whole[2]), (21, 21, 21))
+
+    def test_the_masks_found_follow_a_video_shorter_than_asked(self):
+        with tempfile.TemporaryDirectory() as folder:
+            # 6 frames held, 9 asked: the pose, its masks and what is said of the subjects are of
+            # the 5 frames kept, not of the 6 read.
+            made = found_job('replace', video_file(folder, 6, 32, 32), frames=9, width=64, height=64)
+            with sam_finds_a_square():
+                pose, pose_mask, _reference_mask, facts = pipeline.find_masks(
+                    made, torch.zeros(3, 80, 80), 64, 64, lambda **data: None
+                )
+            self.assertEqual((len(pose), len(pose_mask)), (5, 5))
+            self.assertEqual(facts['objects'], [dict(colour=0, frames=5)])
+
+    def test_a_webm_that_announces_more_frames_than_it_holds_is_followed_to_its_end(self):
+        from runner.video.stream import _ffmpeg, frames, probe
+
+        network = small()
+        with tempfile.TemporaryDirectory() as folder:
+            video, image = str(Path(folder) / 'video.webm'), image_file(folder, 40, 80)
+            try:
+                # 18 frames of picture under 1.5 s of sound. A WebM keeps no count of its frames:
+                # the length of the file, its sound, stands for it.
+                _ffmpeg(
+                    *('-f', 'lavfi', '-i', 'color=c=gray:s=64x32:r=24:d=0.75'),
+                    *('-f', 'lavfi', '-i', 'sine=frequency=440:duration=1.5'),
+                    *('-c:v', 'libvpx-vp9', '-c:a', 'libopus', video),
+                )
+            except RuntimeError as error:
+                self.skipTest(f'this ffmpeg writes no WebM: {error}')
+            self.assertEqual(sum(1 for _frame in frames(video)), 18)
+            self.assertGreaterEqual(probe(video)['frames'], 33)
+            made = dry_job('replace', video, image, frames=33)
+            # What is asked before anything is read: the 33 frames the file seems to hold.
+            self.assertEqual(pipeline.clip(made)[0], 33)
+            # It stopped here, after the prompt, the image and the subjects of every frame:
+            # « The video holds 18 frames, 33 are needed ».
+            pixels, saved, calls = dry_run(pipeline, made, network)
+            # 17 frames made (4n + 1 of the 18 held), and said so to what keeps the video.
+            self.assertEqual(pixels.shape[0], 17)
+            self.assertEqual(saved['parameters']['frames'], 17)
+            # Its segments were planned again for 17 frames: two steps each, and fewer than for 33.
+            planned = scail.plan(17, 9, scail.OVERLAP)
+            self.assertEqual(len(calls), 2 * len(planned))
+            self.assertLess(len(planned), len(scail.plan(33, 9, scail.OVERLAP)))
+            # A video that holds what it announces is made as before.
+            whole = video_file(folder, 16, 64, 32)
+            pixels, saved, _calls = dry_run(pipeline, dry_job('replace', whole, image), network)
+            self.assertEqual((pixels.shape[0], saved['parameters']['frames']), (13, 13))
 
 
 class BenchTests(unittest.TestCase):
