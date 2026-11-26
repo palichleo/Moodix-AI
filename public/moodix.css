@@ -19860,3 +19860,244 @@ body:has(dialog[open]) :is(.camera-ball, .camera-menu-option) :is(.camera-ball-l
 #studio-view .studio-rail > .output-action-compare[aria-pressed='true'] > svg {
   color: var(--accent);
 }
+
+/* ------------------------------------------------------------------ the dictation (0.6.452) */
+/* (claude_design/maquettes-dictee, approved on 26/11.) The microphone, the size of its neighbours: « Joindre » in the
+   chat (34 × 34, corners of 8), the wand in the Studio (36 × 36, a dark tile), the arrow in the Bobine (32 × 32,
+   corners of 9). Listening, coral (the soft alert colour of Moodix), « Terminer la dictée »; writing, dimmed;
+   unavailable, greyed, and a click still says why (aria-disabled, never disabled). */
+.dictation-mic {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 34px;
+  height: 34px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.dictation-mic svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.8;
+}
+.dictation-mic:hover:not([aria-disabled='true'], .is-listening, .is-busy) {
+  background: rgba(238, 232, 222, 0.06);
+  color: var(--text-1);
+}
+#studio-view .dictation-mic.in-studio {
+  width: 36px;
+  height: 36px;
+  border: 1px solid #2a2e37;
+  background: #15171c;
+  color: var(--text-1);
+}
+#studio-view .dictation-mic.in-studio svg {
+  stroke-width: 2;
+}
+#studio-view .dictation-mic.in-studio:hover:not([aria-disabled='true'], .is-listening, .is-busy) {
+  background: #1c1f26;
+}
+.dictation-mic.in-bobine {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+.dictation-mic.in-bobine svg {
+  width: 15px;
+  height: 15px;
+}
+#chat-form .dictation-mic.is-listening,
+#studio-view .dictation-mic.is-listening,
+.dictation-mic.is-listening {
+  color: var(--danger);
+  background: var(--danger-bg);
+  box-shadow: inset 0 0 0 1px var(--danger-line);
+}
+#studio-view .dictation-mic.in-studio.is-listening {
+  border-color: var(--danger-line);
+  box-shadow: none;
+}
+/* In the chat, a ring around it too; in the Studio and the Bobine the room lacks: the tile alone. */
+.dictation-mic.in-chat.is-listening::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px rgba(240, 147, 141, 0.28);
+  pointer-events: none;
+}
+.dictation-mic.is-busy,
+#studio-view .dictation-mic.in-studio.is-busy {
+  color: var(--text-4);
+  cursor: progress;
+}
+.dictation-mic[aria-disabled='true'] {
+  color: var(--text-4);
+  opacity: 0.8;
+  cursor: not-allowed;
+}
+/* As the wand greyed beside it. */
+#studio-view .dictation-mic.in-studio[aria-disabled='true'] {
+  opacity: 1;
+  border-color: #1e2129;
+  background: transparent;
+  color: var(--text-4);
+}
+/* The strip of the listening: in the place of the choices of the bar of the chat (joindre, modèle, réflexion) while
+   it listens; in the corner of the prompt of the Studio, at the left of its buttons, over the fade of the last lines
+   (at level 1); in the field of the Bobine, in the place of its words. */
+.composer-options.is-dictating > :not(.dictation-strip),
+.bobine-ask-field.is-dictating > .bobine-ask-words {
+  display: none !important;
+}
+.dictation-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 34px;
+  padding: 0 2px;
+  color: var(--text-2);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.dictation-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 4px rgba(240, 147, 141, 0.14);
+  animation: dictation-dot 1.6s ease-in-out infinite;
+}
+@keyframes dictation-dot {
+  50% {
+    box-shadow: 0 0 0 6px rgba(240, 147, 141, 0.06);
+  }
+}
+.dictation-time {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-1);
+  letter-spacing: 0.02em;
+}
+.dictation-bars {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  min-width: 0;
+  overflow: hidden;
+}
+.dictation-bars i {
+  flex: none;
+  display: block;
+  width: 2px;
+  height: 3px;
+  border-radius: 1px;
+  background: rgba(238, 232, 222, 0.5);
+}
+.dictation-bars i.is-now {
+  background: rgba(240, 147, 141, 0.85);
+}
+.dictation-hint {
+  flex: none;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.dictation-hint kbd {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-2);
+  border: 1px solid rgba(238, 232, 222, 0.1);
+  border-radius: 5px;
+  padding: 0 5px;
+}
+.dictation-ring {
+  flex: none;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(238, 232, 222, 0.16);
+  border-top-color: var(--text-1);
+  animation: enrich-turn 1.2s linear infinite;
+}
+.studio-prompt-field > .dictation-strip.in-studio {
+  position: absolute;
+  left: 14px;
+  bottom: 19px;
+  z-index: 2;
+  height: 22px;
+  gap: 8px;
+  pointer-events: none;
+}
+.dictation-strip.in-studio .dictation-bars {
+  height: 18px;
+}
+.bobine-ask-field > .dictation-strip.in-bobine {
+  flex: 1 1 auto;
+  height: 30px;
+  gap: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dictation-dot,
+  .dictation-ring {
+    animation: none;
+  }
+}
+/* Paramètres › Moodix AI › Dictée (D12, D13): the rows, segments and list are those of the settings; the trial of the
+   microphone (its level in ten segments) and the width of its list are its own. The words to write well, as the box of
+   the Consignes globales, on two lines. */
+.dictation-try {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.dictation-pick {
+  width: 280px;
+}
+.dictation-meter {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+}
+.dictation-meter i {
+  display: block;
+  width: 5px;
+  height: 12px;
+  border-radius: 2px;
+  background: rgba(238, 232, 222, 0.1);
+}
+.dictation-meter i.is-on {
+  background: var(--success);
+}
+#settings textarea.dictation-words {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 60px;
+  margin-top: 2px;
+  padding: 9px 11px;
+  line-height: 1.55;
+  resize: vertical;
+}
+.dictation-settings .dictation-note {
+  margin-top: 10px;
+  font-size: 13px;
+}
+.dictation-settings .dictation-state {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text-2);
+}

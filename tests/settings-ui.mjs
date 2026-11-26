@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { setupSettingsGuard } from '../public/settings-guard.mjs';
+import { DICTATING } from '../public/dictation.mjs';
 import * as sessionCopies from '../public/session-copies.mjs';
 import * as transcript from '../public/transcript.mjs';
 
@@ -134,6 +135,16 @@ async function settingsUI({ request, refresh = async () => {}, saved = () => {},
     }),
     setupSettingsTabs: () => ({ select() {}, matches() {}, mark() {}, opened() {}, current: () => 'update' }),
     setupInterfaceSettings: () => ({ load() {}, dirty: () => false, save: async () => {}, revert() {} }),
+    // The dictation (0.6.452): no microphone here, and its settings keep nothing of their own.
+    DICTATING,
+    setupDictation: () => ({ adopt() {}, watch() {}, busy: () => false }),
+    setupDictationSettings: () => ({
+      load: async () => {},
+      draft: () => null,
+      save: async () => {},
+      revert() {},
+      close() {},
+    }),
     setupSettingsGuard,
     setupCopy() {},
     setupContextMeter: options => {

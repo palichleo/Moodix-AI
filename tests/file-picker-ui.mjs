@@ -49,6 +49,8 @@ async function pickerUI() {
     updateControls() {},
     // The bin of the history, read as the settings open (0.6.103): not what is checked here.
     refreshTrash: async () => {},
+    // The dictation, read as the settings open (0.6.452): nor is it.
+    dictationUI: { load: async () => {} },
     document: { querySelectorAll: () => buttons },
     api: (_route, _body, options) =>
       _route === 'models'

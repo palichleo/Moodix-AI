@@ -27,6 +27,7 @@ import { licenseSentence } from './models-page.mjs';
 import { closePopup, openPopup } from './glass-menu.mjs';
 import { PIECES, PIECE_WORDS, SHORT_MODELS } from './pieces.mjs';
 import { fluxStart, takeFlux } from './take-flux.mjs';
+import { DICTATING } from './dictation.mjs';
 import {
   MONTAGE_LIMITS,
   MONTAGE_RATES,
@@ -223,6 +224,8 @@ export function setupMontage({
   // own (lib/arrange.mjs): `arrange({ montage, request, previous }, { signal })` gives { arrangement,
   // problems }, or throws why not. It is laid here (public/montage-arrange.mjs): nothing is created.
   arrange = null,
+  // (0.6.452) The dictation (public/dictation.mjs): its microphone in that field, at the left of its arrow (D10).
+  dictation = null,
 }) {
   let root = null,
     filRoot = null,
@@ -342,6 +345,8 @@ export function setupMontage({
   // (0.6.152) What the model of the takes makes at once: what a take to create is cut by.
   const limits = () => ({ create_video: longestFor('create_video'), extend_video: longestFor('extend_video') });
   const busy = () => Boolean(making || writing || inSeries() || arranging);
+  // (0.6.452) The arrow of the Arrangeur follows the dictation of its field.
+  dictation?.watch(() => tuneAsk());
   /**
    * (0.6.175) Why the Bobine cannot begin anything now, a work going on outside it (`busyWith`); '' while
    * it is at a work of its own, which it says itself. « Créer » stayed lit during a creation of the Chat
@@ -2576,7 +2581,10 @@ export function setupMontage({
       event.preventDefault?.();
       void ask();
     };
-    box.append(mark, field, send);
+    // (0.6.452, D10) The microphone of the dictation, at the left of the arrow; greyed while the Bobine is at work
+    // (its field is closed then).
+    const mic = dictation?.mic('bobine', { held: () => (busy() ? 'La Bobine travaille : sa demande attend la fin.' : '') });
+    box.append(mark, field, ...(mic ? [mic] : []), send);
     Object.assign(live.ask, { field, send });
     return box;
   }
@@ -2596,10 +2604,15 @@ export function setupMontage({
     const taken = busy(),
       // (0.6.175) A work outside the Bobine: the words can be written meanwhile, not sent.
       held = Boolean(outside()),
-      words = Boolean(wish.trim());
+      words = Boolean(wish.trim()),
+      // (0.6.452) Nor while the dictation listens or writes in the field: its words are not there yet.
+      dictating = Boolean(dictation?.busy('bobine'));
     field.disabled = taken;
-    send.disabled = taken || held || !words;
-    box.dataset.state = words && !taken && !held ? 'typed' : 'rest';
+    send.disabled = taken || held || !words || dictating;
+    if (dictating) send.title = DICTATING;
+    else if (send.title === DICTATING || send.dataset?.tip === DICTATING) send.title = 'Demander à Moodix AI';
+    box.dataset.state = words && !taken && !held && !dictating ? 'typed' : 'rest';
+    dictation?.repaint();
   }
   /** The instants of a take of the bobine, as its line of « À créer » says them. */
   function whenOf(id) {
@@ -2679,6 +2692,8 @@ export function setupMontage({
    */
   async function ask() {
     const request = wish.trim();
+    // (0.6.452) Entrée while the dictation listens or writes: its words come first.
+    if (dictation?.busy('bobine')) return;
     if (!arrange || !request || busy() || heldOutside()) return;
     stop();
     // (Asked from its field, by Entrée: the keys are its own again once it is answered, for the next request.)

@@ -154,6 +154,10 @@ const staticFiles = new Map([
   ['/setting-names.mjs', ['setting-names.mjs', 'text/javascript; charset=utf-8']],
   ['/settings-controls.mjs', ['settings-controls.mjs', 'text/javascript; charset=utf-8']],
   ['/markdown.mjs', ['markdown.mjs', 'text/javascript; charset=utf-8']],
+  // (0.6.452) The dictation: its button and its strip, and the sound of the microphone (an AudioWorklet).
+  ['/dictation.mjs', ['dictation.mjs', 'text/javascript; charset=utf-8']],
+  ['/dictation-worklet.mjs', ['dictation-worklet.mjs', 'text/javascript; charset=utf-8']],
+  ['/dictation-settings.mjs', ['dictation-settings.mjs', 'text/javascript; charset=utf-8']],
 ]);
 
 // (0.6.400) A part of an address, read as it was written. One badly written (« %E0 ») is refused: it was an

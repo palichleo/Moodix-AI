@@ -21,6 +21,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Gallery } from '../lib/gallery.mjs';
 import { ToolCatalog } from '../lib/tool-catalog.mjs';
 import { validateNativeWorkflow } from '../lib/native-workflows.mjs';
+import { DICTATING, LISTEN_PLACEHOLDER, UNAVAILABLE } from '../public/dictation.mjs';
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const local = process.env.LOCALAPPDATA || '';
@@ -371,9 +372,22 @@ const shown =
       // the card of a clip of the chat is drawn again just after « Espace sur ▶ », about one time in
       // two, and those two steps fail (its video loaded again, still on « Lire »).
       ['--headless=new', ...(process.env.MOODIX_CHECK_NO_GPU === '1' ? ['--disable-gpu'] : [])];
-const chrome = spawn(browser, [...shown, '--mute-audio', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', 'about:blank'], {
-  stdio: 'ignore',
-});
+// (0.6.452) The microphone of the dictation: the browser's own, which beeps, allowed without its question.
+const chrome = spawn(
+  browser,
+  [
+    ...shown,
+    '--mute-audio',
+    '--use-fake-device-for-media-stream',
+    '--use-fake-ui-for-media-stream',
+    '--remote-debugging-port=0',
+    `--user-data-dir=${profile}`,
+    '--no-first-run',
+    '--no-default-browser-check',
+    'about:blank',
+  ],
+  { stdio: 'ignore' },
+);
 const problems = [];
 let socket,
   step = 'chargement';
@@ -411,10 +425,11 @@ try {
     if (message.id && pending.has(message.id)) {
       pending.get(message.id)(message);
       pending.delete(message.id);
-    } else if (message.method === 'Fetch.requestPaused' && laidOut)
+    } else if (message.method === 'Fetch.requestPaused' && laidOut && !/\/api\/dictation(\/|\?|$)/.test(message.params.request.url))
       // The tools of the Studio, while the steps that lay it out are under way (shippedStudio); the
-      // steps that simulate the answers of a model have their own (paused, below). (0.6.261) What the
-      // actions of a take can do, for the steps of the loupe and of the column: Agrandir, not Animer.
+      // steps that simulate the answers of a model have their own (paused, below), the dictation too.
+      // (0.6.261) What the actions of a take can do, for the steps of the loupe and of the column:
+      // Agrandir, not Animer.
       socket.send(
         JSON.stringify({
           id: ++id,
@@ -446,6 +461,10 @@ try {
   let simulated = null;
   // Whether the steps that lay the Studio out with the shipped workflows are under way.
   let laidOut = false;
+  // (0.6.452) While the steps of the dictation simulate its model (dictationSteps): the words it writes, and the type
+  // of each sound the page posted (its WAV is read in the page: a body of a Blob is not shown to Fetch).
+  let dictationSaid = null;
+  const dictationPosted = [];
   async function paused({ requestId, request, responseStatusCode, responseHeaders }) {
     const answer = (body, type = 'application/json; charset=utf-8') =>
       send('Fetch.fulfillRequest', {
@@ -455,6 +474,26 @@ try {
         body: Buffer.from(body).toString('base64'),
       });
     try {
+      if (dictationSaid !== null && /\/api\/dictation(\/|\?|$)/.test(request.url)) {
+        if (/\/api\/dictation\/transcribe$/.test(request.url)) {
+          dictationPosted.push(Object.entries(request.headers ?? {}).find(([name]) => /^content-type$/i.test(name))?.[1] ?? '');
+          // (A moment, as the engine takes: « Transcription… » is seen.)
+          await wait(700);
+          return await answer(JSON.stringify({ text: dictationSaid, seconds: 1, spent: 0.7 }));
+        }
+        if (/\/api\/dictation\/warm$/.test(request.url)) return await answer('{}');
+        return await answer(
+          JSON.stringify({
+            installed: true,
+            model: { name: 'Qwen3-ASR 1.7B', bytes: 2806809248, left: 0, license: { name: 'Apache-2.0', url: '' } },
+            job: { state: 'idle', error: '' },
+            engine: { state: 'stopped', place: null, error: '', note: '' },
+            settings: { language: 'fr', place: 'cpu', words: '' },
+            card: { available: false, reason: 'Pas de carte ici.' },
+            maxSeconds: 120,
+          }),
+        );
+      }
       if (!simulated) return await send('Fetch.continueRequest', { requestId });
       if (responseStatusCode !== undefined) {
         const { body, base64Encoded } = await send('Fetch.getResponseBody', { requestId });
@@ -500,6 +539,23 @@ try {
     await send('Input.dispatchKeyEvent', { type: 'keyUp', key: name, code, windowsVirtualKeyCode: keyCode, modifiers });
   };
   const click = selector => js(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element) return false; element.click(); return true; })()`);
+  /**
+   * (0.6.452) A click of a person at the middle of an element, which the browser counts as one (the sound of the
+   * dictation is allowed by it); false when the element is not in sight, or something else is over its middle.
+   */
+  async function tap(selector) {
+    const at = await js(`(() => {
+      const element = document.querySelector(${JSON.stringify(selector)}), box = element?.getBoundingClientRect();
+      if (!box?.width || !box.height) return null;
+      const x = box.left + box.width / 2, y = box.top + box.height / 2, over = document.elementFromPoint(x, y);
+      return over && element.contains(over) ? { x: Math.round(x), y: Math.round(y) } : null;
+    })()`);
+    if (!at) return false;
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.x, y: at.y });
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+    return true;
+  }
   const size = width => send('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: false });
   const results = [],
     // What a step may load in vain (its answer may come after it): left out of the report.
@@ -1304,6 +1360,261 @@ try {
       },
     );
   }
+  // (0.6.452) For the steps of the dictation: a text in a page, a box emptied as a person would, two boxes side by side
+  // on one row (the first at the left of the second, their middles at the same height).
+  const said = JSON.stringify,
+    emptied = field =>
+      js(`(() => { const box = document.querySelector(${said(field)}); if (!box) return false; box.value = ''; box.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`),
+    beside = (a, b) => `(${a}.right <= ${b}.left && Math.abs(${a}.top + ${a}.height / 2 - ${b}.top - ${b}.height / 2) <= 1)`;
+  /**
+   * (0.6.452) The dictation (claude_design/maquettes-dictee, « D'accord pour tout » of 26/11), in the chat and in the
+   * Bobine (in the Studio: studioDictation, below). Its microphone at the left of the arrow of the chat, between the
+   * field of the Bobine and its arrow. This copy has no model of the dictation: greyed, and a click says why. Then
+   * its model simulated (its status, the words it writes), the microphone the browser's own (it beeps): a click
+   * listens, its strip in the place of the choices, what would send waits; another click writes the words in the
+   * box, at its cursor; Échap lets it go, nothing written. Ends in the Studio, in Image, as it began.
+   */
+  async function dictationSteps() {
+    const bobineMic = '#bobine-view .bobine-ask-field .dictation-mic.in-bobine',
+      chatStrip = '#chat-form .composer-options.is-dictating > .dictation-strip.in-chat';
+    await run('Dictée : le micro du chat, à gauche de la flèche', () => click('#chat-open'), () =>
+      js(`(() => {
+        const mic = document.getElementById('dictate'), send = document.getElementById('send');
+        if (document.body.dataset.view !== 'chat' || mic?.nextElementSibling !== send) return false;
+        const a = mic.getBoundingClientRect(), b = send.getBoundingClientRect();
+        return Math.round(a.width) === 34 && Math.round(a.height) === 34 && ${beside('a', 'b')} && mic.getAttribute('aria-disabled') === 'true' && (mic.dataset.tip || mic.title) === ${said(UNAVAILABLE)};
+      })()`), { within: 2000 });
+    await run('Dictée : le micro de la Bobine, entre sa demande et sa flèche', () => click('#bobine-open'), () =>
+      js(`(() => {
+        const box = document.querySelector('#bobine-view .bobine-ask-field'), parts = box ? [...box.children] : [], at = parts.findIndex(part => part.matches('.dictation-mic.in-bobine'));
+        if (document.body.dataset.view !== 'bobine' || at < 1 || !parts[at - 1].matches('.bobine-ask-words') || !parts[at + 1]?.matches('.bobine-ask-send')) return false;
+        const a = parts[at].getBoundingClientRect(), b = parts[at + 1].getBoundingClientRect();
+        return Math.round(a.width) === 32 && Math.round(a.height) === 32 && ${beside('a', 'b')} && parts[at].getAttribute('aria-disabled') === 'true';
+      })()`), { within: 2500 });
+    // Without its model, a click says why.
+    await run('Dictée : sans son modèle, elle dit pourquoi', () => click(bobineMic), () =>
+      js(`document.getElementById('notice').hidden === false && document.getElementById('notice-text').textContent === ${said(UNAVAILABLE)}`), { within: 2000 });
+    await click('#notice-close');
+
+    // Its model simulated from here (paused): installed, the words it writes said before each place.
+    dictationSaid = 'Un chat roux sur un toit.';
+    dictationPosted.length = 0;
+    await send('Fetch.enable', { patterns: [{ urlPattern: '*/api/dictation*', requestStage: 'Request' }] });
+    // Each sound posted, read in the page as the server reads it (lib/dictation.mjs, wavSeconds): WAV, PCM 16 bits,
+    // mono, 16 kHz, its data to its end.
+    await js(`(() => {
+      if (window.__dictationHeard) return true;
+      window.__dictationHeard = [];
+      const real = window.fetch;
+      window.fetch = function (input, init) {
+        const url = typeof input === 'string' ? input : input?.url ?? '';
+        if (/\\/api\\/dictation\\/transcribe$/.test(url) && init?.body instanceof Blob)
+          window.__dictationHeard.push(init.body.arrayBuffer().then(bytes => {
+            const view = new DataView(bytes), text = (at, length) => String.fromCharCode(...new Uint8Array(bytes, at, length));
+            return {
+              wav: bytes.byteLength > 44 && text(0, 4) === 'RIFF' && text(8, 4) === 'WAVE' && text(12, 4) === 'fmt ' && view.getUint16(20, true) === 1 && view.getUint16(22, true) === 1 &&
+                view.getUint32(24, true) === 16000 && view.getUint16(34, true) === 16 && text(36, 4) === 'data' && view.getUint32(40, true) === bytes.byteLength - 44,
+              seconds: (bytes.byteLength - 44) / 32000,
+            };
+          }));
+        return real.apply(this, arguments);
+      };
+      return true;
+    })()`);
+    let placeholder = '',
+      writing = false;
+    await run(
+      'Dictée (chat) : un clic écoute, sa bande à la place des choix',
+      async () => {
+        if (!(await click('#chat-open'))) return false;
+        await wait(300);
+        if (!(await emptied('#prompt'))) return false;
+        placeholder = await js(`document.getElementById('prompt').placeholder`);
+        return tap('#dictate');
+      },
+      () =>
+        js(`(() => {
+          const strip = document.querySelector(${said(chatStrip)}), mic = document.getElementById('dictate'), send = document.getElementById('send');
+          if (!strip?.getClientRects().length || ['attach', 'model-choice', 'effort-choice'].some(id => document.getElementById(id).getClientRects().length)) return false;
+          const bars = [...strip.querySelectorAll('.dictation-bars > i')];
+          return bars.length === 34 && bars.some(bar => parseFloat(bar.style.height) > 4) && Boolean(strip.querySelector('.dictation-hint kbd')) && mic.classList.contains('is-listening') &&
+            mic.getAttribute('aria-pressed') === 'true' && send.disabled && send.dataset.tip === ${said(DICTATING)} && document.getElementById('prompt').placeholder === ${said(LISTEN_PLACEHOLDER)};
+        })()`),
+      { within: 4000 },
+    );
+    await run(
+      'Dictée (chat) : un second clic écrit ses mots dans la case',
+      async () => {
+        // (Some moments of sound first: under 0,3 s, nothing is asked.)
+        await wait(500);
+        if (!(await tap('#dictate'))) return false;
+        writing =
+          (await until(() => js(`Boolean(document.querySelector('#chat-form .composer-options.is-dictating > .dictation-strip.is-writing')) && document.getElementById('dictate').classList.contains('is-busy')`), 1500)) === true;
+        return true;
+      },
+      async () => {
+        const heard = (await js(`Promise.all(window.__dictationHeard ?? [])`)) ?? [];
+        return (
+          writing &&
+          dictationPosted.length === 1 &&
+          /^audio\/wav$/i.test(dictationPosted[0]) &&
+          heard.length === 1 &&
+          heard[0].wav &&
+          heard[0].seconds > 0.5 &&
+          (await js(`(() => {
+            const prompt = document.getElementById('prompt'), send = document.getElementById('send'), mic = document.getElementById('dictate');
+            return prompt.value === ${said('Un chat roux sur un toit.')} && prompt.placeholder === ${said(placeholder)} && !document.querySelector('#chat-form .dictation-strip, #chat-form .is-dictating') &&
+              !send.disabled && send.dataset.tip === undefined && document.getElementById('attach').getClientRects().length > 0 && !mic.classList.contains('is-busy') && mic.getAttribute('aria-pressed') === 'false';
+          })()`))
+        );
+      },
+      { within: 4000 },
+    );
+    await run(
+      'Dictée (chat) : Échap la laisse, rien d’écrit',
+      async () => {
+        if (!(await tap('#dictate'))) return false;
+        if ((await until(() => js(`Boolean(document.querySelector(${said(chatStrip)})) && document.getElementById('dictate').classList.contains('is-listening')`), 4000)) !== true) return false;
+        await wait(400);
+        await key('Escape', 'Escape', 27);
+        return true;
+      },
+      async () =>
+        dictationPosted.length === 1 &&
+        (await js(`(() => {
+          const prompt = document.getElementById('prompt'), mic = document.getElementById('dictate');
+          return prompt.value === ${said('Un chat roux sur un toit.')} && prompt.placeholder === ${said(placeholder)} && !document.querySelector('#chat-form .dictation-strip, #chat-form .is-dictating') &&
+            !mic.classList.contains('is-listening') && mic.getAttribute('aria-pressed') === 'false' && !document.getElementById('send').disabled;
+        })()`)),
+      { within: 2000 },
+    );
+    await emptied('#prompt');
+    dictationSaid = 'Invente la suite.';
+    await run(
+      'Dictée (Bobine) : sa bande à la place de la demande, la flèche attend',
+      async () => {
+        if (!(await click('#bobine-open'))) return false;
+        // (The Bobine shown a moment after its click.)
+        if ((await until(() => js(`document.body.dataset.view === 'bobine' && Boolean(document.querySelector(${said(bobineMic)})?.getClientRects().length)`), 2500)) !== true) return false;
+        if (!(await emptied('#bobine-view .bobine-ask-words'))) return false;
+        return tap(bobineMic);
+      },
+      () =>
+        js(`(() => {
+          const box = document.querySelector('#bobine-view .bobine-ask-field.is-dictating'), strip = box?.querySelector(':scope > .dictation-strip.in-bobine'), mic = box?.querySelector(':scope > .dictation-mic'),
+            send = box?.querySelector(':scope > .bobine-ask-send');
+          if (!strip?.getClientRects().length || strip.nextElementSibling !== mic || !send) return false;
+          return !box.querySelector('.bobine-ask-words').getClientRects().length && strip.querySelectorAll('.dictation-bars > i').length === 22 && send.disabled &&
+            (send.dataset.tip || send.title) === ${said(DICTATING)} && mic.classList.contains('is-listening') && box.dataset.state === 'rest';
+        })()`),
+      { within: 4000 },
+    );
+    await run(
+      'Dictée (Bobine) : la demande écrite, sa flèche allumée',
+      async () => {
+        await wait(500);
+        return tap(bobineMic);
+      },
+      async () =>
+        dictationPosted.length === 2 &&
+        (await js(`(() => {
+          const box = document.querySelector('#bobine-view .bobine-ask-field'), field = box?.querySelector('.bobine-ask-words'), send = box?.querySelector('.bobine-ask-send');
+          return field?.value === 'Invente la suite.' && field.getClientRects().length > 0 && box.dataset.state === 'typed' && !send.disabled && !box.classList.contains('is-dictating') && !box.querySelector('.dictation-strip');
+        })()`)),
+      { within: 4000 },
+    );
+    // « Essayer » in Paramètres › Moodix AI › Dictée, its model there: the level of the microphone in its ten segments
+    // (the beeps of the browser's own), the microphones of the browser named in its list once one was allowed; its
+    // second click stops it, every segment off.
+    await run(
+      'Dictée : « Essayer » montre le niveau du micro',
+      async () => {
+        if (!(await click('#settings-open'))) return false;
+        if ((await until(() => js(`document.getElementById('dictation-try')?.disabled === false`), 2500)) !== true) return false;
+        await js(`document.getElementById('dictation-try').scrollIntoView({ block: 'center' })`);
+        await wait(300);
+        return tap('#dictation-try');
+      },
+      () =>
+        js(`(() => {
+          const names = [...document.getElementById('dictation-mic').options].map(option => option.textContent);
+          return document.getElementById('dictation-try').textContent === 'Arrêter' && document.querySelectorAll('#dictation-meter > i.is-on').length > 0 && names.length > 1 && names.slice(1).every(Boolean) &&
+            document.getElementById('dictation-state').hidden;
+        })()`),
+      { within: 4000 },
+    );
+    await run('Dictée : « Arrêter » le laisse', () => tap('#dictation-try'), () =>
+      js(`document.getElementById('dictation-try').textContent === 'Essayer' && !document.querySelector('#dictation-meter > i.is-on')`), { within: 2000 });
+    await run('Dictée : Échap (Paramètres)', () => key('Escape', 'Escape', 27), noDialog);
+    await send('Fetch.disable');
+    dictationSaid = null;
+    await run('Dictée : de nouveau le Studio, en Image', () => click('#studio-open'), () =>
+      js(`document.body.dataset.view === 'studio' && document.querySelector('#studio-kinds .kind-tab[aria-selected="true"]')?.dataset.mode === 'image'`), { within: 1500 });
+  }
+  /**
+   * (0.6.452) The microphone of the dictation in the Studio, with the tools of the shipped workflows (without them,
+   * this copy shows no prompt): at the left of the wand, never in its place (« dictée ne remplace pas la baguette
+   * magique »), greyed without the model of the dictation; alone in Son, which has no wand. Then its model simulated:
+   * its strip in the corner of the prompt, « Générer » and the wand waiting for its words, which come after what was
+   * typed. Leaves the Studio in Image, its prompt empty, and the tools given as before.
+   */
+  async function studioDictation() {
+    const mic = '#studio-view .studio-prompt-field .dictation-mic.in-studio',
+      studio = { urlPattern: '*/api/studio', requestStage: 'Request' };
+    await run('Dictée : le micro du Studio, à gauche de la baguette', () => click('#studio-kinds .kind-tab[aria-label="Image"]'), () =>
+      js(`(() => {
+        const row = document.querySelector('#studio-view .studio-prompt-field.has-enrich > .studio-enrich'), mic = row?.firstElementChild, wand = row?.lastElementChild;
+        if (!mic?.matches('.dictation-mic.in-studio') || !wand?.matches('.studio-enrich-go')) return false;
+        const a = mic.getBoundingClientRect(), b = wand.getBoundingClientRect();
+        return Math.round(a.width) === 36 && Math.round(a.height) === 36 && ${beside('a', 'b')} && mic.getAttribute('aria-disabled') === 'true' && (mic.dataset.tip || mic.title) === ${said(UNAVAILABLE)};
+      })()`), { within: 2000 });
+    await run('Dictée : seule dans Son, sans baguette', () => click('#studio-kinds .kind-tab[aria-label="Son"]'), () =>
+      js(`(() => {
+        const field = document.querySelector('#studio-view .studio-prompt-field'), row = field?.querySelector(':scope > .studio-enrich');
+        return Boolean(field?.classList.contains('has-enrich') && row?.children.length === 1 && row.firstElementChild.matches('.dictation-mic.in-studio') && !document.querySelector('#studio-view .studio-enrich-go'));
+      })()`), { within: 2000 });
+    dictationSaid = 'il répare son filet sur le port.';
+    const posted = dictationPosted.length;
+    await send('Fetch.enable', { patterns: [studio, { urlPattern: '*/api/dictation*', requestStage: 'Request' }] });
+    await run(
+      'Dictée (Studio) : sa bande dans le coin du prompt, Générer et la baguette attendent',
+      async () => {
+        if (!(await click('#studio-kinds .kind-tab[aria-label="Image"]'))) return false;
+        if ((await until(() => js(`Boolean(document.querySelector(${said(mic)})?.getClientRects().length)`), 2000)) !== true) return false;
+        await js(`(() => { const prompt = document.getElementById('studio-prompt'); prompt.focus(); prompt.value = 'Un vieux pêcheur, '; prompt.dispatchEvent(new Event('input', { bubbles: true })); prompt.setSelectionRange(prompt.value.length, prompt.value.length); return true; })()`);
+        await wait(200);
+        return tap(mic);
+      },
+      () =>
+        js(`(() => {
+          const field = document.querySelector('#studio-view .studio-prompt-field.is-dictating'), strip = field?.querySelector(':scope > .dictation-strip.in-studio'), corner = field?.querySelector(':scope > .studio-enrich'),
+            wand = corner?.querySelector('.studio-enrich-go'), mic = corner?.querySelector('.dictation-mic'), go = document.querySelector('#studio-view .studio-go');
+          if (!strip?.getClientRects().length || !wand || !mic || !go) return false;
+          const a = strip.getBoundingClientRect(), b = corner.getBoundingClientRect(), box = field.getBoundingClientRect();
+          return strip.querySelectorAll('.dictation-bars > i').length === 16 && ${beside('a', 'b')} && a.left > box.left && wand.disabled && (wand.dataset.tip || wand.title) === ${said(DICTATING)} &&
+            go.disabled && (go.dataset.tip || go.title) === ${said(DICTATING)} && mic.classList.contains('is-listening') && document.getElementById('studio-prompt').placeholder === ${said(LISTEN_PLACEHOLDER)};
+        })()`),
+      { within: 4000 },
+    );
+    await run(
+      'Dictée (Studio) : ses mots à la suite du prompt',
+      async () => {
+        await wait(500);
+        return tap(mic);
+      },
+      async () =>
+        dictationPosted.length === posted + 1 &&
+        (await js(`(() => {
+          const prompt = document.getElementById('studio-prompt'), wand = document.querySelector('#studio-view .studio-enrich-go'), go = document.querySelector('#studio-view .studio-go');
+          return prompt.value === ${said('Un vieux pêcheur, il répare son filet sur le port.')} && prompt.placeholder !== ${said(LISTEN_PLACEHOLDER)} &&
+            !document.querySelector('#studio-view .dictation-strip, #studio-view .is-dictating') && (wand.dataset.tip || wand.title) !== ${said(DICTATING)} && (go.dataset.tip || go.title) !== ${said(DICTATING)};
+        })()`)),
+      { within: 4000 },
+    );
+    await emptied('#studio-prompt');
+    await send('Fetch.enable', { patterns: [studio] });
+    dictationSaid = null;
+  }
 
   await send('Runtime.enable');
   await send('Log.enable');
@@ -1418,6 +1729,7 @@ try {
   );
   await run('Studio : Image, Vidéo, Son', () => click('#studio-open'), () =>
     js(`document.body.dataset.view === 'studio' && [...document.querySelectorAll('#studio-kinds .kind-tab')].map(tab => tab.dataset.mode).join() === 'image,video,audio' && document.querySelector('#studio-kinds .kind-tab[aria-selected="true"]')?.dataset.mode === 'image' && !document.querySelector('#studio-view .bobine-desk')`), { within: 1500 });
+  await dictationSteps();
   await run('Agent', () => click('#studio-view .studio-agent'), () => js(`document.body.dataset.chat === 'open'`));
   await run('Échap (Agent)', () => key('Escape', 'Escape', 27), () => js(`document.body.dataset.chat !== 'open'`));
   // (0.6.95) A video proposed from the chat of the Agent: the pointer sets it in the Studio, and what
@@ -1659,6 +1971,19 @@ try {
     return js(`document.getElementById('prompt').value === '#'`);
   });
   await run('Configuration', () => click('#settings-open'), dialog('settings'));
+  // (0.6.452, D12) Paramètres › Moodix AI › Dictée: its model to download with its licence, « Essayer » greyed until it is
+  // there, the microphone in one of our lists (every step checks them all), Français and Processeur chosen, « Carte
+  // graphique » greyed (this copy has no build of llama.cpp for a card), the ten segments of the level.
+  await run('Configuration : la Dictée', async () => true, () =>
+    js(`(() => {
+      const panel = document.getElementById('settings-panel-ai'), section = document.getElementById('dictation-settings'), trial = document.getElementById('dictation-try');
+      if (!panel || panel.hidden || !panel.contains(section)) return false;
+      const languages = [...document.querySelectorAll('#dictation-language > [role="radio"]')], places = [...document.querySelectorAll('#dictation-place > [role="radio"]')],
+        chosen = list => list.filter(choice => choice.getAttribute('aria-checked') === 'true').map(choice => choice.dataset.value).join();
+      return document.getElementById('dictation-get').textContent === 'Télécharger' && /^Qwen3-ASR 1\\.7B, d’Alibaba · [\\d,]+ Go à télécharger · Apache 2\\.0$/.test(document.getElementById('dictation-model').textContent) &&
+        trial.disabled && languages.length === 3 && chosen(languages) === 'fr' && places.length === 2 && chosen(places) === 'cpu' && places[1].dataset.value === 'gpu' && places[1].getAttribute('aria-disabled') === 'true' &&
+        document.getElementById('dictation-mic').classList.contains('glass-select-native') && Boolean(section.querySelector('button.glass-select')) && document.querySelectorAll('#dictation-meter > i').length === 10;
+    })()`), { within: 2500 });
   // The editor of a workflow, at 1280 × 720 (17/11): taller than the window, its body scrolls, to
   // the wheel as to the keys, and its foot (« Enregistrer le workflow ») stays in sight.
   await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false });
@@ -1748,6 +2073,7 @@ try {
     () => js(`document.querySelectorAll('#studio-view .studio-model-pick option').length > 1`),
     { within: 6000 },
   );
+  await studioDictation();
   for (const [width, height] of [
     [1280, 720],
     [1440, 900],

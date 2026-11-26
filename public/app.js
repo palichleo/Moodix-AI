@@ -35,6 +35,8 @@ import { setupNativeWorkflows } from './native-workflow-ui.mjs';
 import { dataBlob, prepareImages } from './images.mjs';
 import { isVideo, splitVideos, withVideos } from './chat-videos.mjs';
 import { setupStudio } from './studio.mjs';
+import { DICTATING, setupDictation } from './dictation.mjs';
+import { setupDictationSettings } from './dictation-settings.mjs';
 import { proposalCard } from './proposal-card.mjs';
 import { setupTokenControls, setupComputeControls, dismissSettingsOnOutsideClick } from './settings-controls.mjs';
 import { waitForModel } from './model-ready.mjs';
@@ -1426,9 +1428,12 @@ function updateControls() {
       state.operation ||
       state.loadingHistory,
   );
-  $('send').disabled = state.sendHeld || (!$('prompt').value.trim() && !state.images.length && !state.videos.length);
+  // (0.6.452) Nor while the dictation listens or writes in the box: its words are not there yet.
+  const dictating = state.dictation?.busy('chat') ? DICTATING : '';
+  $('send').disabled =
+    state.sendHeld || Boolean(dictating) || (!$('prompt').value.trim() && !state.images.length && !state.videos.length);
   $('send').hidden = !away && ((state.generating && !proposing) || toolBusy);
-  if (away && $('send').dataset) $('send').dataset.tip = away;
+  if ((away || dictating) && $('send').dataset) $('send').dataset.tip = away || dictating;
   else if ($('send').dataset?.tip) delete $('send').dataset.tip;
   // Interrompre only while something runs: Moodix thinking or writing, a generation (16/11). A
   // proposal waiting for the user (a card, the Studio) runs nothing: a new message declines it.
@@ -2218,6 +2223,8 @@ function openSettings() {
   updateControls();
   // The bin of the history, read each time (0.6.103).
   void refreshTrash();
+  // (0.6.452) The dictation: its model, a download under way, its settings.
+  void dictationUI.load();
   Promise.all([
     api('bootstrap').then(response => response.json()),
     workflowsUI.refresh(),
@@ -2294,6 +2301,8 @@ async function saveConfiguration() {
     ).json();
     // The room (Interface) goes with the other preferences.
     await interfaceUI.save();
+    // (0.6.452) The language, the place and the words of the dictation; its microphone, in this browser.
+    await dictationUI.save();
     state.config = saved.config;
     state.generation = saved.generation;
     state.globalInstructions = saved.instructions ?? $('global-instructions').value;
@@ -5114,11 +5123,30 @@ function showInStudio(record) {
     .then(() => revealStudio())
     .then(() => record && studioUI.show(record));
 }
+// (0.6.452) The dictation (public/dictation.mjs): its microphone at the left of « Envoyer », and in the Studio and
+// the Bobine, which it is handed to. While it listens or writes, nothing is sent (updateControls).
+state.dictation = setupDictation({ api, icon, notice });
+state.dictation.adopt($('dictate'), 'chat');
+state.dictation.watch(() => updateControls());
+// Paramètres › Moodix AI › Dictée: its model at once, its settings with « Enregistrer » (public/dictation-settings.mjs).
+const dictationUI = setupDictationSettings({
+  $,
+  node,
+  api,
+  dictation: state.dictation,
+  // Read after the rest of the settings: what it holds is what is kept, not a change to ask about.
+  onLoaded: () => settingsGuard.markPartSaved('dictation'),
+});
+$('settings').addEventListener('close', () => {
+  dictationUI.revert();
+  dictationUI.close();
+});
 const studioUI = setupStudio({
   api,
   node,
   icon,
   notice,
+  dictation: state.dictation,
   assets: assetsUI,
   viewOutput: (record, index) => assetsUI.viewOutput(record, index),
   waitForModel: (...args) => waitForModel(...args),
@@ -5335,6 +5363,7 @@ const settingsGuard = setupSettingsGuard({
       'generation-latent-upscale-root',
     ].map(id => [id, $(id).value, $(id).checked]),
     room: interfaceUI.dirty(),
+    dictation: dictationUI.draft(),
     editor: workflowsUI.editorDirty?.() || false,
   }),
 });

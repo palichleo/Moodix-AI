@@ -54,6 +54,7 @@ import {
 } from './camera-orbit.mjs';
 import { clipSeconds } from './take-length.mjs';
 import { setupMontage } from './montage.mjs';
+import { DICTATING } from './dictation.mjs';
 
 /**
  * The Studio: the creation tools of the conversation, beside the chat. Four blocks that never
@@ -515,6 +516,9 @@ export function setupStudio({
   making = () => null,
   // (0.6.253) Shows at once the bubble of a control (public/help-tips.mjs): « Générer » greyed and pressed says why.
   sayTip = () => {},
+  // (0.6.452) The dictation (public/dictation.mjs): its microphone in the corner of the prompt, at the left of the
+  // wand, which it never replaces; alone there in Son, which has no wand. Handed to the Bobine too.
+  dictation = null,
 }) {
   const $ = id => document.getElementById(id);
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms * pace));
@@ -861,6 +865,8 @@ export function setupStudio({
           estimate: true,
         })
       ).json(),
+    // (0.6.452) The microphone of the dictation in the field of the Arrangeur.
+    dictation,
   });
   // The setting Moodix AI is changing wears a ring, those it has set a fine trace, while it works.
   // Once it has stopped, nothing is framed any more. (0.6.92: no mark on the settings it may change
@@ -4298,6 +4304,11 @@ export function setupStudio({
     go.disabled = blank || Boolean(missing);
     go.classList.toggle('is-blank', blank);
     go.title = blank ? blankWhy() : missing || `${finish ? FINISH[finish.verb].go : 'Générer'} (${MODIFIER}+Entrée)`;
+    // (0.6.452) Nor while the dictation listens or writes in the prompt.
+    if (dictating() && !finish) {
+      go.disabled = true;
+      go.title = DICTATING;
+    }
   }
   /** (0.6.253) What « Générer » says without a prompt: what to describe first (the continuation, in Vidéo). */
   // A character put in a video: its wand writes the prompt, as request() says it.
@@ -4318,6 +4329,8 @@ export function setupStudio({
     // A take made, the card held: « Générer » is the bar of the work, or « Libérer la carte »; generate() answers.
     if (!workflow || working || gpuBlocked()) return null;
     if (workflow.unavailable) return { text: workflow.unavailable };
+    // (0.6.452) The words of the dictation are not in the prompt yet.
+    if (dictating() && !finishOn()) return { text: DICTATING };
     // A proposal of Moodix AI, the character it made: answered here, whatever the prompt.
     const free = !answering() && !checking,
       busy = free ? elsewhere() : '';
@@ -4377,14 +4390,16 @@ export function setupStudio({
   function improvable() {
     const go = document.querySelector?.('#studio-view .studio-enrich-go');
     if (!go || enriching) return;
-    go.disabled = Boolean(working) || !improves();
-    go.title = improveTitle();
+    go.disabled = Boolean(working) || !improves() || dictating();
+    go.title = dictating() ? DICTATING : improveTitle();
   }
   /** The chat model rewrites what is typed as a full prompt; what was typed can be taken back. */
   async function enrich() {
     // (0.6.317) Never on a page whose prompt is not shown (Agrandir, Interpoler, Changer la caméra): Ctrl+E sent
     // the prompt of Image hidden behind « Agrandir », and wrote it again.
     if (enriching || working || finishOn() || refilming()) return;
+    // (0.6.452) Nor on a prompt the dictation is still saying (Ctrl+E): its words come after.
+    if (dictating()) return notice(DICTATING);
     const draft = drafts[mode],
       text = draft.prompt.trim(),
       scene = sceneInputs();
@@ -4519,6 +4534,14 @@ export function setupStudio({
       make.disabled = true;
       make.title = taken;
     }
+    // (0.6.452) The wand waits for the words of the dictation: it would rewrite a prompt still being said.
+    if (dictating() && !enriching) {
+      make.disabled = true;
+      make.title = DICTATING;
+    }
+    // (0.6.452) The microphone first, at the left of « Revenir à mon texte » and of the wand (D8).
+    const mic = micOf();
+    if (mic) row.append(mic);
     if (draft.before !== null && !enriching && !working) {
       const back = button(
         'studio-link',
@@ -4538,6 +4561,24 @@ export function setupStudio({
     row.append(make);
     return row;
   }
+  // (0.6.452) While the dictation listens or writes in the prompt: « Générer » and the wand wait for its words.
+  const dictating = () => Boolean(dictation?.busy('studio'));
+  /** The microphone of the dictation, greyed while Moodix AI rewrites the prompt. */
+  const micOf = () =>
+    dictation?.mic('studio', { held: () => (enriching ? 'Moodix AI enrichit votre texte…' : '') }) ?? null;
+  /** (0.6.452, D8b) Son has no wand: the microphone alone in the corner of its prompt. */
+  function micRow() {
+    const mic = micOf();
+    if (!mic) return null;
+    const row = node('div', 'studio-enrich');
+    row.append(mic);
+    return row;
+  }
+  // The buttons follow the dictation, without drawing the Studio again (the prompt keeps its focus).
+  dictation?.watch(() => {
+    goable();
+    improvable();
+  });
 
   // ------------------------------------------------------------------ the tries (« × 1 »)
   // (0.6.253) How many takes « Générer » makes at once, 1 to 4 (generer-maquette.md). (0.6.254) One after the other,
@@ -7257,10 +7298,12 @@ export function setupStudio({
     // Folded to its first lines while a proposal of Moodix AI is set and waits (0.6.95): what it
     // understood, at the top of the screen, is read first; its arrow shows it whole.
     const folded = answering() ? proposal.fold : null;
+    // (0.6.452, D8b) Son has no wand, but the microphone of the dictation, alone in the corner of its prompt.
+    const micAlone = mode === 'audio' && !finish && Boolean(dictation);
     const promptField = node(
       'div',
       'studio-field studio-prompt-field is-wide' +
-        (mode !== 'audio' && !finish && !refilming() ? ' has-enrich' : '') +
+        ((mode !== 'audio' && !finish && !refilming()) || micAlone ? ' has-enrich' : '') +
         (folded && !folded.open ? ' is-folded' : ''),
     );
     promptField.append(prompt);
@@ -7270,6 +7313,10 @@ export function setupStudio({
       // (0.6.317) Nor on « Changer la caméra », which has nothing to write: its wand, greyed, said « Ajoutez
       // d’abord la vidéo et le personnage » (the model reads the clip it is given, as one that puts a character).
     } else if (mode !== 'audio' && !refilming()) promptField.append(enrichRow());
+    else if (micAlone) {
+      const corner = micRow();
+      if (corner) promptField.append(corner);
+    }
     if (enriching) promptField.classList.add('is-improving');
     measurePrompt = folded
       ? foldPrompt({ node, icon, field: promptField, box: prompt, state: folded, onToggle: () => render() })
@@ -7520,6 +7567,11 @@ export function setupStudio({
     if (chatBusy && !workflow.unavailable) {
       go.title = chatBusy;
       go.classList.add('is-unavailable');
+    }
+    // (0.6.452) Nor while the dictation listens or writes in the prompt: its words are not there yet.
+    if (dictating() && !working && !finish && !workflow.unavailable) {
+      go.disabled = true;
+      go.title = DICTATING;
     }
     // A take of the Chat of this conversation, followed here (watch, 0.6.96): one creation at a time.
     // (0.6.200) Any other take made: the words of the line of its step and its time, which progress() puts
