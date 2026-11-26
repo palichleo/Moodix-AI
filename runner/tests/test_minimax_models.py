@@ -91,7 +91,9 @@ class MiniMaxModels(unittest.TestCase):
 
     def test_the_family_takes_both_step_counts_and_an_optional_second_file(self):
         manifest = family('minimax_h3')
-        self.assertEqual(manifest['parameters']['steps']['choices'], [8, 20])
+        # (0.6.419) Each version of the model has its steps, any count: no list of two.
+        steps = manifest['parameters']['steps']
+        self.assertEqual((steps.get('choices'), steps['min'], steps['max']), (None, 1, 60))
         second = manifest['components']['referenceModel']
         self.assertFalse(second['required'])
         self.assertEqual(second['folder'], 'diffusion_models')

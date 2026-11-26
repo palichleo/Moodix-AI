@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { families } from '../lib/families.mjs';
 import { versionComponent } from '../lib/model-files.mjs';
 import { GenerationService } from '../lib/generation-service.mjs';
-import { ModelVersions, isCompanion, recipeOf, versionName, withVersion } from '../lib/model-versions.mjs';
+import { ModelVersions, isCompanion, recipeOf, saidByName, versionName, withVersion } from '../lib/model-versions.mjs';
 import { NativeWorkflowCatalog, validateNativeWorkflow } from '../lib/native-workflows.mjs';
 
 /**
@@ -91,9 +91,12 @@ async function world(t, files = {}) {
     },
   };
   const statePath = join(root, 'data', 'model-versions.json');
+  // (Its clock: a second and a half later at each look, so that a file is looked for again each time.)
+  let clock = 0;
   const versions = new ModelVersions({
     statePath,
     assets,
+    now: () => (clock += 1500),
     describe: async (path, options) => {
       described.push([basename(path), options]);
       if (!SAID[basename(path)]) throw new Error('Invalid safetensors header size');
@@ -296,8 +299,11 @@ test('a version of a workflow: its file, what its recipe sets, the second files 
   assert.deepEqual([bare.components.referenceModel.file, bare.parameters.steps, bare.profiles], ['old.safetensors', held.parameters.steps, held.profiles]);
   const second = withVersion(minimax, { role: 'model', asset: 'a', file: 'a.safetensors', companion: { role: 'referenceModel', asset: 'r', file: 'r.safetensors' } });
   assert.deepEqual(second.components.referenceModel, { policy: 'fixed', asset: 'r', file: 'r.safetensors' });
-  // What the family does not take is refused as in any workflow.
-  assert.throws(() => withVersion(minimax, { role: 'model', asset: 'a', file: 'a.safetensors', parameters: { steps: 12 } }));
+  // What the family does not take is refused as in any workflow. (0.6.419) Any count of steps is taken,
+  // each version having its own: 12 was refused, when the family listed 8 and 20.
+  assert.throws(() => withVersion(minimax, { role: 'model', asset: 'a', file: 'a.safetensors', parameters: { steps: 0 } }));
+  const twelve = withVersion(minimax, { role: 'model', asset: 'a', file: 'a.safetensors', parameters: { steps: 12 } });
+  assert.equal(twelve.parameters.steps.value, 12);
 });
 
 test('a file added from elsewhere is a version, read where it is; one the model does not read is refused by name', async t => {
@@ -523,4 +529,170 @@ test('the page « Modèles » is given one line a model, in its order, and a cho
   for (const [id, path] of [[ltx.id, ''], [ltx.id, undefined], [undefined, join(folder, OWN)], [7, join(folder, OWN)]])
     await assert.rejects(service.useVersion(id, path), { status: 400, message: 'Version invalide.' });
   await assert.rejects(service.useVersion(ltx.id, join(folder, 'absent.safetensors')), { status: 404 });
+});
+
+
+// (0.6.419) Distilled models merged into plain weights: nothing of their distillation is left in their
+// tensors, which are those of MiniMax's own model. Their name alone says what they are.
+const MERGED = 'fasth3_fl2va_merged_pruned_int8_convrot.safetensors',
+  FOUR = 'minimax_h3_fl2va_turbo_4step_merged_int8_convrot.safetensors';
+Object.assign(SAID, { [MERGED]: plain(MINIMAX), [FOUR]: plain(MINIMAX) });
+/**
+ * A world whose registry finds, for a file that is gone, the other file of the model in the folder
+ * (lib/generation-assets.mjs, `pick`): the first one by name that is not the second file of a recipe.
+ */
+async function standing(t, files) {
+  const made = await world(t, files),
+    resolve = made.assets.resolve;
+  made.assets.resolve = async (id, asked) => {
+    try {
+      return await resolve(id, asked);
+    } catch (error) {
+      const other = readdirSync(made.folder)
+        .filter(name => SAID[name] && !/ref2va/i.test(name))
+        .sort()[0];
+      if (!other || asked.kind !== 'model') throw error;
+      return { id, path: join(made.folder, other), kind: asked.kind, family: asked.family, automatic: true };
+    }
+  };
+  return made;
+}
+
+test('a file that stands for the one a workflow names comes with its own settings and its second file (0.6.419)', async t => {
+  const minimax = shipped('minimax_h3'),
+    told = made => [made.components.model.file, made.parameters.steps.value, made.components.referenceModel?.file];
+  assert.deepEqual(told(minimax), [OMNI, 8, undefined], 'shipped with FastH3 Omni, in 8 steps');
+  // The file it is shipped with deleted, MiniMax's own model beside it: read in its 20 steps, with its
+  // second file. It was read in the 8 steps of the file that was gone, and every creation was refused
+  // (« il se calcule en 20 étapes, pas en 8 »).
+  const base = await standing(t, { [FL2VA]: 'c', [REF2VA]: 'd' });
+  assert.deepEqual(told(await base.versions.applied(minimax)), [FL2VA, 20, REF2VA]);
+  assert.deepEqual(brief(await base.versions.list(minimax)), [[FL2VA, 'found', 'direct', true]]);
+  // A distilled model merged into plain weights (the case reported): its name says it is one, 8 steps.
+  const merged = await standing(t, { [MERGED]: 'm' });
+  assert.deepEqual(told(await merged.versions.applied(minimax)), [MERGED, 8, undefined]);
+  assert.deepEqual((await merged.versions.list(minimax)).versions[0].parameters, { steps: 8 });
+  // A name that says its steps: those.
+  const four = await standing(t, { [FOUR]: 'f' });
+  assert.deepEqual(told(await four.versions.applied(minimax)), [FOUR, 4, undefined]);
+  // A version the user kept, its file gone since, and no provided one: the file that is read, the same way.
+  const kept = await standing(t, { [FAST]: 'b', [FL2VA]: 'c', [REF2VA]: 'd' });
+  await kept.versions.use(minimax, join(kept.folder, FAST));
+  assert.deepEqual(told(await kept.versions.applied(minimax)), [FAST, 8, undefined]);
+  await rm(join(kept.folder, FAST));
+  assert.deepEqual(told(await kept.versions.applied(minimax)), [FL2VA, 20, REF2VA]);
+  // The file it names is there: as shipped, the very object, and nothing read for it.
+  const there = await standing(t, { [OMNI]: 'a', [FL2VA]: 'c' });
+  assert.equal(await there.versions.applied(minimax), minimax);
+  assert.equal(await there.versions.fitted(minimax), minimax);
+  // Nothing of the model on the computer: as shipped, to be downloaded.
+  const none = await standing(t, {});
+  assert.equal(await none.versions.applied(minimax), minimax);
+  // A model computed in one way has no settings of its own to take: its stand-in is read as shipped.
+  const ltx = await standing(t, { [OWN]: 'b' }),
+    distilled = shipped('ltx25');
+  assert.equal(await ltx.versions.applied(distilled), distilled);
+  assert.equal((await ltx.versions.list(distilled)).used, join(ltx.folder, OWN));
+});
+
+test('a workflow the user edited is read with the settings of the file that stands for its own (0.6.419)', async t => {
+  const { root, folder, versions } = await standing(t, { [OMNI]: 'a', [FL2VA]: 'c', [REF2VA]: 'd' }),
+    own = join(root, 'workflow'),
+    minimax = shipped('minimax_h3');
+  await mkdir(own);
+  const catalog = () =>
+    new NativeWorkflowCatalog(own, { assets: versions.assets, builtin: shippedFolder, statePath: join(root, 'state.json'), versions });
+  const { digest, ...stored } = minimax;
+  await writeFile(join(own, minimax.id + '.json'), JSON.stringify({ ...stored, description: 'Le mien.' }));
+  const read = async () => {
+    const edited = await catalog().read(minimax.id);
+    return [edited.description, edited.components.model.file, edited.parameters.steps.value, edited.components.referenceModel?.file];
+  };
+  // Its file there: as written.
+  assert.deepEqual(await read(), ['Le mien.', OMNI, 8, undefined]);
+  // Its file deleted: the file read in its place, with the steps and the second file of that one. What is
+  // written in the user's copy stays as it is.
+  await rm(join(folder, OMNI));
+  assert.deepEqual(await read(), ['Le mien.', FL2VA, 20, REF2VA]);
+  const written = JSON.parse(await readFile(join(own, minimax.id + '.json'), 'utf8'));
+  assert.deepEqual([written.components.model.file, written.parameters.steps.value], [OMNI, 8]);
+});
+
+test('a recipe may be told by the name of the file, and a name says its steps (0.6.419)', () => {
+  const spec = versionComponent(families().minimax_h3).spec,
+    told = name => {
+      const recipe = recipeOf(spec, { shapes: MINIMAX }, join('models', name));
+      return [recipe?.id, { ...recipe?.parameters, ...saidByName(spec, name) }.steps];
+    };
+  // The same tensors, MiniMax's own: 20 steps unless the name says a distilled model.
+  assert.deepEqual(told(FL2VA), ['full', 20]);
+  assert.deepEqual(told(REF2VA), ['full', 20]);
+  assert.deepEqual(told('mon_modele.safetensors'), ['full', 20]);
+  for (const name of [MERGED, 'FastVideo-H3.safetensors', 'h3_turbo.safetensors', 'h3-distilled.safetensors'])
+    assert.deepEqual(told(name), ['fast', 8], name);
+  // Its steps, as its name says them, however they are written.
+  assert.deepEqual(told(FOUR), ['fast', 4]);
+  assert.deepEqual(told('h3_6-steps.safetensors'), ['fast', 6]);
+  assert.deepEqual(told('h3 12 Steps.safetensors'), ['fast', 12]);
+  assert.deepEqual(told('h3_8steps_v2.gguf'), ['fast', 8]);
+  // Not a count of steps: a version, a size, a word that only ends like one.
+  assert.deepEqual(saidByName(spec, 'h3_v2_768p.safetensors'), {});
+  assert.deepEqual(saidByName(spec, 'h3_0step.safetensors'), {});
+  assert.deepEqual(saidByName(spec, 'h3_2footsteps.safetensors'), {});
+  assert.deepEqual(saidByName(spec, 'h3_3stepsister.safetensors'), {});
+  // A model none of whose versions differs by its steps: its name sets nothing.
+  assert.deepEqual(saidByName(versionComponent(families().ltx25).spec, 'ltx_8step.safetensors'), {});
+  assert.deepEqual(saidByName(undefined, 'h3_8step.safetensors'), {});
+});
+
+
+test('what is found for the file a workflow names is held for a second (0.6.419)', async t => {
+  // At every listing of the workflows (the Studio opening): asked of the registry each time, a listing took
+  // 4 ms more of its 90, a file that is not there most of all.
+  const minimax = shipped('minimax_h3'),
+    made = await standing(t, { [OMNI]: 'a', [FL2VA]: 'c', [REF2VA]: 'd' });
+  let clock = 0,
+    asked = 0;
+  const resolve = made.assets.resolve;
+  made.assets.resolve = (...given) => (asked++, resolve(...given));
+  const versions = new ModelVersions({ statePath: made.statePath, assets: made.assets, describe: async path => SAID[basename(path)], now: () => clock });
+  assert.equal(await versions.fitted(minimax), minimax);
+  assert.equal(asked, 1, 'asked of the registry the first time');
+  // Within the second: nothing asked, nothing looked at (the file deleted meanwhile is not seen yet).
+  clock = 900;
+  await rm(join(made.folder, OMNI));
+  assert.equal(await versions.fitted(minimax), minimax);
+  assert.equal(asked, 1);
+  // A second later the disk is looked at: gone, the registry is asked again, and the file read in its place
+  // comes with its settings.
+  clock = 1100;
+  const fitted = await versions.fitted(minimax);
+  assert.deepEqual([fitted.components.model.file, fitted.parameters.steps.value, asked], [FL2VA, 20, 2]);
+  // Back in its place: the file that stood for it is held for its second too, then the registry is asked.
+  await made.put(OMNI, 'a');
+  clock = 1200;
+  assert.deepEqual([(await versions.fitted(minimax)).components.model.file, asked], [FL2VA, 2]);
+  clock = 2200;
+  assert.equal(await versions.fitted(minimax), minimax);
+  assert.equal(asked, 3);
+  // There, and still there a second later: one look at the disk, the registry not asked.
+  clock = 5000;
+  assert.equal(await versions.fitted(minimax), minimax);
+  assert.equal(asked, 3);
+  // Nothing of the model on the computer: asked once a second, not at every listing.
+  const none = await standing(t, {}),
+    found = none.assets.resolve;
+  none.assets.resolve = (...given) => (asked++, found(...given));
+  const without = new ModelVersions({
+    statePath: none.statePath,
+    assets: none.assets,
+    describe: async () => null,
+    now: () => clock,
+  });
+  asked = 0;
+  for (clock of [0, 400, 999]) assert.equal(await without.fitted(minimax), minimax);
+  assert.equal(asked, 1);
+  clock = 1000;
+  assert.equal(await without.fitted(minimax), minimax);
+  assert.equal(asked, 2);
 });

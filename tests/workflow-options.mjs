@@ -156,9 +156,9 @@ test('what LTX 2.5 and MiniMax H3 did not use is greyed, and said why', async ()
       assert.match(inertSetting(manifest, workflow, 'steps', 'parameter'), /Seule valeur .* : 8\./);
       assert.match(inertSetting(manifest, workflow, 'steps', 'draft'), /Seule valeur/);
     } else {
-      // (0.6.108) MiniMax H3 has two kinds of checkpoints, sampled in 8 steps (FastH3) or in 20
-      // (MiniMax's own): the setting is open, and the engine refuses the count of the other kind.
-      assert.deepEqual(manifest.parameters.steps.choices, [8, 20]);
+      // (0.6.108) MiniMax H3 has several kinds of checkpoints, sampled in 8 steps (FastH3) or in 20
+      // (MiniMax's own): the setting is open. (0.6.419) Each version has its own, any count: no list.
+      assert.deepEqual([manifest.parameters.steps.choices, manifest.parameters.steps.min, manifest.parameters.steps.max], [undefined, 1, 60]);
       assert.equal(inertSetting(manifest, workflow, 'steps', 'parameter'), '');
       assert.equal(inertSetting(manifest, workflow, 'steps', 'draft'), '');
     }

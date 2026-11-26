@@ -57,6 +57,7 @@
         {
           "id": "full",
           "parameters": { "steps": 20 },
+          "named": "^(?!.*(?:fast|turbo|distill|lightning|\\d[\\s_-]?steps?))",
           "fingerprint": [
             {
               "key": "^final_layer\\.video_out\\.weight$",
@@ -182,8 +183,9 @@
     },
     "steps": {
       "type": "integer",
-      "choices": [8, 20],
-      "note": "8 étapes pour un modèle distillé (FastH3), 20 pour un modèle de base de MiniMax."
+      "min": 1,
+      "max": 60,
+      "note": "Chaque version du modèle a ses étapes : 20 pour le modèle de MiniMax, 8 pour un modèle distillé (FastH3). Un fichier qui porte les marques de sa distillation ne se calcule que dans les siennes."
     },
     "frames": {
       "type": "integer",
