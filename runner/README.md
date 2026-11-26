@@ -47,34 +47,9 @@ The worker starts offline (`HF_HUB_OFFLINE`, `TRANSFORMERS_OFFLINE`) and with `-
 
 Each stage of a generation (time, video memory, what failed) is appended to `data/generation-journal.jsonl` as it happens, so a generation that hangs, fails or is cancelled can be read afterwards; the file keeps the recent ones. `data/runner-errors.log` keeps the tracebacks.
 
-## Measurements
+## LTX 2.5
 
-`python -s -m runner.bench <family> …` runs a pipeline alone, outside the application, to measure it (see the top of `bench.py`).
-
-Measured in November 2026 on the development RTX 4070 Super (12 GB), with INT8 ConvRot model files. These are local measurements, not guarantees:
-
-| Pipeline | Case | Pipeline time | Peak torch VRAM |
-| --- | --- | --- | --- |
-| Krea 2 | 512², 8 steps, three LoRAs | 16.68 s | 7.597 GiB |
-| Krea 2 | 1448², 8 steps, three LoRAs | 36.45 s | 8.199 GiB |
-| LTX 2.5 distilled | 384×256, 25 frames, 24 fps, 8 steps | 65.99 s | 6.634 GiB |
-| LTX 2.5 distilled | Same size, start and end images | 65.14 s | 7.308 GiB |
-| LTX 2.5 distilled | Video with 48 kHz stereo sound, 384×256 | 68.14 s | 6.634 GiB |
-| LTX 2.5 distilled | 768×512, 25 frames | 108.22 s | 6.779 GiB |
-| LTX 2.5 distilled | 896×1600, 121 frames with sound, start image, two passes | 192 s | under the 12 GB of the card |
-| LTX 2.5 distilled | 896×1600, 193 frames (8 s) with sound, start image, two passes (17 Nov, 0.6.74) | 184 s | 8.76 GiB |
-| LTX 2.5 distilled | 896×1600, 121 frames with sound, from text, two passes (17 Nov, 0.6.74) | 96 s | 8.67 GiB |
-| Qwen-Image-Edit 2511 | 768×1344, 8 steps (Lightning), the angles LoRA, one image given: the first image of the engine (24 Nov, 0.6.265) | 35.5 to 36.9 s | 7.87 GiB |
-| Qwen-Image-Edit 2511 | Same, the model kept on the card: a new angle (its prompt read beside it) | 19.0 to 21.8 s | 8.71 GiB |
-| Qwen-Image-Edit 2511 | Same, the same angle again (prompt, image and modulations kept on the disk) | 14.4 to 14.9 s | 7.87 GiB |
-
-Startup, the state of the disk cache and the first compilation of the kernels change the total time.
-
-The Qwen-Image-Edit lines compare with the trial of 23 November: diffusers as it is, with the same files, angles, seed and 8 steps, gave 34.4 s for its first image and then 23 s an image (2.6 to 2.9 s a step, against 1.67 s here), with its prompts already read. The engine's images keep the trial's framing and subjects, their details differ (PSNR 22 to 34 dB to the trial's), and they are the same from one run to the next. comfy-kitchen's INT8 attention (`INT8_ATTENTION`) takes a step to 1.29 to 1.35 s (11.8 to 12.0 s for the last line, 14.8 to 17.4 s for a new angle), but its images are further from the trial's (PSNR 20 to 28 dB): it stays off until they are judged.
-
-The two lines of 17 November were measured once the embedding of a timestep was kept once per different timestep instead of once per token (`runner/models/ltx25_block.py`): before it, the copies of these embeddings took 7.5 GiB for the 35 000 tokens of the 8-second video, whose refining pass ran out of the memory of the card.
-
-**Large LTX 2.5 videos run in two passes**, as the model's own recipe does, when the optional `upscaler` component (the ×2 latent spatial upscaler) is set and the shorter side is at least 512 px: eight steps at half the size, the latents doubled by the upscaler, then three steps at the full size with the start image held exactly. On the 12 GB card at 896×1600, 121 frames: 48 s for the first pass, 65 s for the three full-size steps, 60 s to decode. Without the upscaler the eight steps run at the full size: several times slower, and beyond what 12 GB holds at this size.
+**Large LTX 2.5 videos run in two passes**, as the model's own recipe does, when the optional `upscaler` component (the ×2 latent spatial upscaler) is set and the shorter side is at least 512 px: eight steps at half the size, the latents doubled by the upscaler, then three steps at the full size with the start image held exactly. Without the upscaler the eight steps run at the full size: several times slower, and beyond what a 12 GB card holds at 896×1600.
 
 The distilled LTX 2.5 pipeline takes 8 steps, CFG 1, dimensions divisible by 32 and frame counts of 8n+1. Its audio VAE is required even when no sound is exported.
 
@@ -93,5 +68,7 @@ python -s -m unittest discover -s runner/tests
 ```
 
 The tests need no graphics card and no model file. Code style: `ruff format --config runner/pyproject.toml` on the files you touch (lines of 120 characters at most).
+
+`python -s -m runner.bench <family> …` runs a pipeline alone, outside the application, to measure it (see the top of `bench.py`).
 
 Generation on Linux has not been tried on a real card yet.

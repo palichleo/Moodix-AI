@@ -52,7 +52,9 @@ DECODE_GIB = 2.0
 # what is missing for it, all of itself if the encoder still runs out, and takes it back before the
 # steps. (24/11: with the encoder's 1.5 GiB alone, the second pose of the bench ran out.)
 BESIDE_RESERVE_GIB = 2.5
-# comfy-kitchen's INT8 attention in place of cuDNN's: faster, not yet measured on this model.
+# comfy-kitchen's INT8 attention in place of cuDNN's. Measured on 24/11 (0.6.265): 1.29 to 1.35 s a step
+# instead of 1.67 s, but its images are further from those diffusers itself made of the same files (PSNR 20
+# to 28 dB instead of 22 to 34): off until they are judged. (0.6.436) Said here, no longer in the README.
 INT8_ATTENTION = False
 NAME = 'qwen_image_edit'
 # The scheduler of Qwen/Qwen-Image-Edit-2511 (scheduler/scheduler_config.json) with Lightning's

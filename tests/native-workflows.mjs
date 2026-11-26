@@ -691,3 +691,36 @@ test('LTX 2.5: a setting read with an input only is a setting of the takes that 
   for (const key of conditional) assert.match(family('ltx25').parameters[key].help, /^.*Sans (image|vidéo)[^.]*, ce réglage n’est pas lu\.$/);
   assert.deepEqual(family('minimax_h3').parameters.overlap_frames.onlyWith, { role: 'source_video' });
 });
+
+test('(0.6.436) a workflow imported before 0.6.132 is still read: listed as a draft to check, never run', async () => {
+  // (0.6.132) Importing went (« modèles seulement »), but a draft imported before stays read: without
+  // it, its file would be skipped and the workflow gone from the list. No other test covered it.
+  const found = {
+    format: 'comfy-api',
+    files: { model: 'krea2.safetensors' },
+    warnings: ['Un nœud du workflow d’origine est ignoré.'],
+    blockers: [],
+  };
+  const imported = { source: { 3: { class_type: 'KSampler' } }, extras: [{ id: 'cfg', label: 'CFG', value: 1 }] };
+  const draft = { ...fixture(), id: 'imported', name: 'Importé', enabled: false };
+  draft.importDraft = { ...imported, ...found };
+  await withCatalog(async (catalog, directory) => {
+    await writeFile(join(directory, 'imported.json'), JSON.stringify(draft));
+    const listed = await catalog.list();
+    assert.deepEqual(catalog.warnings, []);
+    assert.deepEqual(
+      listed.map(item => [item.id, item.ready, item.importSummary, item.unavailableReason]),
+      [['imported', false, true, 'Brouillon importé · à vérifier avant activation']],
+    );
+    // What it was imported from stays in its file, not in the list the page reads.
+    assert.deepEqual(listed[0].importDraft, found);
+    await assert.rejects(
+      resolveNativeWorkflow(await catalog.read('imported'), { prompt: 'test' }, assets, { byHand: true }),
+      /brouillon importé, pas un outil exécutable/,
+    );
+  });
+  // Switched on, it is a workflow like the others; not while what it lacks is said.
+  assert.equal(validateNativeWorkflow({ ...draft, enabled: true }).importDraft, undefined);
+  const lacking = { ...draft, enabled: true, importDraft: { ...draft.importDraft, blockers: ['Pas de VAE.'] } };
+  assert.throws(() => validateNativeWorkflow(lacking), /ne peut pas encore être exécuté : Pas de VAE\./);
+});
