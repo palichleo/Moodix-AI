@@ -4,10 +4,9 @@ from runner.registry import absolute, fields, number
 
 
 def validate_config(config):
-    # tokenizerPath is accepted from older launchers but unused: each job names its own tokenizer.
     fields(
         config,
-        ('tokenizerPath', 'cacheRoot', 'outputRoot', 'manifestRoot', 'cacheGiB', 'warm'),
+        ('cacheRoot', 'outputRoot', 'manifestRoot', 'cacheGiB', 'warm'),
         ('cacheRoot', 'outputRoot'),
         'worker configuration',
     )

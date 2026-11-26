@@ -73,8 +73,7 @@ class ContractTests(unittest.TestCase):
             validate_job(candidate)
 
     def test_trusted_config(self):
-        # tokenizerPath, from older launchers, is accepted and left unused.
-        value = {k: str(Path.cwd() / k) for k in ('tokenizerPath', 'cacheRoot', 'outputRoot')}
+        value = {k: str(Path.cwd() / k) for k in ('cacheRoot', 'outputRoot')}
         self.assertEqual(validate_config(value), value)
         with self.assertRaises(ValueError):
             validate_config(value | {'cacheGiB': float('inf')})

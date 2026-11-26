@@ -76,13 +76,11 @@ def _read(config):
 
 def _usable(name, module):
     """A module that can be imported again by its name: not ours (cheap, and some say by being
-    there what the worker holds), not one made on the fly, nothing of ComfyUI (a pipeline refuses
-    to end with it imported)."""
+    there what the worker holds), not one made on the fly."""
     return (
         isinstance(name, str)
         and name
-        and not name.startswith(('runner', '_', '<', 'comfy.'))
-        and name != 'comfy'
+        and not name.startswith(('runner', '_', '<'))
         and '<' not in name
         and getattr(module, '__spec__', None) is not None
     )

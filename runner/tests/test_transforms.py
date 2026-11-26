@@ -54,7 +54,7 @@ class TransformTests(unittest.TestCase):
         self.folder = tempfile.TemporaryDirectory()
         root = Path(self.folder.name)
         self.output = root / 'out'
-        self.config = dict(tokenizerPath=str(root), cacheRoot=str(root), outputRoot=str(self.output))
+        self.config = dict(cacheRoot=str(root), outputRoot=str(self.output))
         self.upscaler = root / 'tiny-x2.safetensors'
         save_file(RRDBNet(2, features=8, blocks=1, growth=4).state_dict(), str(self.upscaler))
         self.interpolator = root / 'rife.safetensors'

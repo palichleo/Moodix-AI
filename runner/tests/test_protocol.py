@@ -144,7 +144,7 @@ class ProtocolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / 'config.json'
             config.write_text(
-                json.dumps({k: str(Path(directory) / k) for k in ('tokenizerPath', 'cacheRoot', 'outputRoot')})
+                json.dumps({k: str(Path(directory) / k) for k in ('cacheRoot', 'outputRoot')})
             )
             code = 'import sys;sys.path.insert(0,sys.argv.pop(1));from runner.__main__ import main;main()'
             result = subprocess.run(
@@ -200,7 +200,7 @@ class ProtocolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / 'config.json'
             config.write_text(
-                json.dumps({k: str(Path(directory) / k) for k in ('tokenizerPath', 'cacheRoot', 'outputRoot')})
+                json.dumps({k: str(Path(directory) / k) for k in ('cacheRoot', 'outputRoot')})
             )
             code = (
                 'import os,subprocess,sys;sys.path.insert(0,sys.argv.pop(1));'

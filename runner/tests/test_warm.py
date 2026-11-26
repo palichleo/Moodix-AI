@@ -178,9 +178,8 @@ class WarmTest(unittest.TestCase):
             import colorsys  # noqa: F401, F811
         self.assertFalse((Path(self.folder.name) / warm.NAME).exists())
 
-    def test_our_own_modules_those_made_on_the_fly_and_comfyui_are_not_kept(self):
-        # (A pipeline refuses to end with ComfyUI imported: prepared at the start, every creation failed.)
-        named = ('comfy', 'comfy.sd', 'runner.not_a_real_one')
+    def test_our_own_modules_and_those_made_on_the_fly_are_not_kept(self):
+        named = ('runner.not_a_real_one',)
         with warm.watch(self.config, dict(pipeline='krea2')):
             sys.modules['made_on_the_fly'] = types.ModuleType('made_on_the_fly')
             for name in named:
