@@ -864,6 +864,13 @@ test('a conversation is named once, by its first message: the next ones leave it
   assert.equal(filmed.$('conversation-title').textContent, 'Sur la plage');
 });
 
+/**
+ * (0.6.417) Waits for a page to have read its conversation again, after another tab wrote it: read from the
+ * disk once its turn is over, behind it. One turn of the clock was waited for: on a busy computer the reading
+ * was not done yet, and the test read the page as it was before (« votre message n'est pas parti » for its last
+ * notice, its older messages).
+ */
+const reread = tab => eventually(() => tab.notices.some(text => text.includes('elle a été rechargée')));
 /** Waits for what the page does behind a turn (the name of the conversation, asked beside it). */
 async function eventually(check) {
   for (let tries = 0; tries < 200 && !check(); tries++) await new Promise(resolve => setTimeout(resolve, 5));
@@ -2653,7 +2660,7 @@ test('« Régénérer » and « Modifier » ask before ten images leave; « Non 
   const routes = { [`gallery/${ID}?images=0`]: async () => Response.json({ runs: gallery, skipped: 0 }) };
   const reopened = page({ store, routes });
   await reopened.context.loadConversation(ID);
-  await settled();
+  await eventually(() => reopened.$('messages').all('takes-detached')[0]);
   const line = reopened.$('messages').all('takes-detached')[0];
   assert.ok(line, 'said at the foot of the thread');
   assert.equal(line.words, '10 prises de cette conversation ne sont plus dans le fil. Les remettre');
@@ -2666,7 +2673,7 @@ test('« Régénérer » and « Modifier » ask before ten images leave; « Non 
   // And shown the next time, as the ten images they are, and nothing more to put back.
   const again = page({ store, routes });
   await again.context.loadConversation(ID);
-  await settled();
+  await eventually(() => again.restored.length === gallery.length);
   assert.deepEqual(again.restored.map(item => item.runId), gallery.map(item => item.id));
   assert.equal(again.$('messages').all('takes-detached').length, 0);
 });
@@ -2685,7 +2692,7 @@ test('a tab left on an older copy no longer writes over the ten images: refused,
   await turn;
   // The older copy sent from there (R5: before 0.6.103, it wrote over the ten images).
   await second.send();
-  await settled();
+  await reread(second);
   const kept = await store.read(ID);
   assert.equal(unnamed(kept.messages, gallery).length, 0, 'the ten images stay in their conversation');
   assert.equal(second.requests.length, 0, 'nothing asked of the model from the older copy');
@@ -2712,7 +2719,7 @@ test('« Les remettre » after a tab of an earlier version wrote over the ten im
   const routes = { [`gallery/${ID}?images=0`]: async () => Response.json({ runs: gallery, skipped: 0 }) };
   const reopened = page({ store, routes });
   await reopened.context.loadConversation(ID);
-  await settled();
+  await eventually(() => reopened.$('messages').all('takes-detached')[0]);
   await reopened.$('messages').all('takes-detached')[0].children[1].onclick();
   assert.equal(unnamed((await store.read(ID)).messages, gallery).length, 0);
 });
@@ -2898,7 +2905,7 @@ test('a message waiting for the model is not sent by itself once another tab too
   await second.send();
   model.arrive();
   await turn;
-  await settled();
+  await reread(first);
   assert.equal(first.requests.length, 0, 'nothing asked of the model by itself from the first tab');
   assert.equal(first.$('prompt').value, 'Un renard roux dans la neige', 'its message back in its box');
   assert.ok(first.notices.includes('Cette conversation a changé dans un autre onglet : votre message n’est pas parti.'));
@@ -2955,7 +2962,7 @@ test('a turn whose save is refused asks the model nothing more on its older copy
   // In the first tab the user presses « Générer »: the video is made, and its save refused.
   card.answer(made());
   await turn;
-  await settled();
+  await reread(first);
   assert.equal(first.requests.length, 2, 'nothing more asked of the model after the refused save');
   const kept = await store.read(ID);
   assert.equal(kept.messages.at(-1).content, 'D’accord, un loup.', 'the second tab’s words stay the last ones');
