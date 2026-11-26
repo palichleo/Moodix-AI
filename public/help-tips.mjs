@@ -119,7 +119,6 @@ export function setupHelpTips(root, { id = 'help-bubble', host = root, delay = 1
     if (current !== target) current?.removeAttribute?.('aria-describedby');
     current = target;
     bubble.textContent = text;
-    bubble.dataset.tone = target.dataset.helpTone || '';
     bubble.dataset.kind = target.dataset.help ? 'help' : 'tip';
     bubble.hidden = false;
     place(target);

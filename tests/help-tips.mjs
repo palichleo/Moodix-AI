@@ -46,9 +46,7 @@ class Element {
   }
   is(selector) {
     if (selector === '[data-help], [data-tip]') return Boolean(this.dataset.help || this.dataset.tip);
-    if (selector === '#sidebar') return this.id === 'sidebar';
     if (selector === 'dialog[open]') return this.tagName === 'DIALOG' && this.open;
-    if (selector === '.home-button, .new-chat') return /\b(home-button|new-chat)\b/.test(this.className);
     if (selector === ':focus-visible') return true;
     // (0.6.189) A list of glass, and a popover shown (above the page, as an open dialog).
     if (selector === '.glass-menu') return this.className.split(' ').includes('glass-menu');

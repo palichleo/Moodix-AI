@@ -339,7 +339,7 @@ test('the page « Modèles »: one line a model in its group, the version it use
   const made = (id, name, pipeline, mediaType, more = {}) => ({ ...structuredClone(f.template), id, name, pipeline, mediaType, builtin: true, enabled: true, ready: true, ...more });
   f.workflows.push(
     made('ltx', 'LTX 2.5', 'ltx25', 'video'),
-    made('moss-image', 'MOSS Image', 'moss', 'image', { ready: false, unavailableReason: 'ComfyUI n’est pas lancé.' }),
+    made('moss-image', 'MOSS Image', 'moss', 'image', { ready: false, unavailableReason: 'Moteur de génération indisponible pour cette famille.' }),
     made('esr-video', 'Upscale vidéo', 'realesrgan_video', 'video', { customized: true }),
     made('esr-image', 'Upscale rapide', 'realesrgan_image', 'image'),
     made('amd', 'SeedVR2', 'seedvr2', 'image', { ready: false, unavailableReason: 'Carte NVIDIA requise.', unavailableKind: 'hardware' }),
@@ -394,7 +394,7 @@ test('the page « Modèles »: one line a model in its group, the version it use
   assert.deepEqual([chevron.attributes['aria-label'], chevron.attributes['aria-expanded']], ['Versions de LTX 2.5', 'false']);
   // What is in the way of a model is said under its description, the name of its version staying.
   const moss = lineOf('MOSS Image');
-  assert.deepEqual([moss.dataset.state, text(moss, 'model-note'), text(moss, 'model-version')], ['waiting', ['ComfyUI n’est pas lancé.'], ['SFT']]);
+  assert.deepEqual([moss.dataset.state, text(moss, 'model-note'), text(moss, 'model-version')], ['waiting', ['Moteur de génération indisponible pour cette famille.'], ['SFT']]);
   assert.equal(find(moss, 'model-note')[0].className, 'model-note');
   assert.deepEqual([lineOf('SeedVR2').dataset.state, find(lineOf('SeedVR2'), 'model-note')[0].className], ['unavailable', 'model-note is-warning']);
   // A model in two workflows is one line, named by the version of its first.

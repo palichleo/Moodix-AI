@@ -72,8 +72,6 @@ async function fixture(fn, { confirmDelay = 0, isShown } = {}) {
       return nodes.get(id);
     },
     querySelector: () => details,
-    querySelectorAll: () =>
-      all.filter(n => n.className.includes('workflow-description') || n.className.includes('workflow-remove')),
   };
   let stored = { enabled: true, baseUrl: 'http://127.0.0.1:7821', autoAllow: false, maxIterations: 3 };
   let workflows = [];

@@ -1023,26 +1023,6 @@ fieldset {
   padding: 8px 12px;
 }
 
-.gallery {
-  width: 300px;
-  flex-shrink: 0;
-  border-left: 1px solid var(--line);
-  padding: 24px 18px;
-  overflow: auto;
-  background: var(--sidebar);
-  scrollbar-width: thin;
-}
-.gallery header h2 {
-  font-size: 17px;
-  font-weight: 550;
-  margin: 0 0 6px;
-}
-.gallery header span,
-.gallery small {
-  font-size: var(--size-1);
-  color: var(--muted);
-}
-
 .field-help {
   font-size: var(--size-1);
   line-height: 1.7;
@@ -1109,30 +1089,6 @@ fieldset {
   max-height: 400px;
   overflow: auto;
 }
-@media (max-width: 1200px) {
-  .gallery {
-    width: 250px;
-    padding: 20px 12px;
-  }
-}
-@media (max-width: 900px) {
-  body:has(.gallery:not([hidden])) {
-    flex-wrap: wrap;
-    overflow: auto;
-    height: auto;
-    min-height: 100dvh;
-  }
-  .gallery {
-    width: 100%;
-    height: auto;
-    max-height: 50dvh;
-    border-left: 0;
-    border-top: 1px solid var(--line);
-  }
-  body:has(.gallery:not([hidden])) .workspace {
-    height: 100dvh;
-  }
-}
 
 .path-input {
   display: flex;
@@ -1177,7 +1133,7 @@ fieldset {
   }
 }
 
-/* Conversation entry and sidebar controls. */
+/* Conversation entry. */
 
 .composer-region {
   padding: 0 28px 22px;
@@ -1323,16 +1279,6 @@ fieldset {
   .composer-region .suggestions span {
     font-size: var(--size-1);
   }
-  body:has(.gallery:not([hidden])) {
-    flex-wrap: nowrap;
-    height: 100dvh;
-    overflow: auto;
-  }
-  body:has(.gallery:not([hidden])) .workspace {
-    height: auto;
-    min-height: 340px;
-    flex-shrink: 0;
-  }
 }
 @media (max-height: 650px) {
   .composer-region .welcome h1 {
@@ -1365,12 +1311,6 @@ fieldset {
 }
 
 /* One original raster tile, shared by every material. Veils keep grain behind the text. */
-.gallery {
-  background-color: var(--sidebar);
-  background-size:
-    auto,
-    1024px 1024px;
-}
 .welcome h1 {
   color: var(--ink);
 }
@@ -3414,7 +3354,7 @@ dialog,
   }
 }
 
-/* Model start/stop: same size as the other sidebar icons, left of the settings. */
+/* Model start/stop: in the capsule of the top bar, before the settings. */
 
 .engine-button.is-off {
   color: var(--success);
@@ -3641,7 +3581,6 @@ output {
 .secondary,
 .theme-button,
 .suggestions button,
-.gallery,
 dialog {
   background-image: none;
   box-shadow: none;
@@ -3689,11 +3628,8 @@ summary:focus-visible {
   width: auto;
 }
 
-/* Image / Vidéo / Son under « Studio » in the sidebar (moodix-design.md 7 bis 19). While the Studio
-   is on screen, « Studio » and its modes are one card (#1C1F26, 12 px corners); under the name, a
-   dark track with three equal tabs, icons only (their names for screen readers and in their
-   tooltips), 28 px high, the one in use white with a dark icon. Seen from the Chat or the library,
-   the card stays, without its ground and without a white tab: a click opens the Studio there. */
+/* Image / Vidéo / Son, the modes of the Studio (moodix-design.md 7 bis 19): a dark track with
+   three equal tabs, 28 px high, the one in use white with a dark icon. */
 
 #studio-kinds.kind-tabs {
   display: flex;
@@ -4030,9 +3966,8 @@ body[data-view='studio'][data-chat='open'] #studio-view .studio-agent {
 .studio-block.is-output {
   position: relative;
 }
-/* Opened: over a dimmed Studio, the message box in the middle of the room left to the page
-   (beside the sidebar and the files), the messages above it up to near the top, where they
-   scroll. */
+/* Opened: over a dimmed Studio, the message box in the middle, the messages above it up to near
+   the top, where they scroll. */
 body[data-view='studio'][data-chat='open'] .chat-scrim {
   display: block;
   position: fixed;
@@ -7713,24 +7648,17 @@ html[data-switch='open']::view-transition-old(chat) {
   box-shadow: 0 0 18px rgba(18, 20, 26, 0.08);
 }
 
-/* ------------------------------------------------------------------ frame and window
-   The page is a frame (#07080A) holding one window, the view in use (home, chat, studio) inside:
-   10 px from the top, the right and the bottom, against the sidebar on the left (from the left
-   edge when the sidebar is a drawer). Everything that scrolls scrolls in the window; the page
-   does not. The sidebar lies on the frame, without a ground or a border of its own. */
+/* ------------------------------------------------------------------ frame
+   The ground of the page (--frame), behind the view in use. The page itself does not scroll
+   (html, body); what scrolls scrolls inside the view. */
 :root {
   /* The four colours of the logo in one gradient, each pure at the middle of its old segment
-     (4 / 2 / 3 / 1.5): the foot of Générer (moodix-design.md 7 bis 22), and the filet of the window
-     drawn with the same stops (STOPS in public/filet.mjs, 7 bis 20). */
+     (4 / 2 / 3 / 1.5): the foot of Générer (moodix-design.md 7 bis 22). */
   --mdx-gradient: linear-gradient(90deg, #3d6bf5 19%, #22a060 47.6%, #f6c343 71.4%, #e8402f 92.9%);
   --frame: #07080a;
-  --window: #0b0c0f;
-  --window-line: #1a1c21;
 }
 :root[data-theme='light'] {
   --frame: #e6e8ed;
-  --window: var(--bg);
-  --window-line: var(--line-strong);
 }
 html,
 body {
@@ -8189,9 +8117,8 @@ button.message-cited-item:focus-visible {
   color: var(--text-1);
 }
 /* One ring for the keyboard's focus, everywhere: 2 px of --focus (it was white on the modes of
-   the Studio and the projects, grey elsewhere). Where a control draws it inside itself (the lines
-   of the sidebar), its offset stays; where it shows its focus otherwise (the message box), it has
-   none. */
+   the Studio and the projects, grey elsewhere). Where a control draws it inside itself, its offset
+   stays; where it shows its focus otherwise (the message box), it has none. */
 :focus-visible {
   outline-color: var(--focus) !important;
   outline-width: 2px !important;
@@ -8311,7 +8238,6 @@ button.message-cited-item:focus-visible {
   --bg: var(--room-bg);
   --sidebar: var(--room-bg);
   --frame: var(--room-bg);
-  --window: transparent;
   --surface: var(--room-menu);
   --surface-raised: rgb(var(--room-glass));
   --field: var(--room-menu);
@@ -8336,7 +8262,6 @@ button.message-cited-item:focus-visible {
   --fn-action: var(--accent);
   --fn-settings: var(--accent);
   --fn-output: var(--accent);
-  --window-line: rgba(238, 232, 222, 0.06);
   --focus: var(--accent);
   --font-ui: 'Jost', 'Segoe UI', system-ui, sans-serif;
   --font-display: 'Gloock', Georgia, serif;
@@ -17229,7 +17154,7 @@ body[data-view='bobine'] .chat-panel {
   cursor: pointer;
 }
 .bobine-ask-go {
-  border-color: rgba(var(--warning-rgb, 214, 160, 90), 0.5);
+  border-color: rgba(214, 160, 90, 0.5);
   color: var(--warning);
 }
 #bobine-view .bobine-fil .montage-status {

@@ -5776,7 +5776,6 @@ function showStudio() {
 function showChat() {
   if (state.updating || state.closingApp || state.loadingHistory) return;
   requestSettingsClose(() => {
-    const coming = state.view !== 'chat';
     void switchView('chat', () => {
       state.view = 'chat';
       delete document.body.dataset.chat;

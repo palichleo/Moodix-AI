@@ -369,7 +369,7 @@ export function setupNativeWorkflows(options) {
   const asksLicense = offer => restrictedOf(offer?.files).length > 0;
   // (0.6.119) The page « Modèles » (maquette du 19/11, captures 65 à 69): the lines the server
   // sends (`models`), those the user unfolded, and the speed of the download under way (bytes a
-  // second, with what it was last measured from). ComfyUI is no longer said on this page.
+  // second, with what it was last measured from).
   let models = [];
   const openModels = new Set();
   let speed = 0,

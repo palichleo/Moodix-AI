@@ -1767,7 +1767,6 @@ export function setupStudio({
       word = node('span', 'studio-piece-word', WORDS.camera),
       said = () => WORDS.camera + ' · ' + orbitLabel(state),
       pick = button('studio-slot-pick', '', () => toggleWindow('orbit', 0), 'camera');
-    tile.dataset.piece = 'orbit';
     pick.title = said();
     pick.setAttribute('aria-label', said());
     pick.setAttribute('aria-haspopup', 'dialog');
@@ -1978,7 +1977,6 @@ export function setupStudio({
         render();
       },
       remove = button('studio-slot-remove', '', takeBack, 'close');
-    tile.dataset.piece = 'camera';
     pick.title = off || said();
     pick.setAttribute('aria-label', off || said());
     if (off) pick.setAttribute('aria-disabled', 'true');
@@ -6840,7 +6838,6 @@ export function setupStudio({
   function outputs() {
     used = new Set();
     const section = node('section', 'studio-block is-output studio-results'),
-      about = modeOf(mode),
       own = SORTS.find(item => item.id === mode) ?? SORTS[0],
       sort = sortieAll ? SORTS[0] : own,
       // Of the whole project, whatever the conversation open (a new one too): they are shared in it.

@@ -54,7 +54,6 @@ export function licenseBlock({ node, files, confirm = false }) {
   for (const license of shown) {
     const item = node('li', 'license-item'),
       line = node('p', 'license-line');
-    if (license.restricted) item.setAttribute('data-restricted', 'true');
     if (license.url) {
       const link = node('a', 'license-name', license.name);
       link.href = license.url;

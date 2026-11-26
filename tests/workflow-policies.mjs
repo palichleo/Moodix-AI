@@ -1198,7 +1198,7 @@ async function editorPage(workflows) {
   globalThis.document = {
     getElementById: $,
     createElement: tag => new Element(tag),
-    activeElement: $('workflow-add'),
+    activeElement: null,
     addEventListener() {},
   };
   const api = async (route, body) => {

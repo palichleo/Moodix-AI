@@ -63,9 +63,7 @@ async function pickerUI() {
     source.indexOf('function openSettings()'),
     source.indexOf('async function saveConfiguration()'),
   );
-  const start = source.includes('let filePickerController = null;')
-    ? source.indexOf('let filePickerController = null;')
-    : source.indexOf("for(const button of document.querySelectorAll('[data-file-kind]'))");
+  const start = source.indexOf('let filePickerController = null;');
   const handlers = source.slice(start, source.indexOf("$('settings-open').onclick"));
   runInNewContext(open + '\n' + handlers + '\nthis.openSettings=openSettings;', context);
   context.openSettings();
