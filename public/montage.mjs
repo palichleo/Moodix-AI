@@ -244,6 +244,10 @@ export function setupMontage({
     asking = null,
     carried = null,
     media = null,
+    // (0.6.439) The audio of the page, made when a player of the preview first goes beyond 100 % (null: there is
+    // none, or it was refused), and what ties each player to it (loud).
+    hearing,
+    ties = new WeakMap(),
     // The four blocks as last drawn: a change draws two of them again, not the preview nor the takes.
     parts = null,
     // While something is dragged on the timeline: its scale held as it was (it would change under
@@ -824,6 +828,47 @@ export function setupMontage({
     playing = null;
     for (const player of media?.players ?? []) player.pause?.();
     for (const sound of media?.sounds.values() ?? []) sound.pause?.();
+    // (0.6.439) The audio of the page rests while the film does not play; the gesture that reads it wakes it.
+    if (hearing?.state === 'running') void hearing.suspend?.()?.catch?.(() => {});
+  }
+  /**
+   * (0.6.439) The volume of a player of the preview, as the film will have it. The slider of a sound goes to 200 %
+   * and the film is made so (runner/video/montage.py), but a player stops at 100 %: between the two, nothing of the
+   * difference was heard here. Above it, the player is tied to a gain of the audio of the page (Web Audio), once,
+   * while the film is read (the browser lets that audio start at the gesture that reads it), and stays so. Without
+   * that audio, or refused, it stops at 100 % as before.
+   */
+  function loud(player, volume) {
+    let tie = ties.get(player);
+    if (tie === undefined && volume > 1 && playing) {
+      tie = null;
+      try {
+        if (hearing === undefined) {
+          hearing = null;
+          const Context = page?.AudioContext ?? page?.webkitAudioContext;
+          if (Context) hearing = new Context();
+        }
+        if (hearing) {
+          const gain = hearing.createGain(),
+            source = hearing.createMediaElementSource(player);
+          source.connect(gain);
+          gain.connect(hearing.destination);
+          tie = { source, gain };
+        }
+      } catch {
+        tie = null;
+      }
+      ties.set(player, tie);
+    }
+    if (!tie) return void (player.volume = Math.min(1, volume));
+    player.volume = 1;
+    if (tie.gain.gain.value !== volume) tie.gain.gain.value = volume;
+  }
+  /** (0.6.439) A player no longer drawn is let go of the audio of the page: tied to it, it stayed held there. */
+  function untie(player) {
+    const tie = ties.get(player);
+    tie?.source.disconnect?.();
+    tie?.gain.disconnect?.();
   }
   /**
    * (0.6.169) The player of the preview that holds the clip at `url`: two take turns, the one shown and
@@ -957,7 +1002,7 @@ export function setupMontage({
         wanted = seen.last ? Math.max(0, before.to - 0.05) : at.plan.from + (head - at.start);
       if (video.dataset.url !== url) Object.assign(video, { src: url }).dataset.url = url;
       const volume = todo ? 0 : (at.plan.volume ?? 1);
-      video.volume = Math.min(1, volume);
+      loud(video, volume);
       video.muted = !(volume > 0);
       // Put back where the film is when it drifted, or when the head was moved by hand.
       if (sync || seen.last || Math.abs((video.currentTime ?? 0) - wanted) > 0.35) video.currentTime = wanted;
@@ -997,7 +1042,7 @@ export function setupMontage({
       }
       if (!player) media.sounds.set(sound.id, (player = Object.assign(node('audio'), { src: url, preload: 'auto' })));
       const wanted = sound.from + (head - sound.at);
-      player.volume = Math.min(1, sound.volume);
+      loud(player, sound.volume);
       if (player.paused !== false || Math.abs((player.currentTime ?? 0) - wanted) > 0.35) player.currentTime = wanted;
       void player.play?.()?.catch?.(() => {});
     }
@@ -1030,6 +1075,8 @@ export function setupMontage({
     playing = { at: now() };
     next();
     show();
+    // (0.6.439) The audio of the page, made before a gesture or resting since the film stopped, waits for one.
+    if (hearing?.state === 'suspended') void hearing.resume?.()?.catch?.(() => {});
   }
   function seek(seconds) {
     head = Math.min(total(), Math.max(0, seconds));
@@ -1401,6 +1448,7 @@ export function setupMontage({
     body.append(stage, transport);
     stop();
     media?.flux?.stop();
+    for (const player of [...(media?.players ?? []), ...(media?.sounds.values() ?? [])]) untie(player);
     media = { video, spare, players: [video, spare], warm, picture, blank, caption, words, text, end, frame, sounds: new Map(), flux: null, fluxFrom: null, measured: false };
     // (0.6.162) Drawn again while a line of Moodix AI is said under it: its text stays above that line.
     frame.dataset.asked = askedState();

@@ -4523,3 +4523,92 @@ test('a sound stays with its take while an edge is pulled to and fro (0.6.438)',
   await f.later();
   assert.deepEqual(f.saves()[0].body.montage.sounds.map(item => item.at), [2.5, 3]);
 });
+
+/** (0.6.439) The audio of a page as a test sees it: what is tied to it, its gains, whether it waits for a gesture. */
+class Hearing {
+  static made = [];
+  constructor() {
+    Object.assign(this, { state: 'suspended', destination: { name: 'speakers' }, tied: [], asked: 0, resumed: 0 });
+    Hearing.made.push(this);
+  }
+  createGain() {
+    const gain = { gain: { value: 1 }, to: null, connect: to => (gain.to = to), disconnect: () => (gain.to = null) };
+    return gain;
+  }
+  createMediaElementSource(player) {
+    this.asked++;
+    if (player.refused) throw new Error('InvalidStateError');
+    const source = { player, to: null, connect: to => (source.to = to), disconnect: () => (source.to = null) };
+    this.tied.push(source);
+    return source;
+  }
+  resume() {
+    this.resumed++;
+    this.state = 'running';
+    return Promise.resolve();
+  }
+  suspend() {
+    this.state = 'suspended';
+    return Promise.resolve();
+  }
+}
+
+test('above 100 %, a sound or the sound of a take is heard so in the preview (0.6.439)', async () => {
+  // (Z6-7) The slider of a sound goes to 200 % and the film is made so, but a player of the page stops at 100 %:
+  // between the two, the Bobine let hear nothing of the difference.
+  const source = n => ({ conversationId: C, runId: id(n), output: 0 }),
+    sound = (n, volume) => ({ id: id(n), source: source(4), track: 'effects', at: 0, from: 0, to: 2, volume }),
+    bobine = { schemaVersion: 1, id: id(900), name: 'Le phare', format: '16:9', width: 1344, height: 768, fps: 24 };
+  bobine.plans = [{ id: id(11), source: source(1), kind: 'video', from: 0, to: 5, frame: 'fit', volume: 1.5 }];
+  bobine.sounds = [sound(13, 1.5), sound(14, 0.8)];
+  Hearing.made.length = 0;
+  const f = await setup({ stored: [bobine], win: { AudioContext: Hearing } }).open(),
+    video = f.get('montage-frame')[0].children[2],
+    ties = hearing => hearing.tied.map(tie => [tie.player.tagName, tie.player.volume, tie.to.gain.value]);
+  // Nothing is made before the film is read; read, the clip and the sound at 150 % are tied once, the other not.
+  assert.deepEqual([Hearing.made.length, video.volume], [0, 1]);
+  f.ui.play();
+  const [hearing] = Hearing.made;
+  assert.deepEqual(ties(hearing), [['VIDEO', 1, 1.5], ['AUDIO', 1, 1.5]]);
+  assert.ok(hearing.tied.every(tie => tie.to.to === hearing.destination));
+  // It waited for a gesture: the one that reads the film lets it go.
+  assert.deepEqual([hearing.state, hearing.resumed], ['running', 1]);
+  // The sound slid to 180 %, then to 50 %: its gain follows, nothing is tied again.
+  find(f.root, 'is-sound')[0].onclick();
+  Object.assign(f.slider('Volume'), { value: '180' }).oninput();
+  await f.later({ ms: 50 });
+  assert.deepEqual(ties(hearing)[1], ['AUDIO', 1, 1.8]);
+  Object.assign(f.slider('Volume'), { value: '50' }).oninput();
+  await f.later({ ms: 50 });
+  assert.deepEqual([ties(hearing)[1], hearing.asked, Hearing.made.length], [['AUDIO', 1, 0.5], 2, 1]);
+  // It rests while the film does not play; read again, it wakes.
+  f.ui.play();
+  assert.deepEqual([f.ui.state().playing, hearing.state], [false, 'suspended']);
+  f.ui.play();
+  assert.deepEqual([hearing.state, hearing.resumed, hearing.asked], ['running', 2, 2]);
+  // The preview drawn again (another format): its players drawn before are let go of the audio.
+  Object.assign(f.get('montage-format')[0], { value: '1:1' }).onchange();
+  assert.ok(hearing.tied.every(tie => tie.to === null));
+});
+
+test('without the audio of the page, or refused, a player of the preview stops at 100 % (0.6.439)', async () => {
+  const bobine = { schemaVersion: 1, id: id(900), name: 'Le phare', format: '16:9', width: 1344, height: 768, fps: 24 },
+    source = { conversationId: C, runId: id(1), output: 0 };
+  bobine.plans = [{ id: id(11), source, kind: 'video', from: 0, to: 5, frame: 'fit', volume: 1.5 }];
+  bobine.sounds = [];
+  // None: as before 0.6.439.
+  const f = await setup({ stored: [bobine] }).open(),
+    video = f.get('montage-frame')[0].children[2];
+  f.ui.play();
+  await f.later({ ms: 50 });
+  assert.deepEqual([f.ui.state().playing, video.volume, video.muted], [true, 1, false]);
+  // Refused for this player: not asked again at each moment of the film.
+  Hearing.made.length = 0;
+  const g = await setup({ stored: [bobine], win: { AudioContext: Hearing } }).open(),
+    refused = Object.assign(g.get('montage-frame')[0].children[2], { refused: true });
+  g.ui.play();
+  await g.later({ ms: 50 });
+  await g.later({ ms: 50 });
+  const [hearing] = Hearing.made;
+  assert.deepEqual([g.ui.state().playing, refused.volume, hearing.asked, hearing.tied.length], [true, 1, 1, 0]);
+});
