@@ -559,3 +559,228 @@ test('a build that cannot load the model gives the engine back to the former one
     await rm(root, { recursive: true, force: true });
   }
 });
+
+/**
+ * A GitHub that lists `files` as `github` does and serves them as the test says (0.6.393): `cuts` drops the
+ * connection halfway through a file, as many times as said, once what came is on the disk (a Wi-Fi that
+ * drops minutes in); `refused` answers 503; asked from where it stopped (`Range`), the rest comes.
+ */
+function flaky(root, files, { cuts = {}, refused = [] } = {}) {
+  const { fetchImpl: listing } = github(files),
+    asked = [];
+  const fetchImpl = async (url, options = {}) => {
+    const name = url.replace('https://files/', ''),
+      bytes = files[name];
+    if (!bytes) return listing(url, options);
+    const from = Number(/^bytes=(\d+)-$/.exec(options.headers?.Range ?? '')?.[1] ?? 0),
+      rest = bytes.subarray(from),
+      status = from ? 206 : 200;
+    asked.push([name, from]);
+    if (refused.includes(name)) return new Response('', { status: 503 });
+    if (!cuts[name]) return new Response(rest, { status });
+    cuts[name]--;
+    const half = rest.subarray(0, rest.length / 2),
+      part = join(root, 'downloads', name + '.part');
+    let sent = false;
+    return new Response(
+      new ReadableStream({
+        async pull(controller) {
+          if (!sent) return void ((sent = true), controller.enqueue(half));
+          for (let turn = 0; turn < 400 && (await stat(part).catch(() => null))?.size !== from + half.length; turn++)
+            await new Promise(resolve => setTimeout(resolve, 5));
+          controller.error(new TypeError('terminated'));
+        },
+      }),
+      { status },
+    );
+  };
+  return { fetchImpl, asked };
+}
+/** The builds of b12110 for an RTX 4070 SUPER whose driver takes CUDA 13.3. */
+const RTX = {
+  'llama-b12110-bin-win-cuda-13.4-x64.zip': Buffer.alloc(4000, 1),
+  'cudart-llama-bin-win-cuda-13.4-x64.zip': Buffer.alloc(3000, 2),
+  'llama-b12110-bin-win-cuda-12.4-x64.zip': Buffer.alloc(3500, 3),
+  'cudart-llama-bin-win-cuda-12.4-x64.zip': Buffer.alloc(2500, 4),
+  'llama-b12110-bin-win-vulkan-x64.zip': Buffer.alloc(2000, 5),
+  'llama-b12110-bin-win-cpu-x64.zip': Buffer.alloc(1000, 6),
+};
+/** Unpacked: the program at the top, the CUDA libraries in a folder of their own. */
+const unpacked = async (archive, destination) => {
+  if (archive.includes('cudart')) {
+    await mkdir(join(destination, 'bin'), { recursive: true });
+    await writeFile(join(destination, 'bin', 'cudart64.dll'), 'dll');
+  } else await writeFile(join(destination, 'llama-server.exe'), 'exe');
+};
+/** The installer on that computer, where every build sees the card. */
+const rtx = (root, options) =>
+  new LlamaBuilds({
+    root,
+    run: async () => ({
+      code: 0,
+      output: 'Available devices:\n  CUDA0: NVIDIA GeForce RTX 4070 SUPER (12281 MiB)\n  Vulkan0: NVIDIA (12281 MiB)\n',
+    }),
+    unpack: unpacked,
+    platform: 'win32',
+    arch: 'x64',
+    env: {},
+    detect: async () => ({
+      platform: 'win32',
+      arch: 'x64',
+      gpus: [{ vendor: 'nvidia', computeCap: 8.9, cuda: [13, 3] }],
+    }),
+    ...options,
+  });
+
+test('a download cut goes on where it stopped; cut twice, the installation stops there (0.6.393)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'llama-builds-')),
+    name = 'llama-b12110-bin-win-cuda-13.4-x64.zip';
+  try {
+    // Cut once: the rest is asked for, and CUDA 13.4 is installed (CUDA 12.4 was, before).
+    const once = join(root, 'once');
+    let served = flaky(once, RTX, { cuts: { [name]: 1 } }),
+      builds = rtx(once, { fetchImpl: served.fetchImpl });
+    assert.equal((await builds.install()).id, 'cuda-13.4');
+    assert.deepEqual(served.asked.slice(0, 2), [
+      [name, 0],
+      [name, 2000],
+    ]);
+    assert.ok(
+      served.asked.every(([file]) => file.includes('13.4')),
+      JSON.stringify(served.asked),
+    );
+    // What came before the cut is counted once: the page says « 7 Mo / 7 Mo », not more.
+    let status = builds.status();
+    assert.deepEqual([status.received, status.tried], [status.total, []]);
+    // Cut twice: the installation stops, said in French with what to do; no other build is asked for.
+    const twice = join(root, 'twice');
+    served = flaky(twice, RTX, { cuts: { [name]: 2 } });
+    builds = rtx(twice, { fetchImpl: served.fetchImpl });
+    const said = await builds.install().then(
+      () => assert.fail('installed'),
+      error => error.message,
+    );
+    assert.equal(
+      said,
+      `La connexion a été coupée pendant le téléchargement de ${name}. L’installation de llama.cpp b12110 ` +
+        '(CUDA 13.4) s’est arrêtée là, sans passer à une autre version : relancez-la, ce qui est déjà ' +
+        'téléchargé de cette version est gardé.',
+    );
+    status = builds.status();
+    assert.deepEqual([status.state, status.error, status.tried], ['error', said, []]);
+    assert.ok(
+      served.asked.every(([file]) => file === name),
+      JSON.stringify(served.asked),
+    );
+    // What came stays, and the next installation goes on from there.
+    assert.deepEqual(await readdir(twice), ['downloads']);
+    assert.deepEqual(await readdir(join(twice, 'downloads')), [name + '.part']);
+    assert.equal((await stat(join(twice, 'downloads', name + '.part'))).size, 3000);
+    served.asked.length = 0;
+    assert.equal((await builds.install()).id, 'cuda-13.4');
+    assert.deepEqual(served.asked[0], [name, 3000]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('only a build that does not work here gives way to the next, the other failures stop (0.6.393)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'llama-builds-')),
+    cuda = 'llama-b12110-bin-win-cuda-13.4-x64.zip',
+    cudart = 'cudart-llama-bin-win-cuda-13.4-x64.zip';
+  const stopped = reason => error => {
+    assert.match(error.message, reason);
+    assert.match(error.message, /\. L’installation de llama\.cpp b12110 \(CUDA 13\.4\) s’est arrêtée là/);
+    return true;
+  };
+  try {
+    // GitHub in error: asked once (no cut), and the archive already there stays for next time.
+    let folder = join(root, 'refused'),
+      served = flaky(folder, RTX, { refused: [cudart] });
+    await assert.rejects(
+      rtx(folder, { fetchImpl: served.fetchImpl }).install(),
+      stopped(/^GitHub répond 503 pour cudart-/),
+    );
+    assert.deepEqual(served.asked, [
+      [cuda, 0],
+      [cudart, 0],
+    ]);
+    assert.deepEqual(await readdir(join(folder, 'downloads')), [cuda]);
+    // Altered on the way (same size): refused for its fingerprint, and nothing else asked for.
+    folder = join(root, 'altered');
+    served = flaky(folder, RTX);
+    const altered = async (url, options) =>
+      url.endsWith(cuda) ? new Response(Buffer.alloc(4000, 9)) : served.fetchImpl(url, options);
+    await assert.rejects(
+      rtx(folder, { fetchImpl: altered }).install(),
+      stopped(/empreinte différente\) : il a été effacé\./),
+    );
+    assert.deepEqual(served.asked, []);
+    // The CUDA libraries do not unpack (tar refuses, a full disk): stopped, both archives kept.
+    folder = join(root, 'unpack');
+    served = flaky(folder, RTX);
+    const tar = async (command, args) => {
+      if (!command.endsWith('tar.exe')) return { code: 0, output: 'Available devices:\n  CUDA0: NVIDIA (12281 MiB)\n' };
+      if (args[1].includes('cudart')) return { code: 1, output: '' };
+      await writeFile(join(args[3], 'llama-server.exe'), 'exe');
+      return { code: 0, output: '' };
+    };
+    await assert.rejects(
+      rtx(folder, { fetchImpl: served.fetchImpl, run: tar, unpack: null }).install(),
+      stopped(/^Décompression impossible de cudart-llama-bin-win-cuda-13\.4-x64\.zip\. /),
+    );
+    assert.deepEqual((await readdir(join(folder, 'downloads'))).sort(), [cudart, cuda]);
+    // An archive without llama-server is a build that does not work here: the next one is taken.
+    folder = join(root, 'empty');
+    served = flaky(folder, RTX);
+    const builds = rtx(folder, {
+      fetchImpl: served.fetchImpl,
+      unpack: (archive, destination) => (archive.endsWith(cuda) ? undefined : unpacked(archive, destination)),
+    });
+    assert.equal((await builds.install()).id, 'cuda-12.4');
+    assert.match(builds.status().tried[0].reason, /ne contient pas llama-server\.exe/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test('a build that does not start gives way to the next; a file that came short is asked for its rest (0.6.393)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'llama-builds-')),
+    cuda = 'llama-b12110-bin-win-cuda-13.4-x64.zip';
+  try {
+    // The program of CUDA 13.4 does not start here (a library it misses): CUDA 12.4 is tried, and kept.
+    let folder = join(root, 'starts'),
+      served = flaky(folder, RTX);
+    const run = async server =>
+      server.includes('cuda-13.4')
+        ? { code: 1, output: '' }
+        : { code: 0, output: 'Available devices:\n  CUDA0: NVIDIA (12281 MiB)\n' };
+    let builds = rtx(folder, { fetchImpl: served.fetchImpl, run });
+    assert.equal((await builds.install()).id, 'cuda-12.4');
+    assert.match(builds.status().tried[0].reason, /ne démarre pas sur cet ordinateur/);
+    // A file that came short without an error (the connection closed as if all was sent): a cut too.
+    folder = join(root, 'short');
+    served = flaky(folder, RTX);
+    let shortened = 1;
+    const short = async (url, options) => {
+      const response = await served.fetchImpl(url, options);
+      if (!url.endsWith(cuda) || !shortened) return response;
+      shortened--;
+      return new Response(Buffer.from(await response.arrayBuffer()).subarray(0, 1500), { status: response.status });
+    };
+    builds = rtx(folder, { fetchImpl: short });
+    assert.equal((await builds.install()).id, 'cuda-13.4');
+    assert.deepEqual(
+      served.asked.filter(([file]) => file === cuda),
+      [
+        [cuda, 0],
+        [cuda, 1500],
+      ],
+    );
+    const status = builds.status();
+    assert.deepEqual([status.received, status.tried], [status.total, []]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
