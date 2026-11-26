@@ -83,6 +83,14 @@ class FramesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Not a video'):
             engine.frames(dict(path=str(image)), self.config)
 
+    def test_no_picture_larger_than_the_application_asks_is_given_0_6_411(self):
+        # Eight pictures of 1024 px were accepted, whose answer does not fit the line the application reads
+        # (2 MiB: beyond, it stops the engine). It asks 512 px, the most now.
+        self.assertEqual(len(engine.frames(dict(path=str(self.video), count=8, side=512), self.config)['frames']), 8)
+        for side in (513, 1024):
+            with self.assertRaisesRegex(ValueError, 'Invalid frames request'):
+                engine.frames(dict(path=str(self.video), count=1, side=side), self.config)
+
     def test_the_worker_answers_a_frames_request(self):
         from runner.protocol import serve
 

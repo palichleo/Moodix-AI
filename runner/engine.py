@@ -168,7 +168,9 @@ def frames(params, config):
     count, side = params.get('count', 3), params.get('side', 512)
     if not isinstance(path, str) or not path or '\0' in path:
         raise ValueError('Invalid video path')
-    if type(count) is not int or not 1 <= count <= 8 or type(side) is not int or not 64 <= side <= 1024:
+    # (0.6.411) 512 px at most, what the application asks (lib/generation-service.mjs): eight pictures of
+    # 1024 px were accepted, whose answer does not fit the line it reads (2 MiB: beyond, it stops the engine).
+    if type(count) is not int or not 1 <= count <= 8 or type(side) is not int or not 64 <= side <= 512:
         raise ValueError('Invalid frames request')
     root, target = Path(config['outputRoot']).resolve(), Path(path).resolve()
     if root not in target.parents:
