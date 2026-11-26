@@ -64,7 +64,9 @@ export function setupPointer({ cursor, text, host = globalThis }) {
         // One frame later it fades in, then moves from there.
         host.requestAnimationFrame?.(() => {
           cursor.classList.remove('is-placing');
-          cursor.classList.add('is-visible');
+          // (0.6.406) Hidden before this frame (a step given up at once): not made visible after the fact, or
+          // it was there at once at its next move, without its fade.
+          if (shown) cursor.classList.add('is-visible');
         }) ?? cursor.classList.add('is-visible');
         shown = true;
       } else place(element, anchor);

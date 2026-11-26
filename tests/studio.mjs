@@ -11358,3 +11358,41 @@ test('the words of Moodix AI keep a size written with a star, « 1024*1024 » (0
   assert.equal(plainWords('Je fais une image en 1024*1024 et 512*512.'), 'Je fais une image en 1024*1024 et 512*512.');
   assert.equal(plainWords('un *renard* roux de 3*4 m'), 'un renard roux de 3*4 m');
 });
+
+
+test('the pointer of Moodix AI hidden before its first frame does not come back visible after it (0.6.406)', async () => {
+  // « is-visible » was added by the frame that followed, on a pointer hidden meanwhile: at its next move it
+  // was there at once, without its fade.
+  const { setupPointer } = await import('../public/studio-pointer.mjs');
+  const classes = new Set(),
+    frames = [],
+    timers = [],
+    cursor = {
+      hidden: true,
+      style: { setProperty() {} },
+      classList: { add: name => classes.add(name), remove: name => classes.delete(name), toggle() {} },
+      querySelector: () => null,
+    },
+    label = { offsetWidth: 100, style: {} },
+    text = { textContent: '', closest: () => label },
+    host = {
+      innerWidth: 1280,
+      matchMedia: () => ({ matches: false }),
+      requestAnimationFrame: run => frames.push(run),
+      setTimeout: run => timers.push(run),
+    },
+    pointer = setupPointer({ cursor, text, host }),
+    target = { getBoundingClientRect: () => ({ left: 100, top: 300, width: 40, height: 40 }) },
+    pass = queue => queue.splice(0).forEach(run => run());
+  pointer.move(target, 'pose la prise 1');
+  // A step given up at once: hidden before the frame in which it fades in.
+  pointer.hide();
+  pass(frames);
+  pass(timers);
+  assert.deepEqual([[...classes], cursor.hidden, pointer.visible], [[], true, false]);
+  // Shown again, it fades in as the first time: placed, then visible one frame later.
+  pointer.move(target, 'pose la prise 1');
+  assert.deepEqual([[...classes], cursor.hidden], [['is-placing'], false]);
+  pass(frames);
+  assert.deepEqual([[...classes], cursor.hidden, pointer.visible], [['is-visible'], false, true]);
+});
