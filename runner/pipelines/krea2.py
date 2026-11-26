@@ -69,7 +69,6 @@ def check(job, family):
 def preflight(job, config):
     """File-level checks run on CPU before the chat model is unloaded."""
     import importlib.util
-    from pathlib import Path
 
     from runner.models.krea2_headers import validate_krea2_components
     from runner.models.krea2_shapes import validate_shapes

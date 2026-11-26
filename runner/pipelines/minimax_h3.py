@@ -778,10 +778,10 @@ def _generate(job, config, progress, key, holder):
     with torch.inference_mode():
 
         def frames_of():
-            vae = minimax_h3_vae.video_vae(paths['vae'], 'decoder')
             """The frames, uint8 [frames, height, width, 3], off the GPU as each stretch of them
             is decoded (minimax_h3_vae.decode_chunks): the block of the library joined the whole
             video on the GPU, several times as 32-bit floats."""
+            vae = minimax_h3_vae.video_vae(paths['vae'], 'decoder')
             scale = lambda values: torch.tensor(values, device='cuda').view(1, -1, 1, 1, 1)  # noqa: E731
             latents = state.get('latents') * scale(vae.config.latents_std) + scale(vae.config.latents_mean)
             made = []
