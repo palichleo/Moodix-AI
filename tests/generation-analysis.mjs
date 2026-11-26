@@ -76,3 +76,44 @@ test('partial photo and video analysis persists valid outputs without changing m
     );
   }
 });
+
+
+test('the size of an output is its width and its height, nothing else a request writes there (0.6.401)', async t => {
+  // Every key written beside them was copied onto the output: its number, the file it names.
+  const directory = await mkdtemp(join(tmpdir(), 'atelier-analysis-size-')),
+    historyDir = join(directory, 'history'),
+    app = await createApplication({ port: 0, dataDir: directory, historyDir }),
+    gallery = new Gallery({ historyDir });
+  t.after(async () => {
+    await app.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const { token } = await (await fetch(app.url + '/api/bootstrap')).json(),
+    headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    source = { filename: 'made.png', subfolder: '', type: 'output' },
+    record = {
+      id: randomUUID(),
+      conversationId: randomUUID(),
+      workflowId: 'user-batch',
+      workflowName: 'User batch',
+      prompt: 'Generate one',
+      parameters: {},
+      comfyUrl: 'http://127.0.0.1:8188',
+      createdAt: new Date().toISOString(),
+      outputs: [{ source, take: 4 }],
+    };
+  await gallery.put(record, { persist: true });
+  const other = { filename: 'other.png', subfolder: '', type: 'output' },
+    body = {
+      conversationId: record.conversationId,
+      id: record.id,
+      images: [png],
+      dimensions: [{ width: 768, height: 512, take: 99, source: other }],
+    };
+  const asked = { method: 'POST', headers, body: JSON.stringify(body) };
+  assert.equal((await fetch(app.url + '/api/gallery/analysis', asked)).status, 200);
+  const kept = await fetch(`${app.url}/api/gallery/${record.conversationId}/${record.id}`, { headers }),
+    [output] = (await kept.json()).outputs;
+  assert.deepEqual([output.width, output.height], [768, 512]);
+  assert.deepEqual([output.take, output.source], [4, source]);
+});

@@ -2398,7 +2398,10 @@ export async function createApplication({
                 : {
                     ...output,
                     analysisDataUrl: body.images[i],
-                    ...(body.dimensions?.[i] || {}),
+                    // (0.6.401) Its width and its height, nothing else of what the request wrote there.
+                    ...(body.dimensions?.[i]
+                      ? { width: body.dimensions[i].width, height: body.dimensions[i].height }
+                      : {}),
                     ...(body.frames?.[i] ? { analysisFrames: body.frames[i] } : {}),
                   },
             );
