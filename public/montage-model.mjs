@@ -57,6 +57,43 @@ function gluedAfter(plans, index) {
 }
 const moved = (plans, indices, delta) =>
   delta ? plans.map((plan, at) => (indices.includes(at) ? { ...plan, at: round(Math.max(0, plan.at + delta)) } : plan)) : plans;
+/**
+ * (0.6.438) The sounds of `montage` once its plans are `plans`. A sound stays with the take it starts under, as far
+ * from its start, whatever moves that take while the hand leaves the sound: a take laid before it, made longer or
+ * shorter, dragged, taken out. (It stayed where it was: a door shut on a cut was 3 s early once a take of 3 s was
+ * laid first.) One right on a cut is the take's that starts there; one in a hole or after the end stays. Its own take
+ * taken out, a sound keeps its instant, over what comes back there, but never after the end of the film.
+ * `renamed`: a take now under another id (the first part of a take made in parts).
+ */
+function soundsAfter({ plans: before, sounds }, plans, renamed = {}) {
+  if (!sounds.length || !before.length) return sounds;
+  const now = new Map(plans.map(plan => [plan.id, plan])),
+    end = plans.length ? endOf(plans.at(-1)) : 0;
+  let changed = false;
+  const next = sounds.map(sound => {
+    const under = before.find(plan => plan.at <= sound.at + 1e-9 && sound.at + 1e-9 < endOf(plan));
+    if (!under) return sound;
+    const kept = now.get(renamed[under.id] ?? under.id),
+      at = round(kept ? sound.at + kept.at - under.at : Math.min(sound.at, end));
+    if (at === sound.at) return sound;
+    changed = true;
+    return { ...sound, at };
+  });
+  return changed ? next : sounds;
+}
+/** (0.6.438) `montage` (its plans as they were) with `plans` instead, and its sounds where they now go. */
+const withPlans = (montage, plans, renamed) =>
+  montage.sounds ? { ...montage, plans, sounds: soundsAfter(montage, plans, renamed) } : { ...montage, plans };
+/**
+ * (0.6.438) `montage`, its takes moved by a hand from `pressed` (the bobine as the hand found it), with the sounds of
+ * `pressed` where those takes now have them. An edge pulls the takes a little at each move of the pointer: read each
+ * time on the move before, a sound on the end of a take cut away went to the take under it then, and followed that
+ * one when the edge was pulled back.
+ */
+export function withSoundsFrom(pressed, montage) {
+  const sounds = soundsAfter(placed(pressed), montage.plans);
+  return JSON.stringify(sounds) === JSON.stringify(montage.sounds) ? montage : { ...montage, sounds };
+}
 
 /**
  * `montage` with each plan at its instant. A bobine kept before 0.6.149 had none: its plans followed
@@ -209,11 +246,11 @@ export function withTake(montage, record, { id, index, at, track: lane, near = 0
       track === 'image'
         ? { id, source: sourceOf(record), kind: 'image', from: 0, to: STILL_SECONDS, frame: 'fit' }
         : { id, source: sourceOf(record), kind: 'video', from: 0, to: clamp(length ?? STILL_SECONDS, MONTAGE_LIMITS.shortest, MONTAGE_LIMITS.longest), frame: 'fit', volume: 1 };
-    if (at !== undefined && index === undefined) return { ...montage, plans: laidAt(montage.plans, [plan], at, near) };
+    if (at !== undefined && index === undefined) return withPlans(montage, laidAt(montage.plans, [plan], at, near));
     const place = clamp(index ?? montage.plans.length, 0, montage.plans.length),
       plans = [...montage.plans];
     plans.splice(place, 0, { ...plan, at: place < plans.length ? plans[place].at : montageSeconds(montage) });
-    return { ...montage, plans: settled(plans) };
+    return withPlans(montage, settled(plans));
   }
   if (montage.sounds.length >= MONTAGE_LIMITS.sounds) return montage;
   // (0.6.148) A sound goes on the track it is dropped on (« Piste audio 1 » or « 2 »), else on its own.
@@ -239,7 +276,7 @@ export function withoutItem(montage, id) {
       .map(plan => (back && plan.id === before.id ? { ...plan, to: gone.replaces.to } : plan))
       .filter(plan => plan.id !== id);
   }
-  return { ...montage, plans: settled(plans), sounds: montage.sounds.filter(sound => sound.id !== id) };
+  return withPlans({ ...montage, sounds: montage.sounds.filter(sound => sound.id !== id) }, settled(plans));
 }
 
 /**
@@ -256,7 +293,7 @@ export function withPlanMoved(montage, id, step) {
     [a, b] = [plans[first], plans[second]];
   plans[first] = { ...b, at: a.at };
   plans[second] = { ...a, at: round(endOf(b) - long(a)) };
-  return { ...montage, plans: settled(plans) };
+  return withPlans(montage, settled(plans));
 }
 
 /**
@@ -280,7 +317,7 @@ export function withPlanPlaced(montage, id, seconds, { near = 0 } = {}) {
     length = lifted.reduce((sum, plan) => sum + long(plan), 0),
     others = moved(plans, gluedAfter(plans, block.at(-1)), -length).filter((_, at) => !block.includes(at));
   const next = laidAt(others, lifted, seconds, near);
-  return JSON.stringify(next) === JSON.stringify(plans) ? montage : { ...montage, plans: next };
+  return JSON.stringify(next) === JSON.stringify(plans) ? montage : withPlans(montage, next);
 }
 
 /**
@@ -346,7 +383,7 @@ export function withItemChanged(montage, id, changes, { longest = null } = {}) {
       round(endOf(next) - endOf(old)),
     );
   }
-  return { ...montage, plans: settled(replacing(plans)), sounds: montage.sounds.map(edit) };
+  return withPlans({ ...montage, sounds: montage.sounds.map(edit) }, settled(replacing(plans)));
 }
 
 /**
@@ -446,7 +483,7 @@ export function withEndPulled(montage, id, to, { longest = null, suiteId } = {})
   const plans = [...within.plans];
   // (Marked as a suite: only a suite goes on from what is before it, 0.6.149.)
   plans.splice(index + 1, 0, todoPlan(suiteId, to - longest, { at: endOf(plans[index]), todo: { prompt: '', suite: true } }));
-  return { ...within, plans: settled(plans) };
+  return withPlans(montage, settled(plans));
 }
 
 /**
@@ -463,7 +500,7 @@ export function withTodoDrawn(montage, { id, at, seconds = TODO_LIMITS.usual } =
     plans = [...montage.plans],
     index = plans.filter(plan => plan.at < start).length;
   plans.splice(index, 0, todoPlan(id, seconds, { at: start }));
-  return { montage: { ...montage, plans: settled(plans) }, chosen: id };
+  return { montage: withPlans(montage, settled(plans)), chosen: id };
 }
 
 /**
@@ -496,12 +533,12 @@ export function withPhoto(montage, record, seconds, { id } = {}) {
       last = plans[after - 1];
     if (last && isTodo(last) && !last.photos?.end) {
       plans[after - 1] = { ...last, to: tenth(clamp(at - last.at, TODO_LIMITS.shortest, TODO_LIMITS.longest)), photos: { ...last.photos, end: photo } };
-      return { montage: { ...montage, plans: settled(plans) }, chosen: last.id };
+      return { montage: withPlans(montage, settled(plans)), chosen: last.id };
     }
     if (plans.length >= MONTAGE_LIMITS.plans) return refused('Cette bobine est pleine.');
     const from = last ? endOf(last) : 0;
     plans.splice(after, 0, todoPlan(id, at - from < TODO_LIMITS.shortest ? TODO_LIMITS.usual : at - from, { at: from, photos: { end: photo } }));
-    return { montage: { ...montage, plans: settled(plans) }, chosen: id };
+    return { montage: withPlans(montage, settled(plans)), chosen: id };
   }
   const plan = plans[index],
     start = plan.at,
@@ -539,7 +576,7 @@ export function withPhoto(montage, record, seconds, { id } = {}) {
       replaces: { source: plan.source, from: cut, to: plan.to },
     }),
   );
-  return { montage: { ...montage, plans: settled(plans) }, chosen: id };
+  return { montage: withPlans(montage, settled(plans)), chosen: id };
 }
 
 /**
@@ -603,7 +640,9 @@ export function withTodoMade(montage, id, record, { from = 0, limits = {}, partI
       left = { ...todoPlan(id, TODO_LIMITS.shortest, { at: endOf(part), todo: { prompt: plan.todo.prompt, suite: true } }), to: round(Math.max(TODO_LIMITS.shortest, plan.to - plan.from - (part.to - part.from))), frame: plan.frame, volume: plan.volume, ...(plan.photos?.end ? { photos: { end: plan.photos.end } } : {}) },
       plans = [...montage.plans];
     plans.splice(index, 1, part, left);
-    return { ...montage, plans: settled(moved(plans, gluedAfter(montage.plans, index).map(at => at + 1), round(endOf(left) - endOf(plan)))) };
+    // (0.6.438) What started under the take goes on with its first part, which starts where it did.
+    const after = gluedAfter(montage.plans, index).map(at => at + 1);
+    return withPlans(montage, settled(moved(plans, after, round(endOf(left) - endOf(plan)))), { [id]: partId });
   }
   // (0.6.149) Its take is as long as it was made: what touches it follows.
   const plans = moved(
@@ -611,7 +650,7 @@ export function withTodoMade(montage, id, record, { from = 0, limits = {}, partI
     gluedAfter(montage.plans, index),
     round(endOf(made) - endOf(plan)),
   );
-  return { ...montage, plans: settled(plans) };
+  return withPlans(montage, settled(plans));
 }
 
 /**

@@ -4496,3 +4496,30 @@ test('an unreadable bobine is in the menu, never opened on its own, set aside if
     ['Suppression impossible : Fichier tenu par un autre programme.', ['Le pêcheur à l’aube', 'Le phare (illisible)']],
   );
 });
+
+test('a sound stays with its take while an edge is pulled to and fro (0.6.438)', async () => {
+  // (Z6-14) An edge pulls the takes a little at each move of the pointer. Read each time on the move before, a
+  // sound on the end of an image cut away went to the take under it then, and followed it back.
+  const source = n => ({ conversationId: C, runId: id(n), output: 0 }),
+    sound = (n, at) => ({ id: id(n), source: source(4), track: 'effects', at, from: 0, to: 1, volume: 1 }),
+    bobine = { schemaVersion: 1, id: id(900), name: 'Le phare', format: '16:9', width: 1344, height: 768, fps: 24 };
+  // An image of 3 s, a clip of 5 s; a sound 2.5 s into the image, one on their cut. On 2000 pixels a second is 100.
+  bobine.plans = [
+    { id: id(11), source: source(3), kind: 'image', from: 0, to: 3, frame: 'fit' },
+    { id: id(12), source: source(1), kind: 'video', from: 0, to: 5, frame: 'fit', volume: 1 },
+  ];
+  bobine.sounds = [sound(13, 2.5), sound(14, 3)];
+  const f = await setup({ stored: [bobine], width: 2000 }).open(),
+    heard = () => [f.ui.state().montage.plans[1].at, f.ui.state().montage.sounds.map(item => item.at)];
+  assert.deepEqual(heard(), [3, [2.5, 3]]);
+  // The end of the image from 3 s to 1 s: the sound on the cut goes with the clip; then back to 3 s.
+  f.press(find(f.root, 'montage-grip')[0], 300);
+  f.pointer.move(100);
+  assert.deepEqual(heard(), [1, [2.5, 1]]);
+  f.pointer.move(300);
+  f.pointer.up();
+  assert.deepEqual(heard(), [3, [2.5, 3]]);
+  assert.deepEqual(find(f.root, 'is-sound').map(piece => piece.style.left), [pc(2.5, 20), pc(3, 20)]);
+  await f.later();
+  assert.deepEqual(f.saves()[0].body.montage.sounds.map(item => item.at), [2.5, 3]);
+});

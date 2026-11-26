@@ -54,6 +54,7 @@ import {
   withPhotoIn,
   withPlanMoved,
   withPlanPlaced,
+  withSoundsFrom,
   withTake,
   withTodoDrawn,
   withTodoMade,
@@ -3058,9 +3059,11 @@ export function setupMontage({
                 slack: 2,
                 kind: 'trim',
                 move: far => {
-                  const next = beyond
-                    ? withEndPulled(pressed, item.id, first.to + far, { longest, suiteId: beyond })
-                    : withItemChanged(montage, item.id, edge === 'start' ? { from: first.from + far } : { to: first.to + far }, { longest });
+                  const edit = edge === 'start' ? { from: first.from + far } : { to: first.to + far },
+                    // (0.6.438) The sounds read on the bobine as it was pressed, where its takes now are.
+                    next = beyond
+                      ? withEndPulled(pressed, item.id, first.to + far, { longest, suiteId: beyond })
+                      : withSoundsFrom(pressed, withItemChanged(montage, item.id, edit, { longest }));
                   if (edge === 'start') ghost = { starts: before, id: item.id, shift: next.plans.find(plan => plan.id === item.id).from - first.from };
                   chosen = item.id;
                   const added = beyond ? next.plans.find(plan => plan.id === beyond) : null,

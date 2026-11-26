@@ -18,10 +18,12 @@ import {
   usualSize,
   withEndPulled,
   withItemChanged,
+  withPhoto,
   withPlanMoved,
   withPlanPlaced,
   withTake,
   withTodoDrawn,
+  withTodoMade,
   withoutItem,
 } from '../public/montage-model.mjs';
 import { newMontage, validateMontage } from '../lib/montages.mjs';
@@ -294,4 +296,55 @@ test('a take laid after a video goes after the suites to create glued behind it,
   // A take to create drawn against V is no suite: it goes on from nothing, and the clip goes between them.
   const drawn = withTodoDrawn(withTake(empty(), clip(1, 5), { id: id(11) }), { id: id(41), at: 5, seconds: 3 }).montage;
   assert.deepEqual(places(withTake(drawn, clip(7, 3), { id: id(50), at: 4 })), [[id(11), 0], [id(50), 5], [id(41), 8]]);
+});
+
+// (0.6.438) Two takes of 5 s, a sound on their cut (the second's), one 2 s into the second, one 3 s into the first,
+// one after the end of the film.
+const effect = n => record(n, 'audio', { workflowName: 'Bruitages', parameters: { seconds: 2 } });
+function heard() {
+  let montage = withTake(withTake(empty(), clip(1, 5), { id: id(11) }), clip(2, 5), { id: id(12) });
+  for (const [n, at] of [[13, 5], [14, 7], [15, 3], [16, 12]])
+    montage = withTake(montage, effect(n), { id: id(n), at });
+  return montage;
+}
+const soundsOf = montage => montage.sounds.map(sound => sound.at);
+
+test('a sound stays with the take it starts under when the takes move and it is not touched (0.6.438)', () => {
+  // (Z6-14) A sound on a cut (a door shut on the join of two takes) was left behind as soon as a take was laid
+  // before it, or made shorter, dragged, taken out: 3 s too early once a take of 3 s was laid first.
+  const montage = heard();
+  assert.deepEqual(soundsOf(montage), [5, 7, 3, 12]);
+  // A take of 3 s laid first, the first made shorter, the second moved before it or after a hole.
+  const laid = withTake(montage, clip(7, 3), { id: id(17), at: 0.5 });
+  assert.deepEqual(soundsOf(laid), [8, 10, 6, 12]);
+  assert.deepEqual(soundsOf(withItemChanged(montage, id(11), { to: 4 }, { longest: 5 })), [4, 6, 3, 12]);
+  assert.deepEqual(soundsOf(withPlanMoved(montage, id(12), -1)), [0, 2, 8, 12]);
+  assert.deepEqual(soundsOf(withPlanPlaced(montage, id(12), 8)), [8, 10, 3, 12]);
+  // Its take taken out, a sound keeps its instant, never after the end of the film.
+  assert.deepEqual(soundsOf(withoutItem(montage, id(11))), [0, 2, 3, 12]);
+  assert.deepEqual(soundsOf(withoutItem(montage, id(12))), [5, 5, 3, 12]);
+  // A sound the hand moves goes where it is put; the server keeps them as they are.
+  assert.deepEqual(soundsOf(withItemChanged(montage, id(14), { at: 6 })), [5, 6, 3, 12]);
+  assert.deepEqual(kept(laid).sounds, laid.sounds);
+});
+
+test('a sound follows its take moved by a suite, a take to create, a take made or an image laid (0.6.438)', () => {
+  // (Z6-14) Every change of the model that moves the takes moves what starts under them as far.
+  const montage = heard(),
+    cut = changed => soundsOf(changed)[0];
+  // The suite pulled from the end of the first take, a take to create drawn over the second: 3 s before it.
+  assert.equal(cut(withEndPulled(montage, id(11), 8, { longest: 5, suiteId: id(40) })), 8);
+  assert.equal(cut(withTodoDrawn(montage, { id: id(41), at: 5, seconds: 3 }).montage), 8);
+  // A take to create of 5 s before it, made in 3 s.
+  const todo = withTodoDrawn(montage, { id: id(41), at: 5, seconds: 5 }).montage;
+  assert.deepEqual([cut(todo), cut(withTodoMade(todo, id(41), clip(30, 3)))], [10, 8]);
+  // One of 10 s made in two parts: a sound 7 s into it stays 7 s into the take, the first part of 4 s made.
+  const long = withTake(withItemChanged(todo, id(41), { to: 10 }), effect(18), { id: id(18), at: 12 }),
+    limits = { create_video: 5, extend_video: 5 },
+    parts = withTodoMade(long, id(41), clip(30, 4), { limits, partId: id(42) });
+  assert.deepEqual([parts.plans[1].id, soundsOf(long).at(-1), soundsOf(parts).at(-1)], [id(42), 12, 12]);
+  // An image let go in a hole too short for a take makes one of 5 s there, which pushes the second take.
+  const holed = withPlanPlaced(montage, id(12), 5.5);
+  assert.equal(cut(holed), 5.5);
+  assert.equal(cut(withPhoto(holed, record(9, 'image'), 5.2, { id: id(43) }).montage), 10);
 });
