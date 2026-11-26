@@ -1,0 +1,2 @@
+Les essais de Moodix (ce dossier dans le dépôt) ne sont pas livrés avec l'application ni avec ses mises à jour :
+ils ne servent qu'à qui la développe. Ils sont sur la page du projet.

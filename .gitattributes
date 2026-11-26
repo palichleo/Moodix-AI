@@ -2,3 +2,13 @@
 *.cmd text eol=crlf
 *.bf16 binary
 .githooks/* text eol=lf
+
+# What only who develops Moodix uses stays out of the archive an update downloads, which GitHub builds
+# with git archive: the tests (their folder keeps one note, so that an update empties the copy installed),
+# the bench of the engine and the two checks of the commit hook. All of it stays in the repository.
+/tests/** export-ignore
+/tests/LISEZMOI.txt -export-ignore
+/runner/tests export-ignore
+/runner/bench.py export-ignore
+/scripts/check-ui.mjs export-ignore
+/scripts/check-update.mjs export-ignore
