@@ -276,3 +276,34 @@ test('uv is read as having changed nothing only when it says nothing else', () =
   assert.equal(nothingInstalled({}), false);
   assert.equal(nothingInstalled(), false);
 });
+
+test('a preparation stopped at the end of its hour says so in French, with what to do (0.6.397)', async t => {
+  // The hour given to the whole preparation, made short here: that limit and no other.
+  const timeout = AbortSignal.timeout;
+  AbortSignal.timeout = ms => timeout.call(AbortSignal, ms === 3600000 ? 20 : ms);
+  t.after(() => {
+    AbortSignal.timeout = timeout;
+  });
+  const { env } = await fixture(t, {
+    // uv still bringing the libraries over a slow connection when the hour is over: stopped as
+    // runEnvironmentCommand stops it, rejected with the reason of the signal. (The timer stands for the
+    // process of uv, which keeps Node running: the one of AbortSignal.timeout does not.)
+    run: async (_command, args, { signal }) => {
+      if (args[0] === 'sync')
+        await new Promise((_, no) => {
+          const running = setTimeout(() => no(Error('The hour never ended.')), 5000),
+            stop = () => (clearTimeout(running), no(signal.reason));
+          if (signal.aborted) stop();
+          else signal.addEventListener('abort', stop, { once: true });
+        });
+      return { stdout: '', stderr: '' };
+    },
+  });
+  await cachedUv(env);
+  await assert.rejects(env.ensure(), /a dépassé une heure/);
+  const { state, error } = env.status();
+  assert.equal(state, 'error');
+  assert.match(error, /^La préparation de l’environnement Python a dépassé une heure/);
+  assert.match(error, /Relancez-la avec « Vérifier l’environnement »/);
+  assert.doesNotMatch(error, /aborted|timeout/i);
+});
