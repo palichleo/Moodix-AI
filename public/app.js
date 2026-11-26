@@ -1758,6 +1758,11 @@ async function followLlama() {
       if (job.state === 'downloading') text.textContent = `${job.step} ${megabytes(job.received)} / ${megabytes(job.total)}`;
       else if (job.state === 'error') {
         text.textContent = job.error;
+        // (0.6.398) Its button back, to ask again: an installation that stops says « relancez-la » (a download
+        // cut, 0.6.393: it goes on from what came), and the button stayed hidden until the tab was opened again.
+        go.textContent = job.ours ? 'Mettre à jour' : 'Installer';
+        go.onclick = () => void installLlama();
+        go.hidden = false;
         return;
       } else if (job.state === 'done') {
         const { result } = job;
