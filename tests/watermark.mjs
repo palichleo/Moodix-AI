@@ -118,7 +118,7 @@ test('a choice made on the keyboard keeps the focus on the picture drawn in its 
 });
 
 /** Moodix with an engine that only says what it was asked to assemble; a take and a bobine made of it. */
-async function moodix(t) {
+async function moodix(t, { before } = {}) {
   const folder = await mkdtemp(join(tmpdir(), 'moodix-watermark-')),
     historyDir = join(folder, 'history'),
     outputDir = join(folder, 'output');
@@ -141,13 +141,17 @@ async function moodix(t) {
     async request(method, params) {
       if (method !== 'assemble') return {};
       asked.push(params);
+      // (0.6.429) What a test holds a film on, while it asks for something else.
+      await before?.(params);
       if (params.exportTo) return { outputs: [{ filename: params.exportTo.split('/').pop(), subfolder: 'bobines', type: 'export' }] };
       await mkdir(join(outputDir, 'video'), { recursive: true });
       await writeFile(join(outputDir, 'video', params.outputName + '.mp4'), 'film');
       return { jobId: params.id, outputs: [{ filename: params.outputName + '.mp4', subfolder: 'video', type: 'output', width: params.width, height: params.height }], metadata: {} };
     },
   };
-  let app = await createApplication({ port: 0, dataDir: folder, historyDir, outputDir, generationWorker: worker });
+  // (`launcher`: a relaunch a test asks for, were it accepted, starts nothing on this computer.)
+  const launcher = () => {};
+  let app = await createApplication({ port: 0, dataDir: folder, historyDir, outputDir, generationWorker: worker, launcher });
   t.after(() => app.close());
   let token = (await (await fetch(`${app.url}/api/bootstrap`)).json()).token;
   const call = async (route, body) => {
@@ -187,7 +191,7 @@ async function moodix(t) {
   assert.equal((await call('montages/save', { project: 'inbox', montage: bobine })).status, 200);
   const restart = async () => {
     await app.close();
-    app = await createApplication({ port: 0, dataDir: folder, historyDir, outputDir, generationWorker: worker });
+    app = await createApplication({ port: 0, dataDir: folder, historyDir, outputDir, generationWorker: worker, launcher });
     const boot = await (await fetch(`${app.url}/api/bootstrap`)).json();
     token = boot.token;
     return boot;
@@ -290,4 +294,35 @@ test('a take that is a film exported with a watermark is said to carry one, alon
   const none = await exportAgain();
   assert.equal('watermark' in none, false);
   assert.deepEqual(none.plans.map(plan => 'watermarked' in plan), [false, false, false, false]);
+});
+
+
+test('a film being assembled is an occupation: no relaunch, no closing « if idle », no other settings of the engine under it (0.6.429)', async t => {
+  // « Redémarrer » or an update during an export closed the engine after 3 s: the film, minutes of work, was lost.
+  let free;
+  const held = new Promise(done => (free = done));
+  const { call, asked, talk, bobine } = await moodix(t, { before: () => held });
+  const film = call('montages/export', { project: 'inbox', id: bobine.id, conversation: talk });
+  for (let tries = 0; !asked.length && tries < 200; tries++) await new Promise(done => setTimeout(done, 25));
+  assert.equal(asked.length, 1, 'the engine is assembling');
+  const boot = (await call('bootstrap')).body;
+  let refused = await call('relaunch', { always: true });
+  assert.deepEqual([refused.status, refused.body.error], [409, 'Termine l’opération en cours avant de relancer l’application.']);
+  refused = await call('shutdown', { onlyIfIdle: true, installationId: boot.installationId, sourceRevision: boot.sourceRevision });
+  assert.equal(refused.status, 409);
+  const exporting = 'La Bobine exporte un film. Attendez sa fin.';
+  refused = await call('generation/config', { ...boot.generation, pythonPath: 'C:/autre/python.exe' });
+  assert.deepEqual([refused.status, refused.body.error], [409, exporting]);
+  // The settings of the page: refused only for what closes the engine (another Python, generation switched off).
+  refused = await call('settings', { config: boot.config, generation: { ...boot.generation, enabled: false } });
+  assert.deepEqual([refused.status, refused.body.error], [409, exporting]);
+  assert.equal((await call('settings', { config: boot.config, generation: boot.generation })).status, 200);
+  // Still there, and the film is made.
+  free();
+  const made = await film;
+  assert.equal(made.status, 200, JSON.stringify(made.body));
+  // Once it is made nothing is refused for it any more.
+  const after = await call('settings', { config: boot.config, generation: { ...boot.generation, enabled: false } });
+  assert.notEqual(after.body.error, exporting);
+  assert.equal(after.status, 200, JSON.stringify(after.body));
 });

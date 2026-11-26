@@ -538,6 +538,18 @@ export async function createApplication({
   let modelOperation = Promise.resolve();
   let pickingFile = false;
   let savingGeneration = false;
+  // (0.6.429) Films of the Bobine being assembled (several files for « Un fichier par prise », one after the
+  // other). Nothing counted them: « Redémarrer », an update or new settings of the generation closed the
+  // engine under a film that had taken minutes.
+  let exporting = 0;
+  const whileExporting = async task => {
+    exporting += 1;
+    try {
+      return await task();
+    } finally {
+      exporting -= 1;
+    }
+  };
   // The numbers of the takes, « PRISE n » (lib/takes.mjs): one counter per project. A take is
   // numbered in the project of its conversation: saved, its own; not saved yet, the one the page
   // named with its last request (chat, Studio); otherwise « Sans projet ».
@@ -1574,7 +1586,7 @@ export async function createApplication({
         const known = await history.projectOf(conversationId).catch(() => null);
         if (known && known !== project) throw problem('Cette conversation est d’un autre projet que cette bobine.', 409);
         if (!known && conversationId !== STUDIO_ID) namedProjects.set(conversationId, project);
-        const record = await exportMontage({
+        const record = await whileExporting(() => exportMontage({
           montage,
           conversationId,
           fileOf: takeFiles({
@@ -1588,7 +1600,7 @@ export async function createApplication({
           persist: preferences.saveHistory,
           // (0.6.187) What goes out of Moodix carries the watermark of Paramètres › Interface.
           watermark: watermarkSetting(preferences.watermark),
-        });
+        }));
         return send(200, galleryView(record));
       }
       // (0.6.154) « Un fichier par prise »: the takes of the bobine already made, one file each, in a
@@ -1599,7 +1611,7 @@ export async function createApplication({
           montage = await montages.read(project, body.id);
         return send(
           200,
-          await exportTakes({
+          await whileExporting(() => exportTakes({
             montage,
             outputDir,
             fileOf: takeFiles({
@@ -1610,7 +1622,7 @@ export async function createApplication({
             }),
             assemble: (request, options) => generation.assembleFilm(request, options),
             watermark: watermarkSetting(preferences.watermark),
-          }),
+          })),
         );
       }
       // The files of a shipped workflow: downloaded in the background, followed with GET /api/downloads.
@@ -1631,6 +1643,7 @@ export async function createApplication({
         if (closing || relaunching) throw problem('L’application est en cours de fermeture.', 409);
         if (runtime.active || chat.busy || clearingHistory || savingSettings || savingGeneration || pickingFile)
           throw problem('Attendez la fin de l’opération en cours.', 409);
+        if (exporting) throw problem('La Bobine exporte un film. Attendez sa fin.', 409);
         savingGeneration = true;
         try {
           if (path === '/api/generation/config') {
@@ -1673,6 +1686,7 @@ export async function createApplication({
       const working = () =>
         resources.busy ||
         runtime.active ||
+        exporting > 0 ||
         chat.busy ||
         saving ||
         savingSettings ||
@@ -2070,6 +2084,14 @@ export async function createApplication({
         const modelChanged = JSON.stringify(config) !== JSON.stringify(nextConfig);
         if (modelChanged && (engine.child || ['loading', 'stopping'].includes(engine.state)))
           throw problem('Arrêtez le modèle avant de modifier ses réglages.', 409);
+        // (0.6.429) Another Python, or the generation switched off, closes its engine (generation.save): not
+        // under a film being assembled.
+        if (
+          exporting &&
+          (nextGeneration.pythonPath !== generation.config.pythonPath ||
+            (generation.config.enabled && !nextGeneration.enabled))
+        )
+          throw problem('La Bobine exporte un film. Attendez sa fin.', 409);
         savingSettings = true;
         saving = true;
         try {

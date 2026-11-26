@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, writeFile, realpath, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { GenerationService, generationConfig } from '../lib/generation-service.mjs';
@@ -551,6 +551,18 @@ test('no NVIDIA card: a family says so with its reason, and again when a creatio
   assert.equal(calls[1][0], 'release');
   assert.equal(calls[1][1].keepAbove > 1024 ** 3, true);
   assert.deepEqual(calls[2], ['release', {}]);
+  // (0.6.429) The delay of the release reaches the worker (90 s in tool-runtime), which counts it from the
+  // moment it writes the request: nobody read the signal passed before, and the worker applied its own 60 s.
+  await client.free({ timeoutMs: 90000 });
+  await client.free({ timeoutMs: 90000, reserve: 1024 ** 3 });
+  assert.deepEqual(calls[3], ['release', { timeoutMs: 90000 }]);
+  assert.deepEqual([calls[4][1].timeoutMs, calls[4][1].keepAbove > 1024 ** 3], [90000, true]);
+  assert.equal((await readFile(new URL('../lib/tool-runtime.mjs', import.meta.url), 'utf8')).split('timeoutMs: RELEASE_TIMEOUT_MS').length, 6);
+  // A film stopped before its end (the engine closed, its 30 minutes over) leaves nothing half-written.
+  await mkdir(join(dataDir, 'output'), { recursive: true });
+  await writeFile(join(dataDir, 'output', '2026-11-26_10-00-00_bobine_a1b2.tmp.mp4'), 'moitié');
+  await assert.rejects(service.assembleFilm({ id: 'f', outputName: '2026-11-26_10-00-00_bobine_a1b2' }), /carte graphique NVIDIA/);
+  assert.deepEqual(await readdir(join(dataDir, 'output')), []);
   // The style LoRAs of the Studio are the files of the loras folders, and nothing else is asked.
   assert.deepEqual(await service.styles(), []);
 });
