@@ -443,7 +443,8 @@ test('a generation with a remote chat model: nothing is stopped nor reloaded, an
   assert.equal(chat.state, 'ready');
   assert.deepEqual(
     freed[0],
-    { keep: true, signal: freed[0].signal },
+    // (0.6.429) With the delay the engine has for it, counted from its turn (a signal nobody read before).
+    { keep: true, timeoutMs: 90000 },
     'the generator keeps its models for the next creation',
   );
   await runtime.close();
