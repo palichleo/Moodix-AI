@@ -77,6 +77,12 @@ def _read_prompts(folder, tokenizer, prompts, device):
     return read
 
 
+def samples(sample_rate, seconds):
+    """(0.6.413) The samples of a sound of that length, to the nearest. Cut with `int`, a sound lost its last
+    sample wherever the product falls a hair short: 2.3 s at 48 kHz is 110 399.99999999999."""
+    return round(sample_rate * seconds)
+
+
 def generate(job, config, progress):
     import torch
     from transformers import AutoTokenizer
@@ -137,7 +143,7 @@ def generate(job, config, progress):
     progress(stage='decoding sound')
     decoder = decoder.to(device)
     with torch.inference_mode(), torch.autocast(device, dtype=torch.float32, enabled=device == 'cuda'):
-        audio = decoder(latents.float())[0, :, : int(sample_rate * seconds)]
+        audio = decoder(latents.float())[0, :, : samples(sample_rate, seconds)]
     del decoder
     progress(stage='saving audio')
     audio = audio.float().cpu().numpy()

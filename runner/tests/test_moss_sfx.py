@@ -55,6 +55,17 @@ class MossSoundEffectTests(unittest.TestCase):
                 moss_sfx.preflight(sound_job(model_folder(root, vae=None)), {})
 
     @unittest.skipUnless(TORCH, 'torch is not installed')
+    def test_a_sound_has_every_sample_of_its_length_0_6_413(self):
+        # 2.3 s at 48 kHz: 110 399.99999999999, cut to 110 399 samples. One in fourteen lengths lost one.
+        self.assertEqual(moss_sfx.samples(48000, 2.3), 110400)
+        for tenths in range(1, 301):
+            self.assertEqual(moss_sfx.samples(48000, tenths / 10), 4800 * tenths, tenths)
+        self.assertEqual(moss_sfx.samples(44100, 0.1), 4410)
+        # (The sound decoded is cut by it: read in the source, the decoding itself needs the card.)
+        import inspect
+
+        self.assertIn(': samples(sample_rate, seconds)]', inspect.getsource(moss_sfx.generate))
+
     def test_the_published_weight_norm_folds_into_plain_convolutions(self):
         import torch
 
