@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "a7601a5d-e43b-4f4e-8871-2d9dc7138bd9",
-  "enabled": false,
+  "enabled": true,
   "pipeline": "qwen_image_edit",
   "mediaType": "image",
   "name": "Qwen-Image-Edit",

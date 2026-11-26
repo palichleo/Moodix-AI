@@ -130,10 +130,12 @@ test('Moodix AI is told to write an instruction for Qwen-Image-Edit only, when i
       .parameters.properties.prompt.description;
   const whole = await prompt([image('krea')]);
   assert.match(whole, /^The whole image/);
-  // Shipped « Proposé à Moodix AI » off: not offered, nothing said of it.
-  assert.equal(await prompt([image('krea'), qwen]), whole);
+  // (0.6.431) Shipped « Proposé à Moodix AI » on, at the user's word of 26/11. Switched off: not offered,
+  // nothing said of it.
+  assert.equal(qwen.enabled, true);
+  assert.equal(await prompt([image('krea'), { ...qwen, enabled: false }]), whole);
   // Offered beside another model: the whole picture, then its own words, for it alone.
-  const offered = { ...qwen, enabled: true };
+  const offered = qwen;
   const both = await prompt([image('krea'), offered]);
   assert.ok(both.startsWith(whole + ' For a7601a5d-e43b-4f4e-8871-2d9dc7138bd9: An editing instruction in English'), both);
   assert.match(both, /Picture 1 is the image to modify/);
