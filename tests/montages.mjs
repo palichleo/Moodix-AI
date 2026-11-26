@@ -586,3 +586,60 @@ test('a take and a sound are kept as far as a bobine may go: 200 takes of ten mi
   assert.throws(() => validateMontage(film({ plans: [{ ...plan, at: beyond }] })), /Prise 1 : durée invalide/);
   assert.throws(() => validateMontage(film({ sounds: [{ ...sound, at: beyond }] })), /Son 1 : durée invalide/);
 });
+
+test('a bobine set aside comes back as it was; after 30 days in the corbeille it goes (0.6.442)', async t => {
+  // (Z6-12) « Bobine mise de côté. »: nothing took a bobine back from its corbeille, and nothing emptied it,
+  // while a conversation waits 30 days in its own (lib/history.mjs).
+  const dir = await mkdtemp(join(tmpdir(), 'moodix-montages-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const montages = new Montages({ dir }),
+    project = '22222222-2222-4222-8222-222222222222',
+    aside = where => join(dir, where, 'corbeille'),
+    left = async where => (await readdir(aside(where)).catch(() => [])).sort();
+  // Back in its project as it was, its card of the Archives with it; then it is no longer in the corbeille.
+  const kept = await montages.save(project, film(), { archive: true });
+  await montages.remove(project, id(900));
+  assert.deepEqual(await montages.restore(project, id(900)), { restored: id(900) });
+  assert.deepEqual(await montages.read(project, id(900)), kept);
+  assert.deepEqual(await left(project), []);
+  await assert.rejects(montages.restore(project, id(900)), {
+    status: 404,
+    message: 'Cette bobine n’est plus dans la corbeille.',
+  });
+  // Set aside twice: the last copy comes back. One of the same identifier there is never written over.
+  await montages.remove(project, id(900));
+  const [first] = await left(project),
+    older = `${id(900)}-20000101000000.json`;
+  await writeFile(join(aside(project), older), JSON.stringify({ ...kept, name: 'Plus ancienne' }));
+  await montages.save(project, newMontage({ id: id(900), name: 'Gardée depuis' }));
+  await assert.rejects(montages.restore(project, id(900)), { status: 409, message: /rien n’a été remplacé/ });
+  assert.deepEqual(await left(project), [older, first].sort());
+  await rm(join(dir, project, id(900) + '.json'));
+  await montages.restore(project, id(900));
+  assert.equal((await montages.read(project, id(900))).name, 'Le pêcheur à l’aube');
+  assert.deepEqual(await left(project), [older]);
+  await assert.rejects(montages.restore(project, '../' + id(900)), { status: 400, message: /identifiant invalide/ });
+  // 30 days after it was set aside, as a conversation: the date its name says, to the second (its file keeps the
+  // date of its last change). A copy moved with a project keeps its date; a name that says none stays.
+  await mkdir(aside('inbox'), { recursive: true });
+  const names = {
+    [project]: [`${id(1)}-20261119235959.json`, `${id(2)}-20261120000000.json`, `${id(3)}-20261001000000-2.json`],
+    inbox: [`${id(4)}-20261001000000.json`, `${id(5)}-20261125120000-2.json`, 'notes.json'],
+  };
+  for (const [where, list] of Object.entries(names))
+    for (const name of list) await writeFile(join(aside(where), name), JSON.stringify(film()));
+  const purged = await montages.purgeTrash({ now: Date.parse('2026-12-20T00:00:00.000Z') });
+  assert.deepEqual(
+    purged.map(item => `${item.project}/${item.id}`).sort(),
+    [`${project}/${id(1)}`, `${project}/${id(3)}`, `${project}/${id(900)}`, `inbox/${id(4)}`].sort(),
+  );
+  assert.deepEqual(await left(project), [`${id(2)}-20261120000000.json`]);
+  assert.deepEqual(await left('inbox'), names.inbox.slice(1));
+  // At launch, right after the bin of the history; and its way back, beside « Supprimer la bobine ».
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8'),
+    history = server.indexOf('await history.purgeTrash()'),
+    purge = server.indexOf('await montages.purgeTrash()');
+  assert.ok(history > 0 && purge > history && purge - history < 300);
+  assert.match(server, /path === '\/api\/montages\/restore'/);
+  assert.match(server, /send\(200, await montages\.restore\(body\.project, body\.id\)\)/);
+});

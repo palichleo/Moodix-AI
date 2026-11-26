@@ -687,6 +687,8 @@ export async function createApplication({
   // What waited 30 days in the bin of the history goes for good, its thumbnails with it (0.6.103).
   for (const id of await history.purgeTrash().catch(error => (console.error(error), [])))
     await thumbnails.forget(id).catch(() => {});
+  // (0.6.442) The bobines set aside as long go too, at the same moment (lib/montages.mjs).
+  await montages.purgeTrash().catch(error => console.error(error));
   // (0.6.392) The folders of the updates installed before, but the last one (lib/update-install.mjs): each
   // kept the sources of the version before, 10 MB more at every update. Not waited for.
   void pruneInstalls(dataDir).catch(() => {});
@@ -1568,6 +1570,11 @@ export async function createApplication({
         return send(200, await montages.save(body.project, body.montage, { archive: body.archive === true }));
       }
       if (path === '/api/montages/remove') return send(200, await montages.remove(body.project, body.id));
+      // (0.6.442) A bobine of the corbeille back where it was set aside, in a project that is still there.
+      if (path === '/api/montages/restore') {
+        if (projectId(body?.project) !== 'inbox') await projects.require(body.project);
+        return send(200, await montages.restore(body.project, body.id));
+      }
       if (path === '/api/montages/export') {
         if (closing || relaunching) throw problem('L’application est en cours de fermeture.', 409);
         const project = projectId(body.project),
