@@ -126,7 +126,7 @@ test('a failed download keeps the old app available and can be retried, without 
     assert.equal(state.state, 'error');
     assert.match(state.error, /Network/);
     assert.equal((await call('status')).status, 200);
-    assert.equal((await call('preferences', { theme: 'light' })).status, 200);
+    assert.equal((await call('preferences', { room: { room: 'nuit' } })).status, 200);
   } finally {
     await app?.close();
     await rm(dataDir, { recursive: true, force: true });

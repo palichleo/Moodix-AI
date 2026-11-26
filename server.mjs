@@ -97,8 +97,6 @@ const staticFiles = new Map([
   ['/fonts/Jost-latin.woff2', ['fonts/Jost-latin.woff2', 'font/woff2']],
   ['/fonts/Jost-latin-ext.woff2', ['fonts/Jost-latin-ext.woff2', 'font/woff2']],
   ['/assets/tramage-64.png', ['assets/tramage-64.png', 'image/png']],
-  ['/fonts/Michroma-Regular.ttf', ['fonts/Michroma-Regular.ttf', 'font/ttf']],
-  ['/fonts/Manrope-Variable.ttf', ['fonts/Manrope-Variable.ttf', 'font/ttf']],
   ['/fonts/JetBrainsMono-Variable.ttf', ['fonts/JetBrainsMono-Variable.ttf', 'font/ttf']],
   ['/studio-pointer.mjs', ['studio-pointer.mjs', 'text/javascript; charset=utf-8']],
   ['/studio-explain.mjs', ['studio-explain.mjs', 'text/javascript; charset=utf-8']],
@@ -357,7 +355,7 @@ export async function createApplication({
     await Promise.all(
       [...staticFiles].map(async ([path, [file, mime]]) => [
         path,
-        { contents: await readFile(join(publicDir, file)), mime, file },
+        { contents: await readFile(join(publicDir, file)), mime },
       ]),
     ),
   );
@@ -398,10 +396,11 @@ export async function createApplication({
     if (error.code !== 'ENOENT') configWarning = 'Les consignes globales enregistrées sont illisibles.';
   }
   const preferencesPath = join(dataDir, 'preferences.json');
-  let preferences = { theme: 'dark', saveHistory: true };
+  // (0.6.434) No « Jour » mode any more: the `theme` a version before saved is not read, nothing is said
+  // of it, and the next preference saved writes the file without it.
+  let preferences = { saveHistory: true };
   try {
     const saved = JSON.parse(await readFile(preferencesPath, 'utf8'));
-    if (['dark', 'light'].includes(saved?.theme)) preferences.theme = saved.theme;
     if (typeof saved?.saveHistory === 'boolean') preferences.saveHistory = saved.saveHistory;
     // Fond, éclairage, grain (Paramètres › Interface): read back too. Left out, they came back to
     // their defaults at every start, and the next preference saved wrote the file without them.
@@ -1213,11 +1212,7 @@ export async function createApplication({
         return;
       }
       if (req.method === 'GET' && staticFiles.has(path)) {
-        const asset = frontend.get(path),
-          { file, mime } = asset;
-        let contents = asset.contents;
-        if (file === 'index.html')
-          contents = contents.toString('utf8').replace('data-theme="dark"', `data-theme="${preferences.theme}"`);
+        const { contents, mime } = frontend.get(path);
         res.writeHead(200, { 'Content-Type': mime });
         return res.end(contents);
       }
@@ -2437,10 +2432,9 @@ export async function createApplication({
           typeof body !== 'object' ||
           Array.isArray(body) ||
           !Object.keys(body).length ||
-          Object.keys(body).some(key => !['theme', 'saveHistory', 'room', 'watermark'].includes(key))
+          Object.keys(body).some(key => !['saveHistory', 'room', 'watermark'].includes(key))
         )
           throw problem('Préférences invalides.');
-        if ('theme' in body && !['dark', 'light'].includes(body.theme)) throw problem('Choisissez le mode jour ou nuit.');
         if ('saveHistory' in body && typeof body.saveHistory !== 'boolean')
           throw problem('Choix d’historique invalide.');
         // Fond, éclairage, grain (Paramètres › Interface): what is valid of it, the rest by default.

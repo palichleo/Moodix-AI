@@ -40,7 +40,7 @@ test('its foot: the gradient of the filet, fixed, over all', () => {
   assert.doesNotMatch(foot, /animation/);
 });
 
-test('hovered or focused, unavailable, under way, and in the light theme', () => {
+test('hovered or focused, unavailable, and under way', () => {
   assert.match(rule('#studio-view .studio-go:is(:hover, :focus-visible):enabled'), /background: #252932;[^]*border-color: #3a3f4a;/);
   assert.match(rule('#studio-view .studio-go:focus-visible'), /outline: 2px solid var\(--focus\);/);
   const dim = rule("#studio-view .studio-go.is-unavailable,\n#studio-view .studio-go:disabled:not([role='progressbar'])");
@@ -60,8 +60,4 @@ test('hovered or focused, unavailable, under way, and in the light theme', () =>
   assert.match(rule("#studio-view .studio-go[role='progressbar'] .studio-go-label"), /font-family: var\(--font-mono\);[^]*font-size: var\(--size-3\);[^]*font-weight: 600;/);
   assert.match(rule("#studio-view .studio-go[role='progressbar'] svg"), /display: none;/);
   assert.match(rule('#studio-view .studio-go:disabled'), /cursor: progress;/);
-  // The light theme.
-  assert.match(rule(":root[data-theme='light'] #studio-view .studio-go"), /border-color: #d5d9e0;[^]*background: #ffffff;[^]*color: var\(--text-1\);/);
-  assert.match(rule(":root[data-theme='light'] #studio-view .studio-go:is(:hover, :focus-visible):enabled"), /border-color: #c3c8d0;[^]*background: #f1f3f6;/);
-  assert.match(rule(":root[data-theme='light'] .studio-go-bar"), /background: #e3e6eb;/);
 });

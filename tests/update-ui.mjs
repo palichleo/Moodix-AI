@@ -108,7 +108,7 @@ test('download failure keeps configuration, file selection and composer controls
     source.indexOf('function updateControls()'),
     source.indexOf('async function checkUpdates('),
   );
-  const install = source.slice(source.indexOf('async function installUpdate('), source.indexOf('function applyTheme('));
+  const install = source.slice(source.indexOf('async function installUpdate('), source.indexOf('let firstLaunch = null;'));
   // What the session of an update keeps of the page (0.6.103: with its revision, and the conversation set aside).
   const session = source.slice(source.indexOf('function sessionOfPage('), source.indexOf('let historyWrite'));
   const nodes = new Map();

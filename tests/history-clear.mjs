@@ -34,7 +34,7 @@ test('supprimer l’historique exige confirmation et jeton, fonctionne même dé
         body: JSON.stringify(data),
       });
     for (const enabled of [true, false]) {
-      await post('preferences', { saveHistory: true, theme: 'light' });
+      await post('preferences', { saveHistory: true, room: { room: 'nuit' } });
       const id = randomUUID();
       const { file } = await (
         await fetch(`${app.url}/api/attachments`, {

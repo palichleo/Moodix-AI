@@ -77,7 +77,6 @@ const state = {
   operation: false,
   controller: null,
   stickToBottom: true,
-  theme: 'dark',
   savingPreferences: false,
   waitingForModel: false,
   settingsLoading: false,
@@ -483,7 +482,6 @@ async function changePreferences(patch) {
     if (state.disablingHistory) await historyWrite;
     const { preferences } = await (await api('preferences', patch)).json();
     state.saveHistory = preferences.saveHistory;
-    applyTheme(preferences.theme);
     await refreshHistory().catch(error => notice(error.message));
     return true;
   } catch (error) {
@@ -1265,20 +1263,6 @@ function updatePanel(step, text = '') {
   $('update-failure-text').textContent = failed ? text : '';
 }
 
-function applyTheme(theme) {
-  state.theme = theme === 'light' ? 'light' : 'dark';
-  document.documentElement.dataset.theme = state.theme;
-  const dark = state.theme === 'dark';
-  const label = dark ? 'Passer en mode jour' : 'Passer en mode nuit';
-  $('theme-toggle').replaceChildren(icon(dark ? 'sun' : 'moon'), node('span', '', dark ? 'Jour' : 'Nuit'));
-  $('theme-toggle').setAttribute('aria-label', label);
-  $('theme-toggle').title = label;
-}
-
-async function toggleTheme() {
-  await changePreferences({ theme: state.theme === 'dark' ? 'light' : 'dark' });
-}
-
 let firstLaunch = null;
 /** The card of the first launch, made once: its steps save the engine and the LLM as Paramètres does. */
 function firstLaunchCard() {
@@ -1350,7 +1334,6 @@ function updateControls() {
   $('history-delete-cancel').disabled = state.clearingHistory;
   // To the bin, 30 days (0.6.103): « Supprimer définitivement » is the bin's own, for one conversation.
   $('history-delete-confirm').textContent = state.clearingHistory ? 'Mise à la corbeille…' : 'Mettre à la corbeille';
-  $('theme-toggle').disabled = state.savingPreferences || !state.connected;
   $('config-fields').disabled =
     state.settingsLoading ||
     state.settingsReady === false ||
@@ -2252,7 +2235,6 @@ function openSettings() {
       if (initial.preferences && !state.savingPreferences) {
         const historyChanged = state.saveHistory !== initial.preferences.saveHistory;
         state.saveHistory = initial.preferences.saveHistory;
-        applyTheme(initial.preferences.theme);
         if (historyChanged) void refreshHistory().catch(error => notice(error.message));
       }
       $('engine-path').value = state.config.enginePath || '';
@@ -5399,8 +5381,6 @@ setupCopy($('messages'), {
     if (message.startsWith('Copie indisponible')) notice(message);
   },
 });
-applyTheme(document.documentElement.dataset.theme);
-$('theme-toggle').onclick = toggleTheme;
 $('history-clear').onclick = () => confirmHistoryDeletion();
 $('history-delete-cancel').onclick = () => $('history-delete-dialog').close();
 $('history-delete-confirm').onclick = clearHistory;
@@ -6103,7 +6083,6 @@ try {
   state.booted = true;
   if (initial.version) $('settings-version').textContent = initial.version;
   void checkUpdates();
-  applyTheme(initial.preferences?.theme);
   // The room and the watermark kept (Paramètres › Interface), on the page from the start.
   interfaceUI.load(initial.preferences?.room, initial.preferences?.watermark);
   state.saveHistory = initial.preferences?.saveHistory === true;

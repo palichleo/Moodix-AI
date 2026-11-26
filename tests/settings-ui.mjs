@@ -162,7 +162,7 @@ async function settingsUI({ request, refresh = async () => {}, saved = () => {},
     document: {
       getElementById: $,
       querySelectorAll: selector => (selector === 'button,input,textarea,select' ? [...nodes.values()] : []),
-      documentElement: { dataset: { theme: 'dark' } },
+      documentElement: { dataset: {} },
       addEventListener() {},
       createElement: () => $('node-' + nodes.size),
       createElementNS: () => $('node-' + nodes.size),
@@ -187,14 +187,14 @@ async function settingsUI({ request, refresh = async () => {}, saved = () => {},
       if (call.route === 'bootstrap')
         return Response.json({
           config: savedConfig,
-          preferences: { theme: 'dark', saveHistory: true },
+          preferences: { saveHistory: true },
           status: { state: 'stopped', logs: [] },
         });
       if (call.route === 'shutdown') return Response.json({ stopping: true });
       if (call.route === 'status') return Response.json({ state: 'stopped', logs: [] });
       if (call.route === 'history') return Response.json({ conversations: [], skipped: 0 });
       if (call.route === 'preferences')
-        return Response.json({ preferences: { theme: 'dark', saveHistory: call.body.saveHistory ?? true } });
+        return Response.json({ preferences: { saveHistory: call.body.saveHistory ?? true } });
       if (call.route === 'settings')
         return Response.json({
           config: call.body.config,
@@ -429,7 +429,7 @@ test('disabling history waits for accepted queued writes before changing the pre
   assert.equal(ui.state.saveHistory, false);
 });
 
-test('opening settings reflects theme and history changed in another tab', async () => {
+test('opening settings reflects history changed in another tab', async () => {
   const ui = await settingsUI({
     request: call =>
       call.route === 'bootstrap'
@@ -437,7 +437,8 @@ test('opening settings reflects theme and history changed in another tab', async
         : undefined,
   });
   await ui.open();
-  assert.equal(ui.state.theme, 'light');
+  // (0.6.434) A theme still named, as a server of before said it: the page keeps nothing of it.
+  assert.equal('theme' in ui.state, false);
   assert.equal(ui.state.saveHistory, false);
   assert.equal(ui.$('history-enabled').checked, false);
 });
@@ -501,7 +502,6 @@ test('immediately saved preferences and reverted fields do not create a false un
   ui.$('model-path').value = 'draft';
   ui.$('model-path').value = savedConfig.modelPath;
   ui.$('history-enabled').checked = false;
-  ui.$('theme-toggle').value = 'light';
   ui.$('settings-close').onclick();
   assert.equal(ui.$('settings').open, false);
   assert.equal(ui.$('settings-unsaved').open, false);

@@ -182,7 +182,7 @@ test('under a message, only the last exchange can be taken back: nothing copies 
   assert.doesNotMatch(actions, /clipboard|Copier/);
 });
 
-test('the interface names its places in French: Chat, Studio, Bobine, Archives, Jour and Nuit; no « Créations », no « Fichiers »', async () => {
+test('the interface names its places in French: Chat, Studio, Bobine, Archives; no « Créations », no « Fichiers »', async () => {
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8'),
     app = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
   // « Pellicule » in the texts only (0.6.0): the routes, the modules and the data keep « library ».
@@ -199,7 +199,6 @@ test('the interface names its places in French: Chat, Studio, Bobine, Archives, 
   assert.doesNotMatch(html, /id="all-files"|id="assets-panel"|assets-resources-tab/);
   // The creations are in the Sortie of the Studio, shared by the project.
   assert.doesNotMatch(html, /assets-output-tab|output-pane|gallery-list/);
-  assert.match(app, /dark \? 'Jour' : 'Nuit'/);
   // The English names they replace are gone from what the user reads.
   assert.doesNotMatch(html, />Home<|All files|>Output</);
   assert.doesNotMatch(app, /'Day'|'Night'/);

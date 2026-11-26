@@ -86,7 +86,6 @@ test('deleting one conversation removes copies and cached links, retaining other
     assert.equal((await call('history/delete', { id: ids[1], confirm: true })).status, 200);
     assert.equal((await call('history/delete', { id: ids[1], confirm: true })).status, 200);
     assert.deepEqual(JSON.parse(await readFile(join(dataDir, 'preferences.json'), 'utf8')), {
-      theme: 'dark',
       saveHistory: false,
     });
   } finally {

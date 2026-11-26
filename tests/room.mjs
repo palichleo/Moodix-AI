@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import test from 'node:test';
 import { DEFAULTS, LIGHTINGS, ROOMS, grainImage, refreshLight, roomSettings, roomStyle, showTakeReady } from '../public/room.mjs';
 
@@ -203,4 +203,27 @@ test('a take ready out of sight: a dot of the accent on the icon of the tab, unt
   assert.ok(!head.children.includes(ready));
   assert.deepEqual(head.children.slice(-2), links);
   assert.equal(listeners.size, 0);
+});
+
+test('(0.6.434) no Jour mode any more: nothing chooses it, no rule of its own, neither of its two fonts', async () => {
+  const [css, html, app] = await Promise.all(['moodix.css', 'index.html', 'app.js'].map(read)),
+    server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8'),
+    notices = await readFile(new URL('../THIRD_PARTY_NOTICES.md', import.meta.url), 'utf8');
+  // No button in Paramètres, nothing on the page or in the server that would set it.
+  assert.doesNotMatch(html, /theme-toggle|i-sun|i-moon|data-theme|mode jour/);
+  assert.doesNotMatch(app + server, /applyTheme|toggleTheme|dataset\.theme|data-theme|theme-toggle/);
+  // Of its name the rules keep « :not([data-theme='light']) » alone, which every page matches.
+  const rules = css.replace(/\/\*[^]*?\*\//g, '');
+  assert.doesNotMatch(rules.replaceAll(":not([data-theme='light'])", ''), /data-theme/);
+  assert.doesNotMatch(rules, /\.theme-button|\.preference-row/);
+  // Manrope and Michroma were its own: neither named, nor served, nor listed with the licences.
+  assert.doesNotMatch(css + server + notices, /Manrope|Michroma/);
+  // Each font the sheet asks for is served; the folder holds them and their licences, nothing else.
+  const asked = [...css.matchAll(/url\('\/fonts\/([^']+)'\)/g)].map(found => found[1]);
+  for (const font of asked) assert.ok(server.includes(`['/fonts/${font}', ['fonts/${font}', `), font);
+  const families = new Set(asked.map(font => font.replace(/(-Variable|-Regular)?(-latin(-ext)?)?\.\w+$/, '')));
+  assert.deepEqual(
+    (await readdir(new URL('../public/fonts/', import.meta.url))).sort(),
+    [...asked, ...[...families].map(family => `OFL-${family}.txt`)].sort(),
+  );
 });

@@ -19,18 +19,6 @@
   color: var(--ink);
   font-synthesis: none;
 }
-:root[data-theme='light'] {
-  --success: #287443;
-  --success-tint: #2874430e;
-  --danger: #b23535;
-  --danger-bg: #f8e8e8;
-  --danger-line: #cf9898;
-  --warning: #886117;
-  --inset-shadow: #2838480d;
-  --overlay: #14202b66;
-  --edge: #ffffffc0;
-  --surface-veil: #fafbfce8;
-}
 * {
   box-sizing: border-box;
 }
@@ -134,28 +122,6 @@ button svg {
   background: var(--danger);
 }
 
-.theme-button {
-  display: flex;
-  gap: 7px;
-  align-items: center;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  color: var(--muted);
-  font-size: var(--size-1);
-  border-radius: 7px;
-  padding: 8px 11px;
-}
-.theme-button {
-  min-width: 74px;
-  justify-content: center;
-}
-.theme-button svg {
-  width: 14px;
-  height: 14px;
-}
-.theme-button:hover {
-  background: var(--hover);
-}
 .chat-area {
   flex: 1;
   min-height: 0;
@@ -1319,12 +1285,10 @@ fieldset {
   background-image: linear-gradient(var(--surface-veil), var(--surface-veil)), var(--grain);
   border-color: var(--line-strong);
 }
-.secondary,
-.theme-button {
+.secondary {
   background-color: var(--surface);
 }
-.secondary:hover,
-.theme-button:hover {
+.secondary:hover {
   background-color: var(--hover);
   background-image: linear-gradient(var(--surface-veil), var(--surface-veil)), var(--grain);
   border-color: var(--line-strong);
@@ -1411,10 +1375,6 @@ dialog::backdrop {
 :root {
   --update-line: #38566d;
   --update-light: #91c9f2;
-}
-:root[data-theme='light'] {
-  --update-line: #9dbbd2;
-  --update-light: #427da7;
 }
 
 .context-meter {
@@ -2048,12 +2008,6 @@ html[data-page-hidden='true'] .generation-progress > span::after,
     filter: brightness(1);
   }
 }
-:root[data-theme='light'] .generation-progress {
-  --progress-fill: linear-gradient(90deg, #2f5d75, #5f8f9c 28%, #7d72a8 56%, #4f7f99 78%, #5f8f9c 100%);
-  --progress-head: #ffffff;
-  --progress-glow: #4f7f99b3;
-  --progress-halo: #7d72a840;
-}
 @media (prefers-reduced-motion: reduce) {
   .generation-progress,
   .generation-progress.is-determinate {
@@ -2195,12 +2149,6 @@ html[data-page-hidden='true'] .generation-progress > span::after,
 .llm-editor-actions button {
   font-size: var(--size-1);
   min-height: 36px;
-}
-.preference-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: var(--size-1);
 }
 .settings-empty {
   text-align: center;
@@ -2823,10 +2771,7 @@ html[data-page-hidden='true'] .generation-progress > span::after,
   margin: 6px 0 0;
 }
 
-/* Preferences and diagnostic. */
-#settings .preference-row + * {
-  margin-top: 8px;
-}
+/* Diagnostic. */
 #settings .runtime-status {
   padding-top: 0;
   margin-top: 0;
@@ -3204,9 +3149,6 @@ html[data-page-hidden='true'] .generation-progress > span::after,
 /* ============================================================ part 2: workspace (was workspace.css) */
 
 /* Project workspace. Shared tokens and existing chat/settings controls stay in styles.css. */
-:root[data-theme='light'] {
-  --metal-edge: #ffffff60;
-}
 body {
   height: 100dvh;
   flex-wrap: nowrap;
@@ -3214,7 +3156,6 @@ body {
 dialog,
 .composer,
 .secondary,
-.theme-button,
 .suggestions button {
   background-size: auto;
 }
@@ -3439,20 +3380,6 @@ dialog,
  * (model, length, style), yellow for what comes out (timeline, results).
  */
 @font-face {
-  font-family: 'Michroma';
-  src: url('/fonts/Michroma-Regular.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Manrope';
-  src: url('/fonts/Manrope-Variable.ttf') format('truetype');
-  font-weight: 200 800;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
   font-family: 'JetBrains Mono';
   src: url('/fonts/JetBrainsMono-Variable.ttf') format('truetype');
   font-weight: 100 800;
@@ -3515,49 +3442,9 @@ dialog,
   --edge: transparent;
   --surface-veil: transparent;
 
-  --font-ui: 'Manrope', 'Segoe UI', system-ui, sans-serif;
-  --font-display: 'Michroma', 'Manrope', 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
   --pad: 24px;
   font-family: var(--font-ui);
-}
-:root[data-theme='light'] {
-  color-scheme: light;
-  --fn-input: #2f5ee8;
-  --fn-action: #e8402f;
-  --fn-settings: #1d8f55;
-  --fn-output: #e0a91c;
-
-  --bg: #f3f4f7;
-  --sidebar: #ebedf1;
-  --surface: #ffffff;
-  --surface-raised: #e9ecf1;
-  --field: #f6f7f9;
-  --input: #f6f7f9;
-  --screen: #e4e7ec;
-  --tint: #e9ecf1;
-  --hover: #e2e6ec;
-  --chip: #e2e6ec;
-  --line: #dde1e8;
-  --line-strong: #c6ccd6;
-  --field-line: #d3d8e0;
-  --text-1: #0b0c0f;
-  --text-2: #5a606b;
-  --text-3: #7a808b;
-  --text-4: #9aa0ab;
-  --ink: var(--text-1);
-  --soft: var(--text-2);
-  --muted: var(--text-2);
-  --accent: #12141a;
-  --link: #2449c4;
-  --button: #12141a;
-  --button-hover: #000000;
-  --on-accent: #ffffff;
-  --selected: #12141a;
-  --on-selected: #ffffff;
-  --ai: #12141a;
-  --ai-soft: rgba(18, 20, 26, 0.16);
-  --shadow: #1d2a3722;
 }
 
 /* ------------------------------------------------------------------ base */
@@ -3579,7 +3466,6 @@ output {
 }
 .composer,
 .secondary,
-.theme-button,
 .suggestions button,
 dialog {
   background-image: none;
@@ -3668,20 +3554,6 @@ body[data-view='studio'] #studio-kinds .kind-tab[aria-selected='true'] {
   color: #0b0c0f;
 }
 
-:root[data-theme='light'] #studio-kinds.kind-tabs {
-  background: var(--hover);
-}
-:root[data-theme='light'] #studio-kinds .kind-tab {
-  color: var(--muted);
-}
-:root[data-theme='light'] #studio-kinds .kind-tab:hover:enabled {
-  background: var(--chip);
-  color: var(--ink);
-}
-:root[data-theme='light'] body[data-view='studio'] #studio-kinds .kind-tab[aria-selected='true'] {
-  background: #12141a;
-  color: #eceef2;
-}
 /* Moodix AI: the « matrice d'attention » (moodix-design.md 1, Petit logo), four rows of four cells
    in the colours of the pipes, the diagonal lit; no ground. */
 .message-avatar {
@@ -3803,10 +3675,6 @@ body[data-view='studio'] .suggestions {
   padding: 10px 10px 8px 14px;
   box-shadow: none;
 }
-:root[data-theme='light'] .composer {
-  background: var(--surface);
-  border-color: var(--line-strong);
-}
 .composer:focus-within {
   border-color: #3a3f4a;
   box-shadow: none;
@@ -3887,10 +3755,6 @@ body[data-view='studio']:not([data-chat='open']) .chat-panel {
   width: 18px;
   height: 18px;
 }
-:root[data-theme='light'] #studio-view .studio-agent {
-  background: var(--surface);
-  border-color: var(--line-strong);
-}
 #studio-view .studio-agent:hover,
 #studio-view .studio-agent:focus-visible {
   background: var(--hover);
@@ -3958,9 +3822,6 @@ body[data-view='studio'][data-chat='open'] #studio-view .studio-agent {
 #studio-view .studio-agent[data-unread='true'] {
   box-shadow: 0 0 16px rgba(236, 238, 242, 0.35);
 }
-:root[data-theme='light'] #studio-view .studio-agent[data-unread='true'] {
-  box-shadow: 0 0 16px rgba(18, 20, 26, 0.25);
-}
 /* The Sortie, without colour along its foot (15/11: the four colours went only to the window,
    Générer and the logo). */
 .studio-block.is-output {
@@ -3998,9 +3859,6 @@ body[data-view='studio'][data-chat='open'][data-chat-sent] .chat-panel {
   body[data-view='studio'][data-chat='open'] .chat-panel {
     transition: none;
   }
-}
-:root[data-theme='light'] body[data-view='studio'][data-chat='open'] .chat-panel {
-  box-shadow: 0 24px 70px rgba(18, 20, 26, 0.22);
 }
 body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty)) .chat-area {
   display: block !important;
@@ -4190,11 +4048,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
     0 0 0 1px rgba(236, 238, 242, 0.5),
     0 0 18px rgba(236, 238, 242, 0.08);
 }
-:root[data-theme='light'] .studio-input-block.is-flash {
-  box-shadow:
-    0 0 0 1px rgba(18, 20, 26, 0.45),
-    0 0 18px rgba(18, 20, 26, 0.08);
-}
 @media (prefers-reduced-motion: reduce) {
   .studio-input-block {
     transition: none;
@@ -4299,10 +4152,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
     color 0.15s,
     box-shadow 0.15s;
 }
-:root[data-theme='light'] #studio-view .studio-add-pick {
-  border-color: var(--line-strong);
-  color: var(--muted);
-}
 #studio-view .studio-add-pick > svg {
   width: 18px;
   height: 18px;
@@ -4356,10 +4205,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   min-height: 0;
   padding: 0;
   overflow: hidden;
-}
-:root[data-theme='light'] #studio-view .studio-slot-pick {
-  border-color: var(--line-strong);
-  color: var(--muted);
 }
 #studio-view .studio-slot-pick > svg {
   width: 18px;
@@ -4451,11 +4296,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
     opacity: 1;
   }
 }
-:root[data-theme='light'] #studio-view .studio-slot-remove {
-  border-color: var(--line-strong);
-  background: var(--surface-raised);
-  color: var(--ink);
-}
 #studio-view .studio-slot-remove svg {
   width: 10px;
   height: 10px;
@@ -4492,9 +4332,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   font-weight: 600;
   white-space: nowrap;
 }
-:root[data-theme='light'] .studio-span-time {
-  filter: brightness(0.72);
-}
 /* « ⇄ 05.17 s »: one pill in the middle of the line, which swaps the start and the end. */
 #studio-view .studio-swap {
   position: relative;
@@ -4514,11 +4351,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
 #studio-view .studio-swap:focus-visible {
   border-color: #eceef2;
   color: var(--text-1);
-}
-:root[data-theme='light'] #studio-view .studio-swap {
-  border-color: var(--line-strong);
-  background: var(--field);
-  color: var(--soft);
 }
 #studio-view .studio-swap svg {
   flex: none;
@@ -5528,9 +5360,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   background: var(--screen);
   box-shadow: inset 0 0 0 1px #20232b;
 }
-:root[data-theme='light'] .studio-screen {
-  box-shadow: inset 0 0 0 1px var(--line-strong);
-}
 #studio-view .studio-stage {
   position: relative;
   display: flex;
@@ -5561,9 +5390,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   transition:
     width var(--move-time) var(--move-ease),
     height var(--move-time) var(--move-ease);
-}
-:root[data-theme='light'] #studio-view .studio-frame {
-  background: #1a1d23;
 }
 #studio-view .studio-frame.is-audio {
   background: transparent;
@@ -5644,20 +5470,11 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   background: #4a4f59;
   transition: background 0.4s ease;
 }
-:root[data-theme='light'] .studio-bars span {
-  background: #b9c0cb;
-}
 .studio-frame.is-busy .studio-bars span {
   background: #2a2e37;
 }
 .studio-frame.is-busy .studio-bars span.is-lit {
   background: #eceef2;
-}
-:root[data-theme='light'] .studio-frame.is-busy .studio-bars span {
-  background: #dfe3e9;
-}
-:root[data-theme='light'] .studio-frame.is-busy .studio-bars span.is-lit {
-  background: #12141a;
 }
 /* The row under the preview: formats on the left, Générer on the right. Between them 6 px at least
    (0.5.127; « Générer » is pushed to the right, the space is wider whenever there is room), 10 px
@@ -5708,11 +5525,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   color: var(--text-1);
   font-weight: 600;
 }
-:root[data-theme='light'] #studio-view .studio-format[aria-checked='true'],
-:root[data-theme='light'] #studio-view .studio-format.is-on {
-  background: #dcdfe5;
-  color: var(--text-1);
-}
 #studio-view .studio-format.is-more {
   min-width: 44px;
 }
@@ -5731,11 +5543,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
 }
-:root[data-theme='light'] .studio-format-menu {
-  background: var(--surface);
-  border-color: var(--line-strong);
-  box-shadow: 0 12px 32px var(--shadow);
-}
 .studio-format-menu button {
   min-height: 40px;
   border: 0;
@@ -5747,10 +5554,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
 }
 .studio-format-menu button[aria-pressed='true'] {
   background: #2a2e37;
-  color: var(--text-1);
-}
-:root[data-theme='light'] .studio-format-menu button[aria-pressed='true'] {
-  background: #dcdfe5;
   color: var(--text-1);
 }
 /* Générer (moodix-design.md 7 bis 22): dark, the triangle (14 px) and its word centred, exactly as
@@ -5862,24 +5665,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   background: #2c313b;
   transition: width 0.2s linear;
   pointer-events: none;
-}
-:root[data-theme='light'] #studio-view .studio-go {
-  border-color: #d5d9e0;
-  background: #ffffff;
-  color: var(--text-1);
-}
-:root[data-theme='light'] #studio-view .studio-go:is(:hover, :focus-visible):enabled {
-  border-color: #c3c8d0;
-  background: #f1f3f6;
-}
-:root[data-theme='light'] #studio-view .studio-go.is-unavailable,
-:root[data-theme='light'] #studio-view .studio-go:disabled:not([role='progressbar']) {
-  border-color: #d5d9e0;
-  background: #f1f3f6;
-  color: var(--text-4);
-}
-:root[data-theme='light'] .studio-go-bar {
-  background: #e3e6eb;
 }
 .studio-go.is-indeterminate .studio-go-bar {
   width: 30%;
@@ -6154,9 +5939,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   font-weight: 700;
   white-space: nowrap;
 }
-:root[data-theme='light'] .card-open {
-  border-color: var(--line-strong);
-}
 .card-open:hover:enabled {
   background: var(--hover);
 }
@@ -6288,14 +6070,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
 [data-ai-touched]:not([data-ai-active]) {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.28) !important;
 }
-:root[data-theme='light'] [data-ai-active] {
-  box-shadow:
-    0 0 0 2px var(--ai),
-    0 0 0 6px var(--ai-soft) !important;
-}
-:root[data-theme='light'] [data-ai-touched]:not([data-ai-active]) {
-  box-shadow: 0 0 0 1px var(--ai-soft) !important;
-}
 @media (prefers-reduced-motion: reduce) {
   .ai-cursor {
     transition: opacity 0.25s ease;
@@ -6325,13 +6099,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
 /* The ring of the focused message box: visible (3:1 and more), without the glare of white. */
 :root {
   --focus: #6b7280;
-}
-:root[data-theme='light'] {
-  --focus: #5a616d;
-}
-:root[data-theme='light'] #chat-form.composer {
-  background: var(--surface);
-  border-color: var(--line-strong);
 }
 /* A very narrow window: the chips of the message box go to a second line, the send button stays whole. */
 .composer-tools {
@@ -6434,16 +6201,9 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
     border-color 0.25s ease,
     box-shadow 0.4s ease;
 }
-:root[data-theme='light'] #studio-view .studio-prompt-field textarea {
-  border-color: var(--field-line);
-  background: var(--field);
-}
 #studio-view .studio-prompt-field textarea:focus {
   outline: none;
   border-color: #4a4f59;
-}
-:root[data-theme='light'] #studio-view .studio-prompt-field textarea:focus {
-  border-color: var(--line-strong);
 }
 /* Its thin bar: the thumb in the grey of the fields. */
 #studio-view .studio-prompt-field textarea::-webkit-scrollbar-thumb {
@@ -6466,9 +6226,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   border-radius: 0 0 0 9px;
   background: linear-gradient(to bottom, rgba(11, 12, 15, 0), #0b0c0f 88%);
   pointer-events: none;
-}
-:root[data-theme='light'] .studio-prompt-field.has-enrich::after {
-  background: linear-gradient(to bottom, transparent, var(--field) 88%);
 }
 .studio-prompt-field .studio-enrich {
   position: absolute;
@@ -6560,29 +6317,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
     animation: none;
   }
 }
-/* The light theme: the same steps in its own greys. */
-:root[data-theme='light'] #studio-view .studio-enrich-go {
-  border-color: var(--line-strong);
-  background: var(--chip);
-  color: var(--ink);
-}
-:root[data-theme='light'] #studio-view .studio-enrich-go:hover:enabled {
-  background: var(--hover);
-}
-:root[data-theme='light'] #studio-view .studio-enrich-go:disabled:not(.is-working) {
-  border-color: var(--line);
-  background: transparent;
-  color: var(--muted);
-}
-:root[data-theme='light'] #studio-view .studio-enrich-go.is-working {
-  border-color: #12141a;
-  background: #12141a;
-  color: #eceef2;
-}
-:root[data-theme='light'] #studio-view .studio-enrich-go.is-working::after {
-  border-color: #eceef2;
-  border-right-color: transparent;
-}
 .studio-prompt-field .studio-enrich .studio-link {
   display: grid;
   place-items: center;
@@ -6627,9 +6361,6 @@ body[data-view='studio'][data-chat='open'] .workspace:not(:has(#messages:empty))
   margin: 0;
   accent-color: #eceef2;
   cursor: pointer;
-}
-:root[data-theme='light'] .studio-lora-switch {
-  accent-color: #12141a;
 }
 .studio-lora-switch:disabled {
   cursor: default;
@@ -6793,10 +6524,6 @@ html[data-switch='open']::view-transition-old(chat) {
   --scroll-thumb: rgba(255, 255, 255, 0.1);
   --scroll-thumb-hover: rgba(255, 255, 255, 0.22);
 }
-:root[data-theme='light'] {
-  --scroll-thumb: rgba(18, 20, 26, 0.13);
-  --scroll-thumb-hover: rgba(18, 20, 26, 0.26);
-}
 /* Firefox: its thin bars have no arrows. */
 * {
   scrollbar-width: thin;
@@ -6924,9 +6651,6 @@ html[data-switch='open']::view-transition-old(chat) {
   height: 1px;
   background: #1a1d24;
 }
-:root[data-theme='light'] .studio-set-rule {
-  background: var(--line);
-}
 /* One line: its label, its thin bar, its value (in figures). */
 .studio-bar-line,
 .studio-set-line {
@@ -6974,9 +6698,6 @@ html[data-switch='open']::view-transition-old(chat) {
   border-radius: 0;
   cursor: pointer;
 }
-:root[data-theme='light'] #studio-view .studio-bar {
-  --bar-rest: #d3d8e0;
-}
 #studio-view .studio-bar::-webkit-slider-runnable-track {
   height: 2px;
   border: 0;
@@ -6995,12 +6716,6 @@ html[data-switch='open']::view-transition-old(chat) {
 #studio-view .studio-bar::-moz-range-thumb {
   border: 0;
   border-radius: 50%;
-}
-:root[data-theme='light'] #studio-view .studio-bar::-webkit-slider-thumb {
-  background: #12141a;
-}
-:root[data-theme='light'] #studio-view .studio-bar::-moz-range-thumb {
-  background: #12141a;
 }
 #studio-view .studio-bar:focus-visible {
   outline: 2px solid var(--focus);
@@ -7162,9 +6877,6 @@ html[data-switch='open']::view-transition-old(chat) {
   background: #1c1f26;
   color: var(--ink);
 }
-:root[data-theme='light'] #studio-view .studio-more-pill.is-open {
-  background: var(--chip);
-}
 /* (0.6.206, captures 110 and 111) « Plus de réglages », a window of glass against the column of the Réglages, at
    its left, over the preview: its lines in two columns of 500 px in all (our lists stop at 420), fields of 34 px
    (44 in the column), a long text over both columns on three lines. Under its pill, its lines made the column
@@ -7223,9 +6935,6 @@ html[data-switch='open']::view-transition-old(chat) {
   margin: 0;
   accent-color: #eceef2;
   cursor: pointer;
-}
-:root[data-theme='light'] #studio-view .studio-setting-switch {
-  accent-color: #12141a;
 }
 #studio-view .studio-setting-switch:disabled {
   cursor: default;
@@ -7610,13 +7319,6 @@ html[data-switch='open']::view-transition-old(chat) {
   background: transparent;
   color: var(--text-1);
 }
-:root[data-theme='light'] #studio-view .studio-save[data-state='saved'] {
-  color: var(--ink);
-}
-:root[data-theme='light'] #studio-view .studio-save[data-state='changed'] {
-  background: #12141a;
-  color: #eceef2;
-}
 #studio-view .studio-save svg {
   width: 16px;
   height: 16px;
@@ -7637,15 +7339,8 @@ html[data-switch='open']::view-transition-old(chat) {
    logo, under the timeline and under « Agent », the band of « Générer », the gradient of the bars
    and the blue of the image slots on hover; nowhere else in the Studio (a soft light line while an
    image is dragged over the column of the prompt). */
-:root[data-theme='light'] #studio-view .studio-block {
-  border-color: var(--line);
-}
 #studio-view .studio-block.is-input.is-dropping {
   border-color: rgba(236, 238, 242, 0.5);
-}
-:root[data-theme='light'] #studio-view .studio-block.is-input.is-dropping {
-  border-color: rgba(18, 20, 26, 0.45);
-  box-shadow: 0 0 18px rgba(18, 20, 26, 0.08);
 }
 
 /* ------------------------------------------------------------------ frame
@@ -7656,9 +7351,6 @@ html[data-switch='open']::view-transition-old(chat) {
      (4 / 2 / 3 / 1.5): the foot of Générer (moodix-design.md 7 bis 22). */
   --mdx-gradient: linear-gradient(90deg, #3d6bf5 19%, #22a060 47.6%, #f6c343 71.4%, #e8402f 92.9%);
   --frame: #07080a;
-}
-:root[data-theme='light'] {
-  --frame: #e6e8ed;
 }
 html,
 body {
@@ -7858,9 +7550,6 @@ body[data-view='library'] .chat-panel {
 #chat-form.composer:focus-within {
   border-color: #3a3f4a;
   box-shadow: none;
-}
-:root[data-theme='light'] #chat-form.composer:focus-within {
-  border-color: #aeb4bf;
 }
 /* The share of the context in use (« 0 % »), a figure that says nothing at first sight: shown
    under the pointer over the message box or over it, on the keyboard's focus, and when the
@@ -8063,26 +7752,6 @@ button.message-cited-item:focus-visible .message-cited-label {
 button.message-cited-item:focus-visible {
   outline: none;
 }
-:root[data-theme='light'] .ref-picker,
-:root[data-theme='light'] .ref-peek {
-  border-color: #d5d9e0;
-  background: #ffffff;
-  box-shadow: 0 12px 32px rgba(15, 17, 21, 0.14);
-}
-:root[data-theme='light'] .ref-picker-item:hover,
-:root[data-theme='light'] .ref-picker-item.is-active {
-  background: #f1f3f6;
-}
-:root[data-theme='light'] .ref-picker-words strong,
-:root[data-theme='light'] .ref-token {
-  color: var(--text-1);
-}
-:root[data-theme='light'] .ref-token {
-  background: rgba(11, 12, 15, 0.07);
-}
-:root[data-theme='light'] .ref-peek-caption {
-  color: var(--text-2);
-}
 
 /* ------------------------------------------------------------------ one tooltip, one ring (0.5.120)
    The help of a « ? » and the name of a control in one bubble (help-tips.mjs): one style, one
@@ -8110,12 +7779,6 @@ button.message-cited-item:focus-visible {
   font-weight: 500;
   line-height: 1.55;
 }
-:root[data-theme='light'] .help-bubble {
-  border-color: #d5d9e0;
-  background: #ffffff;
-  box-shadow: 0 8px 24px rgba(15, 17, 21, 0.14);
-  color: var(--text-1);
-}
 /* One ring for the keyboard's focus, everywhere: 2 px of --focus (it was white on the modes of
    the Studio and the projects, grey elsewhere). Where a control draws it inside itself, its offset
    stays; where it shows its focus otherwise (the message box), it has none. */
@@ -8129,9 +7792,12 @@ button.message-cited-item:focus-visible {
  * La direction « Salle obscure » (claude_design/maquettes, reference-maquettes.md fait foi) : un fond
  * très sombre réglable, du verre fumé, le grain derrière le verre (jamais sur les images), la lumière
  * de la dernière prise, un tramage contre les bandes ; une couleur d'accent par salle ; Gloock pour
- * les titres et le logo, Jost pour l'interface, JetBrains Mono pour les données. Le mode Jour garde
- * son ancienne palette (à décider) : ce qui suit vaut hors de lui. La salle elle-même (sa lumière, la
- * texture de son grain) est dans room.mjs.
+ * les titres et le logo, Jost pour l'interface, JetBrains Mono pour les données. La salle elle-même
+ * (sa lumière, la texture de son grain) est dans room.mjs.
+ *
+ * (0.6.434) The « Jour » mode is gone and nothing sets data-theme any more: the
+ * « :not([data-theme='light']) » of the selectors below matches every page. It stays for the weight
+ * it gives them in the cascade: without it, some of these rules would lose to those of the parts above.
  */
 @font-face {
   font-family: 'Gloock';
@@ -8170,7 +7836,7 @@ button.message-cited-item:focus-visible {
    posée dessus, ses trois gris (secondaire, tertiaire, discret). Le texte principal reste l'ivoire. */
 :root:not([data-theme='light']) {
   --ivory: #eee8de;
-  /* The mark (logo.md): ivory in the dark, ink on a light ground. */
+  /* The mark (logo.md), in ivory. */
   --mark: var(--ivory);
   --room-bg: #0c0b0e;
   --room-glass: 22, 20, 28;
@@ -8289,10 +7955,6 @@ html:not([data-theme='light']) {
   overflow: hidden;
   pointer-events: none;
   background: var(--room-bg);
-}
-:root[data-theme='light'] .room,
-:root[data-theme='light'] .room-dither {
-  display: none;
 }
 /* La lumière de la dernière prise : deux images opaques de 128 px agrandies (room.mjs), un voile
    en multiply et une lumière en screen ; sa force selon l'éclairage, sans la recalculer. */
@@ -8490,10 +8152,6 @@ body:has(dialog[open]) .room-grain {
 }
 /* Le filet aux quatre couleurs de l'ancienne fenêtre n'a plus sa place dans la salle. */
 
-:root[data-theme='light'] {
-  --mark: #0c0b0e;
-}
-
 /* ------------------------------------------------------------------ the top bar (1b) */
 /* Plus de barre latérale ni de fenêtre (reference-maquettes.md) : la barre du haut, identique
    partout, puis la page. À gauche l'Éclipse et « Moodix » en Gloock, au milieu Chat · Studio ·
@@ -8563,7 +8221,7 @@ body {
 }
 /* The Éclipse of the word follows its size: 0.556 of it wide, 0.03 on each side, 0.022 lower than
    the line (14.5 px, 0.8 px and -0.6 px at 26 px). Fuller than the mark (radii 15.2 and 14): not
-   eclipse.svg. In currentColor, the room's and the Jour mode's. */
+   eclipse.svg. In currentColor, the room's. */
 /* Its sphere is a filled shape: without the stroke every picture of the bar is drawn with
    (`.top-bar svg`), which made it some 0.4 px fatter on each edge, its horns rounded. Its ring
    keeps the stroke it names itself. */
@@ -11065,8 +10723,7 @@ body[data-view='studio'][data-chat='open'] #studio-view {
   opacity: 0.55;
   transform: scale(0.985);
 }
-body[data-view='studio'][data-chat='open'] .chat-scrim,
-:root[data-theme='light'] body[data-view='studio'][data-chat='open'] .chat-scrim {
+body[data-view='studio'][data-chat='open'] .chat-scrim {
   background: transparent;
 }
 body[data-view='studio'][data-chat='open'] .chat-panel {
@@ -13071,14 +12728,6 @@ body:has(#settings[data-tab='interface'][open]) :is(#top, .workspace) {
 }
 .take-player:not(.is-audio) {
   container: take-player / inline-size;
-}
-/* Over a picture by day too: ivory on the dark of its foot, as by night (the ink of the day was not
-   read there, nor its accent on the line). A sound keeps the colours of its window. */
-:root[data-theme='light'] .take-player:not(.is-audio) {
-  --text-1: #eee8de;
-  --text-3: #8b8891;
-  --ink: #eee8de;
-  --accent: #eee8de;
 }
 .take-player > .take-player-play {
   position: absolute;
@@ -19922,9 +19571,6 @@ body:has(dialog[open]) :is(.camera-ball, .camera-menu-option) :is(.camera-ball-l
 .camera-menu-sentence {
   margin-left: 4px;
   color: var(--text-2);
-}
-:root[data-theme='light'] #studio-view .glass-menu.camera-menu {
-  background: var(--field);
 }
 /* A shorter window (1440 × 900): its small balls a little smaller, so that it stays above « Générer ». */
 @media (max-height: 920px) {

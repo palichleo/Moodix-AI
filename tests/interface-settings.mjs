@@ -108,7 +108,7 @@ test('the server keeps « Irisée » when it is chosen, and the light of the las
           body: JSON.stringify(body),
         })
       ).json();
-    assert.equal((await call({ theme: 'dark' })).preferences.room.lighting, 'prise');
+    assert.equal((await call({ saveHistory: true })).preferences.room.lighting, 'prise');
     assert.equal((await call({ room: { room: 'velours', lighting: 'irisee' } })).preferences.room.lighting, 'irisee');
     assert.equal((await call({ room: { room: 'velours', lighting: 'arc-en-ciel' } })).preferences.room.lighting, 'prise');
     await call({ room: { room: 'velours', lighting: 'irisee' } });
