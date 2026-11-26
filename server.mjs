@@ -71,12 +71,10 @@ const staticFiles = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/favicon.svg', ['favicon.svg', 'image/svg+xml']],
   // The small logo (claude_design/maquettes/logo.md, Éclipse): its fallback, its icon for a phone's home
-  // screen, a large one, and the mark of Moodix AI, in ivory and in ink.
+  // screen and a large one.
   ['/favicon.ico', ['favicon.ico', 'image/x-icon']],
   ['/apple-touch-icon.png', ['apple-touch-icon.png', 'image/png']],
   ['/icon-512.png', ['icon-512.png', 'image/png']],
-  ['/assets/moodix-mark.svg', ['assets/moodix-mark.svg', 'image/svg+xml']],
-  ['/assets/moodix-mark-encre.svg', ['assets/moodix-mark-encre.svg', 'image/svg+xml']],
   ['/assets/watermark-eclipse.svg', ['assets/watermark-eclipse.svg', 'image/svg+xml']],
   ['/assets/watermark-eclipse-nom.svg', ['assets/watermark-eclipse-nom.svg', 'image/svg+xml']],
   ['/update-ui.mjs', ['update-ui.mjs', 'text/javascript; charset=utf-8']],

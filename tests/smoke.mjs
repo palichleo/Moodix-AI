@@ -114,13 +114,11 @@ test('smoke local sans modèle réel', { timeout: 30000 }, async t => {
       assert.match(await page.text(), /<link rel="icon"[^>]*href="\/favicon\.svg(\?v=\d+)?"/);
       // The tile of the Éclipse, drawn for 16 px (claude_design/maquettes/logo.md).
       assert.match(await icon.text(), /<svg[^>]*viewBox="0 0 16 16"/);
-      // The small logo, its fallback and its large sizes, and the mark of Moodix AI in the chat.
+      // The small logo, its fallback and its large sizes.
       for (const [path, type] of [
         ['/favicon.ico', 'image/x-icon'],
         ['/apple-touch-icon.png', 'image/png'],
         ['/icon-512.png', 'image/png'],
-        ['/assets/moodix-mark.svg', 'image/svg+xml'],
-        ['/assets/moodix-mark-encre.svg', 'image/svg+xml'],
         // « Salle obscure »: the room, its fonts, the tile of its dithering.
         ['/room.mjs', 'text/javascript; charset=utf-8'],
         ['/fonts/Gloock-latin.woff2', 'font/woff2'],

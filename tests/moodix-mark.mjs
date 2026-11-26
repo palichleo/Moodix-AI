@@ -29,23 +29,6 @@ test('the crescent is the full disc less the shadow disc: both its points lie on
   }
 });
 
-test('the mark: the crescent and its light ring, which does not thicken; ivory, and ink on a light ground', async () => {
-  for (const [file, colour] of [
-    ['assets/moodix-mark.svg', '#EEE8DE'],
-    ['assets/moodix-mark-encre.svg', '#0C0B0E'],
-  ]) {
-    const svg = await read(file);
-    assert.match(svg, /viewBox="0 0 32 32"/);
-    assert.ok(svg.includes(`<path d="${CRESCENT}" fill="${colour}"/>`), file);
-    assert.ok(
-      svg.includes(
-        `<circle cx="16" cy="16" r="12.5" fill="none" stroke="${colour}" stroke-opacity=".22" stroke-width="1" vector-effect="non-scaling-stroke"/>`,
-      ),
-      file,
-    );
-  }
-});
-
 test('the favicon: the crescent alone, without its ring, on its dark tile with corners of 3.5', async () => {
   const svg = await read('favicon.svg');
   assert.match(svg, /viewBox="0 0 16 16"/);
@@ -59,11 +42,6 @@ test('every reference to the logo asks for its new version (?v=4), never the one
   for (const name of ['favicon.ico', 'icon-512.png', 'favicon.svg', 'apple-touch-icon.png'])
     assert.match(html, new RegExp(`href="/${name.replace('.', '\\.')}\\?v=4"`));
   assert.doesNotMatch(html, /\?v=[23]"/);
-  const pages = [html, await read('app.js'), await read('moodix.css'), await read('studio.mjs')].join('\n');
-  // (0.6.92: the settings of the Studio no longer wear the mark of Moodix AI, the only page that
-  // asked for these files; any that asks for them again asks for this version.)
-  const marks = [...pages.matchAll(/\/assets\/moodix-mark(?:-encre)?\.svg[^'")\s]*/g)].map(found => found[0]);
-  for (const mark of marks) assert.match(mark, /^\/assets\/moodix-mark(?:-encre)?\.svg\?v=4$/);
 });
 
 test('the mark of the chat breathes while its model thinks: one mask each, still at rest and with less motion', async () => {
@@ -83,4 +61,15 @@ test('the mark of the chat breathes while its model thinks: one mask each, still
   assert.match(breath, /90%,\s*100% \{\s*cy: 11\.6px;\s*r: 11\.4px;\s*\}/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.is-thinking \.eclipse-shadow \{\s*animation: none;\s*\}\s*\}/);
   assert.match(css, /\.eclipse-ring \{[^}]*stroke-opacity: 0\.22;[^}]*vector-effect: non-scaling-stroke;/);
+});
+
+test('(0.6.435) the two files of the mark are gone: no page asks for them, the server serves them no more', async () => {
+  const { readdir } = await import('node:fs/promises');
+  const names = (await readdir(new URL('../public/', import.meta.url))).filter(name => /\.(html|m?js|css)$/.test(name));
+  const pages = (await Promise.all(names.map(read))).join('\n'),
+    server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8');
+  // (0.6.92) The settings of the Studio no longer wore the mark of Moodix AI, the only page that asked for them.
+  assert.doesNotMatch(pages + server, /moodix-mark/);
+  const left = (await readdir(new URL('../public/assets/', import.meta.url))).filter(name => name.startsWith('moodix-mark'));
+  assert.deepEqual(left, []);
 });
