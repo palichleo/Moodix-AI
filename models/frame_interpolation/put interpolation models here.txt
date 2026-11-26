@@ -1,3 +1,4 @@
 Put frame interpolation models here (RIFE 4.2x .safetensors, standard or heavy).
-Select them in an interpolation workflow. Files are not moved or downloaded.
+Choose one on the page of RIFE (Paramètres > Modèles). When it is missing, Moodix offers to download the file
+it ships with; nothing is downloaded without your asking.
 Weights are local only and ignored by Git.

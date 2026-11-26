@@ -1,0 +1,5 @@
+Moodix keeps here the models whose settings you changed in Paramètres > Modèles: one JSON file each,
+named by its id. A model you never changed has no file here and follows what each update brings;
+updates never touch this folder. Workflows created or imported with an earlier version stay here and
+are still read.
+Nothing is to be put here by hand: model files go in models/. The JSON files here are yours, and ignored by Git.

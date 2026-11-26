@@ -1,4 +1,4 @@
-Put the checkpoints some workflows need here (.safetensors), as in ComfyUI:
+Put the checkpoints some models need here (.safetensors), as in ComfyUI:
 the SAM 3.1 segmentation model used by Wan 2.1 SCAIL-2 (character replacement).
 Generation models (Krea 2, LTX 2.5, MiniMax H3...) go in models/diffusion_models; those already here are still found.
 Weights are local only and ignored by Git.

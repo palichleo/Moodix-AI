@@ -365,3 +365,32 @@ test('without ComfyUI the Studio lists the LoRAs of the folder, and Atelier’s 
   const other = await made.ownJob({ id: 'h', pipeline: 'minimax_h3', loras: [], styles });
   assert.deepEqual([other.styles, other.loras], [undefined, []]);
 });
+
+test('(0.6.441) the guides of models/ and workflow/ name the pages of today, no workflow editor', async () => {
+  const { readdir, readFile } = await import('node:fs/promises'),
+    at = path => new URL('../' + path, import.meta.url);
+  // Each tab of the settings, by its title, with what it holds.
+  const panels = Object.fromEntries(
+    (await readFile(at('public/index.html'), 'utf8'))
+      .split('<div role="tabpanel"')
+      .slice(1)
+      .map(panel => [panel.match(/settings-panel-title">([^<]+)</)?.[1], panel]),
+  );
+  const folders = ['workflow', ...(await readdir(at('models/'))).map(folder => 'models/' + folder)];
+  for (const folder of folders)
+    for (const name of (await readdir(at(folder + '/'))).filter(file => file.endsWith('.txt'))) {
+      const text = await readFile(at(`${folder}/${name}`), 'utf8');
+      // (0.6.128-0.6.132) The page of each model took the place of the workflow editor; importing went.
+      assert.doesNotMatch(text, /workflow editor|Settings > Workflows|workflow's|Atelier/i, name);
+      assert.doesNotMatch(text, /\bin an? (\w+ )?workflow|not moved or downloaded/i, name);
+      // « Paramètres > Modèles > "Dossier des modèles" »: a tab of today, and what it holds.
+      for (const part of text.split('Paramètres > ').slice(1)) {
+        const [tab, item] = part
+          .split(/[):\r\n]|\.(?:\s|$)/)[0]
+          .split(' > ')
+          .map(words => words.replaceAll('"', '').trim());
+        assert.ok(panels[tab], `${name} : « ${tab} » n’est pas un onglet des paramètres`);
+        if (item) assert.ok(panels[tab].includes(item), `${name} : « ${item} » n’est pas dans l’onglet ${tab}`);
+      }
+    }
+});
