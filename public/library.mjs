@@ -1,5 +1,6 @@
 /**
- * The Pellicule (pellicule-maquette.md; captures 30 to 34): every creation of every project, images,
+ * The Archives (named the Pellicule until 0.6.148; pellicule-maquette.md, captures 30 to 34): every
+ * creation of every project, images,
  * clips and sounds, the newest at the top left. Its head is one line (pellicule-fil-maquette.md,
  * captures 35 to 39): the fil « projet / conversation » of the Chat and the Studio, which the
  * navigation (project-navigation.mjs) puts there and whose menus choose the project and the

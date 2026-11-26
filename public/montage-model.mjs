@@ -624,7 +624,8 @@ export function partsOf(plan, limits = {}) {
  * - 'photo': its start photo;
  * - 'suite': the video before it, shown to the end of its take, which it continues (`whole`: the
  *   length of that take);
- * - 'last': the last image of that video, towards its own end photo (a new clip: see creationOf);
+ * - 'last': that video too, towards its own end photo (since 0.6.152 a continuation that arrives on the
+ *   photo, no longer a new clip from its last image: see creationOf);
  * - 'wait': the plan before it is still to make; 'cut': the video before it stops before the end of
  *   its take;
  * - 'own': nothing to go on from; 'made': not a plan to make.
@@ -700,9 +701,9 @@ export function seriesOf(montage, lengthOf = () => null, { limits = {}, writable
  * format, start, end, continues, from }`, or `{ reason }` in the user's words when it cannot be yet.
  * `lengthOf(source)`: the length of a take of the project, or null.
  * - a start photo: a new clip that starts on it (`start: { source }`);
- * - no start photo, after a video shown to its end: it continues that video. With an end photo, a new
- *   clip from the last image of the video (`start: { source, frame: 'last' }`); without one, the
- *   continuation itself (`continues`), whose file holds the video first: the plan shows it from `from`;
+ * - no start photo, after a video shown to its end: it continues that video (`continues`, `verb:
+ *   'extend_video'`), whose file holds the video first: the plan shows it from `from`. With an end photo,
+ *   the continuation arrives on it (`end`; since 0.6.152, no longer a new clip from the last image);
  * - else a clip of its own, from its text (and its end photo).
  */
 export function creationOf(montage, id, lengthOf = () => null, { limits = {} } = {}) {
