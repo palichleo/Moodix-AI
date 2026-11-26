@@ -26,6 +26,9 @@ STATES = 10
 BESIDE_GIB = 1.7
 # What the engine keeps free under its ceiling (runner.engine.VRAM_MARGIN), and a little more.
 CEILING_GIB = 1.2
+# (0.6.449) What that estimate was seen to overstate (26/11: 9.3 and 9.5 GiB held at 4096 x 4096 and 5120 x 5120,
+# for 10.2 read from it): an image is refused only when the steps would lack memory even so.
+SURE_GIB = 1.0
 
 
 def working_gib(width, height):
@@ -103,7 +106,7 @@ def generate(job, config, progress):
     from runner.media import open_image, save_image
     from runner.models.ladder import smaller
     from runner.models import seedvr2, seedvr2_color, seedvr2_vae
-    from runner.models.pool import WeightPool
+    from runner.models.pool import WeightPool, require
     from runner.models.residency import RESIDENCY, open_store
 
     if not torch.cuda.is_available():
@@ -116,6 +119,12 @@ def generate(job, config, progress):
         current = image.convert('RGB')
     source_size = current.size
     sizes = _sizes(*current.size, p)
+    # (0.6.449) An image the card cannot hold beside any share of the weights is refused before anything is
+    # loaded, in the user's words. At 6144 x 6144 and 8192 x 8192 on 12 GiB the steps failed after a minute,
+    # twice: under the ceiling of the engine, then without it on an error of PyTorch's own allocator
+    # (« !handles_.at(i) INTERNAL ASSERT FAILED »). 5120 x 5120 is made.
+    largest = max(working_gib(width, height) for width, height in sizes)
+    require('SeedVR2', largest, 'la taille de l’image', measured=max(0.1, largest - SURE_GIB))
     progress(stage='loading upscaler')
     vae = seedvr2_vae.load(job['components']['vae'])
     total = len(sizes) * seedvr2.LAYERS * steps

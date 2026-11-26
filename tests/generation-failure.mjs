@@ -31,6 +31,19 @@ test('the card out of memory is said in the user’s words, with what was asked 
   assert.match(explainFailure(TORCH, { media: 'video', frames: 61, fps: 24.5 }), /cette vidéo \(2,5 s\)/);
 });
 
+test('the allocator of PyTorch giving up is the card out of memory too (0.6.449)', () => {
+  // What the engine said of a SeedVR2 image of 6144 × 6144 on a card of 12 Go, at its second attempt (26/11).
+  const ASSERT =
+    '!handles_.at(i) INTERNAL ASSERT FAILED at "C:\\actions-runner\\_work\\pytorch\\pytorch\\c10\\cuda\\CUDACachingAllocator.cpp":487, please report a bug to PyTorch. ';
+  assert.equal(
+    explainFailure(ASSERT, { media: 'image', width: 6144, height: 6144 }),
+    'La carte graphique n’a pas assez de mémoire pour cette image (6144 × 6144). Choisissez une taille plus petite, ou fermez les programmes qui se servent de la carte.',
+  );
+  // Another assertion of PyTorch is a bug: said as it came.
+  const other = 'x.dim() == 2 INTERNAL ASSERT FAILED at "aten/src/ATen/native/LinearAlgebra.cpp":12, please report a bug to PyTorch.';
+  assert.equal(explainFailure(other, { media: 'image', width: 64, height: 64 }), other);
+});
+
 test('a failure that is not known is given back as the engine said it', () => {
   for (const said of ['Le workflow a été modifié avant son exécution.', 'Decoded video dimensions do not match the approved job', 'Audio mux failed: ffmpeg', ''])
     assert.equal(explainFailure(said, { media: 'video', width: 768, height: 448 }), said);

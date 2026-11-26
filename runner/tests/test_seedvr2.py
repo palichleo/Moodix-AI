@@ -201,5 +201,67 @@ class SeedVR2ShareTest(unittest.TestCase):
         self.assertNotIn('done +=', steps)
 
 
+class SeedVR2RefusalTest(unittest.TestCase):
+    """(0.6.449) An image the card cannot hold is refused before anything is loaded, in the user's words."""
+
+    def asked(self, side, scale, free_gib):
+        """What generate does of a square image of `side` enlarged by `scale` with `free_gib` free on the card:
+        the error it raises before the VAE is loaded, or 'loaded' when it goes on to load it."""
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        import torch
+        from PIL import Image
+
+        from runner import hardware
+        from runner.models import seedvr2_vae
+        from runner.pipelines import seedvr2
+
+        class Loaded(Exception):
+            pass
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = str(Path(folder) / 'source.png')
+            Image.new('RGB', (side, side), (120, 90, 60)).save(path)
+            job = dict(
+                id='refusal',
+                pipeline='seedvr2',
+                parameters=dict(seed=1, scale=scale, passes=1, max_side=8192, steps=1, color_correction='lab'),
+                components=dict(model='C:/model', vae='C:/vae'),
+                loras=[],
+                references=[dict(role='image', path=path)],
+            )
+            with (
+                mock.patch.object(torch.cuda, 'is_available', return_value=True),
+                mock.patch.object(torch.cuda, 'reset_peak_memory_stats', return_value=None),
+                mock.patch.object(torch.cuda, 'memory_reserved', return_value=0),
+                mock.patch.object(hardware, 'free_bytes', return_value=int(free_gib * 1024**3)),
+                mock.patch.object(seedvr2_vae, 'load', side_effect=Loaded),
+            ):
+                try:
+                    seedvr2.generate(job, dict(outputRoot=folder), lambda **data: None)
+                except Loaded:
+                    return 'loaded'
+                except RuntimeError as error:
+                    return str(error)
+        return 'made'
+
+    def test_an_image_the_card_cannot_hold_is_refused_at_once_with_what_to_do(self):
+        # 8192 x 8192: about 17 GiB beside the weights. On 12 GiB the steps failed after a minute, twice.
+        said = self.asked(512, 16, 11.4)
+        self.assertRegex(said, r'^SeedVR2 demande environ 15,7 Go de mémoire vidéo libre pour cette création ; 11,4 Go')
+        self.assertIn('réduisez la taille de l’image', said)
+        # 5120 x 5120 was made with 11.4 GiB free (26/11), 4096 x 4096 too: never refused.
+        self.assertEqual(self.asked(320, 16, 11.4), 'loaded')
+        self.assertEqual(self.asked(256, 16, 10.6), 'loaded')
+        # 6144 x 6144 fails in the steps, but the estimate is not sure enough to refuse it at once.
+        self.assertEqual(self.asked(384, 16, 11.4), 'loaded')
+        # A card with more room makes what this one refuses.
+        self.assertEqual(self.asked(512, 16, 23.0), 'loaded')
+        # A small image on a card almost full: refused too, where the steps had nothing to compute with.
+        self.assertRegex(self.asked(128, 16, 1.0), r'^SeedVR2 demande environ 1,6 Go')
+
+
 if __name__ == '__main__':
     unittest.main()
