@@ -16,6 +16,7 @@ import {
   takeSeconds,
   trackOf,
   usualSize,
+  withEndPulled,
   withItemChanged,
   withPlanMoved,
   withPlanPlaced,
@@ -258,4 +259,39 @@ test('dragged near two cuts or two neighbours, a sound or a plan goes to the nea
   // The same for a plan of the bobine dragged into the hole.
   const moved = withPlanPlaced(withTake(holed, clip(4, 1), { id: id(14) }), id(14), 12.6, { near: 3 });
   assert.deepEqual(moved.plans.map(plan => [plan.id, plan.at]), [[id(11), 0], [id(14), 13], [id(12), 14], [id(13), 19]]);
+});
+
+test('a take laid after a video goes after the suites to create glued behind it, as a dragged block (0.6.437)', () => {
+  // (Z6-13) V, the suite to create S pulled from its end, then W. A clip or an image let go on the second half of
+  // V went between V and S: S went on from that clip instead of V, or from an image, from nothing at all.
+  const lengthOf = wanted => ({ [id(1)]: 5, [id(2)]: 4, [id(7)]: 3 })[wanted.runId] ?? null,
+    places = laid => laid.plans.map(plan => [plan.id, plan.at]);
+  let montage = withTake(empty(), clip(1, 5), { id: id(11) });
+  montage = withEndPulled(montage, id(11), 8, { longest: 5, suiteId: id(40) });
+  montage = withTake(withItemChanged(montage, id(40), { prompt: 'Il court.' }), clip(2, 4), { id: id(12) });
+  assert.deepEqual(places(montage), [[id(11), 0], [id(40), 5], [id(12), 8]]);
+  // On the second half of V, or on the first half of S: after S, which still goes on from V.
+  for (const [taken, at] of [[clip(7, 3), 4], [record(8, 'image'), 4], [clip(7, 3), 5.5]]) {
+    const laid = withTake(montage, taken, { id: id(50), at, near: 0.3 });
+    assert.deepEqual(places(laid), [[id(11), 0], [id(40), 5], [id(50), 8], [id(12), 11]], `laid at ${at} s`);
+    assert.deepEqual(linkOf(laid, id(40), lengthOf), { kind: 'suite', before: 1, whole: 5 });
+    assert.deepEqual(kept(laid).plans, laid.plans);
+  }
+  // W dragged there comes back where it was; on the first half of V, before it, V and S pushed together.
+  assert.equal(withPlanPlaced(montage, id(12), 4, { near: 0.3 }), montage);
+  const before = withTake(montage, clip(7, 3), { id: id(50), at: 1 });
+  assert.deepEqual(places(before), [[id(50), 0], [id(11), 3], [id(40), 8], [id(12), 11]]);
+  // A suite of that suite goes along too.
+  const [video, suite, next] = montage.plans,
+    chained = { ...montage, plans: [video, suite, { ...suite, id: id(42), at: 8 }, { ...next, at: 11 }] };
+  assert.deepEqual(places(withTake(chained, clip(7, 3), { id: id(50), at: 4 })), [
+    [id(11), 0],
+    [id(40), 5],
+    [id(42), 8],
+    [id(50), 11],
+    [id(12), 14],
+  ]);
+  // A take to create drawn against V is no suite: it goes on from nothing, and the clip goes between them.
+  const drawn = withTodoDrawn(withTake(empty(), clip(1, 5), { id: id(11) }), { id: id(41), at: 5, seconds: 3 }).montage;
+  assert.deepEqual(places(withTake(drawn, clip(7, 3), { id: id(50), at: 4 })), [[id(11), 0], [id(50), 5], [id(41), 8]]);
 });

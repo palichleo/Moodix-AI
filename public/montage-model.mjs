@@ -118,6 +118,7 @@ export function holeAt(montage, seconds) {
  * Where a plan (or plans that stay together, `block`) laid at `seconds` goes among `plans`: on a
  * plan, before it on its first half and after it on its second; in a hole, where it is laid, or
  * against the edge of a neighbour within `near` seconds. What it then overlaps is pushed later.
+ * Never between a video and the suites to create glued behind it: after them (0.6.437).
  */
 function laidAt(plans, block, seconds, near = 0) {
   const length = block.reduce((sum, plan) => sum + long(plan), 0);
@@ -130,6 +131,19 @@ function laidAt(plans, block, seconds, near = 0) {
       start = endOf(on);
       index++;
     } else start = on.at;
+    // (0.6.437) A video and its suites to create are one, as a dragged block takes them along (withPlanPlaced):
+    // a clip let go on the second half of a video went between it and its suite, which then went on from that
+    // clip, or from an image, from nothing (« plus collée »). A suite of a suite goes along too.
+    while (
+      index > 0 &&
+      plans[index - 1].kind === 'video' &&
+      isTodo(plans[index]) &&
+      plans[index].todo.suite &&
+      gluedBefore(plans, index)
+    ) {
+      start = endOf(plans[index]);
+      index++;
+    }
   } else {
     index = plans.filter(plan => plan.at < start).length;
     const before = plans[index - 1],
