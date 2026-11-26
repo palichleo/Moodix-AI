@@ -481,6 +481,8 @@ test('the page « Modèles » is given one line a model, in its order, and a cho
       ['image', 'Qwen-Image-Edit', 'Retoucher une image avec des mots, d’après une à trois images.'],
       ['video', 'LTX 2.5', 'Vidéos et prolongations.'],
       ['video', 'MiniMax H3', 'Vidéos de 5 à 15 s, avec le son.'],
+      // (0.6.423) MiniMax's own model computed with its step adapter: a model of its own in the list.
+      ['video', 'pi H3', 'Vidéos de 5 à 15 s avec le son, en 4 étapes.'],
       ['video', 'Wan 2.1 SCAIL-2', 'Remplacer un personnage dans une vidéo.'],
       ['video', 'Wan 2.2', 'Animer une image, sans le son.'],
       // (0.6.223) Shipped since the real videos of 22/11: the camera of a model made for it.

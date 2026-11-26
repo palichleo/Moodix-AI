@@ -10,6 +10,8 @@ each phase cost, what stayed on the GPU and what was kept in RAM.
     python -s -m runner.bench minimax_h3 --model M.safetensors --text-encoder T.safetensors \\
         --vae V.safetensors --audio-vae A.safetensors --tokenizer TOKENIZER_FOLDER --out FOLDER \\
         [--steps 20: MiniMax's own checkpoints] [--reference-model REF2VA --reference reference_image=FILE]
+    python -s -m runner.bench pi_h3 (MiniMax's FL2VA and the rest as minimax_h3) --step-adapter PI_H3.safetensors \
+        [--reference start_image=FILE] [--reference end_image=FILE]
     python -s -m runner.bench ltx25 --model M.safetensors --text-encoder T.safetensors \\
         --vae V.safetensors --audio-vae A.safetensors [--upscaler U.safetensors] --out FOLDER \\
         [--reference start_image=FILE] [--silent] \\
@@ -154,6 +156,18 @@ def minimax_h3_job(args, run):
             dict(input=role, role=role, path=path) for role, _, path in (item.partition('=') for item in args.reference)
         ],
     )
+
+
+def pi_h3_job(args, run):
+    """pi H3: the job of MiniMax H3 with its step adapter. Its steps are the adapter's, and it is computed
+    dense: neither is asked."""
+    _need(args, 'step_adapter')
+    job = minimax_h3_job(args, run)
+    job['pipeline'] = 'pi_h3'
+    for name in ('steps', 'sparse_attention', 'sparse_keep', 'sparse_start', 'overlap_frames'):
+        del job['parameters'][name]
+    job['components']['stepAdapter'] = args.step_adapter
+    return job
 
 
 def ltx25_job(args, run):
@@ -326,6 +340,7 @@ FAMILIES = {
     'ltx25': ('runner.pipelines.ltx25', ltx25_job),
     'minimax_h3': ('runner.pipelines.minimax_h3', minimax_h3_job),
     'moss': ('runner.pipelines.moss', moss_job),
+    'pi_h3': ('runner.pipelines.minimax_h3', pi_h3_job),
     'qwen_image_edit': ('runner.pipelines.qwen_image_edit', qwen_image_edit_job),
     'wan22': ('runner.pipelines.wan22', wan22_job),
     'wan22_camera': ('runner.pipelines.wan22', wan22_camera_job),
@@ -339,6 +354,8 @@ def main(argv=None):
     names = ('model', 'reference-model', 'text-encoder', 'vae', 'audio-vae', 'tokenizer', 'upscaler', 'clip-vision')
     # Wan 2.2: its second model (« low noise »), and the step LoRA of each.
     names += ('model-low', 'step-lora', 'step-lora-low')
+    # pi H3: the step adapter MiniMax's FL2VA is computed with.
+    names += ('step-adapter',)
     for name in (*names, 'segmenter'):
         parser.add_argument('--' + name)
     parser.add_argument('--out', required=True)

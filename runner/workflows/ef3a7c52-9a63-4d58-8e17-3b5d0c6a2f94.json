@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "id": "ef3a7c52-9a63-4d58-8e17-3b5d0c6a2f94",
+  "enabled": true,
+  "pipeline": "pi_h3",
+  "mediaType": "video",
+  "name": "pi H3",
+  "description": "Créer une vidéo de 5 à 15 secondes avec son synchronisé, en 4 étapes seulement : depuis un texte, ou entre une image de début et/ou de fin. Le plus rapide des modèles vidéo avec le son. Pas de sujets de référence ni de vidéo à prolonger : LTX 2.5 et MiniMax H3 les prennent.",
+  "components": {
+    "model": {
+      "policy": "fixed",
+      "asset": "a4d1c7e2-5b38-4f06-9c2a-71e8d3b6f045",
+      "file": "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+    },
+    "stepAdapter": {
+      "policy": "fixed",
+      "asset": "d93e6a1b-2c47-4e85-b0f3-6a19c8e5d274",
+      "file": "pi_h3_4step_dwd_adapter_int8_convrot.safetensors"
+    },
+    "textEncoder": {
+      "policy": "fixed",
+      "asset": "5e0b8f3c-7d21-4a96-a4c8-2f6e1b9d3a70",
+      "file": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+    },
+    "tokenizer": {
+      "policy": "fixed",
+      "asset": "b17a3d5e-4c80-4f29-8d6b-e52c9a1f7036",
+      "file": "qwen25_tokenizer"
+    },
+    "vae": {
+      "policy": "fixed",
+      "asset": "2f8c5a9d-6e14-4b73-9a05-c3d7e0b1f482",
+      "file": "minimax_h3_video_vae_fp16.safetensors"
+    },
+    "audioVae": {
+      "policy": "fixed",
+      "asset": "e6b2d0f7-1a59-4c38-b7e4-908a5c3d6f21",
+      "file": "minimax_h3_audio_vae_fp32.safetensors"
+    }
+  },
+  "parameters": {
+    "prompt": {
+      "policy": "model",
+      "type": "string",
+      "maxLength": 8000
+    },
+    "seed": {
+      "policy": "random",
+      "type": "integer"
+    },
+    "width": {
+      "policy": "fixed",
+      "value": 768
+    },
+    "height": {
+      "policy": "fixed",
+      "value": 448
+    },
+    "frames": {
+      "policy": "model",
+      "type": "integer",
+      "choices": [
+        124,
+        141,
+        158,
+        175,
+        192,
+        209,
+        226,
+        243,
+        260,
+        277,
+        294,
+        311,
+        328,
+        345
+      ],
+      "default": 124,
+      "description": "Longueur du clip (24 i/s) : de 124 (5,2 s) à 345 images (14,4 s)."
+    },
+    "fps": {
+      "policy": "fixed",
+      "value": 24
+    },
+    "audio": {
+      "policy": "fixed",
+      "value": true
+    },
+    "stage": {
+      "policy": "model",
+      "type": "string",
+      "choices": [
+        "draft",
+        "final"
+      ],
+      "default": "draft"
+    },
+    "attention": {
+      "policy": "fixed",
+      "value": "comfy_kitchen"
+    }
+  },
+  "profiles": {
+    "draft": {
+      "parameters": {
+        "width": 768,
+        "height": 448,
+        "frames": 124,
+        "fps": 24
+      }
+    },
+    "final": {
+      "parameters": {
+        "width": 1344,
+        "height": 768,
+        "frames": 124,
+        "fps": 24
+      }
+    }
+  },
+  "loras": [],
+  "references": [
+    {
+      "id": "start",
+      "role": "start_image",
+      "required": false,
+      "name": "Image de début"
+    },
+    {
+      "id": "end",
+      "role": "end_image",
+      "required": false,
+      "name": "Image de fin"
+    }
+  ]
+}

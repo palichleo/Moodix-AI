@@ -158,7 +158,7 @@ test('the sentence goes after the prompt, which ends its own sentence first; wit
 
 test('the camera is taken by LTX 2.5, Wan 2.2 and MiniMax H3 for a new video; the page is served its table, the server reads the same', async () => {
   // (0.6.221) MiniMax H3 with them: the camera by the words is a sentence of the prompt.
-  assert.deepEqual([CAMERA_FAMILIES, CAMERA_VERBS], [['ltx25', 'wan22', 'minimax_h3'], ['create_video']]);
+  assert.deepEqual([CAMERA_FAMILIES, CAMERA_VERBS], [['ltx25', 'wan22', 'minimax_h3', 'pi_h3'], ['create_video']]);
   assert.deepEqual(
     [['ltx25', 'create_video'], ['wan22', 'create_video'], ['ltx25', 'extend_video'], ['minimax_h3', 'create_video'], ['minimax_h3', 'extend_video'], ['wan_scail2', 'replace_character'], ['wan_scail2', 'create_video'], ['wan22_camera', 'create_video'], ['krea2', 'create_image'], [undefined, 'create_video']].map(
       ([family, verb]) => takesCamera(family, verb),

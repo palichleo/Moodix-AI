@@ -41,11 +41,29 @@ VIDEO_SHIFT = 12.0
 AUDIO_SHIFT = 3.0
 
 
-def names(header, gate=False):
+# (0.6.423) A step adapter (pi H3): the role of its file among the stores of the pool, and the tensors
+# of its pixel head, which are not the DiT's (runner.models.minimax_h3_dwd).
+ADAPTER = 'stepAdapter'
+PIXEL_HEAD = ('dwd_norm_out.', 'dwd_pixel_refiner.')
+# What a layer reads beside its weight (runner.models.pool, BESIDE), and the quantization it says.
+BESIDE_WEIGHT = ('.weight_scale', '.comfy_quant')
+
+
+def _renamed(key):
+    """The diffusers parameter name of a checkpoint key."""
+    name = 'transformer_blocks.' + key[len('blocks.') :] if key.startswith('blocks.') else key
+    for old, new in RENAMES:
+        name = name.replace(old, new)
+    # The file's fused [q; k; v] stays one projection (see architecture).
+    return name.replace('.attn.qkv_proj.', '.attn.to_qkv.')
+
+
+def names(header, gate=False, adapter=None):
     """{diffusers parameter name: (role, checkpoint key, qkv part or None)}.
 
     `gate` adds the sparse attention's gates (`to_gate_compress`, 1.9 GiB in INT8): only the
-    sparse attention reads them, so a dense generation neither loads nor reads ahead them."""
+    sparse attention reads them, so a dense generation neither loads nor reads ahead them.
+    `adapter` (the header of a step adapter) gives the tensors it replaces whole to its own file."""
     result = {}
     for key in header:
         if key == '__metadata__' or not key.endswith(('.weight', '.bias')):
@@ -53,12 +71,72 @@ def names(header, gate=False):
         if (not gate and '.to_gate_compress.' in key) or key.startswith('rope.'):
             # RoPE is recomputed.
             continue
-        name = 'transformer_blocks.' + key[len('blocks.') :] if key.startswith('blocks.') else key
-        for old, new in RENAMES:
-            name = name.replace(old, new)
-        # The file's fused [q; k; v] stays one projection (see architecture).
-        result[name.replace('.attn.qkv_proj.', '.attn.to_qkv.')] = ('model', key, None)
+        result[_renamed(key)] = ('model', key, None)
+    for key in replaced(adapter or {}):
+        result[_renamed(key)] = (ADAPTER, key, None)
     return result
+
+
+def replaced(adapter):
+    """The tensors of the model a step adapter replaces whole, by their key (which is the model's): all
+    that is neither its pixel head, nor a LoRA matrix, nor read beside a weight. For pi H3: the AdaLN
+    projection of the 50 blocks, the three INT8 layers of blocks 46 to 49, and the final layer."""
+    return [
+        key
+        for key in adapter
+        if key != '__metadata__'
+        and key.endswith(('.weight', '.bias'))
+        and not key.startswith(PIXEL_HEAD)
+        and '.lora_' not in key
+    ]
+
+
+def validate_adapter(header, adapter):
+    """Raise, in the user's words, unless `adapter` is a step adapter (pi H3) for the model of `header`:
+    every tensor of it is a LoRA pair for a layer of the model, a tensor of the model's own shape that
+    replaces it, what a replaced layer reads beside its weight, or its pixel head (checked by
+    runner.models.minimax_h3_dwd). Whether it was tuned on this very model is another check, which
+    reads values (fits_base): MiniMax's Ref2VA has every shape of FL2VA."""
+    from runner.models.lora_keys import lora_pairs
+
+    if pdd_heads(header) > 1 or has_gates(header):
+        raise ValueError(
+            'pi H3 se calcule avec le modèle MiniMax H3 de base (FL2VA) : le modèle choisi est un modèle '
+            'distillé (FastH3), qui a déjà ses propres étapes.'
+        )
+    ours = [key for key in adapter if key != '__metadata__' and not key.startswith(PIXEL_HEAD)]
+    pairs, left = lora_pairs(ours, {key for key in header if key != '__metadata__'})
+    wrong = ValueError(
+        'Ce fichier n’est pas un adaptateur pi H3 pour MiniMax H3 : ses couches ne sont pas les siennes.'
+    )
+    if not pairs:
+        raise wrong
+    for target, (down, up, _alpha) in pairs.items():
+        low, high = adapter[down]['shape'], adapter[up]['shape']
+        if len(low) != 2 or len(high) != 2 or low[0] != high[1] or [high[0], low[1]] != header[target]['shape']:
+            raise wrong
+    whole = set(replaced(adapter))
+    for key in left:
+        if key in whole:
+            if key not in header or adapter[key]['shape'] != header[key]['shape']:
+                raise wrong
+        elif not key.endswith(BESIDE_WEIGHT) or key[: key.rindex('.')] + '.weight' not in whole:
+            raise wrong
+    if 'final_layer.video_out.weight' not in whole or pdd_heads(adapter) != 1:
+        raise wrong
+
+
+def fits_base(model, adapter, key='blocks.0.adaln_proj.linear.weight'):
+    """Whether the step adapter at `adapter` was tuned on the very model at `model` (two paths). Its AdaLN
+    projections are the model's, barely moved: cosine 0.993 to 1.000 with MiniMax's FL2VA. Ref2VA and
+    FastH3 Omni have the same shapes and another basis for their curve table: -0.69 to -0.83 (measured
+    on 26 November 2026). Nothing else tells them apart, and the adapter turns their modulations upside
+    down. Two tensors of 1.5 MB are read."""
+    from safetensors import safe_open
+
+    with safe_open(str(model), framework='pt') as base, safe_open(str(adapter), framework='pt') as tuned:
+        ours, theirs = base.get_tensor(key).float().flatten(), tuned.get_tensor(key).float().flatten()
+    return ours.shape == theirs.shape and float(F.cosine_similarity(ours, theirs, dim=0)) > 0.9
 
 
 def pdd_heads(header):
@@ -553,26 +631,30 @@ class PDDHead(torch.nn.Module):
         return F.linear(hidden_states.float(), weight, bias)
 
 
-def load(header, pool, int8_attention=False, sparse=None):
-    """Build the DiT on CUDA: int8 linears streamed through `pool`, small tensors resident."""
+def load(header, pool, int8_attention=False, sparse=None, adapter=None):
+    """Build the DiT on CUDA: int8 linears streamed through `pool`, small tensors resident.
+
+    (0.6.423) With `adapter` (the header of a step adapter, its file open in the pool under ADAPTER): the
+    tensors it replaces are read from its file (names), its LoRA pairs are computed beside the layers of
+    the model (the pool's `adapters`, said by who builds the pool), and its final layer has one head."""
     from runner.models.pool import load_streamed
 
     model, heads = architecture(header, int8_attention, sparse)
-    mapping = names(header, gate=sparse is not None)
-    store = pool.stores['model']
+    mapping = names(header, gate=sparse is not None, adapter=adapter)
 
-    def tensor(key, dtype=None):
-        value = store.get_tensor(key)
+    def tensor(name, dtype=None):
+        role, key, _part = mapping.get(name, ('model', name, None))
+        value = pool.stores[role].get_tensor(key)
         return value.to('cuda', dtype=dtype or value.dtype)
 
     def plain_linear(prefix, dtype=None):
-        weight = tensor(mapping[prefix + '.weight'][1], dtype)
+        weight = tensor(prefix + '.weight', dtype)
         linear = torch.nn.Linear(
             weight.shape[1], weight.shape[0], bias=prefix + '.bias' in mapping, device='cuda', dtype=weight.dtype
         )
         linear.weight = torch.nn.Parameter(weight, requires_grad=False)
         if linear.bias is not None:
-            linear.bias = torch.nn.Parameter(tensor(mapping[prefix + '.bias'][1], weight.dtype), requires_grad=False)
+            linear.bias = torch.nn.Parameter(tensor(prefix + '.bias', weight.dtype), requires_grad=False)
         return linear
 
     for prefix, container in (('token_refiner.', model.token_refiner), *(
@@ -580,19 +662,24 @@ def load(header, pool, int8_attention=False, sparse=None):
     )):
         local = {name[len(prefix) :]: location for name, location in mapping.items() if name.startswith(prefix)}
         load_streamed(container, local, pool)
+    # A layer reads its bias in the file of its weight (WeightPool.parts). Where the adapter replaces a
+    # weight and has no bias for it (the AdaLN projection of blocks 0 to 45), the model's stays: given
+    # as what is added to the bias of that layer (the pool's `shifts`).
+    for key in replaced(adapter or {}):
+        bias = key.removesuffix('.weight') + '.bias'
+        if key.endswith('.weight') and key.startswith('blocks.') and bias not in adapter and bias in header:
+            pool.shifts[(ADAPTER, key, None)] = pool.stores['model'].get_tensor(bias).to('cuda')
     model.proj_in = plain_linear('proj_in')
     model.audio_proj_in = plain_linear('audio_proj_in')
     model.context_embedder = plain_linear('context_embedder')
     model.norm_out.linear = plain_linear('norm_out.linear', torch.float32)
-    norm = tensor(mapping['norm_out.norm.weight'][1])
+    # (An adapter stores this weight in 16-bit floats where the model has it in bfloat16, the precision of the
+    # rows it norms: left as stored, PyTorch said it could not fuse the norm, four times a video.)
+    norm = tensor('norm_out.norm.weight', torch.bfloat16 if mapping['norm_out.norm.weight'][0] == ADAPTER else None)
     model.norm_out.norm.weight = torch.nn.Parameter(norm, requires_grad=False)
     model.time_embedder.table = torch.nn.Parameter(tensor('adaln_t_table', torch.float32), requires_grad=False)
-    model.proj_out = PDDHead(
-        tensor('final_layer.video_out.weight'), tensor('final_layer.video_out.bias'), heads, VIDEO_SHIFT
-    )
-    model.audio_proj_out = PDDHead(
-        tensor('final_layer.audio_out.weight'), tensor('final_layer.audio_out.bias'), heads, AUDIO_SHIFT
-    )
+    model.proj_out = PDDHead(tensor('proj_out.weight'), tensor('proj_out.bias'), heads, VIDEO_SHIFT)
+    model.audio_proj_out = PDDHead(tensor('audio_proj_out.weight'), tensor('audio_proj_out.bias'), heads, AUDIO_SHIFT)
     for name, value in list(model.named_parameters()) + list(model.named_buffers()):
         if value.device.type == 'meta':
             raise ValueError('Missing native MiniMax-H3 tensor ' + name)

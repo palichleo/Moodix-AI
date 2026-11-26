@@ -42,6 +42,12 @@ BESIDE_GIB = 3.0
 CEILING_GIB = 1.0
 # What the video VAE's pixels are normalised by (ImageNet's, as the library's pipeline says).
 PIXEL_MEAN, PIXEL_STD = (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
+# (0.6.423) pi H3: a step adapter of MiniMax's FL2VA (pi-Flow, Hansheng Chen; runner.models.minimax_h3,
+# validate_adapter). The steps of one whose name says none, where its grid starts (the raw time of the
+# first step, lower for two steps), and how long its last step is beside the others (ComfyUI-piFlow,
+# docs/piH3.md and the « pi-Flow Scheduler » of its workflows: Apache-2.0).
+PI_STEPS = 4
+PI_START, PI_START_SHORT, PI_LAST_STEP = 0.96, 0.93, 0.6
 
 
 def grid_of(parameters):
@@ -81,6 +87,8 @@ class Loaded:
     def __init__(self, key):
         self.key, self.stack = key, ExitStack()
         self.store = self.pool = self.dit = self.sparse = None
+        # The file of its step adapter (pi H3), open with the model's.
+        self.adapter = None
         self.fast = False
         # Video memory all this holds, measured once the generation that leaves it is over.
         self.allocated = 0
@@ -154,14 +162,100 @@ def model_path(job):
     return components['referenceModel'] if referenced and components.get('referenceModel') else components['model']
 
 
+def adapter_path(job):
+    """The file of the step adapter (pi H3) this job is computed with, or None."""
+    return job['components'].get('stepAdapter') or None
+
+
+def adapter_steps(path):
+    """The steps a step adapter is sampled in: those its name says (« pi_h3_2step_… », « 4step »), 4 when
+    it says none. Nothing in its tensors tells a two-step adapter from a four-step one."""
+    import re
+    from pathlib import Path
+
+    said = re.search(r'(?:^|[^a-z0-9])(\d{1,2})[\s_-]?steps?(?![a-z])', Path(path).stem, re.IGNORECASE)
+    return int(said.group(1)) if said and int(said.group(1)) >= 2 else PI_STEPS
+
+
+def pi_sigmas(steps, shift):
+    """The sigmas of a pi H3 creation for a stream of that shift (12 the video, 3 the sound), the final 0
+    with them. The model's own schedule on another grid: raw times from 0.96 (0.93 in two steps) down to
+    a last step 0.6 times as long as the others, where MiniMax's go from 1 to 0 in equal steps. In four
+    steps: 0.96, 0.6933, 0.4267, 0.16, then 0; the video's sigmas are 0.99654, 0.96445, 0.89930, 0.69565."""
+    top = PI_START if steps > 2 else PI_START_SHORT
+    last = top * PI_LAST_STEP / (steps - 1 + PI_LAST_STEP)
+    grid = [top + (last - top) * index / (steps - 1) for index in range(steps)]
+    return [shift * raw / (1 + (shift - 1) * raw) for raw in grid] + [0.0]
+
+
+def pi_scheduler(shift, steps):
+    """MiniMax-H3's scheduler on the grid of pi H3 (pi_sigmas): the block that sets the timesteps asks
+    for a number of them, and is given this grid whatever it asks. The steps are the library's Euler
+    steps: with one output head, the policy the adapter names (« DX ») is exactly that."""
+    from diffusers import MiniMaxH3Scheduler
+
+    class PiScheduler(MiniMaxH3Scheduler):
+        def set_timesteps(self, num_inference_steps=None, device=None, sigmas=None):
+            super().set_timesteps(device=device, sigmas=pi_sigmas(steps, self.shift))
+
+    return PiScheduler(shift=shift)
+
+
+def pi_noise(parameters, generator, sigmas, device='cuda'):
+    """The noise a pi H3 creation starts from, {latents, audio_latents} as the block of the library takes
+    them in place of its own draws: the same draws (the video, then the sound in rows, from the generator
+    of the request), each times the first sigma of its stream. The grid of pi H3 does not start at 1
+    (0.9965 the video, 0.9863 the sound), and the adapter was made for a start at that level, as
+    ComfyUI gives it: the library starts every creation from the noise itself."""
+    import torch
+    from diffusers.utils.torch_utils import randn_tensor
+
+    device = torch.device(device)
+    frames, height, width = grid_of(parameters)
+    # (A token of the model is two latents by two; 24 channels, and 32 for each of the two of the sound.)
+    shape = (1, 24, frames, height * 2, width * 2)
+    video = randn_tensor(shape, generator=generator, device=device, dtype=torch.float32)
+    count = round(parameters['frames'] / 24 * AUDIO_LATENTS_PER_SECOND)
+    rows = randn_tensor((count * 2, 32), generator=generator, device=device, dtype=torch.float32)
+    # (The block takes the sound as (2, 32, latents) and lays it in rows, channel after channel.)
+    return dict(latents=video * sigmas[0], audio_latents=rows.reshape(2, count, 32).permute(0, 2, 1) * sigmas[1])
+
+
+def keep_last_rows(dit, calls, steps, target, held):
+    """Keeps in `held`, at the last step, what the pixel head of pi H3 reads (minimax_h3_dwd): the rows of
+    the generated video as the 50 blocks leave them, before the final norm (`hidden`), the embedding of
+    each time of that step (`temb`) and the time of each row (`indices`). The generated video is the last
+    `target` video rows of the packed sequence (its conditions come first). Returns the hooks."""
+
+    def before(_module, _args, values):
+        held['rows'] = values['video_indices'][-target:] if calls['step'] == steps - 1 else None
+
+    def at_norm(_module, args):
+        rows = held.get('rows')
+        if rows is not None:
+            hidden, temb, indices = args
+            held.update(
+                hidden=hidden[0].index_select(0, rows), temb=temb.clone(), indices=indices.index_select(0, rows)
+            )
+
+    return (
+        dit.register_forward_pre_hook(before, with_kwargs=True),
+        dit.norm_out.register_forward_pre_hook(at_norm),
+    )
+
+
 def check_steps(job, header):
     """The steps of this job. A checkpoint that says its own (steps_of) is computed in those, and a
     job that asks for others is told so. One that says nothing is computed in the steps asked, 20
     (MiniMax's own) when none are: each version of the model has its steps (lib/model-versions.mjs).
+    (0.6.423) With a step adapter (pi H3), in the steps of the adapter, whatever is asked: they are its
+    own, nothing to choose.
 
     (0.6.418) A file without marks was held to be MiniMax's own, and refused unless 20 steps were
     asked. A distilled one merged into plain weights, read in place of the file its workflow was
     shipped with (deleted), could not be computed at all: « il se calcule en 20 étapes, pas en 8 »."""
+    if adapter_path(job):
+        return adapter_steps(adapter_path(job))
     said, asked = steps_of(header), job['parameters'].get('steps')
     if said is None:
         return BASE_STEPS if asked is None else asked
@@ -200,12 +294,35 @@ def check_subject(job, header):
         )
 
 
+def check_adapter(job, model):
+    """The header of the step adapter (pi H3) of this job, None when it has none. Refused before the
+    creation, in the user's words, when it is not one for the model (`model`, its header), when its
+    pixel head is not the one read here, or when it was tuned on another model of the same shapes."""
+    path = adapter_path(job)
+    if not path:
+        return None
+    from runner.models.headers import header
+    from runner.models import minimax_h3, minimax_h3_dwd
+
+    adapter = header(path)
+    minimax_h3.validate_adapter(model, adapter)
+    minimax_h3_dwd.validate(adapter)
+    if not minimax_h3.fits_base(model_path(job), path):
+        raise ValueError(
+            'pi H3 est fait pour le modèle MiniMax H3 de base (FL2VA) : le modèle choisi en est un autre '
+            '(Ref2VA ou une variante), avec lequel il ne donne que du bruit. Choisissez le fichier FL2VA '
+            'dans Paramètres › Modèles.'
+        )
+    return adapter
+
+
 def preflight(job, config):
     from runner.models.headers import header
     from runner.models import minimax_h3
 
     model = header(model_path(job))
     minimax_h3.validate(model)
+    check_adapter(job, model)
     check_steps(job, model)
     check_subject(job, model)
     # A video the card cannot hold is said now, not after half a minute of loading.
@@ -397,6 +514,9 @@ def generate(job, config, progress):
     shape = [p['width'], p['height'], p['frames'], sorted(ref['role'] for ref in job['references'])]
     attention = [p.get('attention', 'comfy_kitchen'), p.get('sparse_attention', 'off'), p.get('sparse_keep', 10)]
     key = [conditioning.stamp(model_path(job)), shape, attention]
+    if adapter_path(job):
+        # (0.6.423) A model built with a step adapter is never another's, nor the model's without it.
+        key.append(conditioning.stamp(adapter_path(job)))
     holder = [kept.take('minimax_h3', key)]
     try:
         result = _generate(job, config, progress, key, holder)
@@ -426,7 +546,7 @@ def _generate(job, config, progress, key, holder):
     from diffusers.modular_pipelines.minimax_h3.references import MiniMaxH3ImageReference
     from runner.media import open_image
     from runner.models.headers import header
-    from runner.models import conditioning, minimax_h3, minimax_h3_text, minimax_h3_vae
+    from runner.models import conditioning, minimax_h3, minimax_h3_dwd, minimax_h3_text, minimax_h3_vae
     from runner.models.ladder import smaller
     from runner.models.pool import WeightPool, require
     from runner.models.residency import RESIDENCY, open_store, prefetch, use_order
@@ -463,6 +583,8 @@ def _generate(job, config, progress, key, holder):
     # (The model's file is the one of this job: see model_path.)
     p, paths = job['parameters'], dict(job['components'], model=model_path(job))
     dit_header = header(paths['model'])
+    # (0.6.423) Its step adapter (pi H3), refused before the creation (preflight) and here again.
+    adapter = check_adapter(job, dit_header)
     steps = check_steps(job, dit_header)
     kind = model_kind(dit_header)
     # (Refused before the creation, in preflight; here again for who calls it without one.)
@@ -584,7 +706,9 @@ def _generate(job, config, progress, key, holder):
     if p.get('sparse_attention', 'off') == 'vsa':
         from runner.models import sparse_attention
 
-        if not sparse_attention.ready():
+        if adapter is not None:
+            dense_why = 'a step adapter was not taught sparse attention'
+        elif not sparse_attention.ready():
             dense_why = 'no sparse attention kernel on this GPU'
         elif tokens < sparse_attention.MIN_ROWS:
             dense_why = f'about {tokens} rows, faster dense below {sparse_attention.MIN_ROWS}'
@@ -592,7 +716,7 @@ def _generate(job, config, progress, key, holder):
             sparse = minimax_h3.Sparse(float(p.get('sparse_keep', 10)) / 100)
 
     def read_ahead():
-        return prefetch(paths, {}, use_order(minimax_h3.names(dit_header, gate=sparse is not None)))
+        return prefetch(paths, {}, use_order(minimax_h3.names(dit_header, gate=sparse is not None, adapter=adapter)))
 
     # A model left by the last video is read no more: its share is on the card, the rest in RAM.
     ahead = None if holder[0] is not None else read_ahead()
@@ -648,7 +772,14 @@ def _generate(job, config, progress, key, holder):
         loaded = holder[0] = Loaded(key)
         # The model's file stays open with it, beyond this generation.
         loaded.store = loaded.stack.enter_context(open_store(paths['model']))
-        loaded.pool = WeightPool({'model': loaded.store}, budget, ahead_gib=AHEAD_GIB)
+        stores, pairs = {'model': loaded.store}, ()
+        if adapter is not None:
+            # Read through its mapping, as the model's: what the steps copy of it goes to page-locked
+            # RAM below, and its pixel head is read once, at the end. Its LoRA pairs are computed
+            # beside the layers of the model (the pool's adapters), at their full strength.
+            loaded.adapter = loaded.stack.enter_context(open_store(paths[minimax_h3.ADAPTER], resident=False))
+            stores[minimax_h3.ADAPTER], pairs = loaded.adapter, ((minimax_h3.ADAPTER, 1.0),)
+        loaded.pool = WeightPool(stores, budget, adapters=pairs, ahead_gib=AHEAD_GIB)
     store, pool = loaded.store, loaded.pool
     # What this generation hangs on the model, taken off again at its end.
     hooks = []
@@ -669,7 +800,7 @@ def _generate(job, config, progress, key, holder):
                     and minimax_h3.INT8_ATTENTION
                     and minimax_h3.int8_attention_ready()
                 )
-                dit, _heads = minimax_h3.load(dit_header, pool, fast_attention, sparse)
+                dit, _heads = minimax_h3.load(dit_header, pool, fast_attention, sparse, adapter)
                 loaded.dit, loaded.fast, loaded.sparse = dit, fast_attention, sparse
             if again:
                 # Its page-locked RAM is the one its last video ran with: nothing is asked again.
@@ -688,10 +819,19 @@ def _generate(job, config, progress, key, holder):
                     spare=pool.streamed(LOCK_MARGIN_GIB, onward=True).get('model', ()),
                 )
                 loaded.locked = not copied or store.pinned
+                if loaded.adapter is not None:
+                    ours = pool.streamed().get(minimax_h3.ADAPTER, ())
+                    locked = loaded.ram = locked + loaded.adapter.keep(ours, int(RAM_RESERVE_GIB * 1024**3))
+                    loaded.locked = loaded.locked and (not ours or loaded.adapter.pinned)
             # The share is filled; one left by the last video takes back what it lent.
             pool.preload()
-            scheduler, audio_scheduler = MiniMaxH3Scheduler(shift=12.0), MiniMaxH3Scheduler(shift=3.0)
+            if adapter is None:
+                scheduler, audio_scheduler = MiniMaxH3Scheduler(shift=12.0), MiniMaxH3Scheduler(shift=3.0)
+            else:
+                scheduler, audio_scheduler = pi_scheduler(12.0, steps), pi_scheduler(3.0, steps)
             calls = {'step': 0}
+            # What the pixel head of a step adapter reads, kept at the last step (keep_last_rows).
+            last = {}
             sparse_start = float(p.get('sparse_start', 0.2))
 
             def before(_module, args, values):
@@ -723,6 +863,8 @@ def _generate(job, config, progress, key, holder):
 
             hooks.append(dit.register_forward_pre_hook(before, with_kwargs=True))
             hooks.append(dit.register_forward_hook(after, with_kwargs=True))
+            if adapter is not None:
+                hooks.extend(keep_last_rows(dit, calls, steps, math.prod(grid), last))
             if continuation:
                 # Registered after the step counter: its output hook reads the finished step.
                 latent_frames = (p['frames'] - 5) // 17 * 5 + 2
@@ -747,13 +889,19 @@ def _generate(job, config, progress, key, holder):
             progress(stage='sampling video', attention=label)
             # The diffusers blocks name the DiT by workflow: ref2va reads `transformer_ref`.
             name = 'transformer_ref' if references else 'transformer'
+            generator = torch.Generator('cpu').manual_seed(p['seed'])
+            noise = {}
+            if adapter is not None:
+                noise = pi_noise(p, generator, (pi_sigmas(steps, 12.0)[0], pi_sigmas(steps, 3.0)[0]))
             state = _stage(
                 'denoise',
                 {name: dit, 'scheduler': scheduler, 'audio_scheduler': audio_scheduler},
                 state,
                 num_inference_steps=steps + 1,
-                generator=torch.Generator('cpu').manual_seed(p['seed']),
+                generator=generator,
+                **noise,
             )
+            del noise
             if calls['step'] != steps:
                 raise RuntimeError(f'Expected {steps} denoising steps, ran {calls["step"]}')
             cache = dict(
@@ -782,7 +930,9 @@ def _generate(job, config, progress, key, holder):
 
     # 4. Decode video and sound. The share lends the decode what it lacks.
     progress(stage='decoding video')
-    pool.lend(decode_gib(p) + 0.5 + CEILING_GIB - hardware.free_bytes(torch) / 1024**3)
+    # (With a step adapter the frames come from its pixel head, which asks for much less than the decoder.)
+    asked = decode_gib(p) if adapter is None else minimax_h3_dwd.gib(grid)
+    pool.lend(asked + 0.5 + CEILING_GIB - hardware.free_bytes(torch) / 1024**3)
     with torch.inference_mode():
 
         def frames_of():
@@ -800,21 +950,40 @@ def _generate(job, config, progress, key, holder):
                 del chunk
             return numpy.concatenate(made)
 
+        def pixels_of():
+            """pi H3: the frames from the rows its last step left, by the pixel head of its adapter
+            (minimax_h3_dwd), a block of five latents at a time. The video VAE's decoder is not loaded: its
+            4.6 GiB are neither read nor laid on the card. The rows are kept until the frames are made: the
+            decode is tried again with more room when it lacks some."""
+            head = minimax_h3_dwd.load(loaded.adapter)
+            try:
+                return numpy.concatenate(
+                    list(minimax_h3_dwd.decode(head, last['hidden'], last['temb'], last['indices'], grid))
+                )
+            finally:
+                head.release()
+
+        made_by = frames_of if adapter is None else pixels_of
+
         def alone():
             # Beside the share of the model the decode did not fit: the share leaves whole, as
             # it always did before 0.6.80, and the next video builds the model anew.
             pool.clear()
             progress(stage='decoding video again without the share of the model')
-            return frames_of()
+            return made_by()
 
         def unbound():
             # A clip that does not fit under the engine's ceiling (1 GiB below what the card had
             # free): with all of the card, where the engine would run the whole video again.
             torch.cuda.set_per_process_memory_fraction(1.0)
             progress(stage='decoding video again without the video memory ceiling')
-            return frames_of()
+            return made_by()
 
-        pixels = smaller([frames_of, *([alone] if pool.gpu else []), unbound], torch)
+        pixels = smaller([made_by, *([alone] if pool.gpu else []), unbound], torch)
+        last.clear()
+        if loaded.adapter is not None:
+            # The pages of its file read for the head go back to the system, as the model's after the steps.
+            loaded.adapter.reopen()
         _free()
         state, audio, rate = _decoded_sound(state, p, paths)
     _free()
@@ -837,6 +1006,8 @@ def _generate(job, config, progress, key, holder):
         peak_vram_gib=round(torch.cuda.max_memory_allocated() / 1024**3, 3),
         backend='pytorch-diffusers-minimax-h3',
         model=kind,
+        steps=steps,
+        **({'pixel_head': 'dwd'} if adapter is not None else {}),
         frames=p['frames'],
         fps=24,
         stage=p['stage'],

@@ -625,7 +625,8 @@ test('the tools of a capable model are contracts: no plan agreed in words, every
   const video = (await catalog.definitions(CONTEXTS.rich, { wording: CAPABLE })).find(
     tool => tool.function.name === 'create_video',
   ).function;
-  assert.deepEqual(video.parameters.properties.workflow.enum, ['MiniMax H3 Omni', 'LTX 2.5', 'Wan 2.2']);
+  // (0.6.423) pi H3 after the two usual ones: it is made when it is named, as Wan 2.2.
+  assert.deepEqual(video.parameters.properties.workflow.enum, ['MiniMax H3 Omni', 'LTX 2.5', 'pi H3', 'Wan 2.2']);
   assert.match(video.description, /\n- LTX 2\.5\. /);
   assert.doesNotMatch(video.description, /eaec4e2f/);
   // A workflow passed by its name is the one used.

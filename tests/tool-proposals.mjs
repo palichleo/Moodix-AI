@@ -1619,7 +1619,7 @@ test('(0.6.211) the camera chosen in the Studio: its sentence after the prompt o
     Object.fromEntries(Object.entries(tools).map(([verb, items]) => [verb, (Array.isArray(items) ? items : []).filter(item => item.camera).map(item => item.name).sort()])),
     {
       create_image: [],
-      create_video: ['LTX 2.5', 'MiniMax H3 Omni', 'Wan 2.2', 'Wan 2.2 Caméra'],
+      create_video: ['LTX 2.5', 'MiniMax H3 Omni', 'Wan 2.2', 'Wan 2.2 Caméra', 'pi H3'],
       extend_video: [],
       replace_character: [],
       create_audio: [],
@@ -1636,6 +1636,8 @@ test('(0.6.211) the camera chosen in the Studio: its sentence after the prompt o
       ['MiniMax H3 Omni', 'par les mots'],
       ['Wan 2.2 Caméra', '13 mouvements, vitesse true'],
       ['Wan 2.2', 'par les mots'],
+      // (0.6.423) MiniMax's own model with its step adapter: a sentence of the prompt, as MiniMax H3.
+      ['pi H3', 'par les mots'],
     ],
   );
   // (A workflow whose prompt is fixed has none to add a sentence to: no camera.)

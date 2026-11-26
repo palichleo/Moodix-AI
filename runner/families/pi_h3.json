@@ -1,0 +1,355 @@
+{
+  "family": "pi_h3",
+  "module": "minimax_h3",
+  "label": "pi H3",
+  "mediaType": "video",
+  "model": {
+    "name": "pi H3",
+    "does": "Vidéos de 5 à 15 s avec le son, en 4 étapes.",
+    "group": "video",
+    "order": 2.5,
+    "version": "4 étapes"
+  },
+  "tasks": [
+    "create_video"
+  ],
+  "engine": "internal",
+  "hardware": {
+    "cuda": true
+  },
+  "requires": [
+    "torch",
+    "torchvision",
+    "diffusers",
+    "transformers",
+    "accelerate",
+    "safetensors",
+    "PIL",
+    "imageio",
+    "imageio_ffmpeg",
+    "av",
+    "comfy_kitchen"
+  ],
+  "components": {
+    "model": {
+      "label": "Modèle",
+      "folder": "diffusion_models",
+      "required": true,
+      "signature": [
+        {
+          "key": "^adaln_t_table$",
+          "shape": [
+            1025,
+            8
+          ]
+        },
+        {
+          "key": "^blocks\\.\\d+\\.attn\\.qkv_proj\\.weight$",
+          "shape": [
+            21504,
+            5376
+          ]
+        }
+      ],
+      "note": "Le modèle de base de MiniMax H3 (FL2VA), celui sur lequel l’adaptateur pi H3 a été réglé. Un autre fichier de MiniMax H3 (Ref2VA, FastH3) est refusé."
+    },
+    "stepAdapter": {
+      "label": "Adaptateur pi H3",
+      "folder": "loras",
+      "required": true,
+      "note": "L’adaptateur pi H3 de Hansheng Chen (pi-Flow), avec sa tête DWD : il fait calculer le modèle en 4 étapes et rend les images sans le décodeur vidéo. Ses étapes sont celles que dit son nom (« 4step », « 2step »).",
+      "signature": [
+        {
+          "key": "^dwd_norm_out\\.linear\\.weight$",
+          "shape": [
+            10752,
+            8
+          ]
+        },
+        {
+          "key": "^blocks\\.0\\.attn\\.out_proj\\.lora_A\\.weight$",
+          "shape": [
+            null,
+            7168
+          ]
+        }
+      ]
+    },
+    "textEncoder": {
+      "label": "Encodeur de texte",
+      "folder": "text_encoders",
+      "required": true,
+      "note": "Qwen3-VL-32B tronqué à 50 couches (NVFP4 AWQ ou int8 ConvRot).",
+      "signature": [
+        {
+          "key": "^(?:model\\.)?embed_tokens\\.weight$",
+          "shape": [
+            151936,
+            5120
+          ]
+        },
+        {
+          "key": "^visual\\.merger\\.linear_fc2\\.weight$",
+          "shape": [
+            5120,
+            null
+          ]
+        }
+      ]
+    },
+    "tokenizer": {
+      "label": "Tokenizer",
+      "folder": "text_encoders",
+      "required": true,
+      "format": "tokenizer",
+      "policies": [
+        "fixed"
+      ],
+      "picker": "tokenizer",
+      "vocabularyOf": "textEncoder",
+      "help": "Dossier qui découpe le prompt en tokens pour l’encodeur de texte (tokenizer_config.json, vocab.json…). Proposé automatiquement d’après l’encodeur."
+    },
+    "vae": {
+      "label": "VAE vidéo",
+      "folder": "vae",
+      "required": true,
+      "signature": [
+        {
+          "key": "^decoder\\.x_embedder\\.weight$",
+          "shape": [
+            2048,
+            24
+          ]
+        },
+        {
+          "key": "^encoder\\.conv_in\\.weight$"
+        }
+      ],
+      "note": "Lu pour une image de début ou de fin seulement : les images de la vidéo sont rendues par l’adaptateur."
+    },
+    "audioVae": {
+      "label": "VAE audio",
+      "folder": "vae",
+      "required": true,
+      "signature": [
+        {
+          "key": "^dec_in_proj\\.weight$",
+          "shape": [
+            2048,
+            32,
+            1
+          ]
+        },
+        {
+          "key": "^mean_proj\\.weight$"
+        }
+      ]
+    }
+  },
+  "parameters": {
+    "prompt": {
+      "type": "string",
+      "maxLength": 8000,
+      "nonempty": true
+    },
+    "seed": {
+      "type": "integer",
+      "min": 0,
+      "max": 9007199254740991
+    },
+    "width": {
+      "type": "integer",
+      "min": 256,
+      "max": 2048,
+      "multipleOf": 32
+    },
+    "height": {
+      "type": "integer",
+      "min": 256,
+      "max": 2048,
+      "multipleOf": 32
+    },
+    "frames": {
+      "type": "integer",
+      "choices": [
+        124,
+        141,
+        158,
+        175,
+        192,
+        209,
+        226,
+        243,
+        260,
+        277,
+        294,
+        311,
+        328,
+        345
+      ],
+      "note": "17n+5 images à 24 i/s, de 5 à 15 secondes."
+    },
+    "fps": {
+      "type": "number",
+      "choices": [
+        24
+      ]
+    },
+    "audio": {
+      "type": "boolean"
+    },
+    "stage": {
+      "type": "string",
+      "choices": [
+        "draft",
+        "final"
+      ]
+    },
+    "attention": {
+      "type": "string",
+      "choices": [
+        "pytorch",
+        "comfy_kitchen"
+      ],
+      "note": "Attention dense : comfy_kitchen calcule en INT8 (plus rapide, à peine différent), pytorch exactement."
+    }
+  },
+  "requiredParameters": [
+    "prompt",
+    "seed",
+    "width",
+    "height",
+    "frames",
+    "fps",
+    "stage",
+    "audio"
+  ],
+  "roles": {
+    "start_image": {
+      "as": "start_image",
+      "media": "image",
+      "max": 1,
+      "label": "Image de début"
+    },
+    "end_image": {
+      "as": "end_image",
+      "media": "image",
+      "max": 1,
+      "label": "Image de fin"
+    }
+  },
+  "profiles": [
+    "width",
+    "height",
+    "frames",
+    "fps"
+  ],
+  "template": {
+    "name": "pi H3 video",
+    "description": "Video clips of 5 to 15 seconds with synchronized sound, computed in 4 steps: from text, or between a start and/or end image.",
+    "components": {
+      "model": {
+        "policy": "fixed",
+        "asset": "select-local-model"
+      },
+      "stepAdapter": {
+        "policy": "fixed",
+        "asset": "select-local-step-adapter"
+      },
+      "textEncoder": {
+        "policy": "fixed",
+        "asset": "select-local-text-encoder"
+      },
+      "tokenizer": {
+        "policy": "fixed",
+        "asset": "select-local-tokenizer"
+      },
+      "vae": {
+        "policy": "fixed",
+        "asset": "select-local-video-vae"
+      },
+      "audioVae": {
+        "policy": "fixed",
+        "asset": "select-local-audio-vae"
+      }
+    },
+    "parameters": {
+      "prompt": {
+        "policy": "model",
+        "type": "string",
+        "maxLength": 8000
+      },
+      "seed": {
+        "policy": "random",
+        "type": "integer"
+      },
+      "width": {
+        "policy": "fixed",
+        "value": 768
+      },
+      "height": {
+        "policy": "fixed",
+        "value": 448
+      },
+      "frames": {
+        "policy": "fixed",
+        "value": 124
+      },
+      "fps": {
+        "policy": "fixed",
+        "value": 24
+      },
+      "audio": {
+        "policy": "fixed",
+        "value": true
+      },
+      "stage": {
+        "policy": "model",
+        "type": "string",
+        "choices": [
+          "draft",
+          "final"
+        ],
+        "default": "draft"
+      },
+      "attention": {
+        "policy": "fixed",
+        "value": "comfy_kitchen"
+      }
+    },
+    "profiles": {
+      "draft": {
+        "parameters": {
+          "width": 768,
+          "height": 448,
+          "frames": 124,
+          "fps": 24
+        }
+      },
+      "final": {
+        "parameters": {
+          "width": 1344,
+          "height": 768,
+          "frames": 124,
+          "fps": 24
+        }
+      }
+    },
+    "loras": [],
+    "references": [
+      {
+        "id": "start",
+        "role": "start_image",
+        "required": false,
+        "name": "Image de début"
+      },
+      {
+        "id": "end",
+        "role": "end_image",
+        "required": false,
+        "name": "Image de fin"
+      }
+    ]
+  },
+  "preference": -1
+}

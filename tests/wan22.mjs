@@ -104,8 +104,11 @@ test('a chat model reads Wan 2.2 after the models that make a video from words, 
   // The Studio: after the two others, an image to start from it cannot do without, its lengths.
   // (0.6.223) Wan 2.2 Caméra comes after it, for the user's own hand (see the last test).
   const studio = (await catalog.studio()).create_video;
-  assert.deepEqual(studio.map(item => item.family).sort(), ['ltx25', 'minimax_h3', 'wan22', 'wan22_camera']);
+  assert.deepEqual(studio.map(item => item.family).sort(), ['ltx25', 'minimax_h3', 'pi_h3', 'wan22', 'wan22_camera']);
   assert.deepEqual(studio.slice(-2).map(item => item.family), ['wan22', 'wan22_camera']);
+  // (0.6.423) pi H3 behind the usual two as well, before them: it makes a video from words.
+  assert.deepEqual(studio.slice(0, 3).map(item => item.family).sort(), ['ltx25', 'minimax_h3', 'pi_h3']);
+  assert.equal(studio[2].family, 'pi_h3');
   const own = studio.at(-2);
   assert.equal(own.roles.start_image.required, true);
   assert.deepEqual([own.roles.end_image.count, own.roles.reference.count], [0, 0]);

@@ -1614,7 +1614,8 @@ try {
   // (0.6.119) The page « Modèles » (maquette du 19/11): one line a model in four groups, with the
   // workflows Moodix ships (this copy has none of their files: every model is to be downloaded).
   // (0.6.223) Twelve lines since Wan 2.2 Caméra is shipped; (0.6.242) thirteen with « Changer la caméra »;
-  // (0.6.269) fourteen with Qwen-Image-Edit (0.6.264), added under runner/ alone (see .githooks/pre-commit).
+  // (0.6.269) fourteen with Qwen-Image-Edit (0.6.264), added under runner/ alone (see .githooks/pre-commit);
+  // (0.6.423) fifteen with pi H3.
   const lines =`[...document.querySelectorAll('#workflow-list .model-line')]`,
     ltx = `document.querySelector('#workflow-list .model-line[data-model="LTX 2.5"]')`;
   // (0.6.131) « Dossiers à part » : a folder a line of 46 px (its name, the folder, « Parcourir »,
@@ -1622,11 +1623,11 @@ try {
   await run('onglet Génération : un dossier par ligne', () => click('#settings-tab-generation'), () =>
     js(`(() => { const rows = [...document.querySelectorAll('#settings-panel-generation .set-folder')], panel = document.getElementById('settings-panel-generation'); return rows.length === 7 && rows.every(row => Math.round(row.getBoundingClientRect().height) === 46 && row.querySelectorAll('button.set-act').length === 2 && row.querySelector('.help-tip').dataset.help) && !panel.querySelector('details') && panel.scrollWidth <= panel.clientWidth + 1; })()`), { within: 2500 });
   await run('onglet Modèles', () => click('#settings-tab-workflows'), () =>
-    js(`${lines}.length === 14 && document.querySelectorAll('#workflow-list .model-group').length === 4 && document.querySelector('#settings-tab-workflows .settings-tab-label').textContent === 'Modèles' && document.querySelectorAll('#workflow-list .model-row > .model-ai input').length === 14 && document.querySelectorAll('#workflow-list .model-ai-head').length === 1`), { within: 2500 });
+    js(`${lines}.length === 15 && document.querySelectorAll('#workflow-list .model-group').length === 4 && document.querySelector('#settings-tab-workflows .settings-tab-label').textContent === 'Modèles' && document.querySelectorAll('#workflow-list .model-row > .model-ai input').length === 15 && document.querySelectorAll('#workflow-list .model-ai-head').length === 1`), { within: 2500 });
   // Every line is 46 px tall, « Télécharger » in the place of the version as any other (capture 65);
   // nothing scrolls sideways, nothing of before is shown (no button to import or create, no dot).
   await run('Modèles : lignes de 46 px', async () => {}, () =>
-    js(`(() => { const rows = [...document.querySelectorAll('#workflow-list .model-row')], panel = document.getElementById('settings-panel-workflows'), gone = id => !document.getElementById(id); return rows.length === 14 && rows.every(row => Math.round(row.getBoundingClientRect().height) === 46) && panel.scrollWidth <= panel.clientWidth + 1 && gone('workflow-add') && gone('native-workflow-import') && !document.querySelector('#workflow-list .workflow-state') && document.querySelectorAll('#workflow-list .model-download').length >= 5; })()`), { within: 700 });
+    js(`(() => { const rows = [...document.querySelectorAll('#workflow-list .model-row')], panel = document.getElementById('settings-panel-workflows'), gone = id => !document.getElementById(id); return rows.length === 15 && rows.every(row => Math.round(row.getBoundingClientRect().height) === 46) && panel.scrollWidth <= panel.clientWidth + 1 && gone('workflow-add') && gone('native-workflow-import') && !document.querySelector('#workflow-list .workflow-state') && document.querySelectorAll('#workflow-list .model-download').length >= 5; })()`), { within: 700 });
   // The chevron unfolds the versions under the line, which stays as tall; « Réglages » is then in sight.
   // (0.6.290) Clicked once it is free: the tab reads its list again as it opens, its buttons greyed meanwhile
   // (setBusy), and a click that came then did nothing. Some fifty milliseconds too early on a busy machine
