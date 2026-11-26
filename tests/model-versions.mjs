@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { families } from '../lib/families.mjs';
 import { versionComponent } from '../lib/model-files.mjs';
 import { GenerationService } from '../lib/generation-service.mjs';
-import { ModelVersions, isCompanion, recipeOf, saidByName, versionName, withVersion } from '../lib/model-versions.mjs';
+import { ModelVersions, isCompanion, recipeOf, saidByName, versionName, withSettings, withVersion } from '../lib/model-versions.mjs';
 import { NativeWorkflowCatalog, validateNativeWorkflow } from '../lib/native-workflows.mjs';
 
 /**
@@ -695,4 +695,139 @@ test('what is found for the file a workflow names is held for a second (0.6.419)
   clock = 1000;
   assert.equal(await without.fitted(minimax), minimax);
   assert.equal(asked, 2);
+});
+
+
+test('each version of a model keeps the settings the user gave it (0.6.420)', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'moodix-version-settings-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const folder = join(root, 'models', 'diffusion_models'),
+    own = join(root, 'workflow');
+  await mkdir(folder, { recursive: true });
+  await mkdir(join(root, 'data'));
+  await mkdir(own);
+  for (const name of [OMNI, FL2VA, REF2VA]) await writeFile(join(folder, name), 'x');
+  const service = new GenerationService({ root, dataDir: join(root, 'data'), workflowDir: own, builtinWorkflowDir: shippedFolder, outputDir: join(root, 'output'), worker: {}, environment: {} });
+  const registered = new Map();
+  Object.assign(service.assets, {
+    folder: (family, kind) => (kind === 'model' ? [folder] : []),
+    register: async ({ path, kind, family }) => {
+      const id = assetId(family, kind, basename(path));
+      registered.set(id, { id, path, kind, family });
+      return registered.get(id);
+    },
+    read: async id => registered.get(id) ?? Promise.reject(new Error(`Asset ${id} not found`)),
+    resolve: async (id, { kind, family, file }) => {
+      if (registered.has(id)) return registered.get(id);
+      if (!['model', 'referenceModel'].includes(kind) || existsSync(join(folder, file))) return { id, path: join(folder, file ?? id), kind, family };
+      throw Object.assign(new Error(`Asset ${id} not found`), { status: 400 });
+    },
+  });
+  service.versions.describe = async path => SAID[basename(path)];
+  const minimax = shipped('minimax_h3'),
+    { digest, ...stored } = minimax,
+    copy = join(own, minimax.id + '.json'),
+    written = async () => JSON.parse(await readFile(copy, 'utf8')),
+    // What the user sets on the page of the model: written in their copy.
+    set = async values => {
+      const theirs = await written();
+      for (const [key, value] of Object.entries(values)) theirs.parameters[key].value = value;
+      if (values.steps) for (const profile of Object.values(theirs.profiles)) profile.parameters.steps = values.steps;
+      await writeFile(copy, JSON.stringify(theirs));
+    },
+    told = async () => {
+      const read = await service.catalog.read(minimax.id);
+      return [read.components.model.file, read.parameters.steps.value, read.profiles.final.parameters.steps, read.parameters.sparse_keep.value, read.parameters.sparse_start.value];
+    },
+    kept = async () => JSON.parse(await readFile(join(root, 'data', 'model-versions.json'), 'utf8')).settings ?? {};
+  // FastH3 Omni, with their own settings.
+  await writeFile(copy, JSON.stringify(stored));
+  await set({ sparse_keep: 25, sparse_start: 0.5 });
+  assert.deepEqual(await told(), [OMNI, 8, 8, 25, 0.5]);
+  // To MiniMax's own model, never set: the steps of its recipe, and the settings of the one left.
+  await service.useVersion(minimax.id, join(folder, FL2VA));
+  assert.deepEqual(await told(), [FL2VA, 20, 20, 25, 0.5]);
+  assert.deepEqual(Object.keys((await kept())[minimax.id]), [OMNI], 'those of the version left are kept');
+  // Its own settings, then back to FastH3 Omni: those of FastH3 Omni as they were left. They were the steps
+  // of the recipe and whatever had been set for the other (8, 40, 0.3).
+  await set({ steps: 24, sparse_keep: 40, sparse_start: 0.3 });
+  await service.useVersion(minimax.id, join(folder, OMNI));
+  assert.deepEqual(await told(), [OMNI, 8, 8, 25, 0.5]);
+  assert.equal((await written()).components.referenceModel, undefined);
+  // And back: those of MiniMax's own model, its second file with it.
+  await service.useVersion(minimax.id, join(folder, FL2VA));
+  assert.deepEqual(await told(), [FL2VA, 24, 24, 40, 0.3]);
+  assert.equal((await written()).components.referenceModel.file, REF2VA);
+  assert.deepEqual(Object.keys((await kept())[minimax.id]).sort(), [FL2VA, OMNI].sort());
+  // The version already in use picked again: as before this version, what its recipe says, nothing else moved.
+  await service.useVersion(minimax.id, join(folder, FL2VA));
+  assert.deepEqual(await told(), [FL2VA, 20, 20, 40, 0.3]);
+  // Taken back as shipped: the settings kept for its versions go with the copy.
+  await service.resetWorkflow(minimax.id);
+  assert.equal(existsSync(copy), false);
+  assert.deepEqual(await kept(), {});
+  assert.deepEqual(await told(), [OMNI, 8, 8, 10, 0.2]);
+  // Edited again and to the other version: nothing of before the reset comes back.
+  await writeFile(copy, JSON.stringify(stored));
+  await service.useVersion(minimax.id, join(folder, FL2VA));
+  assert.deepEqual(await told(), [FL2VA, 20, 20, 10, 0.2]);
+});
+
+test('the settings kept for a version come with the file that stands for another, in the copy of the user only (0.6.420)', async t => {
+  const minimax = shipped('minimax_h3'),
+    { digest, ...stored } = minimax,
+    { root, versions, folder, statePath } = await standing(t, { [OMNI]: 'a', [FL2VA]: 'c', [REF2VA]: 'd' }),
+    told = made => [made.components.model.file, made.parameters.steps.value, made.parameters.sparse_keep.value],
+    theirs = structuredClone(stored);
+  theirs.parameters.steps.value = 24;
+  theirs.parameters.sparse_keep.value = 40;
+  await versions.keep(minimax.id, FL2VA, theirs);
+  assert.deepEqual((await versions.keptOf(minimax.id, FL2VA.toUpperCase())).parameters.steps, { policy: 'fixed', value: 24 });
+  assert.equal(await versions.keptOf(minimax.id, OMNI), null);
+  assert.equal(await versions.keptOf('autre', FL2VA), null);
+  // The file their copy names is gone: the one read in its place, with the settings they gave it.
+  await rm(join(folder, OMNI));
+  assert.deepEqual(told(await versions.fitted(stored, { own: true })), [FL2VA, 24, 40]);
+  // The workflow as shipped has nothing of the user's: the recipe of the file, the rest as shipped.
+  assert.deepEqual(told(await versions.fitted(minimax)), [FL2VA, 20, 10]);
+  assert.deepEqual(told(await versions.applied(minimax)), [FL2VA, 20, 10]);
+  // Their copy is read so by the catalog.
+  const own = join(root, 'workflow');
+  await mkdir(own);
+  await writeFile(join(own, minimax.id + '.json'), JSON.stringify({ ...stored, description: 'Le mien.' }));
+  const catalog = new NativeWorkflowCatalog(own, { assets: versions.assets, builtin: shippedFolder, statePath: join(root, 'state.json'), versions });
+  assert.deepEqual(told(await catalog.read(minimax.id)), [FL2VA, 24, 40]);
+
+  // What is kept: a setting the workflow no longer has is left aside, one it refuses leaves it as it is.
+  const kept = await versions.keptOf(minimax.id, FL2VA);
+  assert.equal(withSettings(stored, null), stored);
+  assert.equal(withSettings(stored, {}), stored);
+  const partly = withSettings(stored, { parameters: { ...kept.parameters, gone: { policy: 'fixed', value: 1 } } });
+  assert.deepEqual([partly.parameters.gone, partly.parameters.steps.value], [undefined, 24]);
+  assert.equal(withSettings(stored, { parameters: { steps: { policy: 'fixed', value: 0 } } }), stored);
+  assert.equal(withSettings(stored, { parameters: {}, profiles: { final: { steps: 30, gone: 1 }, absent: { steps: 2 } } }).profiles.final.parameters.steps, 30);
+  assert.deepEqual(Object.keys(withSettings(stored, { parameters: {}, profiles: { final: { gone: 1 }, absent: { steps: 2 } } }).profiles), Object.keys(stored.profiles));
+
+  // The settings of 24 versions of a workflow at most, the ones left longest ago first to go; the other
+  // choices kept in the same file stay.
+  await versions.use(minimax, join(folder, FL2VA));
+  for (let at = 0; at < 26; at++) await versions.keep(minimax.id, `v${at}.safetensors`, theirs);
+  await versions.keep(minimax.id, 'V3.safetensors', theirs);
+  const state = JSON.parse(await readFile(statePath, 'utf8')),
+    names = Object.keys(state.settings[minimax.id]);
+  assert.equal(names.length, 24);
+  assert.deepEqual([names[0], names.at(-1), names.includes('v1.safetensors'), names.includes(FL2VA.toLowerCase())], ['v2.safetensors', 'v3.safetensors', false, false]);
+  assert.equal(basename(state.used.minimax_h3.path), FL2VA);
+  // Nothing kept without a workflow or a file; forgetting what was never kept writes nothing.
+  await versions.keep('', FL2VA, theirs);
+  await versions.keep(minimax.id, '', theirs);
+  await versions.forget('autre');
+  assert.deepEqual(Object.keys(JSON.parse(await readFile(statePath, 'utf8')).settings), [minimax.id]);
+  // A state written by hand, or damaged: what is not settings is left aside.
+  await writeFile(statePath, JSON.stringify({ used: state.used, settings: { a: 'x', b: { 'f.safetensors': { parameters: [] } }, c: { 'g.safetensors': { parameters: { steps: { policy: 'fixed', value: 4 } } } } } }));
+  assert.equal(await versions.keptOf('a', 'x'), null);
+  assert.equal(await versions.keptOf('b', 'f.safetensors'), null);
+  assert.deepEqual((await versions.keptOf('c', 'g.safetensors')).parameters.steps.value, 4);
+  await versions.forget('c');
+  assert.deepEqual(Object.keys(JSON.parse(await readFile(statePath, 'utf8'))), ['schemaVersion', 'used', 'added'], 'none kept: none written');
 });

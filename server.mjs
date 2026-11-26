@@ -1661,7 +1661,7 @@ export async function createApplication({
             return send(200, await generation.snapshot());
           }
           if (path === '/api/generation/reset') {
-            await generation.catalog.reset(body.id);
+            await generation.resetWorkflow(body.id);
             return send(200, await generation.snapshot());
           }
           if (path === '/api/generation/unhide') {
