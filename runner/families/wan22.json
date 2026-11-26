@@ -12,7 +12,6 @@
     ]
   },
   "tasks": ["create_video"],
-  "engine": "internal",
   "hardware": {
     "cuda": true
   },

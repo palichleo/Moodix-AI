@@ -10,7 +10,6 @@
     "version": "De base"
   },
   "tasks": ["create_audio"],
-  "engine": "internal",
   "chooseFor": "sound effects, noises and ambiences, without music or singing",
   "requires": ["torch", "transformers", "safetensors"],
   "components": {

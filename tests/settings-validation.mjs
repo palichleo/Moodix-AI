@@ -78,17 +78,18 @@ test('workflow descriptions sent with the settings are left out', async t => {
   assert.equal((await (await api('bootstrap')).json()).config.gpuLayers, 7);
 });
 
-test('a pending workflow removal excludes concurrent settings, model start and workflow writes', async t => {
+test('a pending workflow write excludes concurrent settings, model start and workflow writes', async t => {
   const { initial, api } = await fixture(t);
-  const barrier = pauseMethod(t, NativeWorkflowCatalog.prototype, 'remove');
-  const pending = api('generation/remove', { id: 'photo' });
+  // Showing the hidden shipped workflows again, held inside the catalog.
+  const barrier = pauseMethod(t, NativeWorkflowCatalog.prototype, 'unhide');
+  const pending = api('generation/unhide', {});
   try {
     await barrier.arrived;
     for (const [route, body] of [
       ['settings', { config: initial.config, generation: initial.generation }],
       ['start', {}],
       ['generation/config', initial.generation],
-      ['generation/remove', { id: 'other' }],
+      ['generation/reset', { id: 'other' }],
       ['files/choose', { kind: 'model' }],
     ]) {
       await t.test(route, async () => {

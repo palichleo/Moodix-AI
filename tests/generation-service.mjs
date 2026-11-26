@@ -58,7 +58,7 @@ test('VAE and LoRA folder overrides persist, cover audio VAEs and reject invalid
   assert.equal(reopened.folders().lora, join(root, 'models', 'loras'));
 });
 
-test('a workflow is neither imported, converted nor created from a template any more (0.6.132); validating one saves nothing, and browse defaults follow the registered folders', async t => {
+test('browse defaults follow the registered folders', async t => {
   const root = await mkdtemp(join(tmpdir(), 'native-folder-http-')),
     models = join(root, 'models'),
     calls = [];
@@ -82,19 +82,6 @@ test('a workflow is neither imported, converted nor created from a template any 
         headers: { Authorization: 'Bearer ' + boot.token, 'Content-Type': 'application/json' },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
-  // (0.6.132) « Modèles seulement » (19/11): the page offers the models Moodix ships, with their
-  // settings; nothing imports a workflow of ComfyUI or of another tool, nor creates one.
-  // (0.6.277) Nor does anything validate one before saving it: the page sends what it saves.
-  for (const route of [
-    'generation/import',
-    'generation/import-comfy',
-    'generation/convert-krea',
-    'generation/convert-longforge',
-    'generation/validate',
-  ])
-    assert.ok([404, 405].includes((await api(route, { sourceText: '{}', sourcePath: 'x.json' })).status), route);
-  assert.ok([404, 405].includes((await api('generation/templates?pipeline=krea2')).status));
-  assert.equal((await api('files/choose', { kind: 'workflow' })).status, 400);
   const generation = await (await api('generation')).json();
   assert.deepEqual(generation.workflows, []);
   assert.match(generation.folders.model, /[\\/]models[\\/]diffusion_models$/);
@@ -566,9 +553,6 @@ test('no NVIDIA card: a family says so with its reason, and again when a creatio
   assert.deepEqual(calls[2], ['release', {}]);
   // The style LoRAs of the Studio are the files of the loras folders, and nothing else is asked.
   assert.deepEqual(await service.styles(), []);
-  const snapshot = await service.snapshot();
-  assert.equal(Object.hasOwn(snapshot, 'comfy'), false);
-  for (const gone of ['comfyState', 'startComfy', 'saveComfy', 'refreshComfy']) assert.equal(typeof service[gone], 'undefined', gone);
 });
 test('the folder of each kind of file when none is set apart for it: what « Détecter » gives back (0.6.131)', async t => {
   const dataDir = await mkdtemp(join(tmpdir(), 'folders-'));

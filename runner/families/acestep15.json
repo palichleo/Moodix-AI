@@ -10,7 +10,6 @@
     "version": "XL"
   },
   "tasks": ["create_audio"],
-  "engine": "internal",
   "chooseFor": "music: a song with sung lyrics, or an instrumental piece",
   "requires": ["torch", "diffusers", "transformers", "accelerate", "safetensors"],
   "components": {

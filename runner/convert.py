@@ -6,7 +6,7 @@ On an RTX 4070 SUPER a linear layer of LTX 2.5 computes three times faster from 
 (comfy-kitchen's kernel: a product of 8-bit integers) than from weights that are turned back
 into 16-bit floats first, whatever they were stored as: 0.8 ms against 2.5 ms for a 4096 x 4096
 layer, and a whole step of LTX 2.5 in 1.25 s from the official INT8 file against 2.74 s from an
-« fp8 scaled » one (19 November 2026, runner/MEMORY-STUDY.md). The conversion itself costs
+« fp8 scaled » one (measured on 19 November 2026). The conversion itself costs
 nothing at each step: it is the product that differs.
 
 SOURCE is a safetensors file (8-bit floats, « fp8 scaled » or not) or a GGUF file (Q8_0, Q4_K...

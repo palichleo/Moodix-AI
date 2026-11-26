@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { NativeWorkflowCatalog, validateNativeWorkflow, workflowFingerprint } from '../lib/native-workflows.mjs';
@@ -65,7 +65,7 @@ test('an update never replaces an edited workflow, and lists nothing beside it: 
   // (A workflow of the user's own never had a « V2 »: such a name is not its own.)
   await f.catalog.save({ ...f.original, id: 'le-mien', name: 'Le mien' });
   await assert.rejects(f.catalog.read('le-mien-0123456789ab'), /not found/);
-  await f.catalog.remove('le-mien');
+  await rm(join(f.user, 'le-mien.json'));
   // « Rétablir les réglages de Moodix »: the version shipped now, alone.
   await f.catalog.reset(f.original.id);
   assert.deepEqual(await f.names(), [[f.original.name, true, false, false]]);
@@ -95,30 +95,32 @@ test('a shipped workflow named like one of the user’s becomes V2, then V3', as
   assert.equal((await f.catalog.read(f.original.id)).name, f.original.name + ' V3');
 });
 
-test('a deleted shipped workflow stays hidden until an update changes it, and can be shown again', async t => {
+test('a shipped workflow deleted when the page could (until 0.6.119) stays hidden until an update changes it, and can be shown again', async t => {
   const f = await setup(t);
-  await f.catalog.remove(f.original.id);
+  // As « Supprimer » left it: the fingerprint of the version shipped then, in the state file.
+  const hide = async () => {
+    const hidden = { [f.original.id]: workflowFingerprint(await f.catalog.shippedOf(f.original.id)) };
+    await mkdir(dirname(f.catalog.statePath), { recursive: true });
+    await writeFile(f.catalog.statePath, JSON.stringify({ schemaVersion: 1, basedOn: {}, hidden }));
+  };
+  await hide();
   assert.deepEqual(await f.names(), []);
   assert.equal(await f.catalog.hiddenCount(), 1);
   await f.catalog.unhide();
   assert.equal((await f.names()).length, 1);
-  await f.catalog.remove(f.original.id);
+  await hide();
   await f.ship({ ...f.original, description: 'Nouvelle version fournie.' });
   assert.deepEqual(await f.names(), [[f.original.name, true, false, false]]);
   // Never written to: an update replaces that folder.
   assert.deepEqual(await readdir(f.builtin), [f.original.id + '.json']);
 });
 
-test('an edited shipped workflow can be restored, or deleted with its original', async t => {
+test('an edited shipped workflow can be restored', async t => {
   const f = await setup(t);
   await f.catalog.save({ ...f.original, description: 'Mon réglage à moi.' });
   await f.catalog.reset(f.original.id);
   assert.deepEqual(await f.names(), [[f.original.name, true, false, false]]);
   await assert.rejects(f.catalog.reset(f.original.id), /fourni et modifié/);
-  await f.catalog.save({ ...f.original, description: 'Mon réglage à moi.' });
-  await f.catalog.remove(f.original.id);
-  assert.deepEqual(await f.names(), []);
-  assert.deepEqual(await readdir(f.user), []);
 });
 
 test('copies left by older versions: unedited ones go, edited ones stay without a V2', async t => {

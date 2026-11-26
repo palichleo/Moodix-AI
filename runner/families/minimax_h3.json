@@ -14,7 +14,6 @@
     ]
   },
   "tasks": ["create_video", "extend_video"],
-  "engine": "internal",
   "hardware": { "cuda": true },
   "requires": [
     "torch",

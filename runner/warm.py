@@ -9,7 +9,7 @@ answered. It costs 0.7 GiB of RAM from then on, and nothing of the card: no modu
 driver is given no context. Measured on the first Krea 2 picture of a worker (1024 x 1024, 8 steps,
 three times or more each, alternated): 23.2 s without, 16.3 s asked for once the import has ended,
 20.0 s asked for 3 s after the start, 23.1 s asked for at once; in the application, from the
-Studio, 21.1 and 22.0 s without, 16.1 and 16.3 s with (runner/MEMORY-STUDY.md).
+Studio, 21.1 and 22.0 s without, 16.1 and 16.3 s with (19 November 2026).
 
 What to import is not written here: each family's first creation of a process says what it imported
 (`watch`), kept beside the caches (`warm.json`) and read at the next start. So does the check the

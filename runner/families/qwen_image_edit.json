@@ -12,7 +12,6 @@
     ]
   },
   "tasks": ["create_image"],
-  "engine": "internal",
   "hardware": { "cuda": true },
   "requires": ["torch", "diffusers", "transformers", "accelerate", "safetensors", "PIL", "comfy_kitchen"],
   "components": {

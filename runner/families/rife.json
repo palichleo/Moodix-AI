@@ -10,7 +10,6 @@
     "version": "4.26"
   },
   "tasks": ["interpolate"],
-  "engine": "internal",
   "requires": ["torch", "safetensors", "av", "imageio_ffmpeg"],
   "components": {
     "interpolator": {

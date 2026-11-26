@@ -35,7 +35,7 @@ test('an open file picker excludes model start, settings writes and other picker
     for (const [route, body] of [
       ['start', {}],
       ['config', initial.config],
-      ['settings', { config: initial.config, comfy: initial.comfy }],
+      ['settings', { config: initial.config }],
       ['files/choose', { kind: 'engine' }],
     ]) {
       await t.test(route, async () => {

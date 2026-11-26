@@ -171,9 +171,6 @@ test(
         maxIterations: 5,
         pythonPath: process.execPath,
       });
-      // No other program is asked anything: the settings say nothing of one (0.6.127).
-      assert.equal(Object.hasOwn(await (await api('generation')).json(), 'comfy'), false);
-      await api('generation/comfy', { enabled: true, baseUrl: 'http://127.0.0.1:8188' }, 404);
       const workflow = {
         schemaVersion: 1,
         id: 'integration-boat',

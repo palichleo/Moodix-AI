@@ -13,7 +13,6 @@
     ]
   },
   "tasks": ["refilm_video"],
-  "engine": "internal",
   "hardware": { "cuda": true },
   "requires": [
     "torch",

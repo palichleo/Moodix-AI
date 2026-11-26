@@ -1648,13 +1648,6 @@ export async function createApplication({
           if (path === '/api/generation/tokenizer')
             return send(200, await generation.suggestTokenizer(body.encoder, body.family));
           if (path === '/api/generation/workflows') return send(200, await generation.catalog.save(body));
-          if (path === '/api/generation/remove') {
-            // The workflows shipped with Moodix stay: an edited one can only be restored. (0.6.198) Said so to the user.
-            if ((await generation.catalog.list()).find(item => item.id === body.id)?.builtin)
-              throw problem('Les modèles fournis avec Moodix ne se suppriment pas.');
-            await generation.catalog.remove(body.id);
-            return send(200, { removed: true });
-          }
           // (0.6.118) The version of a model the user picks in the page « Modèles ».
           if (path === '/api/generation/models/version') {
             await generation.useVersion(body.workflowId, body.path);

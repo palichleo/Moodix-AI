@@ -61,7 +61,7 @@ test('component rows say what is missing, what fails and what is not used', asyn
     runtimeDir,
     run,
   });
-  // llama.cpp first, Node.js under it; ComfyUI is no longer listed.
+  // llama.cpp first, Node.js under it.
   assert.deepEqual(
     rows.map(row => row.id),
     ['llama', 'node', 'nvidia', 'python'],
@@ -92,5 +92,4 @@ test('component rows say what is missing, what fails and what is not used', asyn
   assert.equal(found.torch.detail, 'Sans CUDA');
   assert.equal(found.diffusers.version, '0.41.0');
   assert.equal(found.transformers.state, 'missing');
-  assert.equal(found.comfy, undefined);
 });

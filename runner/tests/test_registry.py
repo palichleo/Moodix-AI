@@ -37,7 +37,6 @@ class RegistryTests(unittest.TestCase):
             self.assertIn(name, own)
         for name, manifest in families().items():
             with self.subTest(family=name):
-                self.assertEqual(manifest['engine'], 'internal')
                 self.assertNotIn('native', manifest)
                 self.assertTrue(callable(pipeline(name).generate))
                 for role, spec in manifest['roles'].items():

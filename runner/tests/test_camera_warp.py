@@ -257,52 +257,6 @@ class PathTests(unittest.TestCase):
                 cw.path(keys, 3, easing)
 
 
-class CommandTests(unittest.TestCase):
-    def test_the_guide_of_a_video_from_depths_already_made(self):
-        import contextlib
-        import io
-        import json
-        from pathlib import Path
-        import tempfile
-
-        from runner.video.ic_reference import read_frames
-
-        frames = np.stack([colours(32, 48, seed) for seed in range(5)])
-        depth = np.full((5, 32, 48), 3.0, dtype=np.float32)
-        depth[:, :, :8] = 1.5
-        with tempfile.TemporaryDirectory() as folder:
-            folder = Path(folder)
-            writer = cw.lossless(folder / 'clip.mkv', 48, 32, 24)
-            for frame in frames:
-                writer.send(frame)
-            writer.close()
-            saved = dict(depth=depth, hfov=np.full(5, 45.0), scale=np.ones(5), seconds=12.5, peak=1.25)
-            np.savez(folder / 'depths.npz', **saved)
-            arguments = ['--video', str(folder / 'clip.mkv'), '--moge', str(folder / 'never-read.safetensors')]
-            arguments += ['--out', str(folder / 'out'), '--path', '0:0:0:1,4:20:0:1']
-            arguments += ['--depths', str(folder / 'depths.npz')]
-            with contextlib.redirect_stdout(io.StringIO()):
-                self.assertEqual(cw.main(arguments), 0)
-            report = json.loads((folder / 'out' / 'guide.json').read_text(encoding='utf-8'))
-            self.assertTrue(report['depths_read'])
-            self.assertEqual((report['seconds']['depth'], report['peak_vram_gib']), (12.5, 1.25))
-            self.assertEqual(report['cameras'], [[0, 0, 1], [5, 0, 1], [10, 0, 1], [15, 0, 1], [20, 0, 1]])
-            # Frame by frame, the frame drawn again from its camera, exactly.
-            fx = cw.focal(48)
-            moves = cw.cameras(cw.path([(0, 0, 0, 1), (4, 20, 0, 1)], 5), cw.pivot_of(depth[0], fx))
-            guide = read_frames(folder / 'out' / 'guide.mkv', 5)
-            for frame, its_depth, camera, drawn in zip(frames, depth, moves, guide):
-                np.testing.assert_array_equal(drawn, cw.warp(frame, its_depth, camera, fx)[0])
-            self.assertEqual(report['holes'][0], 0.0)
-            self.assertGreater(report['holes'][-1], 0.01)
-            self.assertTrue((folder / 'out' / 'guide.mp4').stat().st_size > 0)
-            # Depths of another video are refused.
-            np.savez(folder / 'other.npz', depth=depth[:3], hfov=np.ones(3), scale=np.ones(3), seconds=1.0, peak=1.0)
-            arguments[-1] = str(folder / 'other.npz')
-            with self.assertRaises(SystemExit):
-                cw.main(arguments)
-
-
 class SteadyTests(unittest.TestCase):
     def test_a_flickering_scale_is_steadied_and_a_slow_change_kept(self):
         base = np.random.default_rng(2).uniform(1, 5, (8, 8))

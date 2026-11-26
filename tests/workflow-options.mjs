@@ -203,7 +203,6 @@ test('every parameter a family declares is read by its engine, unless the family
   // `attention` served ComfyUI: the engine of Moodix runs LTX 2.5, Krea 2 and MOSS Image without
   // reading it (MOSS Image takes the attention its file asks for).
   for (const name of ['ltx25', 'krea2', 'moss']) assert.ok(family(name).parameters.attention.unused, name);
-  assert.equal(family('moss').engine, 'internal');
   assert.equal(family('minimax_h3').parameters.attention.unused, undefined, 'MiniMax H3 reads its attention');
   // New workflows are made without it.
   for (const name of ['ltx25', 'krea2', 'moss'])

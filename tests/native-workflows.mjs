@@ -240,7 +240,7 @@ test('canonical digest changes only with saved content and saved files remain at
     assert.equal(listed[0].ready, true);
     assert.match(catalog.warnings[0], /broken/i);
     assert.deepEqual((await readdir(directory)).sort(), ['broken.json', 'portrait.json']);
-    await catalog.remove('portrait');
+    await rm(join(directory, 'portrait.json'));
     assert.deepEqual(await catalog.list(), []);
   });
 });

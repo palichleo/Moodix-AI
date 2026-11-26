@@ -601,10 +601,9 @@ test('(0.6.198) what the page says to the user calls a model « modèle », neve
     const lines = (await readFile(new URL('../' + name, import.meta.url), 'utf8')).split(/\r?\n/);
     assert.deepEqual(lines.filter(line => !/^\s*(?:\/\/|\*|\/\*\*)/.test(line) && french.test(line)), [], name);
   }
-  // The refusals of routes only the page calls: a download, a model removed or set back.
+  // The refusals of routes only the page calls: a download, a model set back.
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8'),
     catalog = await readFile(new URL('../lib/native-workflows.mjs', import.meta.url), 'utf8');
-  for (const said of ["problem('Modèle introuvable.', 404)", "problem('Les modèles fournis avec Moodix ne se suppriment pas.')"])
-    assert.ok(server.includes(said), said);
+  assert.ok(server.includes("problem('Modèle introuvable.', 404)"));
   assert.ok(catalog.includes("invalid('Seul un modèle fourni et modifié peut être rétabli.')"));
 });

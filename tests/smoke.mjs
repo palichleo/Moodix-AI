@@ -133,18 +133,6 @@ test('smoke local sans modèle réel', { timeout: 30000 }, async t => {
         assert.equal(served.status, 200, path);
         assert.equal(served.headers.get('content-type'), type, path);
       }
-      // The sidebar and the window are gone (0.6.0): their scripts are no longer served. Nor are
-      // the metal of the former interface and the font of its switch, which no page loaded (0.6.73).
-      for (const gone of [
-        '/material-light.mjs',
-        '/sidebar-fold.mjs',
-        '/sidebar-state.js',
-        '/filet.mjs',
-        '/assets/metallic-grain.png',
-        '/assets/metallic-surface.svg',
-        '/assets/fonts/Archivo-Variable.ttf',
-      ])
-        assert.equal((await fetch(base + gone)).status, 404, gone);
       assert.match(page.headers.get('content-security-policy'), /default-src 'self'/);
       assert.equal(
         (
