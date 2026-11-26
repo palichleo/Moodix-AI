@@ -784,3 +784,43 @@ test('a build that does not start gives way to the next; a file that came short 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('a failed unpacking leaves no build behind; the downloads go once a build is installed (0.6.394)', async () => {
+  const { utimes } = await import('node:fs/promises');
+  const root = await mkdtemp(join(tmpdir(), 'llama-builds-'));
+  const tar = async (command, args) => {
+    if (!command.endsWith('tar.exe')) return { code: 0, output: 'Available devices:\n  CUDA0: NVIDIA (12281 MiB)\n' };
+    if (args[1].includes('cudart')) return { code: 1, output: '' };
+    await writeFile(join(args[3], 'llama-server.exe'), 'exe');
+    return { code: 0, output: '' };
+  };
+  try {
+    // The CUDA libraries do not unpack: what was unpacked goes at once, the archives stay to go on from.
+    const builds = rtx(root, { fetchImpl: flaky(root, RTX).fetchImpl, run: tar, unpack: null });
+    await assert.rejects(builds.install(), /Décompression impossible de cudart-/);
+    assert.deepEqual(await readdir(root), ['downloads']);
+    assert.deepEqual((await readdir(join(root, 'downloads'))).sort(), [
+      'cudart-llama-bin-win-cuda-13.4-x64.zip',
+      'llama-b12110-bin-win-cuda-13.4-x64.zip',
+    ]);
+    // Left by 0.6.393 and before: the unpacking of an older build cut short, newer than the build before it
+    // (the one to go back to), and a download of an older release.
+    const ages = { 'b12000-vulkan': 300, 'b12000-cuda-13.4.unpack': 100, 'b12000-cuda-13.4.libraries': 100 };
+    for (const [name, age] of Object.entries(ages)) {
+      await mkdir(join(root, name));
+      const at = new Date(Date.now() - age * 1000);
+      await utimes(join(root, name), at, at);
+    }
+    await writeFile(join(root, 'downloads', 'llama-b12000-bin-win-vulkan-x64.zip.part'), 'old');
+    // A build installed, an engine of the user's in use: the build before stays, not what was left.
+    const cpu = rtx(root, {
+      fetchImpl: flaky(root, RTX).fetchImpl,
+      detect: async () => ({ platform: 'win32', arch: 'x64', gpus: [] }),
+    });
+    assert.equal((await cpu.install({ inUse: 'C:\\Ollama\\llama-server.exe' })).id, 'cpu');
+    assert.deepEqual((await readdir(root)).sort(), ['b12000-vulkan', 'b12110-cpu', 'downloads']);
+    assert.deepEqual(await readdir(join(root, 'downloads')), []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
