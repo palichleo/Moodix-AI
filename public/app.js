@@ -4632,7 +4632,9 @@ async function sendMessage(event) {
       // Named once, by its first message, as the history names it (persistConversation gives its
       // name back): at every turn the bar took the whole text of the last message, and lost the name
       // the user had given. (Its own conversation, set aside or not, 0.6.81.)
-      nameHere(talkId, conversationTitle(text).slice(0, 120) || 'Une image à explorer');
+      // (0.6.408) Without words, by what was joined: a video alone was « Une image à explorer ».
+      const joined = videos.length && !images.length ? 'Une vidéo à explorer' : 'Une image à explorer';
+      nameHere(talkId, conversationTitle(text).slice(0, 120) || joined);
     }
     // The turn is over, answered, failed or stopped: the mark is at rest, its thought timed.
     view.thought?.end();

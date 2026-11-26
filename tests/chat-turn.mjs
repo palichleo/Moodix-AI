@@ -3527,3 +3527,21 @@ test('the copies of an analysis are said gone at the next message, and once reop
   const read = reopened.requests.at(-1).messages;
   assert.deepEqual([announced(read).length, settled(read).length], [0, 1]);
 });
+
+
+test('a conversation begun without words is named by what was joined, a video or an image (0.6.408)', async () => {
+  // Without the history (which names it itself), a video sent alone was « Une image à explorer ».
+  const video = { id: 'e5555555-5555-4555-8555-555555555555', label: 'ref3', name: 'plage.mp4' },
+    file = `original-${'a'.repeat(64)}.png`,
+    image = { name: 'a.png', url: 'data:image/png;base64,iVBORw0KGgo=', file, view: '/a' };
+  const filmed = page({ state: { videos: [video] } });
+  await filmed.send('');
+  assert.equal(filmed.$('conversation-title').textContent, 'Une vidéo à explorer');
+  const pictured = page({ state: { images: [image] } });
+  await pictured.send('');
+  assert.equal(pictured.$('conversation-title').textContent, 'Une image à explorer');
+  // Both joined: named as before.
+  const both = page({ state: { images: [image], videos: [video] } });
+  await both.send('');
+  assert.equal(both.$('conversation-title').textContent, 'Une image à explorer');
+});
