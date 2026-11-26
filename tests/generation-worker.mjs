@@ -7,7 +7,10 @@ const fixture = fileURLToPath(new URL('./fixtures/fake-generation-worker.mjs', i
 function worker(mode) {
   return new GenerationWorker({
     root: process.cwd(),
-    handshakeMs: 500,
+    // (0.6.416) Half a second only for the engine that never answers, which a test waits out. One that answers
+    // is a program to start: on a busy computer it took longer than that, and its test failed (« Le moteur
+    // Python ne répond pas au démarrage. ») once in a while.
+    handshakeMs: mode === 'silent' ? 500 : 20000,
     stopMs: 200,
     spawnProcess: (_command, _args, options) =>
       spawn(process.execPath, [fixture], { ...options, env: { ...options.env, TEST_RUNNER_MODE: mode } }),
