@@ -607,3 +607,13 @@ test('(0.6.198) what the page says to the user calls a model « modèle », neve
   assert.ok(server.includes("problem('Modèle introuvable.', 404)"));
   assert.ok(catalog.includes("invalid('Seul un modèle fourni et modifié peut être rétabli.')"));
 });
+
+
+test('(0.6.427) a request has ten minutes to arrive whole: a large video sent as a reference was cut after thirty seconds', async () => {
+  // (Node looks at its connections every thirty seconds: no test can wait for a request to be cut.)
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8');
+  assert.match(server, /\n  server\.requestTimeout = 10 \* 60 \* 1000;\r?\n/);
+  assert.equal(server.split('server.requestTimeout =').length, 2, 'set once');
+  // Its headers keep their fifteen seconds: nothing of a request is long to arrive but its body.
+  assert.match(server, /\n  server\.headersTimeout = 15000;\r?\n/);
+});

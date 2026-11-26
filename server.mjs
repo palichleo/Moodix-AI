@@ -3161,7 +3161,10 @@ export async function createApplication({
       if (!error.status && error.name !== 'AbortError') console.error(error);
     }
   });
-  server.requestTimeout = 30000;
+  // (0.6.427) The time a request has to arrive whole, its body with it: ten minutes. At thirty seconds a
+  // video of 512 MB sent as a reference was cut when the disk wrote less than 17 MB a second, or when another
+  // upload was being written before it. The server listens to this computer alone: nothing to guard against.
+  server.requestTimeout = 10 * 60 * 1000;
   server.headersTimeout = 15000;
   await new Promise((yes, no) => {
     server.once('error', no);
