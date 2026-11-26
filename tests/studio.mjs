@@ -1058,6 +1058,8 @@ test('the picture the generator has so far is kept one at a time, and dropped wi
 });
 
 /** A page that remembers what each element is, with the Studio set up in it; `routes` answers its requests. */
+// The view of the Studio a test set up last: locked (`inert`) while Moodix AI lays a proposal out (settle).
+let lastView = null;
 async function studioPage(tools, routes = {}, options = {}) {
   class Element {
     constructor(tag = '', className = '', textContent = '') {
@@ -1112,6 +1114,7 @@ async function studioPage(tools, routes = {}, options = {}) {
   const page = Object.fromEntries(
     ['studio-view', 'studio-kinds', 'studio-body', 'ai-status', 'ai-takeover'].map(id => [id, new Element()]),
   );
+  lastView = page['studio-view'];
   // The pointer of Moodix AI (options.cursor: the list where what it says is written).
   if (options.cursor) {
     const classes = new Set();
@@ -1254,7 +1257,16 @@ async function studioPage(tools, routes = {}, options = {}) {
   };
 }
 const sizes = { width: { min: 256, max: 2048, multipleOf: 32 }, height: { min: 256, max: 2048, multipleOf: 32 } };
-const settle = () => new Promise(resolve => setTimeout(resolve, 15));
+/**
+ * What the page had begun is done: 15 ms, then (0.6.415) as long as Moodix AI lays a proposal out, the Studio
+ * locked meanwhile (`inert`), up to a second more. The 15 ms alone did not always suffice on a busy computer:
+ * the proposal not laid yet, its model was not the one expected, and a « Générer » clicked on the locked Studio
+ * answered nothing, the test waiting for good (and the tests after it in the file given up with it).
+ */
+const settle = async () => {
+  await new Promise(resolve => setTimeout(resolve, 15));
+  for (let at = 0; at < 500 && lastView?.inert; at++) await new Promise(resolve => setTimeout(resolve, 2));
+};
 /** What the screen shows: an image, or a clip, in a box of its own with the player of a take (0.6.97). */
 const screenOf = shown => (String(shown?.className ?? '').includes('studio-frame-clip') ? shown.children[0] : shown);
 
