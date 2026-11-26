@@ -14,6 +14,7 @@ import {
   MODEL,
   PROJECTOR,
   UNAVAILABLE,
+  batchThreads,
   defaultThreads,
   dictationSettings,
   vocabulary,
@@ -70,6 +71,7 @@ async function setup(t, { model = true, own = true, card = false, env = {}, ...o
     chatBuilds: { root: join(dataDir, 'engines', 'llama.cpp') },
     spawnProcess: playing(env),
     threads: 6,
+    threadsBatch: 10,
     ...options,
   }).load();
   t.after(async () => {
@@ -116,6 +118,8 @@ test('the settings keep what is valid, and the threads are those of the measures
   assert.deepEqual(dictationSettings({ language: 'auto', place: 'gpu', words: 'a\r\nb' }).words, 'a\nb');
   assert.equal(dictationSettings({ words: 'x'.repeat(5000) }).words.length, 2000);
   assert.deepEqual([defaultThreads(32), defaultThreads(8), defaultThreads(1)], [8, 4, 1]);
+  // Those that read: 14 of the 20 of the processor measured, never fewer than those that write.
+  assert.deepEqual([batchThreads(20), batchThreads(32), batchThreads(8), batchThreads(2), batchThreads(1)], [14, 22, 6, 1, 1]);
 });
 
 test('a dictation is written by its own engine on the processor, told the words to expect', async t => {
@@ -128,8 +132,16 @@ test('a dictation is written by its own engine on the processor, told the words 
   const [launched] = said(dictation, 'Lancé');
   assert.match(launched.command, /b200-cpu/);
   assert.deepEqual(
-    { threads: launched.threads, layers: launched.layers, context: launched.context, offload: launched.offload },
-    { threads: '6', layers: '0', context: '4096', offload: false },
+    {
+      threads: launched.threads,
+      threadsBatch: launched.threadsBatch,
+      layers: launched.layers,
+      context: launched.context,
+      offload: launched.offload,
+      cacheRam: launched.cacheRam,
+    },
+    // No cache of the prompts already read (0.6.453): every sound is new.
+    { threads: '6', threadsBatch: '10', layers: '0', context: '4096', offload: false, cacheRam: '0' },
   );
   assert.equal(basename(launched.projector), PROJECTOR);
   assert.deepEqual(said(dictation, 'Reçu')[0], {
@@ -173,6 +185,7 @@ test('on the card: the build of the chat made for it, left to a generation, the 
   assert.match(launched.command, /b150-cuda-13\.4/);
   assert.equal(launched.layers, '999');
   assert.equal(launched.offload, true);
+  assert.equal(launched.cacheRam, '0', 'on the card too, no prompt kept in memory');
   assert.equal((await dictation.status()).engine.place, 'gpu');
   // A generation starts: the card is given back.
   busy = true;

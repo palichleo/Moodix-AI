@@ -17,8 +17,9 @@ const PLACES = [
   ['cpu', 'Processeur'],
   ['gpu', 'Carte graphique'],
 ];
+// The card measured by the study, the processor alone by Moodix (26/11, 0.6.453: 2.1 s for a sentence of 8 to 10 s).
 export const CARD_TIP =
-  'Une phrase en 0,3 s au lieu de 1,7 s, mais 3,6 Go de la carte en moins pour le chat et les générations.';
+  'Une phrase en 0,3 s au lieu de 2 s, mais 3,6 Go de la carte en moins pour le chat et les générations.';
 const FIRST_INSTALL = 'Installez d’abord le modèle.';
 const REMOVE_QUESTION = size =>
   `Retirer la dictée de cet ordinateur ? Son modèle (${size}) et sa version de llama.cpp sont effacés : il faudra les télécharger à nouveau pour dicter.`;

@@ -21,6 +21,9 @@ console.log(
     JSON.stringify({
       command: process.env.FAKE_COMMAND,
       threads: arg('--threads'),
+      threadsBatch: arg('--threads-batch'),
+      // The cache of prompts in memory, said by its variable (0.6.453).
+      cacheRam: process.env.LLAMA_ARG_CACHE_RAM ?? null,
       layers: arg('--n-gpu-layers'),
       context: arg('--ctx-size'),
       projector: arg('--mmproj'),
