@@ -162,13 +162,16 @@ const staticFiles = new Map([
 async function jsonBody(req, limit = maxBody) {
   if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] || ''))
     throw problem('Le format JSON est attendu.', 415);
+  // (0.6.399) The limit of this request, said as it is: « 20 Mo » was written for all of them, and the copy
+  // of a session kept for an update has 40.
+  const most = `La requête dépasse ${Math.round(limit / 1024 / 1024)} Mo.`;
   if (Number(req.headers['content-length'] || 0) > limit)
-    throw problem('La requête dépasse 20 Mo. Réduisez le nombre d’images ou commencez une nouvelle conversation.', 413);
+    throw problem(`${most} Réduisez le nombre d’images ou commencez une nouvelle conversation.`, 413);
   const chunks = [];
   let bytes = 0;
   for await (const chunk of req) {
     bytes += chunk.length;
-    if (bytes > limit) throw problem('La requête dépasse 20 Mo.', 413);
+    if (bytes > limit) throw problem(most, 413);
     chunks.push(chunk);
   }
   try {

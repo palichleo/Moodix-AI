@@ -255,3 +255,49 @@ test('the application removes the folders of the updates before when it starts (
     await rm(dataDir, { recursive: true, force: true });
   }
 });
+
+
+test('a request too large is refused with the limit of its own route (0.6.399)', async () => {
+  // « La requête dépasse 20 Mo » was said of the session kept for an update too, whose limit is 40.
+  const http = await import('node:http');
+  const dataDir = await mkdtemp(join(tmpdir(), 'atelier-update-size-')),
+    app = await createApplication({ port: 0, dataDir });
+  try {
+    const { token } = await (await fetch(app.url + '/api/bootstrap')).json(),
+      { hostname, port } = new URL(app.url);
+    // Refused on what it announces, before a byte of it is read.
+    const refused = (route, megabytes) =>
+      new Promise((resolve, reject) => {
+        const request = http.request(
+          {
+            hostname,
+            port,
+            path: '/api/' + route,
+            method: 'POST',
+            headers: {
+              Authorization: 'Bearer ' + token,
+              'Content-Type': 'application/json',
+              'Content-Length': megabytes * 1024 * 1024 + 1,
+            },
+          },
+          response => {
+            let text = '';
+            response.on('data', chunk => (text += chunk));
+            response.on('end', () => (request.destroy(), resolve([response.statusCode, JSON.parse(text).error])));
+          },
+        );
+        request.on('error', reject);
+        request.write('{');
+      });
+    const [status, said] = await refused('updates/install', 40);
+    assert.equal(status, 413);
+    assert.match(said, /^La requête dépasse 40 Mo\. /);
+    assert.deepEqual(await refused('history/save', 20), [
+      413,
+      'La requête dépasse 20 Mo. Réduisez le nombre d’images ou commencez une nouvelle conversation.',
+    ]);
+  } finally {
+    await app.close();
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
