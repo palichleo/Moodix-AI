@@ -135,12 +135,14 @@ def check(job, family):
 
 
 def steps_of(header):
-    """The steps this checkpoint is sampled in. A distilled one says so by what distillation left
-    in it: several output heads (FastH3 Omni), or the gates of the sparse attention it was taught
-    (FastH3 v2). MiniMax's own checkpoints have neither."""
+    """The steps this checkpoint says it is sampled in, or None when it says nothing. A distilled one
+    says so by what distillation left in it: several output heads (FastH3 Omni), or the gates of the
+    sparse attention it was taught (FastH3 v2). MiniMax's own checkpoints have neither. (0.6.418) Nor
+    has a distilled one merged into plain weights, nor one computed with a step adapter: a file without
+    those marks is no proof of 20 steps, and its steps are those its version asks (check_steps)."""
     from runner.models import minimax_h3
 
-    return STEPS if minimax_h3.pdd_heads(header) > 1 or minimax_h3.has_gates(header) else BASE_STEPS
+    return STEPS if minimax_h3.pdd_heads(header) > 1 or minimax_h3.has_gates(header) else None
 
 
 def model_path(job):
@@ -153,16 +155,22 @@ def model_path(job):
 
 
 def check_steps(job, header):
-    """A workflow that asks for the steps of another kind of checkpoint is told so: 8 steps of a
-    model made for 20 give a blurred video, and nothing would say why."""
-    steps, asked = steps_of(header), job['parameters'].get('steps')
-    if asked is not None and asked != steps:
-        kind = 'distillé (FastH3)' if steps == STEPS else 'de base (non distillé)'
+    """The steps of this job. A checkpoint that says its own (steps_of) is computed in those, and a
+    job that asks for others is told so. One that says nothing is computed in the steps asked, 20
+    (MiniMax's own) when none are: each version of the model has its steps (lib/model-versions.mjs).
+
+    (0.6.418) A file without marks was held to be MiniMax's own, and refused unless 20 steps were
+    asked. A distilled one merged into plain weights, read in place of the file its workflow was
+    shipped with (deleted), could not be computed at all: « il se calcule en 20 étapes, pas en 8 »."""
+    said, asked = steps_of(header), job['parameters'].get('steps')
+    if said is None:
+        return BASE_STEPS if asked is None else asked
+    if asked is not None and asked != said:
         raise ValueError(
-            f'Ce modèle MiniMax H3 est {kind} : il se calcule en {steps} étapes, pas en {asked}. '
-            'Réglez les étapes du workflow sur ' + str(steps) + ', ou choisissez l’autre modèle.'
+            f'Ce modèle MiniMax H3 est distillé (FastH3) : il se calcule en {said} étapes, pas en {asked}. '
+            f'Réglez ses étapes sur {said}, ou choisissez une autre version du modèle.'
         )
-    return steps
+    return said
 
 
 def model_kind(header):

@@ -31,18 +31,25 @@ class MiniMaxModels(unittest.TestCase):
         # FastH3 Omni: 32 output heads. FastH3 v2: one head, and the gates of its sparse attention.
         self.assertEqual(pipeline.steps_of(_header(heads=32, gates=True)), 8)
         self.assertEqual(pipeline.steps_of(_header(gates=True)), 8)
-        # MiniMax's own FL2VA and Ref2VA: neither.
-        self.assertEqual(pipeline.steps_of(_header()), 20)
+        # MiniMax's own FL2VA and Ref2VA: neither. (0.6.418) Nor a distilled one merged into plain
+        # weights: a file without those marks says nothing of its steps.
+        self.assertIsNone(pipeline.steps_of(_header()))
 
-    def test_the_steps_of_another_kind_of_checkpoint_are_refused_with_the_reason(self):
+    def test_a_checkpoint_that_says_its_steps_refuses_others_one_that_says_none_takes_the_asked_0_6_418(self):
         self.assertEqual(pipeline.check_steps(_job(steps=20), _header()), 20)
         self.assertEqual(pipeline.check_steps(_job(steps=8), _header(heads=32, gates=True)), 8)
-        # A job that does not say (an older record): the checkpoint's own.
+        # A job that does not say (an older record): the checkpoint's own, 20 for one that says nothing.
         self.assertEqual(pipeline.check_steps(_job(), _header()), 20)
-        with self.assertRaisesRegex(ValueError, 'de base.*20 étapes, pas en 8'):
-            pipeline.check_steps(_job(steps=8), _header())
-        with self.assertRaisesRegex(ValueError, 'distillé.*8 étapes, pas en 20'):
+        self.assertEqual(pipeline.check_steps(_job(), _header(gates=True)), 8)
+        # A file without marks, in the steps its version asks: a distilled one merged into plain weights
+        # (8), one computed with a step adapter (4). It was refused: « il se calcule en 20 étapes, pas en 8 ».
+        self.assertEqual(pipeline.check_steps(_job(steps=8), _header()), 8)
+        self.assertEqual(pipeline.check_steps(_job(steps=4), _header()), 4)
+        # One that carries the marks of its distillation is still computed in its own.
+        with self.assertRaisesRegex(ValueError, 'distillé.*8 étapes, pas en 20.*Réglez ses étapes sur 8'):
             pipeline.check_steps(_job(steps=20), _header(gates=True))
+        with self.assertRaisesRegex(ValueError, 'distillé.*8 étapes, pas en 4'):
+            pipeline.check_steps(_job(steps=4), _header(heads=32, gates=True))
 
     def test_reference_images_are_read_by_the_file_the_workflow_names_for_them(self):
         both = dict(referenceModel='ref2va.safetensors')
