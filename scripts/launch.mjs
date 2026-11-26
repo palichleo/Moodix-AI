@@ -94,7 +94,7 @@ export async function runLauncher({
     // Starting a second server here would only fail on the port, after its startup housekeeping.
     if (boot === SILENT)
       throw Error(
-        `Le port ${port} est tenu par un programme qui ne répond pas : une instance d’Atelier local très occupée, ou un autre service. Aucun processus n’a été arrêté. Réessayez dans un instant.`,
+        `Le port ${port} est tenu par un programme qui ne répond pas : une instance de Moodix très occupée, ou un autre service. Aucun processus n’a été arrêté. Réessayez dans un instant.`,
       );
     const sources = await appSources(root),
       local = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
@@ -104,7 +104,7 @@ export async function runLauncher({
           `Une ancienne instance${boot.version ? ' v' + boot.version : ''} est encore ouverte ; les sources sont en v${local.version}. Fermez sa fenêtre de lancement, puis relancez l’application.`,
         );
       if (boot.installationId !== sources.installationId)
-        throw Error('Le port est utilisé par Atelier local dans un autre dossier. Aucun processus n’a été arrêté.');
+        throw Error('Le port est utilisé par Moodix dans un autre dossier. Aucun processus n’a été arrêté.');
       if (restart || boot.sourceRevision !== sources.sourceRevision || boot.version !== local.version) {
         const busy = value =>
           value.updating ||
@@ -183,7 +183,7 @@ export async function runLauncher({
       boot = await ready(undefined, startTimeout);
     }
     if (boot.controlled) {
-      console.log(`Atelier local est déjà ouvert : ${url}`);
+      console.log(`Moodix est déjà ouvert : ${url}`);
       if (open) openBrowser(url);
       return;
     }
@@ -200,7 +200,7 @@ export async function runLauncher({
       }
       if (!response.ok || !response.body) throw Error('Impossible de prendre le contrôle de cette instance.');
       console.log(
-        `\nAtelier local — ${url}\nGardez cette fenêtre ouverte. Ctrl+C arrête l’application et son modèle.\n`,
+        `\nMoodix — ${url}\nGardez cette fenêtre ouverte. Ctrl+C arrête l’application et son modèle.\n`,
       );
       if (open && !opened) {
         openBrowser(url);

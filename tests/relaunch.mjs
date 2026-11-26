@@ -63,7 +63,7 @@ test('the launcher is started in its own window on Windows, in the background el
     '/d',
     '/s',
     '/c',
-    `"start "Atelier local" /D "F:\\Atelier" "${process.execPath}" "${join('F:\\Atelier', 'scripts', 'launch.mjs')}"` +
+    `"start "Moodix" /D "F:\\Atelier" "${process.execPath}" "${join('F:\\Atelier', 'scripts', 'launch.mjs')}"` +
       ' --port=8787 --wait-idle"',
   ]);
   assert.equal(windows.options.windowsVerbatimArguments, true);
@@ -153,7 +153,7 @@ test(
       // The line as cmd.exe is given it, run for real: only without a window of its own (« /B ») and waited
       // for (« /WAIT »), where the application opens a console and lets it live.
       const line = asked.args.at(-1),
-        quiet = line.replace('start "Atelier local"', 'start "Atelier local" /B /WAIT');
+        quiet = line.replace('start "Moodix"', 'start "Moodix" /B /WAIT');
       assert.notEqual(quiet, line);
       const child = spawn(asked.command, [...asked.args.slice(0, -1), quiet], {
         cwd: root,
@@ -184,5 +184,17 @@ test('the short answer names the process of the instance, for the launcher that 
   } finally {
     await app.close();
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('(0.6.440) the console, the launcher and the private Python say « Moodix », never « Atelier »', async () => {
+  // The name of before stays where it is only an identifier, never read by the user: the package
+  // (« atelier-local » above), the ATELIER_* variables, the User-Agent of the downloads (AtelierLocal-…).
+  const files = ['server.mjs', 'scripts/launch.mjs', 'lib/components.mjs', 'lib/python-environment.mjs'];
+  for (const file of [...files, 'runner/pipelines/krea2.py']) {
+    const said = (await readFile(new URL('../' + file, import.meta.url), 'utf8'))
+      .split(/\r?\n/)
+      .filter(line => !/^\s*(\/\/|\/\*|\*|#)/.test(line));
+    assert.deepEqual(said.filter(line => /Atelier(?!Local-)/.test(line)), [], file);
   }
 });

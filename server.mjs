@@ -3282,7 +3282,7 @@ export function startLauncher({ root, port, restart = false }, { platform = proc
     // Node quoted only those with a space, and cmd.exe cut a folder named « R&D » at its « & » (« ^ » was
     // lost): « Redémarrer » did nothing, without a word.
     [program, launcher, ...flags] = script,
-    line = ['start', quoted('Atelier local'), '/D', quoted(root), quoted(program), quoted(launcher), ...flags],
+    line = ['start', quoted('Moodix'), '/D', quoted(root), quoted(program), quoted(launcher), ...flags],
     child =
       platform === 'win32'
         ? spawnProcess('cmd.exe', ['/d', '/s', '/c', quoted(line.join(' '))], {
@@ -3313,7 +3313,7 @@ export function openBrowser(url, { platform = process.platform, spawnProcess = s
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   if (Number(process.versions.node.split('.')[0]) < 22) {
-    console.error('Atelier local nécessite Node.js 22 ou ultérieur.');
+    console.error('Moodix nécessite Node.js 22 ou ultérieur.');
     process.exitCode = 1;
   } else {
     let port = 8787;
@@ -3331,7 +3331,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
           launch: launchInstaller,
         },
       });
-      console.log(`\nAtelier local — ${app.url}\nLes conversations restent sur cet ordinateur. Ctrl+C pour arrêter.\n`);
+      console.log(`\nMoodix — ${app.url}\nLes conversations restent sur cet ordinateur. Ctrl+C pour arrêter.\n`);
       let closing = false;
       const close = async () => {
         if (closing) return;

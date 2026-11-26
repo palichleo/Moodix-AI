@@ -77,7 +77,7 @@ def preflight(job, config):
     tokenizer = job['components'].get('tokenizer')
     if not tokenizer or not Path(tokenizer).is_dir():
         raise ValueError(
-            'Le moteur d’Atelier a besoin du tokenizer de Krea 2 (dossier qwen25_tokenizer) : '
+            'Le moteur de Moodix a besoin du tokenizer de Krea 2 (dossier qwen25_tokenizer) : '
             'choisissez-le dans le workflow.'
         )
     if importlib.util.find_spec('comfy_kitchen') is None:
