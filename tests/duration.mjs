@@ -272,3 +272,23 @@ test('a length said right after the name of a model is kept: « sur ltx 8 s » (
   for (const text of ['prolonge-la avec LTX 2.5', 'sur wan 2.2', 'avec MiniMax H3 Omni', 'pars de l’image faite avec Krea 2', 'sur ltx 2'])
     assert.equal(inventedLength([user(text)]), true, text);
 });
+
+
+test('a workflow whose clips are all shorter than what a continuation renders again says so (0.6.404)', () => {
+  // None of its frame counts is longer than the 22 frames taken again from the source: it threw « Reduce of
+  // empty array with no initial value ». No workflow shipped is so; one imported could be.
+  const short = {
+    pipeline: 'minimax_h3',
+    parameters: {
+      frames: { policy: 'model', type: 'integer', choices: [9, 17], default: 9 },
+      fps: { policy: 'fixed', value: 24 },
+      overlap_frames: { policy: 'fixed', value: 22 },
+    },
+  };
+  assert.throws(
+    () => framesFor(short, 3, { continuation: true }),
+    error => error.status === 400 && /ne peut pas prolonger une vidéo.*22 images/.test(error.message),
+  );
+  // A clip of its own is still given its closest length.
+  assert.deepEqual(framesFor(short, 3), { frames: 17, seconds: 17 / 24 });
+});
