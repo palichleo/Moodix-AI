@@ -1060,3 +1060,45 @@ test('a creation of a conversation erased cannot be made again from a page left 
   rt.clear();
   await assert.rejects(rt.again({ requestId: last.requestId }), /ne peut plus être relancée/);
 });
+
+
+test('the model of an enlargement or of an interpolation that loads is said so (0.6.412)', async () => {
+  // Real-ESRGAN and RIFE said « state: 'loading' », which nothing reads: « Génération de l'image… » stayed
+  // while their model loaded. SeedVR2 said its stage, which had no words.
+  const workflow = nativeWorkflow({ digest: '1', name: 'wf' }),
+    labels = [],
+    engine = {
+      state: 'ready',
+      busy: false,
+      stop: async () => void (engine.state = 'stopped'),
+      start: async () => void (engine.state = 'ready'),
+    },
+    rt = new ToolRuntime({
+      engine,
+      catalog: { list: async () => [workflow], read: async () => workflow, prepare: async () => nativePrepared(workflow) },
+      gallery: { put: async record => record },
+      getConfig: () => ({ enabled: true, autoAllow: true, maxIterations: 3 }),
+      engineConfig: () => ({}),
+      clientFactory: () => ({
+        status: async () => ({ idle: true }),
+        preflight: async () => {},
+        run: async (_job, { onProgress }) => {
+          for (const stage of ['loading upscaler', 'loading interpolator']) {
+            onProgress({ stage });
+            labels.push(rt.job.progress);
+          }
+          return { outputs: [{ filename: 'x.png', subfolder: '', type: 'output' }] };
+        },
+        free: async () => {},
+      }),
+    });
+  const call = { name: 'create_image', arguments: JSON.stringify({ prompt: 'a fox' }) },
+    pending = await rt.request([{ id: 'c', type: 'function', function: call }], {
+      conversationId: id,
+      turnId: id,
+      messages: [],
+    });
+  await rt.execute({ requestId: pending.requestId });
+  await rt.finished;
+  assert.deepEqual(labels, ['Chargement du modèle d’agrandissement…', 'Chargement du modèle d’interpolation…']);
+});

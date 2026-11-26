@@ -72,7 +72,7 @@ class TransformTests(unittest.TestCase):
     def tearDown(self):
         self.folder.cleanup()
 
-    def run_job(self, family, media, component, weights, parameters, role, source, name=None):
+    def run_job(self, family, media, component, weights, parameters, role, source, name=None, told=None):
         from runner.engine import generate
 
         job = dict(
@@ -89,9 +89,22 @@ class TransformTests(unittest.TestCase):
             loras=[],
             references=[dict(input='source', role=role, path=str(source))],
         )
-        result = generate(job, self.config, lambda **_: None)
+        # (`told`: what the pipeline says of its progress, kept for the test that asks.)
+        result = generate(job, self.config, lambda **data: None if told is None else told.append(data))
         descriptor = result['outputs'][0]
         return descriptor, self.output / descriptor['subfolder'] / descriptor['filename']
+
+    def test_the_model_that_loads_is_told_as_a_stage_the_application_reads_0_6_412(self):
+        # « state='loading' » was read by nothing (lib/generation-progress.mjs reads `stage`): the bar said
+        # « Génération de l'image… » while the model loaded.
+        upscaled = ('realesrgan_image', 'image', 'upscaler', self.upscaler, {'tile': 16}, 'source_image', self.image)
+        smoothed = ('rife', 'video', 'interpolator', self.interpolator, {'multiplier': 2}, 'source_video', self.video)
+        for asked in (upscaled, smoothed):
+            told = []
+            self.run_job(*asked, told=told)
+            # (Its component names its model: « loading upscaler », « loading interpolator ».)
+            self.assertIn(dict(stage='loading ' + asked[2]), told, asked[0])
+            self.assertFalse([data for data in told if 'state' in data], asked[0])
 
     def test_named_transforms_go_in_the_folder_of_their_kind(self):
         from PIL import Image

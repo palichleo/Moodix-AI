@@ -32,7 +32,8 @@ def generate(job, config, progress):
     dtype = torch.float16 if device == 'cuda' else torch.float32
     if device == 'cuda':
         torch.cuda.reset_peak_memory_stats()
-    progress(state='loading')
+    # (0.6.412) Its stage: « state » is read by nothing (lib/generation-progress.mjs).
+    progress(stage='loading interpolator')
     model = rife.load(job['components']['interpolator']).to(device, dtype)
     parameters = job['parameters']
     multiplier, mode = parameters['multiplier'], parameters.get('mode', 'smooth')

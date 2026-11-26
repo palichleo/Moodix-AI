@@ -71,7 +71,8 @@ def generate(job, config, progress):
     dtype = torch.float16 if device == 'cuda' else torch.float32
     if device == 'cuda':
         torch.cuda.reset_peak_memory_stats()
-    progress(state='loading')
+    # (0.6.412) Its stage, as SeedVR2 says it: « state » is read by nothing (lib/generation-progress.mjs).
+    progress(stage='loading upscaler')
     model = rrdbnet.load(job['components']['upscaler']).to(device, dtype)
     parameters = job['parameters']
     tile, max_side = parameters.get('tile', 512), parameters.get('max_side', 0)
