@@ -3636,7 +3636,7 @@ export function setupStudio({
     const page = globalThis.document,
       frame = page?.querySelector?.('#studio-view .studio-frame');
     if (frame && onStage()?.id === record.id)
-      reshape(frame, screenShape(record), page.querySelector('#studio-view .studio-frame-over'));
+      reshape(frame, screenShape(), page.querySelector('#studio-view .studio-frame-over'));
   }
   /** The number the take under way will have: the counter of the project, else the last one + 1. */
   function upcomingTake() {
@@ -3764,9 +3764,8 @@ export function setupStudio({
           (!last && !start && !working && !gpuBlocked() ? ' is-empty' : '') +
           (gpuBlocked() && !working ? ' is-held' : ''),
       ),
-      // The card held: the take that held it is drawn at the format chosen for it (54).
-      shaped = gpuBlocked() && !working ? null : last,
-      next = screenShape(shaped);
+      // (The card held, 54: the take that held it is drawn at the format chosen, as every take is.)
+      next = screenShape();
     const take = last?.outputs?.[0]?.take,
       numbered = Number.isInteger(take),
       // While a take is made: the number it will have, in the accent, instead of its format.
@@ -3884,7 +3883,7 @@ export function setupStudio({
         if (!there) return void (laidOut = false);
         const still = laidOut ? [] : [frame, over];
         for (const element of still) element.style.transition = 'none';
-        reshape(frame, screenShape(shaped), over);
+        reshape(frame, screenShape(), over);
         if (still.length) void frame.offsetWidth;
         for (const element of still) element.style.transition = '';
         laidOut = true;
@@ -7897,9 +7896,8 @@ export function setupStudio({
     // of the conversation left. Kept as they were, its drafts were those of the take looked at (its
     // very seed with them, which followed into the conversation opened) and the user's own were lost.
     leaveLook();
-    // (0.6.256) The page Agrandir (Interpoler) is the take's of the conversation left.
-    if (finishing && finishing.record.conversationId !== conversation()) finishing = null;
-    animated = null;
+    // (0.6.256) The page Agrandir (Interpoler) is the take's of the conversation left, as the picture to
+    // animate is: both go with what `forget` forgets, below.
     const next = draftKey();
     // A conversation not begun that gets its identifier while its first take is made: the same one.
     const begun = draftsKey?.startsWith('new|') && conversation() && Boolean(working);
