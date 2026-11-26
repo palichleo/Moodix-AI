@@ -146,5 +146,60 @@ class SeedVR2Test(unittest.TestCase):
         self.assertEqual(seedvr2.POSITIVE.stat().st_size, 58 * 5120 * 2)
 
 
+class SeedVR2ShareTest(unittest.TestCase):
+    """(0.6.448) The share of the card left to the weights of the model follows the size of the image."""
+
+    def test_the_weights_keep_their_share_where_it_was_enough_and_less_for_a_larger_image(self):
+        from runner.pipelines import seedvr2
+
+        share = lambda free, side, **more: seedvr2.share_gib(free, [(side, side)], **more)  # noqa: E731
+        # What the steps compute with grows with the pixels: about ten times the tokens of the image.
+        self.assertAlmostEqual(seedvr2.working_gib(2048, 2048), 2.64, places=2)
+        self.assertAlmostEqual(seedvr2.working_gib(4096, 4096), 5.45, places=2)
+        self.assertGreater(seedvr2.working_gib(2000, 1000), seedvr2.working_gib(1000, 1000))
+        # A side that is no multiple of 16 is completed to one.
+        self.assertEqual(seedvr2.working_gib(2040, 2040), seedvr2.working_gib(2048, 2048))
+        # 10.6 GiB free (other programs on the card) or 11.4: 6 GiB of weights, as before, up to 2560 x 2560,
+        # the sizes made on 26/11 (10 s and 15.5 s).
+        for free in (10.6, 11.4):
+            for side in (1024, 2048, 2560):
+                self.assertEqual(share(free, side), 6, (free, side))
+                self.assertEqual(share(free, side), min(6, max(0, free - 4)), (free, side))
+        # 3072 x 3072: 9.8 GiB were asked for 9.6 under the ceiling, and the creation failed. The weights now
+        # leave what the steps need, and the ceiling its margin; with the card nearly free, nothing changes.
+        self.assertLess(share(10.6, 3072), 6)
+        self.assertLessEqual(share(10.6, 3072) + seedvr2.working_gib(3072, 3072), 10.6 - 1)
+        self.assertEqual(share(11.4, 3072), 6)
+        # 4096 x 4096: it lacked 1.5 GiB with 6 GiB of weights.
+        self.assertTrue(3.5 < share(10.6, 4096) < 4.5, share(10.6, 4096))
+        self.assertLessEqual(share(10.6, 4096) + seedvr2.working_gib(4096, 4096), 10.6 - 1)
+        # 8192 x 8192 needs more than the card beside any weights: none stay, never less than none.
+        self.assertEqual(share(10.6, 8192), 0)
+        self.assertEqual(share(2.0, 1024), 0)
+        # Never more than the share the settings give, and the largest pass decides for all of them.
+        self.assertEqual(share(10.6, 2048, cache_gib=4), 4)
+        self.assertEqual(seedvr2.share_gib(10.6, [(2048, 2048), (4096, 4096)]), share(10.6, 4096))
+        self.assertEqual(seedvr2.share_gib(10.6, [(4096, 4096), (2048, 2048)]), share(10.6, 4096))
+
+    def test_short_of_memory_the_steps_are_made_again_with_fewer_weights_on_the_card(self):
+        import inspect
+
+        from runner.pipelines import seedvr2
+
+        # As it is first, then half of it, then none; with none already, nothing smaller to try.
+        self.assertEqual(seedvr2.smaller_shares(6), [None, 3, 0])
+        self.assertEqual(seedvr2.smaller_shares(3.95), [None, 1.975, 0])
+        self.assertEqual(seedvr2.smaller_shares(0), [None])
+        source = inspect.getsource(seedvr2.generate)
+        # The share is read from the sizes of the passes, and the steps go through the ladder.
+        self.assertIn("budget = share_gib(hardware.free_bytes(torch) / 1024**3, sizes, config.get('cacheGiB', 6))", source)
+        self.assertIn('x = smaller([lambda share=share: sample(share) for share in smaller_shares(budget)], torch)', source)
+        # Made again, they start from the noise of the seed of their pass, with the share asked.
+        steps = source[source.index('def sample(') : source.index('x = smaller([lambda share=share')]
+        self.assertIn('pool.resize(share)', steps)
+        self.assertIn("torch.Generator('cuda').manual_seed(seed + index)", steps)
+        self.assertNotIn('done +=', steps)
+
+
 if __name__ == '__main__':
     unittest.main()

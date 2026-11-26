@@ -18,6 +18,19 @@ until its handler ends, and the retry would not find that memory.
 
 import gc
 
+# (0.6.448) What the driver of the card answers under Windows when it cannot map the memory asked for, once even
+# what the system lends past the card's own is gone: a RuntimeError of its own, not PyTorch's error. The whole
+# image given to SeedVR2's encoder met it at 3072 x 3072 and beyond, on the second attempt of the engine (the one
+# without its ceiling): nothing smaller was tried, and the creation failed there.
+DRIVER_SHORT = ('CUDA driver error: device not ready', 'Failed to create GPU mapping')
+
+
+def short(error, torch):
+    """Whether `error` says the video memory lacked: PyTorch's own error, or the driver's."""
+    if isinstance(error, torch.OutOfMemoryError):
+        return True
+    return isinstance(error, RuntimeError) and any(mark in str(error) for mark in DRIVER_SHORT)
+
 
 def _released(torch):
     gc.collect()
@@ -36,8 +49,8 @@ def smaller(attempts, torch, told=None):
             told(place)
         try:
             return attempt()
-        except torch.OutOfMemoryError:
-            if place == len(attempts) - 1:
+        except RuntimeError as error:
+            if not short(error, torch) or place == len(attempts) - 1:
                 raise
         _released(torch)
     raise ValueError('Nothing to attempt')
@@ -58,8 +71,8 @@ def in_pieces(run, length, torch, unit=1, first=None):
             run(start, stop)
             start, count = stop, count + 1
             continue
-        except torch.OutOfMemoryError:
-            if size <= unit:
+        except RuntimeError as error:
+            if not short(error, torch) or size <= unit:
                 raise
         _released(torch)
         size = max(unit, size // 2 // unit * unit)

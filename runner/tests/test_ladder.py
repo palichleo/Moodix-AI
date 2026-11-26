@@ -115,5 +115,80 @@ class InPiecesTests(unittest.TestCase):
             self.run_with(1000, 100, unit=128)
 
 
+class DriverShortageTests(unittest.TestCase):
+    """(0.6.448) The driver that cannot map the memory asked for answers an error of its own."""
+
+    DRIVER = (
+        'CUDA driver error: device not ready\n'
+        'The CUDA driver logged these messages, which may provide useful details:\n'
+        'Failed to create GPU mapping\n'
+    )
+
+    def test_the_error_of_the_driver_is_a_shortage_and_no_other_runtime_error_is(self):
+        torch = FakeTorch()
+        self.assertTrue(ladder.short(OutOfMemoryError('CUDA out of memory'), torch))
+        self.assertTrue(ladder.short(RuntimeError(self.DRIVER), torch))
+        self.assertTrue(ladder.short(RuntimeError('Failed to create GPU mapping'), torch))
+        self.assertFalse(ladder.short(RuntimeError('CUDA error: device-side assert triggered'), torch))
+        self.assertFalse(ladder.short(RuntimeError('shape mismatch'), torch))
+        # Said by something that is not the card: not a shortage.
+        self.assertFalse(ladder.short(ValueError(self.DRIVER), torch))
+
+    def test_what_the_driver_refused_is_tried_smaller(self):
+        # SeedVR2, 26/11: the whole image given to the encoder at 3072 x 3072 and beyond, on the attempt of the
+        # engine without its ceiling. The tiles were never tried: the creation failed there.
+        torch, tried = FakeTorch(), []
+
+        def whole():
+            tried.append('whole')
+            raise RuntimeError(self.DRIVER)
+
+        def tiles():
+            tried.append('tiles')
+            return 'in tiles'
+
+        self.assertEqual(ladder.smaller([whole, tiles], torch), 'in tiles')
+        self.assertEqual((tried, torch.emptied), (['whole', 'tiles'], 1))
+        # Nothing smaller left: the error of the driver is the caller's, as PyTorch's is.
+        with self.assertRaisesRegex(RuntimeError, 'device not ready'):
+            ladder.smaller([whole, whole], FakeTorch())
+
+        def broken():
+            tried.append('broken')
+            raise RuntimeError('shape mismatch')
+
+        # A bug is not tried again in smaller pieces.
+        tried.clear()
+        with self.assertRaisesRegex(RuntimeError, 'shape mismatch'):
+            ladder.smaller([broken, tiles], FakeTorch())
+        self.assertEqual(tried, ['broken'])
+
+    def test_pieces_are_halved_when_the_driver_refuses_one(self):
+        torch, ran = FakeTorch(), []
+
+        def run(start, stop):
+            if stop - start > 2:
+                raise RuntimeError(self.DRIVER)
+            ran.append((start, stop))
+
+        self.assertEqual(ladder.in_pieces(run, 8, torch), 4)
+        self.assertEqual(ran, [(0, 2), (2, 4), (4, 6), (6, 8)])
+
+        def never(start, stop):
+            raise RuntimeError(self.DRIVER)
+
+        with self.assertRaisesRegex(RuntimeError, 'GPU mapping'):
+            ladder.in_pieces(never, 8, FakeTorch())
+
+        def broken(start, stop):
+            ran.append('broken')
+            raise RuntimeError('shape mismatch')
+
+        ran.clear()
+        with self.assertRaisesRegex(RuntimeError, 'shape mismatch'):
+            ladder.in_pieces(broken, 8, FakeTorch())
+        self.assertEqual(ran, ['broken'])
+
+
 if __name__ == '__main__':
     unittest.main()

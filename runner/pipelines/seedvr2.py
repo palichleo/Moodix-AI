@@ -16,6 +16,38 @@ T = 1000.0
 # whole image first (up to 4096 pixels), then smaller each time the video memory lacks.
 ENCODE_TILES = (4096, 2048, 1024)
 DECODE_TILES = (512, 256, 128)
+# (0.6.448) What a block of the model computes with for an image, beside its weights: about ten times its tokens
+# (one for 16 x 16 pixels, 3072 values in 16 bits each: the input of the MLP, its hidden layer four times as wide,
+# twice while the activation is made), and what stays on the card whatever the size (the VAE, the layers on their
+# way). Read in the failures of 26/11 on an RTX 4070 SUPER with 6 GiB of weights on the card: 9.8 GiB asked at
+# 3072 x 3072, more than 11 at 4096 x 4096 (it lacked 1.5 GiB for that hidden layer).
+TOKEN_BYTES = 3072 * 2
+STATES = 10
+BESIDE_GIB = 1.7
+# What the engine keeps free under its ceiling (runner.engine.VRAM_MARGIN), and a little more.
+CEILING_GIB = 1.2
+
+
+def working_gib(width, height):
+    """Video memory the steps need beside the weights for an image of this size, in GiB."""
+    tokens = -(-width // 16) * -(-height // 16)
+    return BESIDE_GIB + STATES * tokens * TOKEN_BYTES / 1024**3
+
+
+def share_gib(free_gib, sizes, cache_gib=6):
+    """The share of the card the weights of the model keep through the passes of `sizes`.
+
+    (0.6.448) 6 GiB of them stayed whatever the image, with 4 left to compute: enough up to 2560 x 2560, short
+    beyond. A larger image now leaves the weights less (they come from RAM at each step instead: slower), down
+    to none. Nothing changes where 4 GiB were enough."""
+    largest = max(working_gib(width, height) for width, height in sizes)
+    return min(cache_gib, max(0.0, free_gib - max(4.0, largest + CEILING_GIB)))
+
+
+def smaller_shares(share):
+    """The shares of the card tried for the weights when the steps run short of memory all the same (another
+    program took some since, an image that needs more than was read): as it is, then half of it, then none."""
+    return [None, share / 2, 0.0] if share > 0 else [None]
 
 
 def check(job, family):
@@ -90,7 +122,7 @@ def generate(job, config, progress):
     done = 0
     timeline = []
     with open_store(job['components']['model']) as store, torch.inference_mode():
-        budget = min(config.get('cacheGiB', 6), max(0, hardware.free_bytes(torch) / 1024**3 - 4))
+        budget = share_gib(hardware.free_bytes(torch) / 1024**3, sizes, config.get('cacheGiB', 6))
         pool = WeightPool({'model': store}, budget)
         try:
             dit = seedvr2.load(store, pool)
@@ -114,23 +146,34 @@ def generate(job, config, progress):
                 del source
                 latent = latent[0].permute(1, 2, 0)[None].to(torch.bfloat16)  # (1, h, w, 16)
                 condition = torch.cat([latent, torch.ones_like(latent[..., :1])], dim=-1)
-                generator = torch.Generator('cuda').manual_seed(seed + index)
-                x = torch.randn(latent.shape, generator=generator, device='cuda', dtype=torch.bfloat16)
                 times = [T * (1 - i / steps) for i in range(steps)]
-                for step, t in enumerate(times):
 
-                    def report(block, blocks, base=done):
-                        progress(stage='upscaling', step=base + block, total=total)
+                def sample(share=None, first=done, index=index, latent=latent, condition=condition):
+                    """The steps of this pass, from the noise of its seed; `share`: the weights first given
+                    another share of the card (GiB)."""
+                    if share is not None:
+                        pool.resize(share)
+                    generator = torch.Generator('cuda').manual_seed(seed + index)
+                    x = torch.randn(latent.shape, generator=generator, device='cuda', dtype=torch.bfloat16)
+                    for step, t in enumerate(times):
 
-                    v = dit(torch.cat([x, condition], dim=-1), text, torch.tensor(t, device='cuda'), report)
-                    x0 = x - (t / T) * v  # v-prediction on x_t = (1 - t/T) x0 + (t/T) noise
-                    if step + 1 < steps:
-                        s = times[step + 1]
-                        noise = x + (1 - t / T) * v
-                        x = (1 - s / T) * x0 + (s / T) * noise
-                    else:
-                        x = x0
-                    done += seedvr2.LAYERS
+                        def report(block, blocks, base=first + step * seedvr2.LAYERS):
+                            progress(stage='upscaling', step=base + block, total=total)
+
+                        v = dit(torch.cat([x, condition], dim=-1), text, torch.tensor(t, device='cuda'), report)
+                        x0 = x - (t / T) * v  # v-prediction on x_t = (1 - t/T) x0 + (t/T) noise
+                        if step + 1 < steps:
+                            s = times[step + 1]
+                            noise = x + (1 - t / T) * v
+                            x = (1 - s / T) * x0 + (s / T) * noise
+                        else:
+                            x = x0
+                    return x
+
+                # (0.6.448) Short of memory in the steps, they are made again with fewer weights on the card
+                # (smaller_shares) instead of failing: the same image, from the same noise, slower.
+                x = smaller([lambda share=share: sample(share) for share in smaller_shares(budget)], torch)
+                done += seedvr2.LAYERS * steps
                 progress(stage='decoding', step=done, total=total)
                 # The decoder's full-resolution activations need the VRAM the DiT cache holds,
                 # and its RAM copies (8 GB) push Windows into paging. A further pass re-reads
@@ -150,7 +193,14 @@ def generate(job, config, progress):
                 current = Image.fromarray(
                     (corrected[0].permute(1, 2, 0) * 255).round().to(torch.uint8).cpu().numpy()
                 )
-                timeline.append(dict(pass_=index + 1, size=[width, height], seconds=round(time.perf_counter() - start, 2)))
+                timeline.append(
+                    dict(
+                        pass_=index + 1,
+                        size=[width, height],
+                        seconds=round(time.perf_counter() - start, 2),
+                        share_gib=round(pool.limit / 1024**3, 2),
+                    )
+                )
                 del latent, condition, x, decoded, corrected, reference
             cache = dict(gpu_cache_gib=round(pool.bytes / 1024**3, 3), residency=RESIDENCY.summary())
             del dit
