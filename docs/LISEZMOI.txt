@@ -1,0 +1,2 @@
+Les captures du README de Moodix (ce dossier dans le dépôt) ne sont pas livrées avec l'application ni avec ses
+mises à jour : elles ne servent qu'à la page du projet, où elles sont.
