@@ -1037,3 +1037,26 @@ test('a take the history could not keep is said by what it is: an image, a video
     );
   }
 });
+
+
+test('a creation of a conversation erased cannot be made again from a page left open (0.6.403)', async () => {
+  // « Relancer », left in another tab on a conversation erased since, made a take in a folder no conversation
+  // owns any more.
+  const other = 'b2222222-2222-4222-8222-222222222222',
+    failing = () => seriesFixture({ run: async () => Promise.reject(Error('échec')) });
+  // Its conversation erased: no longer made again. That of another conversation still is.
+  let { rt, ask, make } = failing();
+  const mine = await ask(2),
+    theirs = await ask(2, { conversationId: other, turnId: other });
+  assert.equal((await make(mine)).state, 'error');
+  assert.equal((await make(theirs)).state, 'error');
+  rt.forgetConversation(id);
+  await assert.rejects(rt.again({ requestId: mine.requestId }), /ne peut plus être relancée/);
+  assert.equal((await rt.again({ requestId: theirs.requestId })).call.function.name, 'create_image');
+  // The whole history erased: none of them.
+  ({ rt, ask, make } = failing());
+  const last = await ask(2);
+  assert.equal((await make(last)).state, 'error');
+  rt.clear();
+  await assert.rejects(rt.again({ requestId: last.requestId }), /ne peut plus être relancée/);
+});
