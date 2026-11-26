@@ -534,3 +534,207 @@ test('a LoRA a shipped workflow names and lacks is offered and fetched with its 
   f.registered.delete('lora-asset');
   assert.deepEqual((await f.downloads.missing(workflow)).map(item => item.file), ['subjects.safetensors']);
 });
+
+/**
+ * (0.6.432) A Hugging Face whose connection drops, request after request of the model, as `plan` says: `half`
+ * sends half of what is asked, then drops once that is on the disk (a Wi-Fi that goes minutes in, as Node says it:
+ * « terminated »); `lost` the same, a quarter of it never reached the disk; `disk` the same, failed as a full disk
+ * fails (with `syscall`); `short` sends half and ends as if all was sent; `down` finds no network (« fetch
+ * failed »); `whole` answers a resumed request from the start; `other` and `shifted` send what is not the rest of
+ * this file; `refused` answers 503. Past the plan, the rest comes from where it is asked. Only the model is asked
+ * for: `only(f)` is the workflow without its tokenizer.
+ */
+function dropping(f, plan) {
+  const part = join(f.models, 'diffusion_models', 'krea2_turbo.safetensors.part'),
+    asked = [],
+    range = (start, total) => ({ 'Content-Range': `bytes ${start}-${total - 1}/${total}` });
+  f.downloads.pauses = [1, 1, 1];
+  f.downloads.fetchImpl = async (url, options = {}) => {
+    const from = Number(/^bytes=(\d+)-$/.exec(options.headers?.Range ?? '')?.[1] ?? 0),
+      kind = plan[asked.length],
+      rest = MODEL.subarray(from),
+      init = from ? { status: 206, headers: range(from, MODEL.length) } : { status: 200 };
+    asked.push(from);
+    if (kind === 'down') throw new TypeError('fetch failed');
+    if (kind === 'refused') return new Response('', { status: 503 });
+    if (kind === 'whole') return new Response(MODEL, { status: 200 });
+    const larger = MODEL.length + 10;
+    if (kind === 'other')
+      return new Response(Buffer.alloc(larger - from, 7), { status: 206, headers: range(from, larger) });
+    if (kind === 'shifted') return new Response(MODEL, { status: 206, headers: range(0, MODEL.length) });
+    if (!kind) return new Response(rest, init);
+    const half = rest.subarray(0, rest.length >> 1);
+    if (kind === 'short') return new Response(half, init);
+    let sent = false;
+    const body = new ReadableStream({
+      async pull(controller) {
+        if (!sent) return void ((sent = true), controller.enqueue(half));
+        for (let turn = 0; turn < 500 && (await stat(part).catch(() => null))?.size !== from + half.length; turn++)
+          await new Promise(resolve => setTimeout(resolve, 2));
+        if (kind === 'lost') await (await import('node:fs/promises')).truncate(part, from + (half.length >> 1));
+        const full = Object.assign(new Error('ENOSPC: no space left on device, write'), { syscall: 'write' });
+        controller.error(kind === 'disk' ? full : new TypeError('terminated'));
+      },
+    });
+    return new Response(body, init);
+  };
+  return asked;
+}
+const only = f => ({ ...f.workflow, components: { model: f.workflow.components.model } });
+
+test('a download cut on the way goes on by itself from where it stopped, checked whole (0.6.432)', async t => {
+  for (const [plan, asks] of [
+    // Cut once: the rest is asked for. Before, « error », said « terminated », to start again by hand.
+    [['half'], [0, 1400]],
+    // Cut while a quarter of what came was still on its way to the disk: asked, counted and fingerprinted from
+    // what reached it.
+    [['lost'], [0, 700]],
+    // Asked from where it stopped, the source sends it all from the start: so does the file.
+    [['half', 'whole'], [0, 1400]],
+    // Come short without an error (the connection closed as if all was sent): a cut too.
+    [['short'], [0, 1400]],
+  ]) {
+    const f = await fixture(t),
+      asked = dropping(f, plan);
+    await f.downloads.start(only(f));
+    const done = await f.finish();
+    assert.equal(done.state, 'done', `${plan} : ${done.error}`);
+    assert.deepEqual(asked, asks, String(plan));
+    const model = join(f.models, 'diffusion_models', 'krea2_turbo.safetensors');
+    assert.deepEqual(await readFile(model), MODEL, String(plan));
+    // What came before the cut is counted once: the page never says more than the whole.
+    assert.equal(done.received, done.total, String(plan));
+  }
+  // While it waits to try again, the page is told so where it shows the file being fetched.
+  const waiting = await fixture(t);
+  dropping(waiting, ['half']);
+  waiting.downloads.pauses = [400];
+  await waiting.downloads.start(only(waiting));
+  let said = '';
+  for (let turn = 0; turn < 500 && !/connexion coupée/.test((said = waiting.downloads.status().current)); turn++)
+    await new Promise(resolve => setTimeout(resolve, 2));
+  assert.equal(said, 'krea2_turbo.safetensors : connexion coupée, nouvel essai dans 1 s');
+  assert.equal((await waiting.finish()).state, 'done');
+  // No network when the download is started (the source has answered nothing yet): said at once, in French,
+  // without a pause; started again once the network is back, it goes to its end. The same when the first
+  // thing asked is the fingerprint of a protected file.
+  const offline = await fixture(t),
+    never = dropping(offline, ['down']);
+  offline.downloads.pauses = [60000];
+  await offline.downloads.start(only(offline));
+  const refused = await offline.finish();
+  assert.deepEqual([refused.state, never], ['error', [0]]);
+  assert.match(refused.error, /^La connexion a été coupée pendant le téléchargement de krea2_turbo\.safetensors/);
+  await offline.downloads.start(only(offline));
+  assert.equal((await offline.finish()).state, 'done');
+  const f = await fixture(t, {
+      catalog: {
+        'krea2Turbo.safetensors': {
+          repo: 'Org/Krea',
+          revision: 'abc',
+          path: 'diffusion_models/krea2_turbo.safetensors',
+          size: MODEL.length,
+          gated: true,
+          page: 'https://huggingface.co/Org/Krea',
+        },
+      },
+    }),
+    served = f.downloads.fetchImpl,
+    hub = [];
+  await f.downloads.setToken('hf_abcdefghijklmnop');
+  f.downloads.pauses = [60000];
+  f.downloads.fetchImpl = async (url, options) => {
+    if (!url.includes('/paths-info/')) return served(url, options);
+    hub.push(url);
+    if (hub.length === 1) throw new TypeError('fetch failed');
+    return Response.json([{ lfs: { oid: sha(MODEL) } }]);
+  };
+  await f.downloads.start(only(f));
+  const cut = await f.finish();
+  assert.deepEqual([cut.state, hub.length], ['error', 1]);
+  assert.match(cut.error, /^La connexion a été coupée pendant le téléchargement de krea2_turbo\.safetensors/);
+  await f.downloads.start(only(f));
+  const done = await f.finish();
+  assert.equal(done.state, 'done', done.error);
+  assert.equal(hub.length, 2);
+  assert.deepEqual(await readFile(join(f.models, 'diffusion_models', 'krea2_turbo.safetensors')), MODEL);
+});
+
+test('cut with nothing coming, it gives up after a few tries, says so, goes on when started (0.6.432)', async t => {
+  const f = await fixture(t),
+    asked = dropping(f, ['half', 'down', 'down', 'down']);
+  await f.downloads.start(only(f));
+  const stopped = await f.finish();
+  // One try after each pause, then it stops, in French and with what to do.
+  assert.deepEqual(
+    [stopped.state, stopped.error],
+    [
+      'error',
+      'La connexion a été coupée pendant le téléchargement de krea2_turbo.safetensors : relancez-le, il reprendra ' +
+        'où il en était.',
+    ],
+  );
+  assert.deepEqual(asked, [0, 1400, 1400, 1400]);
+  const folder = join(f.models, 'diffusion_models');
+  assert.equal((await stat(join(folder, 'krea2_turbo.safetensors.part'))).size, 1400, 'what came stays');
+  // Started again, the network back: from there.
+  assert.equal((await f.downloads.start(only(f))).received, 1400);
+  const done = await f.finish();
+  assert.equal(done.state, 'done', done.error);
+  assert.deepEqual(asked.slice(4), [1400]);
+  assert.deepEqual(await readFile(join(folder, 'krea2_turbo.safetensors')), MODEL);
+  // A connection that drops again and again while bytes come goes on: only tries in a row that bring nothing count.
+  const g = await fixture(t),
+    again = dropping(g, ['half', 'half', 'half', 'half', 'half']);
+  g.downloads.pauses = [1];
+  await g.downloads.start(only(g));
+  assert.equal((await g.finish()).state, 'done');
+  assert.deepEqual(again, [0, 1400, 2100, 2450, 2625, 2712]);
+});
+
+test(
+  '« Arrêter » while it waits to try again stops it there, and no other download starts (0.6.432)',
+  { timeout: 30000 },
+  async t => {
+    const f = await fixture(t),
+      asked = dropping(f, ['half']),
+      part = join(f.models, 'diffusion_models', 'krea2_turbo.safetensors.part');
+    f.downloads.pauses = [60000];
+    await f.downloads.start(only(f));
+    // The cut has come; a minute before the next try.
+    for (let turn = 0; turn < 500 && (await stat(part).catch(() => null))?.size !== 1400; turn++)
+      await new Promise(resolve => setTimeout(resolve, 2));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(f.downloads.status().state, 'running');
+    await assert.rejects(f.downloads.start(only(f)), /Un téléchargement est déjà en cours/);
+    f.downloads.cancel();
+    const stopped = await f.finish();
+    assert.equal(stopped.state, 'cancelled');
+    assert.deepEqual(asked, [0], 'nothing asked after');
+    assert.equal((await stat(part)).size, 1400, 'what came stays');
+  },
+);
+
+test('no cut, no new try: what is not the rest of this file, a source in error, a full disk (0.6.432)', async t => {
+  for (const [kind, said] of [
+    // Asked from where it stopped, the source sends the rest of a larger file, or the file from its start, as a
+    // rest: nothing is added to what came. Before, it was, and the file was refused at its end.
+    ['other', 'La source de krea2_turbo.safetensors ne correspond plus au fichier attendu.'],
+    ['shifted', 'La source de krea2_turbo.safetensors ne correspond plus au fichier attendu.'],
+    // Said as before, and asked once.
+    ['refused', 'La source de krea2_turbo.safetensors répond 503.'],
+    ['disk', 'ENOSPC: no space left on device, write'],
+  ]) {
+    const f = await fixture(t),
+      asked = dropping(f, [kind, kind, kind, kind]),
+      folder = join(f.models, 'diffusion_models');
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, 'krea2_turbo.safetensors.part'), MODEL.subarray(0, 1000));
+    await f.downloads.start(only(f));
+    const done = await f.finish();
+    assert.deepEqual([done.state, done.error, asked], ['error', said, [1000]], kind);
+    const kept = await readFile(join(folder, 'krea2_turbo.safetensors.part'));
+    assert.deepEqual(kept.subarray(0, 1000), MODEL.subarray(0, 1000), kind);
+    if (kind !== 'disk') assert.equal(kept.length, 1000, kind);
+  }
+});
