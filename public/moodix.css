@@ -19698,6 +19698,76 @@ body[data-view='bobine'] .chat-panel {
     display: none;
   }
 }
+/* (0.6.466, relecture du lot 7, n° 2) Le nom du modèle laisse la place des sujets de sa prise (data-subjects : 21 px par
+   sujet, moins 3, et 6 px d'écart) : il passait sous eux sur les prises de 90 à 140 px (« X H3 » derrière leurs cases, à
+   1280 × 720, 1168 × 788 et 1440 × 900). Quand il lui reste moins de 30 px, il se retire, comme sous 88 px. */
+#bobine-view .montage-piece[data-subjects='1'] > .montage-piece-model {
+  max-width: calc(100% - 40px);
+}
+#bobine-view .montage-piece[data-subjects='2'] > .montage-piece-model {
+  max-width: calc(100% - 61px);
+}
+#bobine-view .montage-piece[data-subjects='3'] > .montage-piece-model {
+  max-width: calc(100% - 82px);
+}
+#bobine-view .montage-piece[data-subjects='4'] > .montage-piece-model {
+  max-width: calc(100% - 103px);
+}
+#bobine-view .montage-piece[data-subjects='5'] > .montage-piece-model {
+  max-width: calc(100% - 124px);
+}
+#bobine-view .montage-piece[data-subjects='6'] > .montage-piece-model {
+  max-width: calc(100% - 145px);
+}
+#bobine-view .montage-piece[data-subjects='7'] > .montage-piece-model {
+  max-width: calc(100% - 166px);
+}
+#bobine-view .montage-piece[data-subjects='8'] > .montage-piece-model {
+  max-width: calc(100% - 187px);
+}
+#bobine-view .montage-piece[data-subjects='9'] > .montage-piece-model {
+  max-width: calc(100% - 208px);
+}
+@container (max-width: 90.98px) {
+  #bobine-view .montage-piece[data-subjects='2'] > .montage-piece-model {
+    display: none;
+  }
+}
+@container (max-width: 111.98px) {
+  #bobine-view .montage-piece[data-subjects='3'] > .montage-piece-model {
+    display: none;
+  }
+}
+@container (max-width: 132.98px) {
+  #bobine-view .montage-piece[data-subjects='4'] > .montage-piece-model {
+    display: none;
+  }
+}
+@container (max-width: 153.98px) {
+  #bobine-view .montage-piece[data-subjects='5'] > .montage-piece-model {
+    display: none;
+  }
+}
+@container (max-width: 174.98px) {
+  #bobine-view .montage-piece[data-subjects='6'] > .montage-piece-model {
+    display: none;
+  }
+}
+@container (max-width: 195.98px) {
+  #bobine-view .montage-piece[data-subjects='7'] > .montage-piece-model {
+    display: none;
+  }
+}
+@container (max-width: 216.98px) {
+  #bobine-view .montage-piece[data-subjects='8'] > .montage-piece-model {
+    display: none;
+  }
+}
+@container (max-width: 237.98px) {
+  #bobine-view .montage-piece[data-subjects='9'] > .montage-piece-model {
+    display: none;
+  }
+}
 /* (Une prise faite en plusieurs fois : chaque partie après la première, « ↳ SUITE » à la hauteur de son nom.) */
 #bobine-view .bobine-part {
   padding: 7px 0 0 8px;

@@ -474,7 +474,7 @@ test('each take to create with its own model: cut by what it makes at once, refu
 });
 
 test('the subjects of a take to create: laid, changed, taken away; asked of its model as many as it takes, the others kept (0.6.462)', async () => {
-  const { TODO_LIMITS, subjectsTaken, withSubject, withoutSubject } = await import('../public/montage-model.mjs');
+  const { TODO_LIMITS, subjectsTaken, takesWords, withSubject, withoutSubject } = await import('../public/montage-model.mjs');
   // (Bobine Pro, B05) The models as the server lists them (lib/tool-catalog.mjs videoModels): LTX 2.5 takes two subjects for a
   // new take and none beside the video it continues; MiniMax H3 three, in a suite too; pi H3 none; a workflow of LTX 2.5
   // without the LoRA of its subjects, none.
@@ -546,6 +546,8 @@ test('the subjects of a take to create: laid, changed, taken away; asked of its 
     ],
     [2, 0, 3, 0, 0, 0, Infinity],
   );
+  // (0.6.466, relecture du lot 7, n° 4) The list of the models says so too: no subject without their LoRA.
+  assert.deepEqual([takesWords({ ...models.ltx25, sound: true }), takesWords({ ...models.bare_ltx, sound: true })], ['Début, fin, 2 sujets, son', 'Début, fin, son']);
   // Asked: LTX 2.5 the first two of the three; the third kept, not sent.
   assert.deepEqual([asked(montage, id(21)).subjects, subjectsOf(montage, id(21)).length], [[{ source: source(2) }, { source: source(3) }], 3]);
   // MiniMax H3: all three. pi H3, or LTX 2.5 without its LoRA: none. Its model not known: all, nothing is left out.
