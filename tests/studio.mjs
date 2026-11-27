@@ -2044,13 +2044,34 @@ test('(0.6.198) the Studio says « modèle » where it said « workflow »: a se
     seed.oninput();
     page.prompt().value = 'un phare';
     page.prompt().oninput();
+    // (0.6.474) The line under the screen, above the buttons, is there before anything is said in it: its place kept
+    // (moodix.css), so that « Générer » does not go up under the pointer when a failure comes.
+    const under = () => body.find('studio-under'),
+      order = () => body.find('is-preview')[0].children[0].children.map(child => child.className.split(' ')[0]);
+    assert.equal(under().length, 1);
+    assert.deepEqual(under()[0].children, []);
+    assert.deepEqual(order().slice(-3), ['studio-screen', 'studio-under', 'studio-actionbar']);
     await body.find('studio-go')[0].onclick();
     assert.equal(body.find('studio-error')[0]?.textContent, 'Seed : un entier positif, ou vide pour celle du modèle.');
-    // Son, without a model of sound.
+    assert.equal(under().length, 1);
+    assert.deepEqual(
+      under()[0].children.map(line => line.className),
+      ['studio-error'],
+      'said in that line, not under it',
+    );
+    // Cut at the width of the window (moodix.css), whole in its bubble as the pointer comes on it; whole, none.
+    const [said] = under()[0].children;
+    Object.assign(said, { scrollWidth: 900, clientWidth: 400 });
+    said.listeners.pointerover();
+    assert.equal(said.dataset.tip, 'Seed : un entier positif, ou vide pour celle du modèle.');
+    said.scrollWidth = 400;
+    said.listeners.pointerover();
+    assert.equal(said.dataset.tip, undefined);
+    // Son, without a model of sound: (0.6.474) where they are downloaded, Paramètres › Modèles, not a folder.
     page.mode(2);
     assert.equal(
       body.find('asset-empty')[0]?.textContent,
-      'Aucun modèle de son prêt : téléchargez les modèles de musique et de bruitages dans models\\audio.',
+      'Aucun modèle de son prêt : téléchargez les modèles de musique et de bruitages dans Paramètres › Modèles.',
     );
   } finally {
     restore();
@@ -7943,6 +7964,45 @@ test('a creation looked at leaves with its conversation: the Studio kept is the 
   }
 });
 
+test('(0.6.474) a conversation not begun put in another project keeps its prompt and its inputs; a new one of that project has none', async () => {
+  // (Étude du 27/11, défaut 3.) Another project chosen in the fil moves the conversation not begun there (app.js,
+  // projectUI: `moved`): its Studio was emptied as for another conversation, what was written lost, there and back.
+  const { editor } = reviewed;
+  let project = 'p1';
+  const page = await studioPage(
+    { create_image: [editor] },
+    {},
+    { runs: [], conversation: () => null, project: () => project },
+  );
+  const { body, studio, restore } = page;
+  const source = () =>
+    body.find('studio-slot').find(slot => slot.dataset.slot === 'source-0')?.children[0]?.children[0]?.src ?? null;
+  try {
+    page.prompt().value = 'Un phare dans la tempête, la nuit';
+    page.prompt().oninput();
+    const files = [{ name: 'a.png', type: 'image/png' }];
+    body.find('studio-slot')[0].ondrop({ preventDefault() {}, stopPropagation() {}, dataTransfer: { files } });
+    await settle();
+    assert.equal(source(), '/preview/a.png');
+    project = 'p2';
+    studio.conversationChanged({ moved: true });
+    await settle();
+    assert.deepEqual([page.prompt().value, source()], ['Un phare dans la tempête, la nuit', '/preview/a.png']);
+    // Back in the first project: the same.
+    project = 'p1';
+    studio.conversationChanged({ moved: true });
+    await settle();
+    assert.deepEqual([page.prompt().value, source()], ['Un phare dans la tempête, la nuit', '/preview/a.png']);
+    // « Nouvelle conversation » in another project is another conversation: its Studio empty, as before.
+    project = 'p2';
+    studio.conversationChanged();
+    await settle();
+    assert.deepEqual([page.prompt().value, source()], ['', null]);
+  } finally {
+    restore();
+  }
+});
+
 test('a proposal made with a model of another family shelves the LoRAs of the family left; they come back with their model', async () => {
   const krea = { id: 'k', name: 'Krea 2', verb: 'create_image', family: 'krea2', styled: true, seeded: true, direct: true, roles: {}, limits: sizes, size: { width: 1024, height: 1024 }, settings: [] },
     moss = { ...krea, id: 'm', name: 'MOSS Image', family: 'moss' };
@@ -10831,6 +10891,58 @@ test('« Animer » and « Modifier » of a take leave the page « Agrandir » or
     assert.ok(source.className.includes('is-filled'));
   } finally {
     growing.restore();
+  }
+});
+
+test('(0.6.474) « Animer » and « Prolonger » asked from the viewer of the Sortie or from the Archives: what the buttons of the screen do', async () => {
+  // (Étude du 27/11, défaut 1.) Through the Chat, a line was written in its box, out of sight, and the Studio went to
+  // the newest take of the conversation: here a sound, in Son. Asked as the Studio comes on screen (app.js,
+  // actInStudio), its takes being read: read and settled first, the newest take does not come over the picture.
+  const { clip, image } = reviewed,
+    noise = {
+      id: 'n',
+      conversationId: 'c1',
+      mediaType: 'audio',
+      workflowId: 's',
+      prompt: 'des vagues',
+      outputs: [{ originalUrl: '/n.wav', take: 6 }],
+    },
+    shown = body => [
+      body.dataset.mode,
+      body.find('studio-frame-start')[0]?.src ?? null,
+      body.find('studio-go-label')[0]?.textContent,
+    ];
+  const page = await studioPage(
+    {
+      create_image: [still],
+      create_video: [wanStudio()],
+      create_audio: [{ id: 's', name: 'Bruitages', roles: {}, settings: [] }],
+      extend_video: [{ ...wanStudio(), verb: 'extend_video' }],
+    },
+    { 'tools/actions': () => ({ animate: ['image'], extend_video: ['video'] }) },
+    { runs: [noise, clip, image('a', 1)], open: false },
+  );
+  const { body, studio, restore } = page;
+  try {
+    assert.equal(typeof studio.act, 'function');
+    // From the Archives: the Studio comes on screen (open) and is asked at once, its tools and its takes unread.
+    const opening = studio.open();
+    await studio.act(image('a', 1), 'animate');
+    await opening;
+    await settle();
+    assert.deepEqual(shown(body), ['video', '/a.jpg', 'Générer']);
+    // From the viewer of the Sortie, the Studio on screen in Son: the page Vidéo, the picture in « Début ».
+    page.mode(2);
+    await studio.act(image('a', 1), 'animate');
+    await settle();
+    assert.deepEqual(shown(body), ['video', '/a.jpg', 'Générer']);
+    // « Prolonger » of a clip: its suite in Vidéo, as from the bar of the screen.
+    page.mode(0);
+    await studio.act(clip, 'extend');
+    await settle();
+    assert.deepEqual([body.dataset.mode, body.find('studio-go-label')[0]?.textContent], ['video', 'Générer la suite']);
+  } finally {
+    restore();
   }
 });
 

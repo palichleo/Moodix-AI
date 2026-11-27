@@ -61,3 +61,21 @@ test('hovered or focused, unavailable, and under way', () => {
   assert.match(rule("#studio-view .studio-go[role='progressbar'] svg"), /display: none;/);
   assert.match(rule('#studio-view .studio-go:disabled'), /cursor: progress;/);
 });
+
+test('(0.6.474) it does not move under the pointer: the line above it keeps its place, the Sortie its height', () => {
+  // (Étude du 27/11, défaut 2.) A failure said under the buttons pushed « Générer » up by 31 to 50 px, down again as
+  // it went; the row of the Sortie was 104 to 132 px high from one project to the next (a sound alone, empty, full),
+  // and when « EN COURS » came in it. The line is above the buttons, one line high, taken from the screen: under
+  // them, its room was the one the menu of the Caméra and « Plus de réglages » need above « Générer ». Measured in
+  // the page by scripts/check-ui.mjs.
+  const under = rule('#studio-view .studio-under');
+  assert.match(under, /flex: none;[^]*align-self: stretch;[^]*height: 19px;[^]*margin: -4px 0;/);
+  assert.match(under, /overflow: hidden;[^]*line-height: 19px;/);
+  assert.match(
+    rule('#studio-view .studio-under > *'),
+    /overflow: hidden;[^]*white-space: nowrap;[^]*text-overflow: ellipsis;/,
+  );
+  // The row of an empty Sortie (its line of 117 px and its margins of 4), full or not.
+  assert.match(rule('#studio-view .studio-block.is-output .studio-sortie-row'), /flex: none;[^]*height: 125px;/);
+  assert.match(rule('.studio-empty-strip'), /height: 117px;[^]*margin: 4px;/);
+});

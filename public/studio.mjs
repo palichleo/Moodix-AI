@@ -4889,6 +4889,23 @@ export function setupStudio({
     if (id === 'upscale' || id === 'interpolate') finishTake(record, id);
   }
   /**
+   * (0.6.474) Animer or Prolonger pressed in the viewer of the Sortie or in the Archives: what the buttons of the
+   * screen do (takeAction), in the conversation shown. The Studio coming on screen (open) may still be reading the
+   * takes of that conversation: read, and their settings taken (settle, once for a conversation) before, else they
+   * came over the picture just put in « Début », the mode of the newest take with them.
+   */
+  async function actFromAfar(record, id) {
+    try {
+      if (!info) await load();
+      if (runsStale || runsFor !== where()) await refresh();
+    } catch {
+      // Its takes unread, the gesture is made all the same; its tools unread, nothing (open says why).
+    }
+    if (!info) return;
+    if (settle()) render();
+    takeAction(record, id);
+  }
+  /**
    * (0.6.256, captures A04 and B08) The page Agrandir (or Interpoler) of a take: in the page of its kind, the take on
    * the screen and in its case « À agrandir », the prompt greyed (it needs none), at the right the model and its
    * factor, « ▶ Agrandir » under the screen. Pressed again on its page, or its × pressed: left, as Prolonger is.
@@ -7157,7 +7174,8 @@ export function setupStudio({
     screen.append(node('div', 'studio-stage'));
     const waiting = node('div', 'studio-actionbar is-waiting');
     waiting.append(agent);
-    preview.append(screen, waiting);
+    // (0.6.474) With the line above the buttons (moodix.css, .studio-under): the screen as tall as it will be.
+    preview.append(screen, node('div', 'studio-under'), waiting);
     const blocks = [node('section', 'studio-block is-input'), preview, node('section', 'studio-block is-settings')];
     desk.append(said, ...blocks.map(grained), grained(node('section', 'studio-block is-output')));
     return desk;
@@ -7171,6 +7189,17 @@ export function setupStudio({
     body.append(...block.children);
     block.replaceChildren(body);
     return block;
+  }
+  /**
+   * (0.6.474) A sentence of the line above the buttons, cut at its end (.studio-under): whole in its bubble when it is
+   * cut as the pointer comes on it (help-tips.mjs looks for the bubble after this). Measured once drawn, it kept a
+   * bubble or lacked one as the window changed width.
+   */
+  function wholeInBubble(line) {
+    line.addEventListener('pointerover', () => {
+      if (line.scrollWidth > line.clientWidth + 1) line.dataset.tip = line.textContent;
+      else delete line.dataset.tip;
+    });
   }
   /**
    * Image / Vidéo / Son, at the top left of the Studio: three tabs, their icons, their names for
@@ -7270,7 +7299,7 @@ export function setupStudio({
     if (!workflow)
       return message(
         mode === 'audio'
-          ? 'Aucun modèle de son prêt : téléchargez les modèles de musique et de bruitages dans models\\audio.'
+          ? 'Aucun modèle de son prêt : téléchargez les modèles de musique et de bruitages dans Paramètres › Modèles.'
           : 'Aucun modèle prêt pour cette création : vérifiez Paramètres › Modèles.',
       );
     // The first time a mode shows its model, the settings saved for it come back (not over a
@@ -7693,16 +7722,22 @@ export function setupStudio({
       group.classList.add('is-held');
     }
     bar.append(group);
-    preview.append(bar);
     // (0.6.456) The card held, its screen says so (54), but « Échec » alone told nothing of why the take failed: that,
     // as the server says it, under the screen as any failure, without what it added for the card held (UNRELEASED).
     // Free again, the same, as the server says it then (recover).
     const failed = heldGpu ? heldCause(gpuError()) : heldCause(failure) || failure;
+    // (0.6.474) The line under the screen, above the buttons: its place kept, empty or not, one line high (moodix.css,
+    // .studio-under), for whatever is said there (that failure; any sentence put in it). Said under the buttons, it
+    // put « Générer » 31 to 50 px higher under the pointer as a failure came, lower again as it went. Longer than its
+    // line, cut there, whole in its bubble.
+    const under = node('div', 'studio-under');
     if (failed) {
       const alert = node('p', 'studio-error', failed);
       alert.setAttribute('role', 'alert');
-      preview.append(alert);
+      under.append(alert);
+      wholeInBubble(alert);
     }
+    preview.append(under, bar);
 
     desk.append(...[write, preview, settings].map(grained), grained(outputs()));
     desk.classList.toggle('is-generating', Boolean(working));
@@ -8030,7 +8065,7 @@ export function setupStudio({
    * creations, and its own prompt and inputs; those of the one left are kept for its return. A new
    * conversation has none: the Studio empty (etats-maquette.md, 55).
    */
-  function conversationChanged() {
+  function conversationChanged({ moved = false } = {}) {
     // A work held here goes on in its conversation (0.6.81): the Studio stays that one's, said held in
     // the one shown (render), and comes back to it as it was; it goes to the one shown at its end (letGo).
     if (heldIn && holds()) {
@@ -8052,7 +8087,10 @@ export function setupStudio({
     const next = draftKey();
     // A conversation not begun that gets its identifier while its first take is made: the same one.
     const begun = draftsKey?.startsWith('new|') && conversation() && Boolean(working);
-    if (draftsKey !== null && next !== draftsKey && !begun) {
+    // (0.6.474) One not begun put in another project in the fil (`moved`: app.js, projectUI): the same one too, its
+    // prompt and its inputs with it. Emptied as for another conversation, what was written was lost, there and back.
+    const same = moved && Boolean(draftsKey?.startsWith('new|')) && next.startsWith('new|');
+    if (draftsKey !== null && next !== draftsKey && !begun && !same) {
       if (!draftsKey.startsWith('new|')) {
         leftDrafts.set(draftsKey, { mode, drafts: structuredClone(drafts), newest: lastSeen.get(draftsKey) ?? null });
         if (leftDrafts.size > 40) leftDrafts.delete(leftDrafts.keys().next().value);
@@ -8686,6 +8724,8 @@ export function setupStudio({
     refilm: record => actionsOf(record).find(action => action.id === 'refilm')?.run(),
     // (0.6.256) The page Agrandir or Interpoler of a take, asked from the Chat or the Archives.
     finish: (record, verb) => finishTake(record, verb),
+    // (0.6.474) Animer or Prolonger of a take, asked from the viewer of the Sortie or the Archives: as on the screen.
+    act: (record, id) => actFromAfar(record, id),
     // (0.6.260) Why that page cannot open now ('' when it can): asked there before the Chat is left.
     finishBlocked: () => (working ? whyNot() || BUSY_HERE : proposal ? 'Moodix AI est en train de proposer' : ''),
     conversationChanged,

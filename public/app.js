@@ -15,7 +15,7 @@ import { setupSettingsSearch } from './settings-search.mjs';
 import { setupSettingsTabs } from './settings-tabs.mjs';
 import { setupInterfaceSettings } from './interface-settings.mjs';
 import { setupHelpTips } from './help-tips.mjs';
-import { madeHeld, setupGenerationUI } from './generation-ui.mjs';
+import { HELD_TIP, HELD_WORDS, madeHeld, setupGenerationUI } from './generation-ui.mjs';
 import { setupMiniature } from './work-miniature.mjs';
 import { setupTakeRecovery, takesOf } from './take-recovery.mjs';
 import { detachedTakes, leavingQuestion, reattached, takesWord } from './detached-takes.mjs';
@@ -1411,8 +1411,12 @@ function updateControls() {
     (state.config.modelPath ? state.config.modelPath.split(/[\\/]/).pop().replace(/\.gguf$/i, '') : 'Aucun LLM');
   // A work goes on in another conversation than the one shown (0.6.81): this one is read and written
   // in, its message waits for the end of that one (greyed, the reason said), and nothing of it is
-  // stopped or declined from here.
-  const away = state.work && !shownHere(state.work.conversationId) ? workHeld() : '';
+  // stopped or declined from here. (0.6.474) A generation this page did not begin (another tab, before a reload)
+  // too, as workHeld says it: the Chat of another conversation showed « 40 % » and a ■ that stopped it, unnamed.
+  const away =
+    (state.work && !shownHere(state.work.conversationId)) || (toolBusy && !shownHere(s.toolJob.conversationId))
+      ? workHeld()
+      : '';
   // A proposal waits (in the Studio, or in a card of the conversation): a new message declines it.
   const proposing = !away && Boolean(state.studio?.proposing?.() || state.proposalCard);
   // Whether a message would not leave now, whatever it says (0.6.90): « Régénérer » asks nothing then
@@ -1478,7 +1482,7 @@ function updateControls() {
     : state.proposalCard
     ? ''
     : held
-    ? ''
+    ? HELD_WORDS
     : proposing
     ? 'Proposition dans le Studio · un message la refuse'
     : toolBusy
@@ -1495,6 +1499,22 @@ function updateControls() {
             ? 'Le modèle se charge…'
             : '';
   $('compose-state').classList.toggle('is-waiting', $('compose-state').textContent === 'En attente');
+  // (0.6.474) Said of another conversation, the line leads there (awayWork), as the miniature does: a generation this
+  // page did not begin has none. The card held, the words of the Studio (HELD_WORDS) beside « Libérer le GPU », which
+  // had none. Whole in their bubble: the bar cuts them at its width.
+  const stateLine = $('compose-state'),
+    goTo = away ? awayWork() : null;
+  stateLine.classList.toggle('is-link', Boolean(goTo));
+  if (goTo) {
+    stateLine.setAttribute('role', 'link');
+    stateLine.tabIndex = 0;
+  } else {
+    stateLine.removeAttribute?.('role');
+    stateLine.removeAttribute?.('tabindex');
+  }
+  if (goTo) stateLine.dataset.tip = `Aller à « ${titleOf(goTo.conversationId) || 'Nouvelle conversation'} »`;
+  else if (held && !away && !state.proposalCard) stateLine.dataset.tip = HELD_WORDS;
+  else delete stateLine.dataset.tip;
   workflowsUI.setBusy(
     s.busy || toolBusy || state.generating || state.operation || state.settingsLoading || !state.connected,
   );
@@ -3335,6 +3355,16 @@ function workHeld({ short = false } = {}) {
   return '';
 }
 /**
+ * (0.6.474) Where the work workHeld says is, for the line of the message box to lead there (backToWork): the page's
+ * own, else the generation of the server it does not follow (its Studio when the Studio makes it); null when none.
+ */
+function awayWork() {
+  if (state.work && !shownHere(state.work.conversationId)) return state.work;
+  const job = state.status?.toolJob;
+  if (!job?.conversationId || shownHere(job.conversationId)) return null;
+  return { conversationId: job.conversationId, studio: job.studio === true };
+}
+/**
  * A work begins in the conversation on screen (or in `conversationId`, the Studio's). `title`: the
  * name it will have, for a conversation that has none yet (its first message).
  */
@@ -5001,8 +5031,9 @@ const projectUI = setupProjectNavigation({
   onChange: () => {
     if (state.view === 'library') libraryUI.render();
     // The project of a conversation not begun changed in the fil: the Studio is that conversation's,
-    // its screen, its Sortie, its prompt and its inputs with it (16/11).
-    state.studio?.conversationChanged?.();
+    // its screen, its Sortie, its prompt and its inputs with it (16/11). (0.6.474) `moved`: the same conversation,
+    // its prompt and its inputs kept (they were emptied as for another one).
+    state.studio?.conversationChanged?.({ moved: true });
   },
   onBusy: () => updateControls(),
 });
@@ -5106,19 +5137,39 @@ function actOnOutput(record, index, action) {
 }
 /** An action on a take of the Pellicule: in its conversation, opened first (as from the chat). */
 function actOnTake(record, index, action) {
+  // (0.6.474) Animer and Prolonger pressed in the Studio (the viewer of its Sortie) or in the Archives: the gesture
+  // of the Studio, as the buttons of its screen make it (actInStudio). From the Studio in the conversation shown, as
+  // its screen (its Sortie shows the takes of the whole project); from the Archives in the take's, opened first, as
+  // for Agrandir. Through the Chat, a line was written in its box, out of sight from the Studio, once more at each
+  // press, and the Studio went to the newest take of the conversation. Pressed over the Chat, that line, as before.
+  const chat = state.view === 'chat' || document.body.dataset.chat === 'open',
+    studio = !chat && (action === 'animate' || action === 'extend');
+  if (studio && state.view === 'studio') return void actInStudio(record, action);
   // (0.6.260) Agrandir and Interpoler go to the Studio: not through the Chat (shown for a moment between the
   // Archives and the Studio), and not at all while the Studio makes a take (said here).
   const finish = action === 'upscale' || action === 'interpolate',
-    busy = finish ? studioUI.finishBlocked?.() : '';
+    busy = finish || studio ? studioUI.finishBlocked?.() : '';
   if (busy) return void notice(busy);
+  const act = () => (studio ? actInStudio(record, action) : actOnOutput(record, index, action));
   if (!record.conversationId || record.conversationId === state.conversationId) {
-    if (!finish) showChat();
-    return void actOnOutput(record, index, action);
+    if (!finish && !studio) showChat();
+    return void act();
   }
   requestSettingsClose(async () => {
     await loadConversation(record.conversationId);
-    if (state.conversationId === record.conversationId) await actOnOutput(record, index, action);
+    if (state.conversationId === record.conversationId) await act();
   });
+}
+/**
+ * (0.6.474) Animer or Prolonger of a take, made by the Studio as its screen makes it (studioUI.act): held, said
+ * where the button was pressed, and the page stays, as for Agrandir (0.6.260).
+ */
+function actInStudio(record, action) {
+  const busy = studioUI.finishBlocked?.();
+  if (busy) return void notice(busy);
+  return closeChat()
+    .then(() => revealStudio())
+    .then(() => studioUI.act(record, action));
 }
 const actionButtons = outputActions({
   api,
@@ -5517,6 +5568,8 @@ async function recoverGPU() {
   await refreshStatus();
 }
 $('composer-recover').onclick = () => void recoverGPU();
+// (0.6.474) Its bubble, the one of the button of the Studio: it had none, nor any words beside it.
+$('composer-recover').dataset.tip = HELD_TIP;
 $('hf-token-save').onclick = () => {
   const token = $('hf-token').value.trim();
   if (token) void saveToken(token);
@@ -5567,6 +5620,17 @@ $('chat-form').addEventListener('click', event => {
   if (event.target?.closest?.('button, a, input, select, textarea, label, .attachments > *')) return;
   $('prompt').focus();
 });
+// (0.6.474) The line of the box that names a work of another conversation (updateControls): a click on it, or Entrée,
+// opens that conversation, its Studio when the Studio makes it (backToWork), not the text of the box.
+function followAway(event) {
+  const work = workHeld() ? awayWork() : null;
+  if (!work) return;
+  event.preventDefault?.();
+  event.stopPropagation?.();
+  backToWork(work);
+}
+$('compose-state').onclick = followAway;
+$('compose-state').onkeydown = event => (event.key === 'Enter' || event.key === ' ' ? followAway(event) : undefined);
 $('cancel').onclick = () => {
   if (state.controller) state.controller.abort();
   else api('tools/cancel', { jobId: state.status.toolJob?.id }).catch(error => notice(error.message));
