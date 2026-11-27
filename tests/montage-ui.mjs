@@ -2425,6 +2425,30 @@ test('a suite without its text that its video stops says so in its line (0.6.159
   assert.deepEqual([f.lines().map(line => line[3]), f.go(), f.goMain().disabled], [['La vidéo d’avant est coupée avant sa fin : rendez-lui sa fin, ou posez une image de début.'], 'Créer', true]);
 });
 
+test('(0.6.459) the wand in hand: no drawn pointer and no dashes, what can be enriched is lit, more under the pointer', async () => {
+  // (27/11: « enlève le pointeur dans bobine (le fake pointeur). À la place je veux juste que les zones d'intérêt
+  // s'illuminent, sans abuser, en restant pro ». What is drawn cannot be read here: the rules that draw it are.)
+  const { readFile } = await import('node:fs/promises');
+  const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  const wand = css
+    .split('}')
+    .map(rule => rule.replace(/\/\*[\s\S]*?\*\//g, '').trim())
+    .filter(rule => rule.startsWith(".bobine-desk[data-wand='true']"));
+  // The pointer, what can be enriched, what is under the pointer (and the foot of its field, let through).
+  assert.equal(wand.length, 4);
+  const [pointer, zones, under] = wand;
+  // The pointer of the page: the hand of what is pressed, never a picture in its place.
+  assert.match(pointer, /\{\s*cursor: pointer;\s*$/);
+  assert.equal(wand.some(rule => /url\(|crosshair|dashed|animation|blink/.test(rule)), false);
+  // A fine light on every zone, a clearer one under the pointer; they change softly, nothing moves.
+  const light = rule => Number(/outline(?:-color)?: [^;]*rgba\(208, 202, 221, ([\d.]+)\)/.exec(rule)?.[1]);
+  assert.ok(light(zones) > 0 && light(zones) <= 0.4, 'a fine light: ' + light(zones));
+  assert.ok(light(under) >= 2 * light(zones), 'clearer under the pointer: ' + light(under));
+  assert.match(zones, /outline: 1px solid/);
+  assert.match(zones, /transition: outline-color [\d.]+s ease-out, background-color [\d.]+s ease-out;/);
+  assert.equal(/width|height|margin|padding|border|transform/.test(zones + under), false, 'nothing of the layout moves');
+});
+
 test('the styles of the Bobine: a take being made fills from the left, no moving ground; the text of the preview is three lines at most (0.6.159)', async () => {
   // (His photos of 20/11: the take being made kept the moving ground of the Montage of 0.6.142, and the
   // text covered the preview. What is drawn cannot be read here: the rules that draw it are.)

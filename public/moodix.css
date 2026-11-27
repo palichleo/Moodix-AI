@@ -17683,24 +17683,29 @@ body[data-view='bobine'] .chat-panel {
 #bobine-view .montage-piece.is-writing > .montage-piece-name::before {
   content: '● ';
 }
-/* Enrichir (captures 84 et 85) : la baguette en main, le pointeur la montre ; tout ce qui peut être
-   enrichi s'entoure de pointillés d'accent, dans « À créer » et sur la piste ; ce qui est sous la baguette
-   se remplit des deux côtés ; enrichi, il s'éclaire un instant. */
+/* Enrichir (captures 84 et 85) : la baguette en main, tout ce qui peut être enrichi s'éclaire d'un liseré
+   fin, dans « À créer » et sur la piste ; ce qui est sous le pointeur s'éclaire davantage, des deux côtés ;
+   enrichi, il s'éclaire un instant. */
 .bobine-go-wand[aria-pressed='true'] {
   background: rgba(238, 232, 222, 0.12);
   color: var(--ink);
 }
+/* (0.6.459) No drawn wand in place of the pointer, no dashes (27/11: « enlève le pointeur dans bobine (le fake
+   pointeur). À la place je veux juste que les zones d'intérêt s'illuminent, sans abuser, en restant pro »): the
+   pointer stays the hand of what is pressed; what can be enriched wears a fine light, and what is under the
+   pointer a clearer one, both sides at once. Nothing moves, nothing blinks. */
 .bobine-desk[data-wand='true'] :is(.bobine-line[data-enrichable='true'], .bobine-line[data-enrichable='true'] *, .montage-piece[data-enrichable='true'], .montage-piece[data-enrichable='true'] *) {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23eee8de' stroke-width='1.8' stroke-linecap='round'%3E%3Cpath d='M4 20 15 9'/%3E%3Cpath d='M17 3v3M15.5 4.5h3M20 8v2M19 9h2M12 4v1.6M11.2 4.8h1.6'/%3E%3C/svg%3E") 3 21, crosshair;
+  cursor: pointer;
 }
 .bobine-desk[data-wand='true'] .bobine-line[data-enrichable='true'] .bobine-line-words,
 .bobine-desk[data-wand='true'] .montage-piece[data-enrichable='true'] {
-  outline: 1px dashed rgba(208, 202, 221, 0.85);
+  outline: 1px solid rgba(208, 202, 221, 0.3);
   outline-offset: 2px;
+  transition: outline-color 0.3s ease-out, background-color 0.3s ease-out;
 }
 .bobine-desk[data-wand='true'] .bobine-line[data-enrichable='true'][data-linked='true'] .bobine-line-words,
 .bobine-desk[data-wand='true'] .montage-piece[data-enrichable='true'][data-linked='true'] {
-  outline-style: solid;
+  outline-color: rgba(208, 202, 221, 0.65);
   background-color: rgba(208, 202, 221, 0.1);
 }
 .bobine-line[data-lit='true'] .bobine-line-words,
