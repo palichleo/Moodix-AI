@@ -1260,6 +1260,9 @@ test('a photo laid above a video cuts it there: its end is greyed until the new 
   f.photos().ondrop(event(450));
   assert.match(f.notices.at(-1), /^Posez l’image plus tôt/);
   assert.equal(f.plans().length, 1);
+  // (0.6.466, relecture du lot 7, n° 1) And the track Images at rest again, as after a drop taken: no longer lit as while
+  // the image was carried, its new take at the end gone.
+  assert.deepEqual([f.photos().dataset.carrying, f.get('is-new').length], ['false', 0]);
 });
 
 test('a take whose small picture has just been made shows it on the timeline at once (0.6.142)', async () => {
@@ -5861,4 +5864,116 @@ test('(0.6.462, Bobine Pro, B05) the subjects of a take to create: after its sta
   f.goMain().onclick();
   await settle();
   assert.deepEqual([asked[0].verb, asked[0].args.workflow, asked[0].args.start_image, asked[0].args.end_image, asked[0].args.reference], ['create_video', 'ltx-25', { output: id(3) }, { output: id(5) }, [{ output: id(8) }, { output: id(6) }]]);
+});
+
+test('(0.6.466, relecture du lot 7) an image refused where it is dropped leaves the track Images at rest; once a list of a piece has chosen, the keys go to the desk (mouse) or back to that piece (keyboard); a take made in parts says its subjects go to its first part alone; its model leaves its subjects their place on its take; the list of the models counts no subject without their LoRA', async () => {
+  const image = n => ({ conversationId: C, runId: id(n), output: 0 }),
+    stored = {
+      schemaVersion: 1,
+      id: id(1030),
+      name: 'Les dunes',
+      format: '16:9',
+      width: 1344,
+      height: 768,
+      fps: 24,
+      sounds: [],
+      plans: [
+        { id: id(1031), at: 0, kind: 'video', source: { conversationId: C, runId: id(1), output: 0 }, from: 0, to: 5, frame: 'fit', volume: 1 },
+        { id: id(1032), at: 5, kind: 'video', todo: { prompt: 'Il marche.', suite: true }, from: 0, to: 4, frame: 'fit', volume: 1 },
+        // (25 s: three parts of 8,33 s with LTX 2.5, two of 12,5 s with MiniMax H3.)
+        { id: id(1033), at: 12, kind: 'video', todo: { prompt: 'Il saute.', subjects: [image(6), image(7)] }, from: 0, to: 25, frame: 'fit', volume: 1 },
+        { id: id(1034), at: 40, kind: 'video', todo: { prompt: 'Il tombe.', subjects: [image(6)] }, from: 0, to: 5, frame: 'fit', volume: 1, photos: { end: image(5) } },
+      ],
+    };
+  let models = bobineModels();
+  const byFamily = family => models.find(model => model.family === family),
+    f = await setup({
+      stored: [stored],
+      extra: [take(5, 'image'), take(6, 'image'), take(7, 'image'), take(8, 'image')],
+      videoModels: () => models,
+      modelFor: (verb, family) => byFamily(family)?.[verb]?.id ?? null,
+      longestFor: (verb, family) => byFamily(family)?.[verb]?.longest ?? null,
+      estimate: async () => ({ workflowName: 'LTX 2.5' }),
+    }).open();
+  await settle();
+  const press = target => target.onclick({ stopPropagation() {} }),
+    tile = n => f.get('montage-take').find(item => item.dataset.id === id(n)),
+    carry = n => tile(n).ondragstart({ dataTransfer: { setData() {} } }),
+    drop = target => target.ondrop({ preventDefault() {}, stopPropagation() {} }),
+    atRest = () => [f.photos().dataset.carrying, f.get('is-new').length],
+    toldOf = at => find(f.get('bobine-line')[at], 'bobine-line-reason').map(line => (find(line, 'bobine-line-whole')[0] ?? line).textContent),
+    todo = () => f.ui.state().montage.plans[3].todo,
+    pick = (name, more) => f.get('bobine-pick-item').find(item => item.attributes['aria-label'] === 'Prendre : ' + name).onclick(more),
+    // (A choice of a list: with the mouse, a click of one; with the keyboard, Entrée, a click of none.)
+    choose = (name, detail) => f.menu().children.find(item => find(item, 'bobine-piece-choice')[0]?.textContent === name).onclick({ detail });
+  // (n° 1) Carried, the image lights the track Images; dropped on a suite to LTX 2.5, which takes no subject: refused in
+  // those words, and the track at rest again. Dropped on a subject it is already beside: the same.
+  carry(8);
+  assert.deepEqual(atRest(), ['true', 1]);
+  drop(f.get('bobine-line')[0]);
+  assert.deepEqual([f.notices.at(-1), atRest()], ['LTX 2.5 ne prend pas de sujet dans une suite. Pour une suite avec des sujets : MiniMax H3.', ['false', 0]]);
+  tile(8).ondragend();
+  assert.deepEqual(atRest(), ['false', 0]);
+  carry(7);
+  drop(f.piece(1, 'Sujet 1'));
+  assert.deepEqual([f.notices.at(-1), atRest(), f.ui.state().montage.plans[2].todo.subjects], ['Cette image est déjà le sujet 2 de cette prise.', ['false', 0], [image(6), image(7)]]);
+  tile(7).ondragend();
+  // (n° 3) Made in three parts by LTX 2.5, whose suites take no subject: said in its card before it is asked, the model that
+  // takes them in all its parts named; in a low window, its first sentence. With MiniMax H3, each part has them: nothing.
+  assert.deepEqual([toldOf(0), toldOf(1), toldOf(2)], [[], ['LTX 2.5 : les sujets ne vont qu’à la première partie (8,3 s). Pour toutes les parties : MiniMax H3.'], []]);
+  const brief = find(f.get('bobine-line')[1], 'bobine-line-brief')[0];
+  assert.deepEqual([brief.textContent, brief.dataset.tip], ['LTX 2.5 : les sujets ne vont qu’à la première partie (8,3 s).', 'LTX 2.5 : les sujets ne vont qu’à la première partie (8,3 s). Pour toutes les parties : MiniMax H3.']);
+  find(f.get('bobine-line')[1], 'bobine-line-model')[0].onclick({ stopPropagation() {} });
+  f.get('bobine-model-menu')[0].children.find(item => find(item, 'bobine-model-name')[0].textContent === 'MiniMax H3').onclick({ detail: 1 });
+  assert.deepEqual([f.ui.state().montage.plans[2].todo.model, toldOf(1), find(f.get('bobine-line')[1], 'bobine-line-parts')[0].textContent], ['minimax_h3', [], '2 × 12.50 s']);
+  // (n° 2) On the timeline, how many subjects each take to create has: its model's name leaves them their place
+  // (moodix.css, measured in the page), or goes when less than 30 px would be left to it.
+  assert.deepEqual(f.plans().map(piece => piece.dataset.subjects), [undefined, undefined, '2', '1']);
+  const { readFile } = await import('node:fs/promises');
+  const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  for (let n = 1; n <= 9; n++)
+    assert.match(css, new RegExp(`\\n#bobine-view \\.montage-piece\\[data-subjects='${n}'\\] > \\.montage-piece-model \\{\\n  max-width: calc\\(100% - ${21 * n + 19}px\\);\\n\\}`));
+  for (let n = 2; n <= 9; n++)
+    assert.match(css, new RegExp(`\\n@container \\(max-width: ${21 * n + 48}\\.98px\\) \\{\\n  #bobine-view \\.montage-piece\\[data-subjects='${n}'\\] > \\.montage-piece-model \\{\\n    display: none;`));
+  // (n° 5, and n° 7 of the lots 5 and 6) The keys once a list of a piece has chosen. With the keyboard: « Changer… », then an
+  // image of the project: back to its subject, drawn again.
+  press(f.piece(2, 'Sujet 1'));
+  choose('Changer…', 0);
+  pick('Prise 8');
+  assert.deepEqual([todo().subjects, f.focused() === f.piece(2, 'Sujet 1')], [[image(8)], true]);
+  // With the mouse, « Retirer le sujet »: to the desk, where the space bar reads the film.
+  press(f.piece(2, 'Sujet 1'));
+  choose('Retirer le sujet', 1);
+  assert.deepEqual([todo().subjects, f.focused() === f.root], [undefined, true]);
+  // With the keyboard, « Retirer l’image de fin »: to its place, drawn empty.
+  press(f.piece(2, 'Fin'));
+  choose('Retirer l’image de fin', 0);
+  assert.deepEqual([f.ui.state().montage.plans[3].photos, f.focused() === f.piece(2, 'Fin'), f.focused().className], [undefined, true, 'bobine-piece is-empty']);
+  // With the mouse, an image in that empty place: to the desk.
+  press(f.piece(2, 'Fin'));
+  pick('Prise 5', { detail: 1 });
+  assert.deepEqual([f.ui.state().montage.plans[3].photos, f.focused() === f.root], [{ end: image(5) }, true]);
+  // With the keyboard, « + », « Sujet », an image: back to « + ». The same image again, refused: back to « + » all the same.
+  press(f.adder(2));
+  f.choose('Sujet');
+  pick('Prise 7');
+  assert.deepEqual([todo().subjects, f.focused() === f.adder(2)], [[image(7)], true]);
+  press(f.adder(2));
+  f.choose('Sujet');
+  pick('Prise 7');
+  assert.deepEqual([f.notices.at(-1), todo().subjects, f.focused() === f.adder(2)], ['Cette image est déjà le sujet 1 de cette prise.', [image(7)], true]);
+  // With the keyboard, « Retirer le sujet » of its only subject: no piece left at its place, to « + ».
+  press(f.piece(2, 'Sujet 1'));
+  choose('Retirer le sujet', 0);
+  assert.deepEqual([todo().subjects, f.focused() === f.adder(2)], [undefined, true]);
+  // (n° 4) A workflow of LTX 2.5 without the LoRA of its subjects: its list no longer says « 2 sujets ».
+  const takes = () => {
+    find(f.get('bobine-line')[2], 'bobine-line-model')[0].onclick({ stopPropagation() {} });
+    const said = f.get('bobine-model-menu')[0].children.map(item => find(item, 'bobine-model-takes')[0].textContent);
+    f.pagePress({});
+    return said;
+  };
+  assert.deepEqual(takes(), ['Début, fin, 2 sujets, son', '3 sujets, son', 'Début, fin, son', 'Début seulement, sans son']);
+  models = models.map(model => (model.family === 'ltx25' ? { ...model, create_video: { ...model.create_video, roles: { ...model.create_video.roles, reference: { count: 2, lora: false } } } } : model));
+  assert.deepEqual(takes()[0], 'Début, fin, son');
 });

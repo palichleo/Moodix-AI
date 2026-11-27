@@ -921,10 +921,12 @@ export function creationOf(montage, id, lengthOf = () => null, { limits = {}, ab
  * what its workflow takes (`create_video.roles`, how many of each) and whether it makes sound (`sound`). « Début, fin,
  * 2 sujets, son » (LTX 2.5), « 3 sujets, son » (MiniMax H3 Omni), « Début, fin, son » (pi H3), « Début seulement, sans
  * son » (Wan 2.2).
+ * (0.6.466, relecture du lot 7, n° 4) No subject without their LoRA (`lora: false`, a workflow of LTX 2.5 that lacks it), as
+ * subjectsTaken counts them: « Début, fin, son », where its card, its « + » and what is asked already left them out.
  */
 export function takesWords(model) {
   const count = role => model?.create_video?.roles?.[role]?.count ?? 0,
-    subjects = count('reference'),
+    subjects = model?.create_video?.roles?.reference?.lora === false ? 0 : count('reference'),
     words =
       count('start_image') && !count('end_image') && !subjects
         ? ['début seulement']

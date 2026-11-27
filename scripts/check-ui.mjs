@@ -1494,6 +1494,7 @@ try {
     );
     await emptied('#prompt');
     dictationSaid = 'Invente la suite.';
+    // (0.6.455) A beep heard first here too (a bar raised), as in the Studio below.
     await run(
       'Dictée (Bobine) : sa bande à la place de la demande, la flèche attend',
       async () => {
@@ -1508,7 +1509,8 @@ try {
           const box = document.querySelector('#bobine-view .bobine-ask-field.is-dictating'), strip = box?.querySelector(':scope > .dictation-strip.in-bobine'), mic = box?.querySelector(':scope > .dictation-mic'),
             send = box?.querySelector(':scope > .bobine-ask-send');
           if (!strip?.getClientRects().length || strip.nextElementSibling !== mic || !send) return false;
-          return !box.querySelector('.bobine-ask-words').getClientRects().length && strip.querySelectorAll('.dictation-bars > i').length === 22 && send.disabled &&
+          const bars = [...strip.querySelectorAll('.dictation-bars > i')];
+          return !box.querySelector('.bobine-ask-words').getClientRects().length && bars.length === 22 && bars.some(bar => parseFloat(bar.style.height) > 4) && send.disabled &&
             (send.dataset.tip || send.title) === ${said(DICTATING)} && mic.classList.contains('is-listening') && box.dataset.state === 'rest';
         })()`),
       { within: 4000 },
