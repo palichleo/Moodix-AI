@@ -1177,6 +1177,312 @@ try {
     );
   }
   /**
+   * (0.6.477, claude_design/bbox, B20 to B30) The boxes of MOSS Image, by the gestures of a hand (the mouse of the
+   * browser, as a person moves it): « Boîtes » put on the plateau from « Ajouter », its window whole in the window and
+   * never over « Générer »; a box drawn in the empty frame by a press, a slide and a release, its window beside it,
+   * the focus on its description, « Générer » greyed with why; a gesture of 8 × 6 px refused, said at the hand; the
+   * description typed; Échap, then a click on the box; moved, made larger by its corner, moved by an arrow; the piece
+   * taken back by its ×, its box kept for « Ajouter »; Suppr. Nothing under 12 px, the page never scrolls. At
+   * 1280 × 720 and 1440 × 900.
+   */
+  async function boxes() {
+    const look = `(() => {
+      const desk = document.querySelector('#studio-view .studio-desk'),
+        rect = element => {
+          const r = element?.getBoundingClientRect();
+          return r ? { left: r.left, top: r.top, right: r.right, bottom: r.bottom } : null;
+        },
+        shown = element => element.getClientRects().length > 0,
+        written = element => [...element.childNodes].some(child => child.nodeType === 3 && child.textContent.trim()),
+        panes = [...document.querySelectorAll('#studio-view .studio-piece-window:popover-open')].filter(pane =>
+          pane.matches('.studio-boxes-window, .studio-box-window'),
+        ),
+        roots = [...(desk?.querySelectorAll('.studio-boxes, .studio-layout') ?? []), ...panes],
+        texts = roots.flatMap(root => [...root.querySelectorAll('*')]).filter(item => shown(item) && written(item)),
+        go = desk?.querySelector('.studio-go'),
+        page = document.documentElement;
+      return JSON.stringify({
+        piece: Boolean(desk?.querySelector('.studio-boxes')),
+        count: desk?.querySelector('.studio-boxes-count')?.textContent ?? null,
+        panes: panes.map(pane => ({ name: pane.getAttribute('aria-label'), at: rect(pane) })),
+        boxes: [...(desk?.querySelectorAll('.studio-layout.is-drawing .studio-layout-box:not(.is-drawn)') ?? [])].map(
+          rect,
+        ),
+        canvas: rect(desk?.querySelector('.studio-layout.is-drawing:not([hidden]) > .studio-layout-canvas')),
+        said: desk?.querySelector('.studio-layout-said')?.textContent ?? '',
+        saidAt: rect(desk?.querySelector('.studio-layout-said')),
+        preview: rect(desk?.querySelector('.studio-block.is-preview')),
+        blank: desk?.querySelector('.studio-blank-title')?.textContent ?? null,
+        focus: document.activeElement?.dataset?.field ?? '',
+        words: desk?.querySelector('.studio-layout-box .studio-layout-words')?.textContent ?? '',
+        // (Its title is a bubble of the page: help-tips.mjs keeps it as data-tip.)
+        go: go && {
+          at: rect(desk.querySelector('.studio-go-group')),
+          off: go.disabled,
+          title: go.dataset.tip || go.title,
+        },
+        scrolls: page.scrollHeight > innerHeight + 1 || page.scrollWidth > innerWidth + 1,
+        tiny: texts.filter(item => parseFloat(getComputedStyle(item).fontSize) < 12).map(item => item.className),
+      });
+    })()`;
+    const seen = async () => JSON.parse(await js(look)),
+      mouse = (type, x, y, buttons = 1) =>
+        send('Input.dispatchMouseEvent', {
+          type,
+          x: Math.round(x),
+          y: Math.round(y),
+          button: type === 'mouseMoved' && !buttons ? 'none' : 'left',
+          buttons,
+          clickCount: type === 'mouseMoved' ? 0 : 1,
+        }),
+      // A gesture of the hand: there, pressed, slid in five moves, released.
+      gesture = async (from, to) => {
+        await mouse('mouseMoved', from.x, from.y, 0);
+        await mouse('mousePressed', from.x, from.y);
+        for (let part = 1; part <= 5; part++)
+          await mouse('mouseMoved', from.x + ((to.x - from.x) * part) / 5, from.y + ((to.y - from.y) * part) / 5);
+        await mouse('mouseReleased', to.x, to.y, 0);
+      },
+      // Where a click of the hand meets what `pick` finds (an expression of the page): its middle, or a point of it
+      // at the fractions given, when nothing else is over it there.
+      spot = (pick, fx = 0.5, fy = 0.5) =>
+        js(`(() => {
+          const element = (${pick}), box = element?.getBoundingClientRect();
+          if (!box?.width || !box.height) return null;
+          const x = box.left + box.width * ${fx},
+            y = box.top + box.height * ${fy},
+            over = document.elementFromPoint(x, y);
+          return over && (element === over || element.contains(over)) ? { x, y } : null;
+        })()`),
+      tapOn = async pick => {
+        const at = await spot(pick);
+        if (!at) return false;
+        await gesture(at, at);
+        return true;
+      },
+      inside = (at, width, height) => at && at.left >= 0 && at.top >= 0 && at.right <= width && at.bottom <= height,
+      over = (a, b) => Boolean(a && b && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top),
+      near = (a, b) => Math.abs(a - b) <= 2,
+      // A step whose expectations say what is wrong, read until they hold (1,5 s at most), said once.
+      stage = async (name, action, test) => {
+        let missing = [];
+        await run(name, action, async () => ((missing = await test()), missing.length === 0), { within: 1500 });
+        for (const what of missing) problems.push([name, 'état', what]);
+      },
+      reason = 'Décrivez la boîte 1 pour générer',
+      piece = "document.querySelector('#studio-view .studio-boxes')",
+      line = name =>
+        `[...document.querySelectorAll('#studio-view .studio-add-menu .glass-menu-item')].find(item => ` +
+        `item.firstElementChild?.textContent === ${JSON.stringify(name)})`;
+    for (const [width, height] of [
+      [1280, 720],
+      [1440, 900],
+    ]) {
+      const at = ` (${width} × ${height})`,
+        common = now => [
+          ...(now.scrolls ? ['la page défile'] : []),
+          ...(now.tiny.length ? ['texte sous 12 px : ' + now.tiny.join(', ')] : []),
+          ...now.panes.filter(pane => !inside(pane.at, width, height)).map(pane => `« ${pane.name} » sort de la page`),
+          ...now.panes.filter(pane => over(pane.at, now.go?.at)).map(pane => `« ${pane.name} » passe sur « Générer »`),
+        ];
+      let drawn = null,
+        before = null;
+      await stage(
+        'Studio : « Boîtes » posées depuis « Ajouter » sous MOSS Image' + at,
+        async () => {
+          await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+          const ready = await js(`(async () => {
+            document.querySelector('#studio-kinds .kind-tab[aria-label="Image"]')?.click();
+            await new Promise(resolve => setTimeout(resolve, 100));
+            const pick = document.querySelector('#studio-view .studio-model-pick'),
+              moss = [...(pick?.options ?? [])].find(option => option.textContent.trim() === 'MOSS Image'),
+              prompt = document.getElementById('studio-prompt');
+            if (!moss || !prompt) return false;
+            pick.value = moss.value;
+            pick.onchange();
+            prompt.value = 'A minimalist travel poster.';
+            prompt.dispatchEvent(new Event('input', { bubbles: true }));
+            await new Promise(resolve => setTimeout(resolve, 100));
+            return true;
+          })()`);
+          if (!ready || !(await tapOn("document.querySelector('#studio-view .studio-add-pick')"))) return false;
+          await wait(150);
+          return tapOn(line('Boîtes'));
+        },
+        async () => {
+          const now = await seen(),
+            names = now.panes.map(pane => pane.name);
+          return [
+            ...(now.piece && now.count === '0' ? [] : ['la pièce « Boîtes » n’est pas sur le plateau']),
+            ...(names.join() === 'Boîtes' ? [] : ['sa fenêtre n’est pas ouverte seule : ' + names.join(', ')]),
+            ...(now.blank === 'Tracez une boîte.' ? [] : ['le cadre vide ne dit pas quoi faire : ' + now.blank]),
+            ...(now.canvas ? [] : ['on ne peut pas tracer dans le cadre']),
+            ...common(now),
+          ];
+        },
+      );
+      await stage(
+        'Studio : une boîte tracée d’un vrai geste, sa fenêtre à côté, « Générer » grisé' + at,
+        async () => {
+          const { canvas } = await seen();
+          if (!canvas) return false;
+          const across = canvas.right - canvas.left,
+            down = canvas.bottom - canvas.top;
+          drawn = {
+            left: Math.round(canvas.left + across * 0.3),
+            top: Math.round(canvas.top + down * 0.3),
+            right: Math.round(canvas.left + across * 0.7),
+            bottom: Math.round(canvas.top + down * 0.55),
+          };
+          await gesture({ x: drawn.left, y: drawn.top }, { x: drawn.right, y: drawn.bottom });
+        },
+        async () => {
+          const now = await seen(),
+            [box] = now.boxes,
+            names = now.panes.map(pane => pane.name);
+          return [
+            ...(now.count === '1' && now.boxes.length === 1 ? [] : ['pas une boîte tracée : ' + now.count]),
+            ...(box && ['left', 'top', 'right', 'bottom'].every(side => near(box[side], drawn[side]))
+              ? []
+              : ['la boîte n’est pas où la main l’a tracée : ' + JSON.stringify([box, drawn])]),
+            ...(names.join() === 'Boîte 1' ? [] : ['la fenêtre de la boîte n’est pas ouverte : ' + names.join(', ')]),
+            ...(now.focus === 'caption' ? [] : ['le focus n’est pas sur sa description : ' + now.focus]),
+            ...(now.go?.off && now.go.title === reason ? [] : ['« Générer » n’est pas grisé : ' + now.go?.title]),
+            ...common(now),
+          ];
+        },
+      );
+      await stage(
+        'Studio : un geste de 8 × 6 px refusé, dit à la main' + at,
+        async () => {
+          const from = await spot("document.querySelector('#studio-view .studio-layout-canvas')", 0.08, 0.9);
+          if (!from) return false;
+          await gesture(from, { x: from.x + 8, y: from.y + 6 });
+        },
+        async () => {
+          const now = await seen(),
+            small = 'Trop petite : glissez un peu plus loin.';
+          return [
+            ...(now.count === '1' ? [] : ['une boîte de trop : ' + now.count]),
+            ...(now.said === small ? [] : ['rien n’est dit à la main : ' + now.said]),
+            ...(now.saidAt && now.preview && inside(now.saidAt, now.preview.right, now.preview.bottom)
+              ? []
+              : ['ce qui est dit sort de l’aperçu']),
+            ...common(now),
+          ];
+        },
+      );
+      await stage(
+        'Studio : la description tapée au clavier, « Générer » n’est plus grisé par la boîte' + at,
+        async () => {
+          await js(`document.querySelector('#studio-view .studio-box-window textarea[data-field="caption"]')?.focus()`);
+          await send('Input.insertText', { text: 'A red hot-air balloon.' });
+        },
+        async () => {
+          const now = await seen();
+          return [
+            ...(now.go && now.go.title !== reason ? [] : ['« Générer » reste grisé par la boîte']),
+            ...(now.words === 'A red hot-air balloon.' ? [] : ['la boîte ne montre pas sa description : ' + now.words]),
+            ...common(now),
+          ];
+        },
+      );
+      await stage(
+        'Studio : Échap ferme la fenêtre de la boîte, un clic sur elle la rouvre' + at,
+        async () => {
+          await key('Escape', 'Escape', 27);
+          await wait(150);
+          if ((await seen()).panes.length) return false;
+          return tapOn("document.querySelector('#studio-view .studio-layout.is-drawing .studio-layout-box')");
+        },
+        async () => {
+          const now = await seen();
+          return [
+            ...(now.panes.map(pane => pane.name).join() === 'Boîte 1' ? [] : ['la fenêtre de la boîte ne revient pas']),
+            ...common(now),
+          ];
+        },
+      );
+      await stage(
+        'Studio : la boîte déplacée, puis agrandie par son coin' + at,
+        async () => {
+          [before] = (await seen()).boxes;
+          const box = "document.querySelector('#studio-view .studio-layout-box.is-chosen')",
+            from = (await spot(box, 0.3, 0.7)) ?? (await spot(box, 0.7, 0.7));
+          if (!before || !from) return false;
+          await gesture(from, { x: from.x + 24, y: from.y + 12 });
+          await wait(150);
+          const corner = await spot("document.querySelector('#studio-view .studio-layout-box.is-chosen .is-br')");
+          if (!corner) return false;
+          await gesture(corner, { x: corner.x + 30, y: corner.y + 20 });
+        },
+        async () => {
+          const now = await seen(),
+            [box] = now.boxes;
+          const placed =
+            box &&
+            near(box.left, before.left + 24) &&
+            near(box.top, before.top + 12) &&
+            near(box.right, before.right + 24 + 30) &&
+            near(box.bottom, before.bottom + 12 + 20);
+          return [
+            ...(placed ? [] : ['la boîte n’a pas suivi la main : ' + JSON.stringify([before, box])]),
+            ...common(now),
+          ];
+        },
+      );
+      await stage(
+        'Studio : une flèche du clavier déplace la boîte' + at,
+        async () => {
+          [before] = (await seen()).boxes;
+          await js(`document.querySelector('#studio-view .studio-layout-box.is-chosen')?.focus()`);
+          await key('ArrowRight', 'ArrowRight', 39);
+        },
+        async () => {
+          const now = await seen(),
+            [box] = now.boxes,
+            step = now.canvas ? (now.canvas.right - now.canvas.left) * 0.01 : NaN,
+            moved = box && near(box.left, before.left + step) && near(box.top, before.top);
+          return [...(moved ? [] : ['la flèche ne la déplace pas']), ...common(now)];
+        },
+      );
+      await stage(
+        'Studio : la pièce retirée par sa croix, sa boîte gardée pour « Ajouter »' + at,
+        async () => {
+          if (!(await tapOn(piece + "?.querySelector('.studio-slot-remove')"))) return false;
+          await wait(150);
+          return tapOn("document.querySelector('#studio-view .studio-add-pick')");
+        },
+        async () => {
+          const now = await seen(),
+            said = await js(`(${line('Boîtes')})?.querySelector('.glass-menu-note')?.textContent ?? ''`);
+          return [
+            ...(now.piece || now.canvas ? ['la pièce ou ses boîtes restent'] : []),
+            ...(said === '1 boîte gardée' ? [] : ['« Ajouter » ne dit pas la boîte gardée : ' + said]),
+            ...common(now),
+          ];
+        },
+      );
+      await stage(
+        'Studio : « Ajouter » remet la boîte, Suppr l’enlève, la pièce retirée' + at,
+        async () => {
+          if (!(await tapOn(line('Boîtes')))) return false;
+          await wait(150);
+          if ((await seen()).count !== '1') return false;
+          await js(`document.querySelector('#studio-view .studio-layout.is-drawing .studio-layout-box')?.focus()`);
+          await key('Delete', 'Delete', 46);
+          await wait(150);
+          if ((await seen()).count !== '0') return false;
+          return tapOn(piece + "?.querySelector('.studio-slot-remove')");
+        },
+        async () => {
+          const now = await seen();
+          return [...(now.piece || now.canvas ? ['la pièce reste'] : []), ...common(now)];
+        },
+      );
+    }
+  }
+  /**
    * (0.6.261) The column of the actions, on an image in 16:9 at 1280 × 720 (no room at the right of its frame):
    * unfolded, whole in the stage (over the frame by what lacks), each button where it was folded, under the pointer
    * that came on it. At the keys: « Agrandir » pressed with Entrée keeps the focus (the Studio drawn again gave it to
@@ -2125,6 +2431,8 @@ try {
     );
   await cameraKeys();
   await cameraKept();
+  // (0.6.477) The boxes of MOSS Image, drawn by the hand (B20 to B30).
+  await boxes();
   // (0.6.258) With the tools of the Studio still given: the loupe of an image made larger, in its own conversation.
   await loupe();
   await send('Fetch.disable');

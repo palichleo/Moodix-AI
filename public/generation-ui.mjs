@@ -6,6 +6,7 @@ import { formatOf } from './formats.mjs';
 import { clipPlayer } from './take-player.mjs';
 import { elapsedClock, madeIn } from './generation-time.mjs';
 import { clipSeconds } from './take-length.mjs';
+import { layoutCaption } from './layout-boxes.mjs';
 
 const KINDS = { image: 'IMAGE', video: 'VIDÉO', audio: 'SON' };
 /** A length as the Studio writes it everywhere (moodix-design.md 27): « 05.04 S » in capitals. */
@@ -242,7 +243,9 @@ export function setupGenerationUI({
       open = null;
     if (compact) {
       const text = node('div', 'card-text');
-      title = node('span', 'card-title', request.plan?.prompt || request.args?.prompt || 'Création du Studio');
+      // (0.6.477) A creation with boxes (MOSS Image) by its caption, never by their JSON.
+      const said = layoutCaption(request.plan?.prompt || request.args?.prompt);
+      title = node('span', 'card-title', said || 'Création du Studio');
       meta = node('span', 'card-meta', requestMeta(request));
       text.append(title, meta);
       open = node('button', 'card-open', 'Ouvrir');
@@ -475,8 +478,10 @@ export function setupGenerationUI({
     /** A card names its creation and opens it in the Studio. */
     function describe(target) {
       if (!compact || !record) return;
-      target.title.textContent = record.prompt || 'Création du Studio';
-      target.title.title = record.prompt || '';
+      // (0.6.477) A take made with boxes (MOSS Image) by its caption, never by their JSON.
+      const words = layoutCaption(record.prompt);
+      target.title.textContent = words || 'Création du Studio';
+      target.title.title = words || '';
       target.meta.textContent = recordMeta(record);
       target.open.disabled = !onOpen;
       const shown = record;
@@ -611,7 +616,7 @@ export function setupGenerationUI({
         img = node('img');
       button.type = 'button';
       button.setAttribute('aria-label', 'Afficher les détails de l’image originale');
-      img.alt = record.prompt || 'Image originale générée';
+      img.alt = layoutCaption(record.prompt) || 'Image originale générée';
       img.decoding = 'async';
       img.loading = 'lazy';
       button.style.aspectRatio = '1';

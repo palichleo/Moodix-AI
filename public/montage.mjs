@@ -20,6 +20,7 @@
  */
 import { FORMATS } from './formats.mjs';
 import { thumbnailOf } from './thumbnails.mjs';
+import { layoutCaption } from './layout-boxes.mjs';
 import { sizeText } from './missing-file.mjs';
 import { withArrangement } from './montage-arrange.mjs';
 import { licenseBlock, restrictedOf } from './model-licenses.mjs';
@@ -1756,7 +1757,9 @@ export function setupMontage({
     if (track === 'image') length.append(icon('image'));
     foot.append(node('span', 'montage-take-number', Number.isInteger(output.take) ? 'Prise ' + output.take : ''), length);
     tile.append(picture, foot);
-    if (layout === 'list') tile.append(node('span', 'montage-take-text', String(record.prompt ?? '').trim().slice(0, 240) || record.workflowName || ''));
+    // (0.6.477) A take made with boxes (MOSS Image) by its caption, never by their JSON.
+    const caption = String(layoutCaption(record.prompt) ?? '').trim().slice(0, 240);
+    if (layout === 'list') tile.append(node('span', 'montage-take-text', caption || record.workflowName || ''));
     // (0.6.169, his words of 21/11) « Un click simple dans un média à gauche doit l'ouvrir en grand. Le
     // double click doit le mettre dans la timeline. » The click waits the time of a double click: the
     // second one lays it, the take not opened.
@@ -3356,7 +3359,9 @@ export function setupMontage({
             ? named(before.photos.end)
             : null,
       end = plan.photos?.end ? named(plan.photos.end) : null,
-      previous = String((before ? (isTodo(before) ? before.todo.prompt : recordOf(before.source)?.prompt) : '') ?? '').trim();
+      // (0.6.477, N11) A take made with boxes (MOSS Image) by its caption, never by their JSON.
+      told = before && !isTodo(before) ? layoutCaption(recordOf(before.source)?.prompt) : '',
+      previous = String((before ? (isTodo(before) ? before.todo.prompt : told) : '') ?? '').trim();
     if (!start && !end) return null;
     return {
       // (0.6.159) A suite towards its photo too: it is made as a continuation since 0.6.152 (creationOf),

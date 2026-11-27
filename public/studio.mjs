@@ -13,6 +13,9 @@ import { clipPlayer, stillClip } from './take-player.mjs';
 import { elapsedClock } from './generation-time.mjs';
 import { settingName } from './setting-names.mjs';
 import { PIECES, PIECE_WORDS as WORDS, SHORT_MODELS } from './pieces.mjs';
+// (0.6.477) The boxes of MOSS Image: their editor, and their prompt shown as a person reads it.
+import { layoutCaption, readLayoutPrompt } from './layout-boxes.mjs';
+import { setupLayoutEditor } from './layout-editor.mjs';
 import {
   CAMERA_DEFAULT,
   CAMERA_GROUPS,
@@ -419,6 +422,8 @@ export function proposedValues(request, offered = []) {
     overlap = source && Number.isFinite(parameters.overlap_frames) ? parameters.overlap_frames : 0,
     width = parameters.width ?? request.resolution?.width,
     height = parameters.height ?? request.resolution?.height;
+  // (0.6.477) A prompt of boxes (MOSS Image): its caption in the prompt, its boxes on their piece (layout-editor.mjs).
+  const laid = readLayoutPrompt(String(plan.prompt ?? request.args?.prompt ?? ''), { width, height });
   const settings = {},
     roles = references.map(ref => ref.role),
     // (0.6.102) What its workflow fixes is no choice of Moodix AI: shown at once, as it will be made,
@@ -432,6 +437,7 @@ export function proposedValues(request, offered = []) {
     verb: request.tool || request.call?.function?.name || 'create_image',
     workflow: workflow?.id ?? null,
     prompt: String(plan.prompt ?? request.args?.prompt ?? ''),
+    ...(laid ? { prompt: laid.prompt, boxes: laid.boxes } : {}),
     promptFree: Boolean(editable.prompt),
     size: width > 0 && height > 0 ? sizeKey({ width, height }) : null,
     // (Of a ratio no format is close to, the nearest one, 0.6.92: the format in hand stayed beside its size.)
@@ -656,8 +662,33 @@ export function setupStudio({
     camera: null, // (0.6.211) the camera of a video, once added: { move, speed } (public/camera.mjs)
     // (0.6.257) The last movement chosen in the block « Caméra », kept while its switch is off: it comes back on.
     cameraLast: null,
+    // (0.6.477) The boxes placed for MOSS Image, as fractions of the picture (public/layout-boxes.mjs), and whether
+    // their piece is on the plateau: taken back, they are kept for when it comes again (N8 of 21/11).
+    boxes: [],
+    layout: false,
   });
   const drafts = Object.fromEntries(MODES.map(item => [item.id, blank()]));
+  // (0.6.477) The boxes of MOSS Image (public/layout-editor.mjs): their piece, their windows, the frame they are drawn
+  // in; one thing open at a time with the other windows of the Studio. Frozen while a take is made, and under a
+  // proposal of Moodix AI, whose boxes are its own.
+  const boxes = setupLayoutEditor({
+    node,
+    icon,
+    notice,
+    draft: () => drafts[mode],
+    workflow: () => current(),
+    render: () => render(),
+    goable: () => goable(),
+    busy: () => (working ? whyNot() || BUSY_HERE : ''),
+    proposed: () => answering(),
+    closeOthers: () => {
+      if (pieceOpen) closeWindow();
+      if (addOpen) closeAdd();
+      if (cameraMenu) closeCameraMenu();
+      if (advanced) closeMore();
+    },
+    othersOpen: () => Boolean(pieceOpen || addOpen || cameraMenu || advanced),
+  });
   const picker = node('input');
   picker.type = 'file';
   picker.accept = 'image/png,image/jpeg,image/webp';
@@ -1500,7 +1531,7 @@ export function setupStudio({
     if (opened) {
       // (0.6.198) The clip by the number of its take, as the Bobine says it; a clip of the disk, « la vidéo ».
       const take = output.take,
-        what = (record.prompt || record.name || '').slice(0, 90),
+        what = (layoutCaption(record.prompt) || record.name || '').slice(0, 90),
         pane = pieceWindow(workflow, {
           role: 'source',
           index: 0,
@@ -2676,6 +2707,8 @@ export function setupStudio({
     // Caméra), as it was.
     if (workflow.camera?.moves) kinds.push({ kind: 'camera' });
     if (workflow.settings?.some(setting => setting.key === 'lyrics' && setting.type === 'string')) kinds.push({ kind: 'lyrics' });
+    // (0.6.477) The boxes of MOSS Image, the last piece of a model of images (layout-editor.mjs): no file.
+    if (workflow.layout) kinds.push({ kind: 'boxes' });
     return kinds;
   }
   /**
@@ -2726,6 +2759,11 @@ export function setupStudio({
                 },
               },
         );
+        continue;
+      }
+      // (0.6.477, B20) The boxes: put on the plateau, their window open, the frame ready to be drawn in.
+      if (piece.kind === 'boxes') {
+        choices.push(boxes.choice(name, given));
         continue;
       }
       const list = draft.inputs[piece.role] ?? [],
@@ -2783,6 +2821,8 @@ export function setupStudio({
           if (pieceOpen) closeWindow();
           if (cameraMenu) closeCameraMenu();
           if (advanced) closeMore();
+          // (0.6.477) And those of the boxes (layout-editor.mjs), opened with the keyboard.
+          if (boxes.isOpen()) boxes.close();
           addOpen = !addOpen;
           piece.classList.toggle('is-open', addOpen);
           pick.setAttribute('aria-expanded', String(addOpen));
@@ -2870,6 +2910,9 @@ export function setupStudio({
       // (0.6.257) The camera kept is its block, greyed (cameraBlock), not a piece of the plateau any more.
       rest = off.filter(piece => piece.role !== 'camera' && !(frames && piece.index === 0 && (piece.role === 'start_image' || piece.role === 'end_image'))),
       pieces = [sourcesRow(workflow), referencesRow(workflow), filmed ? cameraPiece(workflow) : null].filter(Boolean);
+    // (0.6.477) The boxes of MOSS Image, after the other pieces; greyed under a model that does not read them.
+    const boxed = boxes.piece(workflow);
+    if (boxed) pieces.push(boxed);
     if (rest.length) {
       const kept = node('div', 'studio-pieces studio-kept');
       kept.setAttribute('role', 'group');
@@ -2887,6 +2930,9 @@ export function setupStudio({
       plateau.append(row);
     }
     if (off.length) plateau.append(offLine(workflow, off));
+    // (0.6.477, B25, B28) What is said of the boxes under it: a model that does not read them, the limit of twelve.
+    const boxNote = boxes.note(workflow);
+    if (boxNote) plateau?.append(boxNote);
     // (0.6.204) The plateau alone: « Qui est qui » left the column for the windows of its two pieces.
     // (0.6.257, K00) Under it, the block « Caméra » of a model that takes one; greyed when it is kept from one.
     const blocks = [plateau, cameraBlock(workflow, { kept: off.some(piece => piece.role === 'camera'), row: off.length > 0 })].filter(Boolean);
@@ -3859,6 +3905,8 @@ export function setupStudio({
       const blank = node('div', 'studio-blank');
       blankLines = { size: node('p', 'studio-blank-size') };
       blankLines.size.setAttribute('aria-hidden', 'true');
+      // (0.6.477, B20) The boxes waiting for their first one: what to do, above the format and the size.
+      blank.append(...boxes.blank(current()));
       blank.append(blankLines.size);
       sayBlank();
       frame.append(blank);
@@ -3877,6 +3925,10 @@ export function setupStudio({
       element.style.height = from.height + 'px';
     }
     box.append(frame, over);
+    // (0.6.477) The boxes of MOSS Image over the frame while they are drawn, the eye of a take made with them
+    // (layout-editor.mjs); not while a take is made, nor over a picture of another page.
+    if (!working && !gpuBlocked() && !refilming() && !start && !finishOn())
+      boxes.layer(over, { blank: Boolean(blankLines), record: last });
     screen.append(box);
     // A take of the Sortie, or a file of the computer, dropped on the screen: shown there with what
     // made it (inspect, inspectFile). Not an image of a case, which only changes case.
@@ -3968,7 +4020,7 @@ export function setupStudio({
         take = output.take;
       Object.assign(video, { preload: 'metadata', playsInline: true, src: output.originalUrl || '' });
       if (output.thumbUrl) video.poster = output.thumbUrl;
-      video.setAttribute('aria-label', record.prompt || 'Dernière vidéo créée');
+      video.setAttribute('aria-label', layoutCaption(record.prompt) || 'Dernière vidéo créée');
       video.onloadedmetadata = () => {
         shaped(video.videoWidth, video.videoHeight);
         measuredOnScreen(record, video.videoWidth, video.videoHeight);
@@ -3982,7 +4034,7 @@ export function setupStudio({
       element.append(video, player.element);
     } else {
       Object.assign(element, {
-        alt: record.prompt || 'Dernière image créée',
+        alt: layoutCaption(record.prompt) || 'Dernière image créée',
         decoding: 'async',
         src: output.originalUrl,
       });
@@ -4339,6 +4391,8 @@ export function setupStudio({
     go.disabled = blank || Boolean(missing);
     go.classList.toggle('is-blank', blank);
     go.title = blank ? blankWhy() : missing || `${finish ? FINISH[finish.verb].go : 'Générer'} (${MODIFIER}+Entrée)`;
+    // (0.6.477) Nor while a box placed for MOSS Image lacks its words, or the layout is too long (layout-editor.mjs).
+    if (!blank && !missing && !finish) boxes.grey(go, current());
   }
   /** (0.6.253) What « Générer » says without a prompt: what to describe first (the continuation, in Vidéo). */
   // A character put in a video: its wand writes the prompt, as request() says it.
@@ -4381,6 +4435,9 @@ export function setupStudio({
     }
     if (!draft.prompt.trim() && !refilming()) return { text: blankWhy(), light: 'prompt' };
     const role = missingRole(workflow, draft.inputs, extending);
+    // (0.6.477) A box placed for MOSS Image without its words, a layout too long: their piece lit (layout-editor.mjs).
+    const boxed = !role && boxes.reason(workflow);
+    if (boxed) return { text: boxed, light: 'boxes' };
     return role ? { text: inputMissing(workflow, draft.inputs, extending), light: role } : null;
   }
   let called = null, // (0.6.253) { element, timer }: what was lit by a press on « Générer » greyed
@@ -4825,6 +4882,9 @@ export function setupStudio({
       // A large picture is a final, a small one a draft: the profile only names it here.
       if (workflow.stages) args.stage = stageOf(workflow);
     }
+    // (0.6.477) Boxes placed for MOSS Image: the prompt goes as their layout, at the size made (layout-editor.mjs).
+    const laid = refilming() ? null : boxes.prompt(workflow, draft, prompt);
+    if (laid) args.prompt = laid;
     const seedFixed = Number.isSafeInteger(workflow.seedFixed) ? workflow.seedFixed : null;
     if (draft.seed.trim() && (workflow.seeded || seedFixed !== null)) {
       const seed = Number(draft.seed);
@@ -5611,6 +5671,8 @@ export function setupStudio({
       current.lorasShown = JSON.stringify(loraArgs(workflow, draft));
     }
     if (!values.promptFree) draft.prompt = values.prompt;
+    // (0.6.477) Its boxes, of a prompt of boxes; without, the piece is taken back, the boxes of the user kept (N8).
+    Object.assign(draft, values.boxes ? { boxes: values.boxes, layout: true } : { layout: false });
     for (const [key, value] of Object.entries(values.settings))
       if (!values.settingsFree[key]) (draft.settings[workflow.id] ??= {})[key] = value;
     const steps = [];
@@ -5838,6 +5900,10 @@ export function setupStudio({
       if (stage && values.stage && stage !== values.stage && plan.editable?.stages?.includes(stage))
         changes.stage = stage;
     }
+    // (0.6.477) A proposal made with boxes: their layout made again around the prompt changed, at the size made.
+    const relaid = values.boxes && plan.editable?.prompt && (changes.prompt || changes.width),
+      laid = relaid ? boxes.prompt(workflow, draft, prompt, changes.width ? changes : null) : null;
+    if (laid) changes.prompt = laid;
     // Only when the pointer set the length of this proposal on its bar (`lengthShown`): a workflow
     // whose length is « Fixe » shows no bar, and what the draft holds then is the length of another
     // model, which went as a change of the user (241 frames proposed, 121 made).
@@ -6113,6 +6179,8 @@ export function setupStudio({
     // Its saved settings (« Enregistrer ») do not come over those it is made with.
     presetShown[target] = true;
     Object.assign(draft, { prompt: values.prompt, before: null, inputs: {} });
+    // (0.6.477) Its boxes, of a prompt of boxes; without, the piece is taken back (layout-editor.mjs).
+    Object.assign(draft, values.boxes ? { boxes: values.boxes, layout: true } : { layout: false });
     if (values.size && !extending) Object.assign(draft, { format: values.format ?? draft.format, size: values.size });
     if (workflow.seeded) draft.seed = values.seed !== null ? String(values.seed) : '';
     if (values.loras && workflow.loras?.length) {
@@ -6728,7 +6796,7 @@ export function setupStudio({
         name,
         from ? 'suite de ' + madeFrom(sourceOf(record), from) : '',
         transform ? (transform === 'AGRANDIE' ? 'agrandissement' : 'interpolation') + (origin ? ' de ' + madeFrom(transformedFrom(record), origin) : '') : '',
-        record.prompt || '',
+        layoutCaption(record.prompt) || '',
       ]
         .filter(Boolean)
         .join(' · '),
@@ -6773,7 +6841,7 @@ export function setupStudio({
       const head = node('span', 'studio-sound-head'),
         wave = node('span', 'studio-thumb-wave'),
         sound = lengthOfRecord(record),
-        title = String(record.prompt || 'Son').split('\n')[0];
+        title = String(layoutCaption(record.prompt) || 'Son').split('\n')[0];
       head.append(
         node('span', '', [Number.isInteger(output.take) ? 'PRISE ' + output.take : '#' + number, sound ? soundFigures(sound) : '']
           .filter(Boolean)
@@ -7574,6 +7642,8 @@ export function setupStudio({
       go.disabled = true;
       go.title = missing;
     }
+    // (0.6.477, B24, B27) Nor a box placed for MOSS Image without its words, a layout too long (layout-editor.mjs).
+    if (!working && !blank && !missing && !checking && !finish) boxes.grey(go, workflow);
     // (0.6.450) Nor a size the card of this computer cannot make, when the page has no other to offer (an image
     // already large under SeedVR2): greyed, its tooltip says why, as the note under the size.
     const tooLarge = finish && !working ? finishHeld(workflow) : '';
@@ -8059,6 +8129,8 @@ export function setupStudio({
       }
       // Empty until its takes are read (settle): the prompt and the inputs are a conversation's own.
       for (const item of MODES) Object.assign(drafts[item.id], { prompt: '', before: null, inputs: {} });
+      // (0.6.477) The boxes too, a conversation's own as its prompt.
+      for (const item of MODES) Object.assign(drafts[item.id], { boxes: [], layout: false });
       lastSeen.delete(next);
       draftsEpoch++;
     }
@@ -8108,7 +8180,7 @@ export function setupStudio({
     return {
       source: { ...outputSource(record), ...(index > 0 ? { index } : {}) },
       preview: output.thumbUrl || output.originalUrl,
-      name: record.prompt || KIND[mediaOf(record)] || 'Création',
+      name: layoutCaption(record.prompt) || KIND[mediaOf(record)] || 'Création',
       width: output.width ?? record.parameters?.width,
       height: output.height ?? record.parameters?.height,
     };
@@ -8130,6 +8202,8 @@ export function setupStudio({
       gone = [];
     // (0.6.211) With the camera it was made with (none: none): its prompt is kept without the sentence added.
     Object.assign(draft, { prompt: String(record.prompt ?? ''), before: null, inputs: {}, extension: null, camera: typeof made.camera === 'string' ? cameraOf(made) : cameraChoice(made.camera) });
+    // (0.6.477) With the boxes it was made with, its prompt their caption (layout-editor.mjs).
+    boxes.adopt(draft, record);
     if (!workflow) return { lost: 0, gone };
     // The LoRAs of the user are of one family of models: those of the family left wait for its return.
     const family = modelsOf(target).find(item => item.id === draft.workflow)?.family;

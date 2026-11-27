@@ -26,6 +26,9 @@ import { setupAssets } from './assets-ui.mjs';
 import { clipPlayer } from './take-player.mjs';
 import { setupCopy } from './copy.mjs';
 import { BOBINE_NOTE, STUDIO_LINE, STUDIO_NOTE, callNote, closedCalls, conversationTitle, lastExchange, refusedLine, settledNotes, spokenText } from './transcript.mjs';
+// (0.6.477, his decision N11 of 21/11) A creation made with boxes is told to the chat model by its caption and how
+// many boxes, never by the JSON MOSS Image read (public/layout-boxes.mjs).
+import { layoutCall, layoutSaid } from './layout-boxes.mjs';
 import { setupSettingsGuard } from './settings-guard.mjs';
 import { setupContextMeter } from './context-meter.mjs';
 import { installFromButton, compactSession } from './update-ui.mjs';
@@ -4842,6 +4845,8 @@ async function runInStudio(proposal, { signal, onProgress, conversationId = stat
     pending = previous?.incomplete ? previous.messages?.at(-1) : null,
     unsent = pending?.role === 'user' && !pending.internal && before.at(-1)?.role !== 'user' ? [pending] : [];
   if (!before.length) begun.conversationInstructions ??= state.globalInstructions || '';
+  // (0.6.477, N11) A prompt of boxes (MOSS Image) is said by its caption and how many boxes, never by their JSON.
+  const told = layoutSaid(String(proposal.plan?.prompt || proposal.args?.prompt || ''));
   begun.archiveSnapshot = {
     messages: [
       ...archiveMessages([
@@ -4850,11 +4855,11 @@ async function runInStudio(proposal, { signal, onProgress, conversationId = stat
           role: 'user',
           internal: true,
           content:
-            `${place} · ${kinds[proposal.mediaType || 'image'] ?? 'Image'} : ${String(proposal.plan?.prompt || proposal.args?.prompt || '')}`.slice(0, 4000) +
+            `${place} · ${kinds[proposal.mediaType || 'image'] ?? 'Image'} : ${told}`.slice(0, 4000) +
             '\n\n' +
             note,
         },
-        { role: 'assistant', content: '', tool_calls: [proposal.call] },
+        { role: 'assistant', content: '', tool_calls: [layoutCall(proposal.call)] },
       ]),
       ...unsent,
     ],
@@ -4912,7 +4917,7 @@ async function runInStudio(proposal, { signal, onProgress, conversationId = stat
     await takeBack();
     return result;
   }
-  const prompt = String(proposal.plan?.prompt || proposal.args?.prompt || result.record.prompt || ''),
+  const prompt = layoutSaid(String(proposal.plan?.prompt || proposal.args?.prompt || result.record.prompt || '')),
     said = `${place} · ${kinds[result.record.mediaType || 'image'] ?? 'Image'} : ${prompt}`.slice(0, 4000);
   const talk = holderOf(talkId);
   // A conversation begun in the Studio still gets the global instructions with its first message.
@@ -4924,7 +4929,7 @@ async function runInStudio(proposal, { signal, onProgress, conversationId = stat
       internal: true,
       content: said + '\n\n' + note,
     },
-    { role: 'assistant', content: '', tool_calls: [proposal.call] },
+    { role: 'assistant', content: '', tool_calls: [layoutCall(proposal.call)] },
     { role: 'tool', tool_call_id: proposal.call.id, content: result.content },
   ]);
   talk.archiveSnapshot = { messages: [...talk.messages, ...unsent], incomplete: unsent.length > 0 };

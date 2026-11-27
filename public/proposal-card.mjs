@@ -1,4 +1,5 @@
 import { renderProposal } from './video-plan.mjs';
+import { layoutCaption } from './layout-boxes.mjs';
 
 const KINDS = { video: 'Vidéo', audio: 'Son', image: 'Image' };
 
@@ -164,8 +165,10 @@ export function proposalCard({
           pick = node('button', 'proposal-shelf-pick'),
           picture = node('img');
         pick.type = 'button';
-        const name = Number.isInteger(output.take) ? 'Prise ' + output.take : 'Image';
-        pick.setAttribute('aria-label', 'Prendre : ' + name + (record.prompt ? ' · ' + record.prompt : ''));
+        const name = Number.isInteger(output.take) ? 'Prise ' + output.take : 'Image',
+          // (0.6.477) A take made with boxes (MOSS Image) by its caption, never by their JSON.
+          said = layoutCaption(record.prompt);
+        pick.setAttribute('aria-label', 'Prendre : ' + name + (said ? ' · ' + said : ''));
         pick.title = name;
         Object.assign(picture, { src: output.thumbUrl || output.originalUrl || '', alt: '', loading: 'lazy', decoding: 'async' });
         pick.append(picture);

@@ -182,6 +182,10 @@ test('the Studio is told, per verb, the ready workflows with their inputs, sizes
   // Each model with its family: the page keeps a family's LoRAs to itself.
   assert.equal(krea.family, 'krea2');
   assert.equal(named('create_image', 'MOSS').family, 'moss');
+  // (0.6.477) MOSS Image reads boxes placed in the picture (its family says so, runner/families/moss.json); not Krea 2.
+  assert.equal(named('create_image', 'MOSS').layout, true);
+  assert.equal(krea.layout, false);
+  assert.ok(Object.values(tools).flat().every(tool => tool.layout === (tool.family === 'moss')));
   assert.equal(krea.limits.width.max, 4096);
   assert.equal(krea.roles.source.count, 1);
   // The name each input has in the record of a take, and the case of the Studio it goes back to.
@@ -2510,6 +2514,266 @@ test('(0.6.203) « Ajouter », the last piece of the plateau: its list gives wha
     assert.match(rule('.glass-menu.studio-add-menu .glass-menu-item'), /justify-content: space-between;/);
     assert.doesNotMatch(css, /studio-lyrics-toggle/);
   } finally {
+    restore();
+  }
+});
+
+// (0.6.477, B20 to B28) « Boîtes » of MOSS Image: greyed under Krea 2; « Retirer » keeps them.
+test('(0.6.477) « Boîtes »: added by « Ajouter », drawn by a gesture, described, sent as their layout', async () => {
+  const { LAYOUT_HINT } = await import('../public/layout-editor.mjs');
+  const { layoutPrompt, layoutUnread } = await import('../public/layout-boxes.mjs');
+  const shape = { limits: sizes, size: { width: 1024, height: 1024 }, settings: [], seeded: true },
+    moss = { ...shape, id: 'm', name: 'MOSS Image', family: 'moss', layout: true, roles: {} },
+    krea = { ...shape, id: 'k', name: 'Krea 2', family: 'krea2', roles: {} };
+  const page = await studioPage(
+    { create_image: [moss, krea] },
+    {
+      'tools/action': () => ({ requestId: 'q', plan: { parameters: { width: 1024, height: 1024 } } }),
+      'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }),
+    },
+  );
+  const { body, studio, asked, said, pageKeys, restore } = page;
+  // (What a gesture draws meanwhile leaves the frame as the browser takes it away.)
+  Object.getPrototypeOf(body).remove = function () {
+    this.removed = true;
+  };
+  try {
+    const add = () => body.find('studio-add')[0],
+      menu = () => add().children[2],
+      // Each line of « Ajouter »: greyed or not, its name and what is said of it, its reason; « — » for the rule.
+      words = item => item.children.map(part => part.textContent).join(' · '),
+      line = item => [/is-off/.test(item.className), words(item), item.dataset.tip ?? ''],
+      list = () => menu().children.map(item => (item.className === 'glass-menu-rule' ? '—' : line(item))),
+      choose = name => menu().children.find(item => item.children?.[0]?.textContent === name).onclick(),
+      model = id => {
+        const chosen = body.find('studio-model-pick')[0];
+        chosen.value = id;
+        chosen.onchange();
+      },
+      piece = () => body.find('studio-boxes')[0],
+      count = () => body.find('studio-boxes-count')[0]?.textContent,
+      windows = () => body.find('studio-piece-window').map(found => found.attributes['aria-label']),
+      layers = () => body.find('studio-layout').map(found => found.className),
+      go = () => body.find('studio-go')[0],
+      sent = async () => {
+        await go().onclick();
+        await settle();
+        return asked.findLast(([route]) => route === 'tools/action')[1].arguments;
+      };
+    // The frame where the boxes are drawn, laid out as a page lays it out: 512 px square, at 100, 50.
+    const RECT = { left: 100, top: 50, width: 512, height: 512, right: 612, bottom: 562 },
+      canvas = () => {
+        const [root] = body.find('studio-layout').filter(found => /is-drawing/.test(found.className));
+        return Object.assign(root.children[0], { getBoundingClientRect: () => RECT, querySelector: () => null });
+      },
+      // A gesture of the hand, in fractions of the frame: pressed, moved, released.
+      drag = (from, to) => {
+        const frame = canvas(),
+          at = ([x, y]) => ({ pointerId: 1, clientX: RECT.left + x * RECT.width, clientY: RECT.top + y * RECT.height });
+        frame.onpointerdown({ ...at(from), button: 0, target: { closest: () => null }, preventDefault() {} });
+        frame.onpointermove(at([(from[0] + to[0]) / 2, (from[1] + to[1]) / 2]));
+        frame.onpointermove(at(to));
+        frame.onpointerup(at(to));
+      };
+    // MOSS Image: « Boîtes » in « Ajouter »; not on the plateau yet, nothing over the frame.
+    assert.equal(body.find('studio-model-pick')[0].value, 'm');
+    assert.deepEqual(list(), [[false, 'Boîtes', '']]);
+    assert.deepEqual([piece(), layers()], [undefined, []]);
+    // Chosen (B20): its piece, its count, its window open; the empty frame says what to do, ready to be drawn in.
+    add().children[0].onclick();
+    choose('Boîtes');
+    assert.deepEqual(
+      [piece().className, piece().children[1].textContent, count(), windows()],
+      ['studio-piece studio-boxes is-open', 'Boîtes', '0', ['Boîtes']],
+    );
+    assert.equal(body.find('studio-boxes-window')[0].find('studio-boxes-said')[0].textContent, LAYOUT_HINT);
+    assert.deepEqual(
+      [body.find('studio-blank-title')[0]?.textContent, body.find('studio-blank-text')[0]?.textContent],
+      ['Tracez une boîte.', 'Appuyez, glissez, relâchez.'],
+    );
+    assert.deepEqual(layers(), ['studio-layout is-drawing is-blank']);
+    assert.deepEqual(list(), [
+      [true, 'Boîtes · déjà posées', 'Les boîtes sont déjà posées : cliquez sur leur case pour les changer.'],
+    ]);
+    // Drawn (B21, B22): box 1 where the hand went, its window open beside it; the frame says nothing any more.
+    drag([0.25, 0.25], [0.75, 0.5]);
+    assert.deepEqual([count(), windows(), body.find('studio-blank-title')], ['1', ['Boîte 1'], []]);
+    const place = box => [box.className, ...['left', 'top', 'width', 'height'].map(side => box.style[side])];
+    assert.deepEqual(body.find('studio-layout-box').map(place), [
+      ['studio-layout-box is-chosen', '25%', '25%', '50%', '25%'],
+    ]);
+    // A prompt and a box without its description (B24): « Générer » greyed, why in its tooltip; pressed, said.
+    page.prompt().value = 'A minimalist travel poster.';
+    page.prompt().oninput();
+    studio.render();
+    assert.deepEqual([go().disabled, go().title, windows()], [true, 'Décrivez la boîte 1 pour générer', ['Boîte 1']]);
+    await go().onclick();
+    await settle();
+    assert.deepEqual(
+      [said.at(-1), asked.filter(([route]) => route === 'tools/action').length],
+      ['Décrivez la boîte 1 pour générer', 0],
+    );
+    // Described in its window: « Générer » lit; sent, the prompt is their layout at the size made (lot 2).
+    const [field] = body.find('studio-box-window')[0].find('studio-box-field');
+    assert.deepEqual(
+      [field.children[0].textContent, field.children[1].placeholder],
+      ['Description', 'Ce qu’on voit dans cette boîte : la chose, sa matière, ses couleurs'],
+    );
+    field.children[1].value = 'A red hot-air balloon.';
+    field.children[1].oninput();
+    studio.render();
+    assert.equal(go().disabled, false);
+    const balloon = { x: 0.25, y: 0.25, w: 0.5, h: 0.25, label: 'object', caption: 'A red hot-air balloon.' },
+      laid = layoutPrompt('A minimalist travel poster.', [balloon], { width: 1024, height: 1024 }),
+      withMoss = await sent();
+    assert.deepEqual([withMoss.workflow, withMoss.prompt], ['m', laid]);
+    assert.deepEqual(JSON.parse(withMoss.prompt).items, [
+      { label: 'object', caption: 'A red hot-air balloon.', bbox: [-256, -256, 0, 256] },
+    ]);
+    // Krea 2 does not read them (B25, B28): the piece greyed, the boxes greyed over the frame, the line under the
+    // plateau; its window says why; « Boîtes » in « Ajouter » named after MOSS Image; sent, the prompt alone.
+    model('k');
+    assert.match(piece().className, /is-off/);
+    assert.deepEqual(body.find('studio-layout-box').map(box => box.className), ['studio-layout-box is-greyed']);
+    assert.deepEqual(
+      body.find('studio-plateau-note').map(line => line.children.at(-1).textContent),
+      [layoutUnread('Krea 2', 1)],
+    );
+    assert.deepEqual(list(), [
+      [true, 'Boîtes · avec MOSS Image', 'Les boîtes servent avec MOSS Image : choisissez-le dans Modèle.'],
+    ]);
+    piece().children[0].children[0].onclick();
+    assert.deepEqual(
+      body.find('studio-boxes-window').map(pane => [pane.className, pane.find('studio-boxes-said')[0].textContent]),
+      [['glass-menu studio-piece-window studio-boxes-window is-greyed', layoutUnread('Krea 2', 1, { window: true })]],
+    );
+    pageKeys.forEach(listener => listener({ key: 'Escape', target: {}, preventDefault() {} }));
+    studio.render();
+    assert.deepEqual(windows(), []);
+    const withKrea = await sent();
+    assert.deepEqual([withKrea.workflow, withKrea.prompt], ['k', 'A minimalist travel poster.']);
+    // Back to MOSS Image, then « Retirer » (its ×, N8): the piece leaves the plateau and the frame, its box kept;
+    // the prompt goes alone; « Ajouter » says the box kept and puts it back with its words.
+    model('m');
+    assert.doesNotMatch(piece().className, /is-off/);
+    piece().children[0].children[1].onclick();
+    assert.deepEqual([piece(), layers(), body.find('studio-plateau-note')], [undefined, [], []]);
+    assert.deepEqual(list(), [[false, 'Boîtes · 1 boîte gardée', '']]);
+    assert.equal((await sent()).prompt, 'A minimalist travel poster.');
+    add().children[0].onclick();
+    choose('Boîtes');
+    assert.deepEqual([count(), windows()], ['1', ['Boîtes']]);
+    assert.deepEqual(
+      body.find('studio-boxes-line').map(line => line.children[0].attributes['aria-label']),
+      ['Boîte 1 · Objet · A red hot-air balloon.'],
+    );
+    assert.equal((await sent()).prompt, laid);
+  } finally {
+    delete Object.getPrototypeOf(body).remove;
+    restore();
+  }
+});
+
+// (0.6.477, B31, N9) Its caption, « Boîtes · 3 », its eye over the picture; the boxes over it while their window
+// is open.
+test('(0.6.477) a take made with boxes comes back in the Studio with them', async () => {
+  const { layoutPrompt } = await import('../public/layout-boxes.mjs');
+  const { proposedValues } = await import('../public/studio.mjs');
+  const shape = { limits: sizes, size: { width: 1024, height: 1024 }, settings: [], seeded: true },
+    moss = { ...shape, id: 'm', name: 'MOSS Image', family: 'moss', layout: true, roles: {} },
+    title = { label: 'text', caption: 'Large dark-blue uppercase title.', text: 'EXPLORE' },
+    poster = [
+      { x: 0.25, y: 0.0625, w: 0.5, h: 0.125, ...title },
+      { x: 0.3125, y: 0.3125, w: 0.375, h: 0.5, label: 'object', caption: 'A flat blue mountain illustration.' },
+      { x: 0.0625, y: 0.625, w: 0.125, h: 0.1875, label: 'character', caption: 'A small hiker with a red backpack.' },
+    ],
+    prompt = layoutPrompt('A minimalist travel poster.', poster, { width: 1024, height: 1024 }),
+    record = {
+      id: 'poster',
+      conversationId: 'c1',
+      workflowId: 'm',
+      mediaType: 'image',
+      prompt,
+      parameters: { seed: 418920355, width: 1024, height: 1024 },
+      outputs: [{ originalUrl: '/poster.png', take: 6, width: 1024, height: 1024 }],
+    },
+    opened = [];
+  // A proposal of Moodix AI made with boxes: its caption in the prompt, its boxes on their piece.
+  const plan = { prompt, parameters: { width: 1024, height: 1024 } },
+    proposed = proposedValues({ tool: 'create_image', plan }, [moss]);
+  assert.deepEqual(
+    [proposed.prompt, proposed.boxes.map(box => [box.label, box.x, box.y, box.w, box.h])],
+    ['A minimalist travel poster.', poster.map(box => [box.label, box.x, box.y, box.w, box.h])],
+  );
+  const page = await studioPage(
+    { create_image: [moss] },
+    {
+      'tools/action': () => ({ requestId: 'q', plan: { parameters: { width: 1024, height: 1024 } } }),
+      'tools/execute': () => ({ id: 'j', state: 'error', error: 'rien' }),
+    },
+    { runs: [record], viewOutput: shown => opened.push(shown.id) },
+  );
+  const { body, studio, asked, pageKeys, restore } = page;
+  const eye = () => body.find('take-eye-button')[0],
+    click = { preventDefault() {}, stopPropagation() {} };
+  try {
+    const piece = () => body.find('studio-boxes')[0],
+      layers = () => body.find('studio-layout').map(found => [found.className, Boolean(found.hidden)]),
+      windows = () => body.find('studio-piece-window').map(found => found.attributes['aria-label']),
+      go = () => body.find('studio-go')[0];
+    // Its prompt is its caption, never the JSON; its picture named so; its boxes back on their piece.
+    assert.equal(page.prompt().value, 'A minimalist travel poster.');
+    assert.equal(body.find('studio-frame-result')[0].alt, 'A minimalist travel poster.');
+    assert.deepEqual(
+      [body.find('studio-boxes-count')[0].textContent, piece().children[0].children[0].attributes['aria-label']],
+      ['3', 'Boîtes · 3'],
+    );
+    // Over its picture, the eye alone (B31): pressed, the three boxes in thin lines; nothing to draw in.
+    assert.deepEqual(layers(), [['studio-layout is-eye', false]]);
+    assert.deepEqual(
+      [eye().attributes['aria-pressed'], eye().title],
+      ['true', 'Ce que le modèle a reçu : les 3 boîtes. Cliquez pour voir l’image seule.'],
+    );
+    assert.deepEqual(body.find('take-eye-box').map(line => line.hidden), [false, false, false]);
+    // A click on the eye: the picture alone, its page not opened; a click on the picture opens it.
+    eye().onclick(click);
+    assert.deepEqual(
+      [eye().attributes['aria-pressed'], body.find('take-eye-box').map(line => line.hidden), opened],
+      ['false', [true, true, true], []],
+    );
+    body.find('studio-frame-result')[0].onclick();
+    assert.deepEqual(opened, ['poster']);
+    eye().onclick(click);
+    // Their window opened by their case (N9): the boxes of the draft over the picture, to change; the eye hidden.
+    piece().children[0].children[0].onclick();
+    assert.deepEqual(layers(), [['studio-layout is-eye', true], ['studio-layout is-drawing', false]]);
+    assert.deepEqual(windows(), ['Boîtes']);
+    const shown = body.find('studio-layout-box');
+    assert.deepEqual(shown.map(box => box.dataset.index), ['0', '1', '2']);
+    // A click on box 2 (pressed and released on it): its window, beside it; Échap closes it in place, the eye back
+    // over the picture.
+    const [drawing] = body.find('studio-layout').filter(found => /is-drawing/.test(found.className)),
+      frame = Object.assign(drawing.children[0], {
+        getBoundingClientRect: () => ({ left: 100, top: 50, width: 512, height: 512, right: 612, bottom: 562 }),
+        querySelector: () => null,
+      }),
+      on = { pointerId: 1, clientX: 356, clientY: 306 },
+      target = { closest: name => (name === '.studio-layout-box' ? shown[1] : null) };
+    frame.onpointerdown({ ...on, button: 0, target, preventDefault() {} });
+    frame.onpointerup(on);
+    assert.deepEqual(windows(), ['Boîte 2']);
+    pageKeys.forEach(listener => listener({ key: 'Escape', target: {}, preventDefault() {} }));
+    assert.deepEqual(layers(), [['studio-layout is-eye', false], ['studio-layout is-drawing', true]]);
+    studio.render();
+    assert.deepEqual([layers(), windows()], [[['studio-layout is-eye', false]], []]);
+    // Made again: the same layout goes, at the size of the take.
+    assert.equal(go().disabled, false);
+    await go().onclick();
+    await settle();
+    assert.equal(asked.findLast(([route]) => route === 'tools/action')[1].arguments.prompt, prompt);
+  } finally {
+    // (The eye is pressed for the whole page: as it was for the tests after this one.)
+    if (eye()?.attributes['aria-pressed'] === 'false') eye().onclick(click);
     restore();
   }
 });

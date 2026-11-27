@@ -3,6 +3,7 @@
  * kept in the history are written for the model (« Ne réessaie pas sans nouvelle demande ») :
  * the user is told in a few words what happened instead.
  */
+import { layoutCaption, layoutTitle } from './layout-boxes.mjs';
 
 // The same mark as while a reply arrives: only what is unmistakably a call written as text.
 const CALL_AS_TEXT = /<tool_call>\s*(?:<function=|\{)|(?:^|\n)<function=\w+>/;
@@ -182,10 +183,11 @@ export function withoutStudioNote(text) {
  */
 export function conversationTitle(text) {
   const value = String(text ?? '');
-  if (!STUDIO_LINE.test(value)) return value;
+  // (0.6.477) A prompt of boxes (MOSS Image) is named by its caption, never by its JSON (public/layout-boxes.mjs).
+  if (!STUDIO_LINE.test(value)) return layoutCaption(value);
   const prompt = value.replace(STUDIO_LINE, ''),
     at = prompt.lastIndexOf('\n\n(');
-  return (at >= 0 && noteBegun(prompt.slice(at + 2)) ? prompt.slice(0, at) : prompt).trim();
+  return layoutTitle((at >= 0 && noteBegun(prompt.slice(at + 2)) ? prompt.slice(0, at) : prompt).trim());
 }
 const written = message =>
   typeof message.content === 'string'
