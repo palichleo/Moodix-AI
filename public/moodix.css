@@ -19698,11 +19698,110 @@ body[data-view='bobine'] .chat-panel {
     display: none;
   }
 }
+/* (0.6.466, relecture du lot 7, n° 2) Le nom du modèle laisse la place des sujets de sa prise (data-subjects : 21 px par
+   sujet, moins 3, et 6 px d'écart) : il passait sous eux sur les prises de 90 à 140 px (« X H3 » derrière leurs cases, à
+   1280 × 720, 1168 × 788 et 1440 × 900). Quand il lui reste moins de 30 px, il se retire, comme sous 88 px. */
+#bobine-view .montage-piece[data-subjects='1'] > .montage-piece-model {
+  max-width: calc(100% - 40px);
+}
+#bobine-view .montage-piece[data-subjects='2'] > .montage-piece-model {
+  max-width: calc(100% - 61px);
+}
+#bobine-view .montage-piece[data-subjects='3'] > .montage-piece-model {
+  max-width: calc(100% - 82px);
+}
+#bobine-view .montage-piece[data-subjects='4'] > .montage-piece-model {
+  max-width: calc(100% - 103px);
+}
+#bobine-view .montage-piece[data-subjects='5'] > .montage-piece-model {
+  max-width: calc(100% - 124px);
+}
+#bobine-view .montage-piece[data-subjects='6'] > .montage-piece-model {
+  max-width: calc(100% - 145px);
+}
+#bobine-view .montage-piece[data-subjects='7'] > .montage-piece-model {
+  max-width: calc(100% - 166px);
+}
+#bobine-view .montage-piece[data-subjects='8'] > .montage-piece-model {
+  max-width: calc(100% - 187px);
+}
+#bobine-view .montage-piece[data-subjects='9'] > .montage-piece-model {
+  max-width: calc(100% - 208px);
+}
+@container (max-width: 90.98px) {
+  #bobine-view .montage-piece[data-subjects='2'] > .montage-piece-model {
+    display: none;
+  }
+}
+@container (max-width: 111.98px) {
+  #bobine-view .montage-piece[data-subjects='3'] > .montage-piece-model {
+    display: none;
+  }
+}
+@container (max-width: 132.98px) {
+  #bobine-view .montage-piece[data-subjects='4'] > .montage-piece-model {
+    display: none;
+  }
+}
+@container (max-width: 153.98px) {
+  #bobine-view .montage-piece[data-subjects='5'] > .montage-piece-model {
+    display: none;
+  }
+}
+@container (max-width: 174.98px) {
+  #bobine-view .montage-piece[data-subjects='6'] > .montage-piece-model {
+    display: none;
+  }
+}
+@container (max-width: 195.98px) {
+  #bobine-view .montage-piece[data-subjects='7'] > .montage-piece-model {
+    display: none;
+  }
+}
+@container (max-width: 216.98px) {
+  #bobine-view .montage-piece[data-subjects='8'] > .montage-piece-model {
+    display: none;
+  }
+}
+@container (max-width: 237.98px) {
+  #bobine-view .montage-piece[data-subjects='9'] > .montage-piece-model {
+    display: none;
+  }
+}
 /* (Une prise faite en plusieurs fois : chaque partie après la première, « ↳ SUITE » à la hauteur de son nom.) */
 #bobine-view .bobine-part {
   padding: 7px 0 0 8px;
   border-left-color: color-mix(in srgb, var(--accent) 50%, transparent);
   color: var(--accent);
+}
+/* (0.6.465, vérification 5 de la maquette) Faite en plusieurs fois, chaque partie dit sa durée en haut à droite, comme une
+   prise à créer, si elle fait 150 px ou plus (148 sans ses bords, ce que mesure la requête) : la durée de toute la prise
+   allait contre le « ↳ SUITE » de sa dernière partie (« ↳ SUITE24.50 S ») et s'y lisait comme la sienne. Sa carte dit le
+   tout (« 3 × 08.17 s »). */
+#bobine-view .montage-piece[data-parts] > .montage-piece-length {
+  display: none;
+}
+#bobine-view .bobine-part-time {
+  position: absolute;
+  top: 0;
+  height: 24px;
+  container-type: inline-size;
+  pointer-events: none;
+}
+#bobine-view .bobine-part-length {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  font: 400 10.5px/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--text-3);
+}
+@container (max-width: 147.98px) {
+  #bobine-view .bobine-part-length {
+    display: none;
+  }
 }
 /* (Ce qui se dessine sur la piste Prises, ou s'y pose, a la taille d'une prise.) */
 #bobine-view .montage-track[data-track='plans'] :is(.bobine-ghost, .bobine-drop, .bobine-edge-hint) {

@@ -964,8 +964,18 @@ export function setupMontage({
   function lay(record, where = {}) {
     const id = newId(),
       next = withTake(montage, record, { id, ...where });
-    if (next === montage) return notice('Cette bobine est pleine.');
+    if (next === montage) return refused('Cette bobine est pleine.');
     change(next, { select: id });
+  }
+  /**
+   * (0.6.466, relecture du lot 7, n° 1) What is dropped refused: said, and the timeline drawn again at rest, as after a drop
+   * taken or a drag let go elsewhere. The image dropped was no longer carried, and the end of its drag (ondragend) drew
+   * nothing then: the track Images stayed lit (its places in dashes, « Une nouvelle prise, qui part de cette image » at its
+   * end) until the next drawing. The lot 7 refuses more (a subject too many, a suite of LTX 2.5, the same image twice).
+   */
+  function refused(reason) {
+    notice(reason);
+    update({ panel: false });
   }
   async function exportFilm() {
     if (exporting || !montage.plans.length || todoPlans(montage).length || busy()) return;
@@ -2034,6 +2044,18 @@ export function setupMontage({
     if (refocus && anchor.isConnected !== false) anchor.focus?.();
   }
   /**
+   * (0.6.466, relecture du lot 7, n° 5; lots 5 et 6, n° 7) Where the keys go once a list of a piece has made its choice, as
+   * after the list of the model (pickModel): with the mouse (`mouse`), to the desk, where the space bar reads the film; with
+   * the keyboard, to the piece the list was opened from, drawn again at its place in its card (« Retirer le sujet »: the
+   * subject that takes its place), else to its « + ». They went to the page: the space bar no longer read the film, and the
+   * next Tab began at its top.
+   */
+  function backTo(plan, anchor, mouse) {
+    const placed = live.cardPieces?.get(plan.id),
+      again = mouse ? null : (placed?.get(anchor?.dataset?.place) ?? placed?.get('add'));
+    (again && !again.disabled ? again : root)?.focus?.({ preventScroll: true });
+  }
+  /**
    * (0.6.210) One of our lists of glass, open under a piece of a line or under its « + » (`anchor`): one at a
    * time on the page, the menu of « Exporter » closed for it. Échap, Tab or a press beside it closes it. In
    * « À créer » itself, not in its line: a press in it is not a press on the line, which chooses its take
@@ -2089,10 +2111,12 @@ export function setupMontage({
         item.dataset.tip = choice.off;
         item.dataset.tipSide = 'left';
       }
-      item.onclick = () => {
+      item.onclick = event => {
         if (choice.off) return;
         closePieces();
         choice.run();
+        // (0.6.466) Done here (« Retirer… »), not in a list it opens (« Changer… »): the keys where they go (backTo).
+        if (!pieceMenu) backTo(plan, anchor, event?.detail > 0);
       };
       items.push(item);
       menu.append(item);
@@ -2124,11 +2148,13 @@ export function setupMontage({
         pick = button(
           'bobine-pick-item',
           '',
-          () => {
+          event => {
             closePieces();
             const laid = subject ? withSubject(montage, record, plan.id, at) : withPhotoIn(montage, record, plan.id, side);
-            if (laid.reason) return notice(laid.reason);
-            change(laid.montage, { select: laid.chosen });
+            if (laid.reason) notice(laid.reason);
+            else change(laid.montage, { select: laid.chosen });
+            // (0.6.466, relecture du lot 7, n° 5) The keys back to its piece, or to the desk (backTo).
+            backTo(plan, anchor, event?.detail > 0);
           },
           '',
           'Prendre : ' + name,
@@ -2274,6 +2300,32 @@ export function setupMontage({
     line.append(node('span', 'bobine-line-whole', said), short);
     return line;
   }
+  /**
+   * (0.6.466, relecture du lot 7, n° 3) What the card of a take to create says when it is made in parts and its subjects do
+   * not all go to the parts after the first: those are suites (creationOf asks each part with the subjects its verb takes),
+   * and LTX 2.5 takes none beside the video it continues. « LTX 2.5 : les sujets ne vont qu’à la première partie (8,3 s).
+   * Pour toutes les parties : MiniMax H3. », the models that take them in a suite too named, when they make the take as it
+   * is. It was learnt once the first part was made, from the subjects greyed in the card of the rest. Said before it is
+   * asked, never refused, as shortOf. `{ said, brief }`, or null.
+   */
+  function partsSubjects(plan) {
+    const given = plan.todo.subjects?.length ?? 0,
+      { count, seconds } = partsOf(plan, limits(plan));
+    if (!given || count < 2) return null;
+    const able = abilities(plan),
+      first = Math.min(given, subjectsTaken(able, verbOf(plan))),
+      rest = Math.min(given, subjectsTaken(able, 'extend_video'));
+    if (!able || !(first > 0) || rest >= first) return null;
+    const others = orList(
+        (videoModels() ?? [])
+          .filter(item => item.family !== familyOf(plan) && Math.min(given, subjectsOf(item, 'extend_video')) >= first && fits(plan, item.family))
+          .map(item => item.name),
+      ),
+      brief = rest
+        ? `${able.name} : les parties après la première ne prennent que ${rest} sujet${rest > 1 ? 's' : ''}.`
+        : `${able.name} : les sujets ne vont qu’à la première partie (${secondsWord(seconds)}).`;
+    return { said: brief + (others ? ` Pour toutes les parties : ${others}.` : ''), brief };
+  }
   /** (0.6.462, Bobine Pro, B05) The verb the first part of a take to create is asked with: a suite continues its video. */
   const verbOf = plan => (isSuite(plan) ? 'extend_video' : 'create_video');
   /** (0.6.462) How many subjects a model of the list takes with `verb` (subjectsTaken); none for one this computer cannot run. */
@@ -2351,7 +2403,7 @@ export function setupMontage({
       const dropped = carried;
       carried = null;
       const done = laid(dropped);
-      if (done.reason) return notice(done.reason);
+      if (done.reason) return refused(done.reason);
       change(done.montage, { select: done.chosen });
     };
   }
@@ -2380,7 +2432,16 @@ export function setupMontage({
       suite = isSuite(plan),
       able = abilities(plan),
       count = partsOf(plan, limits(plan)).count,
-      short = SHORT_MODELS.wan_scail2;
+      short = SHORT_MODELS.wan_scail2,
+      // (0.6.466, relecture du lot 7, n° 5) Each piece by its place (« start », « end », « subject-0 »…, « add »): where the
+      // keys go back once one of its lists has made its choice (backTo).
+      placed = new Map();
+    live.cardPieces?.set(plan.id, placed);
+    const placeAt = (place, piece) => {
+      piece.dataset.place = place;
+      placed.set(place, piece);
+      return piece;
+    };
     const chip = (tag, className, word, picture, glyph) => {
       const piece = node(tag, 'bobine-piece' + className),
         box = node('span', 'bobine-piece-box');
@@ -2406,7 +2467,7 @@ export function setupMontage({
       // (0.6.462, B05) Its place empty, while its model takes it (« + » says why it does not).
       if (!photo && left) continue;
       if (!photo) {
-        const slot = chip('button', ' is-empty', PIECE_WORDS[role], '', 'image');
+        const slot = placeAt(side, chip('button', ' is-empty', PIECE_WORDS[role], '', 'image'));
         slot.dataset.side = side;
         slot.setAttribute('aria-label', `${PIECES[role].name} : choisir une image`);
         slot.setAttribute('aria-haspopup', 'dialog');
@@ -2424,7 +2485,7 @@ export function setupMontage({
       }
       const record = recordOf(photo),
         said = PIECES[role].name + (record ? ' · ' + (takeLabel(photo) || 'Image') : ' : sa prise n’est plus dans le projet') + (left ? '. ' + left : ''),
-        piece = chip('button', '', PIECE_WORDS[role], pictureOf(record), 'image');
+        piece = placeAt(side, chip('button', '', PIECE_WORDS[role], pictureOf(record), 'image'));
       piece.dataset.side = side;
       piece.dataset.missing = String(!record);
       if (left) piece.dataset.left = 'true';
@@ -2451,7 +2512,7 @@ export function setupMontage({
         name = `${PIECES.reference.name} ${at + 1}`,
         left = subjectLeft(plan, at),
         said = name + (record ? ' · ' + (takeLabel(subject) || 'Image') : ' : sa prise n’est plus dans le projet') + (left ? '. ' + left : ''),
-        piece = chip('button', '', `${PIECE_WORDS.reference} ${at + 1}`, pictureOf(record), 'image');
+        piece = placeAt('subject-' + at, chip('button', '', `${PIECE_WORDS.reference} ${at + 1}`, pictureOf(record), 'image'));
       piece.dataset.subject = String(at);
       piece.dataset.missing = String(!record);
       if (left) piece.dataset.left = 'true';
@@ -2506,6 +2567,7 @@ export function setupMontage({
           : `Pas dans la Bobine : toutes ses prises sont faites par ${model?.name || 'LTX 2.5'}.`;
       piecesList(plan, 'add', add, 'Ajouter une pièce', [...choices, null, ...['follow', 'character'].map(kind => ({ name: PIECES[kind].name, note: 'avec ' + short, off: outside }))]);
     }, 'plus');
+    placeAt('add', add);
     add.setAttribute('aria-label', 'Ajouter une pièce');
     add.setAttribute('aria-haspopup', 'menu');
     add.setAttribute('aria-expanded', 'false');
@@ -2548,6 +2610,7 @@ export function setupMontage({
     // (0.6.210) The list of a piece goes with the line it opened from, drawn again here.
     closePieces();
     live.models = new Map();
+    live.cardPieces = new Map();
     live.states = new Map();
     live.lines = new Map();
     live.underCards = [];
@@ -2639,7 +2702,8 @@ export function setupMontage({
       // (0.6.200) Why it failed before its field, read without scrolling at 1280 × 720 (its field two lines high
       // then, moodix.css): after it, the reason was under the fade of the list.
       // (0.6.464, relecture des lots 5 et 6, n° 3) Else, made longer by its model than it is: said there, before it is asked.
-      const note = reason ? null : shortOf(plan);
+      // (0.6.466, relecture du lot 7, n° 3) Or made in parts, its subjects going to its first part alone.
+      const note = reason ? null : (shortOf(plan) ?? partsSubjects(plan));
       line.append(top, ...(reason ? [node('p', 'bobine-line-reason', reason)] : note ? [noteLine(note)] : []), box, middle);
       live.models.set(item.id, right);
       live.states.set(item.id, says);
@@ -3829,7 +3893,7 @@ export function setupMontage({
           const dropped = carried;
           carried = null;
           const done = laid(dropped);
-          if (done.reason) return notice(done.reason);
+          if (done.reason) return refused(done.reason);
           change(done.montage, { select: done.chosen });
         };
       };
@@ -3900,7 +3964,7 @@ export function setupMontage({
         const dropped = carried;
         carried = null;
         const laid = withPhoto(montage, dropped, timeAt(event, lane), { id: newId() });
-        if (laid.reason) return notice(laid.reason);
+        if (laid.reason) return refused(laid.reason);
         change(laid.montage, { select: laid.chosen });
       };
       track.append(node('span', 'montage-track-name', 'Images'), lane);
@@ -4003,6 +4067,8 @@ export function setupMontage({
             // model does not take is dimmed, as in its card.
             if (item.todo.subjects?.length) {
               const faces = node('span', 'montage-piece-subjects');
+              // (0.6.466, relecture du lot 7, n° 2) How many: its model's name leaves them their place (moodix.css).
+              piece.dataset.subjects = String(item.todo.subjects.length);
               item.todo.subjects.forEach((subject, place) => {
                 const face = node('span', 'montage-piece-subject'),
                   seen = pictureOf(recordOf(subject));
@@ -4013,11 +4079,25 @@ export function setupMontage({
               piece.append(faces);
             }
             // (0.6.152, capture 74) Made in parts: where each part after the first begins, a suite.
-            const { count } = partsOf(item, limits(item));
+            const { count, seconds: each } = partsOf(item, limits(item));
             for (let part = 1; part < count; part++) {
               const cut = node('span', 'bobine-part', '↳ Suite');
               cut.style.left = (100 * part) / count + '%';
               piece.append(cut);
+            }
+            // (0.6.465, check 5 of PROMPT.md) And each part its length at its top right, as a take to create says its own,
+            // when the part is wide enough (moodix.css, .bobine-part-time). The length of the whole take went there, against
+            // the « ↳ SUITE » of its last part (« ↳ SUITE24.50 S »), and read as that of the last part; its card says the
+            // whole (« 3 × 08.17 s »).
+            if (count > 1) {
+              piece.dataset.parts = String(count);
+              for (let part = 0; part < count; part++) {
+                const time = node('span', 'bobine-part-time');
+                time.style.left = (100 * part) / count + '%';
+                time.style.width = 100 / count + '%';
+                time.append(node('span', 'bobine-part-length', mono(each) + ' s'));
+                piece.append(time);
+              }
             }
           }
           if (made) {
