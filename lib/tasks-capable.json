@@ -4,8 +4,12 @@
     "guidance": "Call it when the user asks for an image to be made or changed. Not for writing or improving a prompt only, nor for the character to put in a video (replace_character makes that image). The image model only sees the images passed in source and reference.",
     "prompt": "The whole image in English, for an image model that knows nothing of this conversation: three to six sentences with the subject and its concrete look (age, expression, pose, clothes, colours, materials), the place and what is behind, the framing and angle, the light and colours, and the kind of picture (photo with its lens and film, illustration, painting, 3D render). Text to show in the image goes in quotes, in the language asked. Keep everything the user asked for.",
     "roles": {
-      "source": { "description": "Image to change. Omit it to make a new image." },
-      "reference": { "description": "Images whose subject, character or style must be reused." }
+      "source": {
+        "description": "Image to change: the new image starts from it. With an image given, Qwen-Image-Edit makes it when it is listed: it changes only what the prompt says and the rest stays as it is, so write the prompt its way. Another model draws the whole image again from the prompt over it, keeping its framing and colours. Omit it to make a new image."
+      },
+      "reference": {
+        "description": "Other images whose person, object, place or style the new image takes, each named in the prompt (Picture 2 and Picture 3 for Qwen-Image-Edit). Given without source, the first one is the image changed. An image no model here has a place for is not sent, and the user is told."
+      }
     },
     "arguments": {
       "series": {
