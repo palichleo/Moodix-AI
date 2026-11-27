@@ -91,6 +91,9 @@ export { mono };
 const plural = (count, one, many = one + 's') => `${count} ${count > 1 ? many : one}`;
 // (0.6.162) The earlier requests of a bobine said again to Moodix AI with a new one: the last ones.
 const ASKS = 3;
+// (0.6.457) How near a cut the head may be and still be at it, in seconds: « Prise précédente » pressed at a cut goes
+// to the one before, not to the one it is at.
+const CUT_SLACK = 0.05;
 // (0.6.154) How many steps « Annuler » goes back at most, and how long a pause between two keys typed
 // in a text makes another step, in milliseconds.
 const STEPS = 100,
@@ -241,6 +244,10 @@ export function setupMontage({
     filter = 'all',
     head = 0,
     playing = null,
+    // (0.6.457, Bobine Pro) The film read again from its start when it ends; its sound cut while it is read. Kept
+    // while the page lives, never in the bobine: they are ways of looking at it, not of making it.
+    looping = false,
+    quiet = false,
     status = '',
     saving = null,
     pending = false,
@@ -1032,14 +1039,17 @@ export function setupMontage({
     // (0.6.456) The room lit by what is under the head, read from its small picture; kept while a take is made.
     if (!busy) lightFrom((seen?.source && pictureOf(recordOf(seen.source))) || null);
     blank.hidden = Boolean(url) || hole;
-    // (0.6.200) « En cours » without its figure: the button of « Créer » says how far it is.
+    // (0.6.200) « En cours » without its figure: the button of « Créer » says how far it is. (0.6.457, B02-B03) A take
+    // laid shows its picture alone, its number is on the timeline; one that is not in the project any more says so.
     const said = !at
       ? ''
       : busy
         ? 'En cours'
         : todo
           ? 'À créer' + (link.kind === 'suite' || link.kind === 'last' ? ' · suite de la ' + (takeLabel(before?.source) || 'prise à créer').toLowerCase() : '')
-          : takeLabel(at.plan.source) || 'Prise introuvable';
+          : outputOf(at.plan.source)
+            ? ''
+            : 'Prise introuvable';
     if (media.caption.textContent !== said) media.caption.textContent = said;
     // What happens in it, and the photo it arrives on. (0.6.159, capture 87) Not while it is made: the
     // preview shows what the engine draws, « EN COURS · 46 % », nothing else. Its text, three lines at
@@ -1072,7 +1082,8 @@ export function setupMontage({
       const video = playerOf(url),
         wanted = seen.last ? Math.max(0, before.to - 0.05) : at.plan.from + (head - at.start);
       if (video.dataset.url !== url) Object.assign(video, { src: url }).dataset.url = url;
-      const volume = todo ? 0 : (at.plan.volume ?? 1);
+      // (0.6.457) « Couper le son »: the film is read silent, its settings untouched.
+      const volume = todo || quiet ? 0 : (at.plan.volume ?? 1);
       loud(video, volume);
       video.muted = !(volume > 0);
       // Put back where the film is when it drifted, or when the head was moved by hand.
@@ -1113,7 +1124,7 @@ export function setupMontage({
       }
       if (!player) media.sounds.set(sound.id, (player = Object.assign(node('audio'), { src: url, preload: 'auto' })));
       const wanted = sound.from + (head - sound.at);
-      loud(player, sound.volume);
+      loud(player, quiet ? 0 : sound.volume);
       if (player.paused !== false || Math.abs((player.currentTime ?? 0) - wanted) > 0.35) player.currentTime = wanted;
       void player.play?.()?.catch?.(() => {});
     }
@@ -1136,6 +1147,12 @@ export function setupMontage({
       const moment = now();
       head = Math.min(total(), head + (moment - playing.at) / 1000);
       playing.at = moment;
+      // (0.6.457) With the loop, the film goes on from its start.
+      if (head >= total() && looping && total() > 0) {
+        head = 0;
+        next();
+        return show();
+      }
       if (head >= total()) {
         stop();
         return show();
@@ -1152,6 +1169,57 @@ export function setupMontage({
   function seek(seconds) {
     head = Math.min(total(), Math.max(0, seconds));
     show();
+  }
+  /** (0.6.457) The cuts of the bobine: where each take begins and ends, its start and its end. */
+  function cutsOf() {
+    const starts = planStarts(montage),
+      cuts = new Set([0, total()]);
+    montage.plans.forEach((plan, index) => {
+      cuts.add(starts[index]);
+      cuts.add(starts[index] + (plan.to - plan.from));
+    });
+    return [...cuts].sort((a, b) => a - b);
+  }
+  /** « Prise précédente » (-1), « Prise suivante » (1): the head at the cut before it, after it. */
+  function toCut(way) {
+    const cuts = cutsOf();
+    seek(way < 0 ? (cuts.filter(at => at < head - CUT_SLACK).at(-1) ?? 0) : (cuts.find(at => at > head + CUT_SLACK) ?? total()));
+  }
+  function toggleLoop() {
+    looping = !looping;
+    sayTools();
+  }
+  function toggleQuiet() {
+    quiet = !quiet;
+    sayTools();
+    show({ sync: false });
+  }
+  const fullOf = () => page?.document?.fullscreenElement ?? null;
+  /** The preview and its row on the whole screen, or back in the page; Échap leaves it too. */
+  function toggleFull(section) {
+    const shown = page?.document;
+    if (!shown) return;
+    const asked = fullOf() === section ? shown.exitFullscreen?.() : section.requestFullscreen?.();
+    void asked?.catch?.(() => {});
+  }
+  /** What the loop, the sound and the full screen say: pressed or not, the words of their tip. */
+  function sayTools() {
+    const { loop, mute, full, section } = live.tools ?? {};
+    if (!loop) return;
+    const tip = (control, words) => {
+      if (control.title !== words) control.title = words;
+      control.setAttribute('aria-label', words);
+    };
+    loop.setAttribute('aria-pressed', String(looping));
+    tip(loop, looping ? 'Boucle : la bobine reprend au début' : 'Boucle');
+    mute.setAttribute('aria-pressed', String(quiet));
+    if (mute.dataset.quiet !== String(quiet)) mute.replaceChildren(icon(quiet ? 'volume-off' : 'volume'));
+    mute.dataset.quiet = String(quiet);
+    tip(mute, quiet ? 'Remettre le son' : 'Couper le son');
+    const whole = fullOf() === section;
+    if (full.dataset.full !== String(whole)) full.replaceChildren(icon(whole ? 'fullscreen-exit' : 'fullscreen'));
+    full.dataset.full = String(whole);
+    tip(full, whole ? 'Quitter le plein écran (Échap)' : 'Plein écran');
   }
 
   // What is said without drawing everything again: the clock, the head, the state, the button.
@@ -1170,8 +1238,11 @@ export function setupMontage({
     if (live.play) {
       live.play.disabled = !montage.plans.length;
       live.play.setAttribute('aria-label', playing ? 'Mettre en pause' : 'Lire la bobine');
-      if (live.play.dataset.playing !== String(Boolean(playing))) live.play.replaceChildren(icon(playing ? 'stop' : 'play'));
+      // (0.6.457, B02) The pause while it is read, no longer the square of « Arrêter »; its word on hover.
+      live.play.title = playing ? 'Pause (Espace)' : 'Lecture (Espace)';
+      if (live.play.dataset.playing !== String(Boolean(playing))) live.play.replaceChildren(icon(playing ? 'pause' : 'play'));
       live.play.dataset.playing = String(Boolean(playing));
+      for (const step of live.steps ?? []) step.disabled = !montage.plans.length;
     }
     if (live.status) {
       live.status.textContent = status;
@@ -1478,12 +1549,29 @@ export function setupMontage({
       words = node('p', 'montage-frame-words'),
       text = node('span', 'montage-frame-text'),
       end = node('span', 'montage-frame-end'),
+      // (0.6.457, Bobine Pro, B01-B02) Its own row under the screen: the time at the left; in the middle « Au début »,
+      // « Prise précédente », the reading, « Prise suivante », « À la fin »; at the right the loop, the sound, the format
+      // and the full screen. Icons alone, their words on hover.
       transport = node('div', 'montage-transport'),
+      times = node('span', 'montage-times'),
+      controls = node('span', 'montage-controls'),
+      tools = node('span', 'montage-tools'),
       playButton = button('montage-play', '', play, 'play'),
+      steps = [
+        button('montage-step', '', () => seek(0), 'first', 'Au début (Origine)'),
+        button('montage-step', '', () => toCut(-1), 'previous', 'Prise précédente'),
+        button('montage-step', '', () => toCut(1), 'forward', 'Prise suivante'),
+        button('montage-step', '', () => seek(total()), 'end', 'À la fin (Fin)'),
+      ],
+      loop = button('montage-tool montage-loop', '', toggleLoop, 'loop'),
+      mute = button('montage-tool montage-mute', '', toggleQuiet, 'volume'),
+      full = button('montage-tool montage-full', '', () => toggleFull(section), 'fullscreen'),
       time = node('span', 'montage-clock'),
       whole = node('span', 'montage-clock-total', ' / ' + mono(total())),
       format = node('select', 'montage-format');
     section.setAttribute('aria-label', 'Aperçu de la bobine');
+    // (Its buttons said again when the full screen is left by Échap.)
+    section.onfullscreenchange = () => sayTools();
     // The frame has the shape of the film, as large as its block lets it be (moodix.css).
     frame.style.aspectRatio = `${montage.width} / ${montage.height}`;
     frame.style.setProperty?.('--ratio', String(montage.width / montage.height));
@@ -1515,14 +1603,18 @@ export function setupMontage({
     // (0.6.162) What is asked to Moodix AI was between the time and the format. (0.6.456, Bobine Pro, B01) It is above
     // « Créer » now (createPanel): with panels of 316 px, the preview is 576 px wide at 1280 × 720, and its field went
     // on two lines there.
-    transport.append(playButton, time, whole, node('span', 'bobine-fil-gap'), format);
+    times.append(time, whole);
+    controls.append(steps[0], steps[1], playButton, steps[2], steps[3]);
+    tools.append(loop, mute, format, full);
+    transport.append(times, controls, tools);
     stage.append(frame);
     body.append(stage, transport);
     stop();
     media?.flux?.stop();
     for (const player of [...(media?.players ?? []), ...(media?.sounds.values() ?? [])]) untie(player);
     media = { video, spare, players: [video, spare], warm, picture, blank, caption, words, text, end, frame, sounds: new Map(), flux: null, fluxFrom: null, measured: false };
-    Object.assign(live, { clock: time, whole, play: playButton });
+    Object.assign(live, { clock: time, whole, play: playButton, steps, tools: { loop, mute, full, section } });
+    sayTools();
     return section;
   }
 

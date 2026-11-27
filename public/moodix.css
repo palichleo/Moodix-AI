@@ -16969,9 +16969,11 @@ body[data-view='bobine'] .chat-panel {
   text-transform: uppercase;
   color: var(--text-2);
 }
+/* (0.6.457) 10,5 px, comme les étiquettes (la règle du 16/11 : rien sous 12 px, sauf elles, espacées, en capitales). */
 #bobine-view .bobine-panel-count {
-  font: 400 11px/1 var(--font-mono);
-  letter-spacing: 0.04em;
+  font: 400 10.5px/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   font-variant-numeric: tabular-nums;
   color: var(--text-4);
 }
@@ -17013,52 +17015,139 @@ body[data-view='bobine'] .chat-panel {
 #bobine-view .montage-none {
   font: 400 12px/1.4 var(--font-ui);
 }
-/* L'aperçu : le cadre au format de la bobine, puis la lecture et le format. (0.6.456) Un panneau comme les autres. */
+/* L'aperçu (0.6.457, Bobine Pro, B01-B02) : un écran noir qui garde sa taille, l'image au milieu au format de la
+   bobine, à 14 px de ses bords, aux coins droits ; sous lui, dans le même panneau, la lecture sur sa ligne de 48 px,
+   un filet au-dessus. */
 #bobine-view .studio-block.montage-screen {
-  --block-pad: 14px;
+  --block-pad: 0;
 }
 #bobine-view .montage-screen > .studio-block-body {
-  gap: 12px;
+  gap: 0;
+}
+#bobine-view .montage-stage {
+  padding: 14px;
+  border-radius: 11px 11px 0 0;
+  background: linear-gradient(180deg, #09080b, #040305);
+}
+#bobine-view .montage-frame {
+  border-radius: 0;
 }
 #bobine-view .montage-transport {
   flex: none;
-  display: flex;
+  container: bobine-transport / inline-size;
+  display: grid;
+  /* (Le milieu au milieu du panneau quand la place le permet ; plus étroit, il se décale vers le temps plutôt que
+     d'être recouvert par les outils.) */
+  grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr);
   align-items: center;
   gap: 12px;
-  /* (0.6.169, sa capture du 21/11) Aussi haute que ce qu'elle tient : le bouton de lecture et le champ de
-     Moodix AI font 40 px. À 24 px (la règle du Montage), le champ dépassait de 16 px sous le bloc de l'aperçu,
-     sur la timeline (mesuré à 1440 × 900). */
-  height: 40px;
+  height: 48px;
+  padding: 0 16px;
+  border-top: 1px solid rgba(238, 232, 222, 0.06);
+}
+#bobine-view .montage-times {
+  justify-self: start;
+  white-space: nowrap;
+}
+#bobine-view .montage-controls,
+#bobine-view .montage-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+#bobine-view .montage-tools {
+  justify-self: end;
+}
+#bobine-view :is(.montage-step, .montage-tool) {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+}
+#bobine-view :is(.montage-step, .montage-tool) svg {
+  width: 15px;
+  height: 15px;
+}
+/* (Les triangles de la lecture pleins, comme sur la maquette ; les traits restent des traits.) */
+#bobine-view :is(.montage-step, .montage-play) svg {
+  fill: currentColor;
+}
+#bobine-view :is(.montage-step, .montage-tool):hover:not(:disabled),
+#bobine-view .montage-tool[aria-pressed='true'] {
+  background: rgba(238, 232, 222, 0.07);
+  color: var(--ink);
+}
+#bobine-view .montage-step:disabled {
+  color: var(--text-4);
+  cursor: default;
 }
 #bobine-view .montage-play {
   flex: none;
-  width: 40px;
-  height: 40px;
-  border: 1px solid rgba(238, 232, 222, 0.18);
+  width: 38px;
+  height: 38px;
+  margin: 0 4px;
+  padding: 0;
+  border: 1px solid rgba(238, 232, 222, 0.2);
   border-radius: 50%;
-  background: rgba(20, 19, 24, 0.6);
+  background: rgba(238, 232, 222, 0.1);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   color: var(--ink);
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
-#bobine-view .montage-clock,
-#bobine-view .montage-clock-total {
+#bobine-view .montage-play:hover:not(:disabled) {
+  background: rgba(238, 232, 222, 0.16);
+}
+#bobine-view .montage-play svg {
+  width: 14px;
+  height: 14px;
+}
+#bobine-view .montage-clock {
   font: 400 14px/1 var(--font-mono);
   font-variant-numeric: tabular-nums;
+  color: var(--ink);
 }
 #bobine-view .montage-clock-total {
-  color: var(--muted);
+  margin-left: 0;
+  font: 400 12px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
 }
 #bobine-view .montage-transport button.montage-format.glass-select {
   width: auto;
   min-width: 0;
-  height: 34px;
+  height: 30px;
   min-height: 0;
-  padding: 0 12px;
+  margin: 0 4px;
+  padding: 0 10px;
   border-radius: 8px;
   font: 400 12px/1 var(--font-mono);
   letter-spacing: 0.04em;
+}
+/* (À 1280 × 720 l'aperçu n'a que 576 px : « Au début » et « À la fin » s'y effacent, Origine et Fin les font
+   toujours ; le reste tient sur la ligne.) */
+@container bobine-transport (width < 600px) {
+  #bobine-view .montage-controls > .montage-step:is(:first-child, :last-child) {
+    display: none;
+  }
+}
+/* Plein écran : l'aperçu et sa ligne, l'écran noir jusqu'aux bords. */
+#bobine-view .montage-screen:fullscreen {
+  border: 0;
+  border-radius: 0;
+  background: #040305;
+}
+#bobine-view .montage-screen:fullscreen .montage-stage {
+  border-radius: 0;
 }
 #bobine-view .montage-blank {
   border: 1px solid rgba(238, 232, 222, 0.08);
@@ -17069,14 +17158,10 @@ body[data-view='bobine'] .chat-panel {
   width: 44px;
   height: 44px;
 }
-/* (Capture 83) Une prise à créer, sous la tête : d'où elle part, voilé, en pointillés ; son texte, et sa photo de fin. */
-.montage-frame[data-todo='true'] {
-  outline: 1px dashed rgba(238, 232, 222, 0.4);
-  outline-offset: -1px;
-}
+/* (Capture 83) Une prise à créer, sous la tête : d'où elle part, voilé ; son texte, et sa photo de fin. (0.6.457,
+   Bobine Pro) Plus de pointillés autour : un voile de 52 % de noir, ses couleurs gardées. */
 .montage-frame[data-todo='true'] > :is(img, video) {
-  opacity: 0.42;
-  filter: saturate(0.7);
+  opacity: 0.48;
 }
 .montage-frame[data-busy='true'] > :is(img, video) {
   opacity: 0.8;
@@ -18045,12 +18130,16 @@ body[data-view='bobine'] .chat-panel {
   max-height: calc(2lh + 20px);
 }
 /* (Ce que montre l’aperçu, « PRISE 4 », « À CRÉER · SUITE DE LA PRISE 5 » : sur la plaque sombre des étiquettes, captures 70 et 83.) */
+/* (0.6.457, Bobine Pro, B01) Seulement sur une prise à créer (ou introuvable), à 12 px du coin. En mono de 10,5 px
+   (10 px sur la maquette) : la taille des étiquettes, la plus petite de la page (règle du 16/11). */
 #bobine-view .montage-caption {
-  padding: 4px 6px;
+  top: 12px;
+  left: 12px;
+  padding: 5px 8px;
   border-radius: 4px;
-  background: rgba(10, 10, 12, 0.72);
+  background: rgba(8, 7, 10, 0.72);
   font: 500 10.5px/1 var(--font-mono);
-  letter-spacing: 0.1em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   text-shadow: none;
 }

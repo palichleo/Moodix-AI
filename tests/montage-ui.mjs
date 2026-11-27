@@ -613,7 +613,8 @@ test('the bobine is read in the preview: the head moves, each take is shown in i
   for (const at of [1, 2]) f.get('montage-take')[at].ondblclick();
   const [frame] = f.get('montage-frame'),
     [blank, picture, video, caption] = frame.children;
-  assert.deepEqual([video.src, video.hidden, picture.hidden, blank.hidden, caption.textContent], ['/media/2', false, true, true, 'Prise 2']);
+  // (0.6.457, B02-B03) A take laid shows its picture alone: its number is on the timeline.
+  assert.deepEqual([video.src, video.hidden, picture.hidden, blank.hidden, caption.textContent], ['/media/2', false, true, true, '']);
   assert.deepEqual(f.said('montage-clock').concat(f.said('montage-clock-total')), ['00.00', ' / 06.00']);
   f.get('montage-play')[0].onclick();
   assert.deepEqual([f.ui.state().playing, video.paused, f.get('montage-play')[0].attributes['aria-label']], [true, false, 'Mettre en pause']);
@@ -622,7 +623,7 @@ test('the bobine is read in the preview: the head moves, each take is shown in i
   assert.deepEqual([f.said('montage-clock'), find(f.root, 'montage-playhead')[0].style.left], [['01.50'], '7.5%']);
   // Past the clip of three seconds: the image, the clip paused.
   await f.later({ ms: 2000 });
-  assert.deepEqual([picture.src, picture.hidden, video.hidden, video.paused, caption.textContent], ['/media/3', false, true, true, 'Prise 3']);
+  assert.deepEqual([picture.src, picture.hidden, video.hidden, video.paused, caption.textContent], ['/media/3', false, true, true, '']);
   // At the end of the bobine it stops there; played again, it starts over.
   await f.later({ ms: 5000 });
   assert.deepEqual([f.ui.state().playing, f.ui.state().head, f.get('montage-play')[0].attributes['aria-label']], [false, 6, 'Lire la bobine']);
@@ -2763,7 +2764,7 @@ test('under the preview, a request is asked to Moodix AI; its plan is laid in ta
   // it, no longer between the time and the format.
   const transport = f.get('montage-transport')[0],
     column = find(f.get('bobine-create')[0], 'studio-block-body')[0];
-  assert.deepEqual(transport.children.map(child => child.className.split(' ')[0]), ['montage-play', 'montage-clock', 'montage-clock-total', 'bobine-fil-gap', 'montage-format']);
+  assert.deepEqual(transport.children.map(child => child.className.split(' ')[0]), ['montage-times', 'montage-controls', 'montage-tools']);
   assert.deepEqual(column.children.map(child => child.className.split(' ')[0]), ['bobine-panel-head', 'bobine-lines', 'bobine-ask', 'bobine-waits', 'bobine-stage', 'bobine-foot']);
   // (No Éclipse at the left of its field any more: the field, the dictation, the arrow.)
   assert.deepEqual(find(box(), 'bobine-ask-field')[0].children.map(child => child.className.split(' ')[0]), ['bobine-ask-words', 'bobine-ask-send']);
@@ -2932,7 +2933,7 @@ test('nothing is asked while the bobine is at work, nor without Moodix AI at han
   assert.equal(asked.length, 1);
   // Without it (a page that gives none): the row is as it was, with its empty middle.
   const bare = await setup().open();
-  assert.deepEqual([bare.get('bobine-ask').length, bare.get('montage-transport')[0].children.map(child => child.className.split(' ')[0])], [0, ['montage-play', 'montage-clock', 'montage-clock-total', 'bobine-fil-gap', 'montage-format']]);
+  assert.deepEqual([bare.get('bobine-ask').length, bare.get('montage-transport')[0].children.map(child => child.className.split(' ')[0])], [0, ['montage-times', 'montage-controls', 'montage-tools']]);
 });
 
 test('the styles of the request: above « Créer », what is laid is said above it, nothing over the preview (0.6.162, 0.6.456)', async () => {
@@ -3090,7 +3091,7 @@ test('the clip after the one shown is loaded beforehand in a second player: no b
   assert.deepEqual([first.paused, first.hidden, second.hidden], [false, false, true]);
   // Past the cut: the second is shown as it was loaded, its address not given again; the first waits, hidden.
   await f.later({ ms: 1500 });
-  assert.deepEqual([f.said('montage-caption'), given, second.hidden, second.paused, second.muted, second.currentTime], [['Prise 2'], 0, false, false, false, 0.5]);
+  assert.deepEqual([f.said('montage-caption'), given, second.hidden, second.paused, second.muted, second.currentTime], [[''], 0, false, false, false, 0.5]);
   assert.deepEqual([first.hidden, first.paused], [true, true]);
 });
 
@@ -3210,8 +3211,9 @@ test('the styles of his returns of 21/11: the row under the preview as high as w
     assert.notEqual(at, -1, selector);
     return css.slice(at, css.indexOf('}', at));
   };
-  // (Measured at 1440 × 900: at 24 px, the field of Moodix AI went 16 px under the block of the preview.)
-  assert.match(rule('#bobine-view .montage-transport'), /height: 40px;/);
+  // (Measured at 1440 × 900: at 24 px, the field of Moodix AI went 16 px under the block of the preview. 0.6.457: its
+  // own row of 48 px, the field above « Créer ».)
+  assert.match(rule('#bobine-view .montage-transport'), /height: 48px;/);
   assert.match(rule('#bobine-view .montage-frame > .take-flux'), /z-index: 1;/);
   assert.match(rule('#bobine-view .montage-frame > :is(.montage-caption, .montage-frame-words, .montage-frame-end)'), /z-index: 2;/);
   assert.match(rule('#bobine-view .montage-frame.has-flux > :is(img, video)'), /visibility: hidden;/);
@@ -4708,4 +4710,142 @@ test('(0.6.456, Bobine Pro, B01) the styles of the page: 316 px on each side, th
   const { readFile } = await import('node:fs/promises');
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
   assert.ok(html.indexOf('class="room-halos"') < html.indexOf('class="room-reel"') && html.indexOf('class="room-reel"') < html.indexOf('class="room-iris"'));
+});
+
+// (0.6.457, Bobine Pro, lot 2, B01-B02) The screen, and the row of its reading under it.
+test('(0.6.457, Bobine Pro, B01) the row under the screen: the time, five buttons in the middle, the loop, the sound, the format, the full screen', async () => {
+  const empty = await setup().open();
+  // Nothing on the bobine: nothing to go to.
+  assert.deepEqual(find(empty.get('montage-transport')[0], 'montage-step').map(step => step.disabled), [true, true, true, true]);
+  const f = await setup().open();
+  for (const at of [0, 1]) f.get('montage-take')[at].ondblclick();
+  const transport = f.get('montage-transport')[0],
+    words = group => find(transport, group)[0].children.map(child => child.attributes['aria-label'] ?? child.className.split(' ')[0]);
+  assert.deepEqual(find(transport, 'montage-times')[0].children.map(child => child.className), ['montage-clock', 'montage-clock-total']);
+  assert.deepEqual(words('montage-controls'), ['Au début (Origine)', 'Prise précédente', 'Lire la bobine', 'Prise suivante', 'À la fin (Fin)']);
+  assert.deepEqual(words('montage-tools'), ['Boucle', 'Couper le son', 'Format de la bobine', 'Plein écran']);
+  // Icons alone, their words on hover.
+  assert.deepEqual(
+    find(transport, 'montage-step').map(step => [step.title, step.disabled, step.children.map(child => child.className)]),
+    [
+      ['Au début (Origine)', false, ['icon-first']],
+      ['Prise précédente', false, ['icon-previous']],
+      ['Prise suivante', false, ['icon-forward']],
+      ['À la fin (Fin)', false, ['icon-end']],
+    ],
+  );
+  assert.deepEqual([f.get('montage-play')[0].title, f.get('montage-play')[0].children[0].className], ['Lecture (Espace)', 'icon-play']);
+  // Two takes of 5 and 3 s: its cuts at 0, 5 and 8. From 6.5 s, the take before begins at 5, then the start.
+  const step = label => f.button(label).onclick(),
+    head = () => f.ui.state().head;
+  f.press(f.get('montage-ruler')[0], 325);
+  f.pointer.up();
+  assert.equal(head(), 6.5);
+  const went = [];
+  for (const label of ['Prise précédente', 'Prise précédente', 'Prise précédente', 'Prise suivante', 'Prise suivante', 'Prise suivante', 'Au début (Origine)', 'À la fin (Fin)']) {
+    step(label);
+    went.push(head());
+  }
+  assert.deepEqual(went, [5, 0, 0, 5, 8, 8, 0, 8]);
+  assert.deepEqual(f.said('montage-clock'), ['08.00']);
+  // A hole between two takes: its two edges are cuts too.
+  f.ui.state().montage.plans[1].at = 7;
+  step('Au début (Origine)');
+  const edges = [];
+  for (let turn = 0; turn < 4; turn++) {
+    step('Prise suivante');
+    edges.push(head());
+  }
+  assert.deepEqual(edges, [5, 7, 10, 10]);
+});
+
+test('(0.6.457, Bobine Pro, B02) read, the button is a pause; the loop reads the film again from its start; the sound cut reads it silent, the bobine untouched', async () => {
+  const f = await setup({ width: 2000 }).open();
+  for (const at of [0, 1]) f.get('montage-take')[at].ondblclick();
+  const [frame] = f.get('montage-frame'),
+    video = frame.children[2],
+    play = f.get('montage-play')[0],
+    loop = f.button('Boucle'),
+    mute = f.button('Couper le son');
+  loop.onclick();
+  assert.deepEqual([loop.attributes['aria-pressed'], loop.attributes['aria-label'], loop.title], ['true', 'Boucle : la bobine reprend au début', 'Boucle : la bobine reprend au début']);
+  play.onclick();
+  assert.deepEqual([play.title, play.attributes['aria-label'], play.children[0].className], ['Pause (Espace)', 'Mettre en pause', 'icon-pause']);
+  await f.later({ ms: 7000 });
+  // Past its end (8 s): read again from its start, without stopping.
+  await f.later({ ms: 1500 });
+  assert.deepEqual([f.ui.state().playing, f.ui.state().head, video.src, video.currentTime], [true, 0, '/media/1', 0]);
+  await f.later({ ms: 1000 });
+  assert.deepEqual([f.ui.state().playing, f.ui.state().head], [true, 1]);
+  // The sound cut: the clip is silent at once; nothing of the bobine changed, nothing kept.
+  const saves = f.saves().length;
+  mute.onclick();
+  assert.deepEqual([mute.attributes['aria-pressed'], mute.attributes['aria-label'], mute.children[0].className, video.muted, video.volume], ['true', 'Remettre le son', 'icon-volume-off', true, 0]);
+  await f.later({ ms: 500 });
+  assert.deepEqual([video.muted, video.volume, f.ui.state().montage.plans[0].volume, f.saves().length], [true, 0, 1, saves]);
+  mute.onclick();
+  assert.deepEqual([mute.attributes['aria-pressed'], mute.attributes['aria-label'], mute.children[0].className, video.muted, video.volume], ['false', 'Couper le son', 'icon-volume', false, 1]);
+  // The loop let go: the film stops at its end.
+  loop.onclick();
+  assert.equal(loop.attributes['aria-pressed'], 'false');
+  await f.later({ ms: 9000 });
+  assert.deepEqual([f.ui.state().playing, f.ui.state().head, play.title, play.children[0].className], [false, 8, 'Lecture (Espace)', 'icon-play']);
+});
+
+test('(0.6.457, Bobine Pro, B01) « Plein écran » puts the screen and its row on the whole screen; the same button, or Échap, takes them back', async () => {
+  const f = await setup().open();
+  const asked = [],
+    section = f.get('montage-screen')[0],
+    full = f.button('Plein écran');
+  section.requestFullscreen = () => (asked.push('in'), Promise.resolve());
+  shown.exitFullscreen = () => (asked.push('out'), Promise.resolve());
+  try {
+    full.onclick();
+    shown.fullscreenElement = section;
+    section.onfullscreenchange();
+    assert.deepEqual([asked, full.attributes['aria-label'], full.children[0].className], [['in'], 'Quitter le plein écran (Échap)', 'icon-fullscreen-exit']);
+    full.onclick();
+    assert.deepEqual(asked, ['in', 'out']);
+    // (Échap: the browser leaves it, the button says so.)
+    shown.fullscreenElement = null;
+    section.onfullscreenchange();
+    assert.deepEqual([full.attributes['aria-label'], full.children[0].className], ['Plein écran', 'icon-fullscreen']);
+  } finally {
+    delete shown.fullscreenElement;
+    delete shown.exitFullscreen;
+  }
+});
+
+test('(0.6.457, Bobine Pro, B01-B03) the screen names only a take to create, or one not in the project any more; a take laid shows its picture alone', async () => {
+  const f = await setup({ stored: [suiteOf(6)], extra: [made(7, 120)] }).open();
+  await settle();
+  await settle();
+  const caption = () => f.said('montage-caption')[0];
+  assert.deepEqual([f.ui.state().head, caption()], [0, '']);
+  // Its suite, under the head: « À CRÉER · SUITE DE LA PRISE 7 » (moodix.css writes it in capitals).
+  f.button('Prise suivante').onclick();
+  assert.deepEqual([f.ui.state().head, caption()], [5, 'À créer · suite de la prise 7']);
+});
+
+test('(0.6.457, Bobine Pro, B01) the styles of the screen: black, the picture 14 px from its edges with square corners, a veil without dots, the row of 48 px', async () => {
+  const { css, rule } = await proCss();
+  assert.match(rule('#bobine-view .studio-block.montage-screen'), /--block-pad: 0;/);
+  assert.match(rule('#bobine-view .montage-stage'), /padding: 14px;\n  border-radius: 11px 11px 0 0;\n  background: linear-gradient\(180deg, #09080b, #040305\);/);
+  assert.match(rule('#bobine-view .montage-frame'), /border-radius: 0;/);
+  assert.match(
+    rule('#bobine-view .montage-transport'),
+    /grid-template-columns: minmax\(max-content, 1fr\) auto minmax\(max-content, 1fr\);[\s\S]*height: 48px;\n  padding: 0 16px;\n  border-top: 1px solid rgba\(238, 232, 222, 0.06\);/,
+  );
+  assert.match(rule('#bobine-view .montage-play'), /width: 38px;\n  height: 38px;[\s\S]*border-radius: 50%;\n  background: rgba\(238, 232, 222, 0.1\);/);
+  assert.match(rule('#bobine-view .montage-clock'), /font: 400 14px\/1 var\(--font-mono\);[\s\S]*color: var\(--ink\);/);
+  assert.match(rule('#bobine-view .montage-clock-total'), /font: 400 12px\/1 var\(--font-mono\);[\s\S]*color: var\(--text-3\);/);
+  // A take to create: a veil of 52 % of black, its colours kept, no dots around.
+  assert.match(rule(".montage-frame[data-todo='true'] > :is(img, video)"), /opacity: 0.48;/);
+  assert.doesNotMatch(rule(".montage-frame[data-todo='true'] > :is(img, video)"), /saturate/);
+  assert.doesNotMatch(css, /\.montage-frame\[data-todo='true'\] \{/);
+  // (10,5 px, the size of the labels: nothing of the page is smaller, ux.mjs.)
+  assert.match(rule('#bobine-view .montage-caption'), /background: rgba\(8, 7, 10, 0.72\);\n  font: 500 10.5px\/1 var\(--font-mono\);/);
+  // At 1280 × 720, « Au début » and « À la fin » give their place (Origine and Fin do the same).
+  assert.match(css, /@container bobine-transport \(width < 600px\) \{\n  #bobine-view \.montage-controls > \.montage-step:is\(:first-child, :last-child\) \{\n    display: none;/);
+  assert.match(rule('#bobine-view .montage-screen:fullscreen'), /border: 0;\n  border-radius: 0;/);
 });
