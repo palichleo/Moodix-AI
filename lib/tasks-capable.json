@@ -8,7 +8,7 @@
         "description": "Image to change: the new image starts from it. With an image given, Qwen-Image-Edit makes it when it is listed: it changes only what the prompt says and the rest stays as it is, so write the prompt its way. Another model draws the whole image again from the prompt over it, keeping its framing and colours. Omit it to make a new image."
       },
       "reference": {
-        "description": "Other images whose person, object, place or style the new image takes, each named in the prompt (Picture 2 and Picture 3 for Qwen-Image-Edit). Given without source, the first one is the image changed. An image no model here has a place for is not sent, and the user is told."
+        "description": "Other images whose person, object, place or style the new image takes, each named in the prompt (Picture 2 and Picture 3 for Qwen-Image-Edit, after the source). Given without source, the first one is the image changed (Picture 1 for Qwen-Image-Edit, the next ones Picture 2 and Picture 3). An image no model here has a place for is not sent, and the user is told."
       }
     },
     "arguments": {

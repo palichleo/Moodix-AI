@@ -85,13 +85,25 @@ test('a video that starts on an image still goes to LTX 2.5; Wan 2.2 makes it wh
   assert.notEqual(bare.workflow.pipeline, 'wan22');
   // (It was said « ne prend pas ces entrées ensemble », of a request that passed none.)
   assert.deepEqual(bare.notes, [`Wan 2.2 ne se fait pas sans « Image de début » : ${bare.workflow.name} est utilisé à la place.`]);
-  // With an end image beside the start one, which it does not take: the usual words.
-  const framed = await catalog.route(
-    'create_video',
-    { ...asked, duration: null, workflow: wan.id, start_image: { image: 0 }, end_image: { image: 1 } },
-    media,
+  // With an end image beside the start one, which it does not take: by hand, the usual words.
+  const framed = (options = {}) =>
+    catalog.route(
+      'create_video',
+      { ...asked, duration: null, workflow: wan.id, start_image: { image: 0 }, end_image: { image: 1 } },
+      { ...media, ...options },
+    );
+  assert.deepEqual((await framed({ byHand: true })).notes, [
+    'Wan 2.2 ne prend pas ces entrées ensemble : LTX 2.5 est utilisé à la place.',
+  ]);
+  // (0.6.493) Named in the chat, it stays the model: the end image stays there, greyed with its reason, and is
+  // not sent (« on laisse le choix […] on grisera », 27/11; another model took its place before).
+  const chat = await framed();
+  assert.equal(chat.workflow.id, wan.id);
+  assert.deepEqual(chat.args.references, [{ input: 'start', image: 0 }]);
+  assert.deepEqual(
+    chat.left.map(item => [item.role, item.kind, item.why]),
+    [['end_image', 'none', 'Wan 2.2 ne prend pas d’image de fin : elle reste là, mais n’est pas envoyée.']],
   );
-  assert.deepEqual(framed.notes, ['Wan 2.2 ne prend pas ces entrées ensemble : LTX 2.5 est utilisé à la place.']);
 });
 
 test('a chat model reads Wan 2.2 after the models that make a video from words, and none of its settings (0.6.134)', async () => {

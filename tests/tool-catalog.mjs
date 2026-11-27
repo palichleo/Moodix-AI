@@ -84,8 +84,14 @@ test('roles choose the most specific workflow, and forcing one is still checked'
   const refs = await route('create_video', { reference: [{ image: 0 }, { output: 'run', index: 1 }] });
   assert.equal(refs.workflow.id, 'subject');
   assert.deepEqual(refs.args.references[1], { input: 'b', output_id: 'run', output_index: 1 });
+  // (0.6.493) One more than any workflow takes: in the chat, the one that takes most, the rest held with why (it was
+  // refused: relecture, M1); by hand (the Studio, the Bobine), refused as before.
+  const three = () => ({ reference: [{ image: 0 }, { image: 1 }, { image: 2 }] }),
+    most = await route('create_video', three());
+  assert.equal(most.workflow.id, 'subject');
+  assert.deepEqual(most.left.map(({ role, index, kind }) => [role, index, kind]), [['reference', 2, 'full']]);
   await assert.rejects(
-    route('create_video', { reference: [{ image: 0 }, { image: 1 }, { image: 2 }] }),
+    tools.route('create_video', { prompt: 'x', intention: 'y', ...three() }, { ...media, byHand: true }),
     /Aucun workflow/,
   );
   // A named workflow that cannot take the images gives way to one that can, and says so.
@@ -95,7 +101,15 @@ test('roles choose the most specific workflow, and forcing one is still checked'
   assert.equal((await route('create_video', { workflow: 'keyframes' })).workflow.id, 'keyframes', 'named and able');
   await assert.rejects(route('create_video', { workflow: 'nowhere' }), /ne peut pas exécuter/);
   assert.equal((await route('extend_video', { source: { output: 'video-run' } })).workflow.id, 'continue');
-  await assert.rejects(route('extend_video', { source: { image: 0 } }), /Aucun workflow/);
+  // (0.6.493) An image to prolong: said to the chat model in words, with what to do (relecture, M1).
+  await assert.rejects(route('extend_video', { source: { image: 0 } }), {
+    status: 400,
+    message: 'Une suite part d’une vidéo : passez la vidéo à prolonger comme source.',
+  });
+  await assert.rejects(
+    tools.route('extend_video', { prompt: 'x', intention: 'y', source: { image: 0 } }, { ...media, byHand: true }),
+    /Aucun workflow/,
+  );
   await assert.rejects(route('extend_video', {}), /needs a source/);
   assert.equal((await tools.route('create_image', { prompt: 'x', source: { image: 0 } }, media)).workflow.id, 'edit');
 });
@@ -154,13 +168,23 @@ test('MiniMax does not get a start image together with references, even when the
   };
   const ltx = video('ltx', [slot('first', 'start_image'), slot('a', 'msr_image')]);
   const tools = catalogOf([minimax, ltx]);
-  const both = () => ({ prompt: 'x', intention: 'y', start_image: { image: 0 }, reference: [{ image: 1 }] });
+  const both = () => ({ prompt: 'x', intention: 'y', start_image: { image: 0 }, reference: [{ image: 1 }] }),
+    hand = { ...media, byHand: true };
   assert.equal((await tools.route('create_video', both(), media)).workflow.id, 'ltx');
+  // (0.6.493) Named by the chat model, it is the one proposed (« on laisse le choix », 27/11): the start goes, the
+  // subject is held apart, greyed in the card with the line that says to remove one or the other (relecture, M1).
   const named = await tools.route('create_video', { ...both(), workflow: 'minimax' }, media);
-  assert.equal(named.workflow.id, 'ltx');
-  assert.match(named.notes.join(), /minimax ne prend pas ces entrées ensemble/);
-  // Alone, MiniMax refuses with the reason instead of failing later in its engine.
-  await assert.rejects(catalogOf([minimax]).route('create_video', both(), media), /do not combine/);
+  assert.equal(named.workflow.id, 'minimax');
+  assert.deepEqual(named.args.references, [{ input: 's', image: 0 }]);
+  assert.deepEqual(named.left.map(({ role, kind }) => [role, kind]), [['reference', 'apart']]);
+  // By hand, as before: the one that takes both, and said.
+  const moved = await tools.route('create_video', { ...both(), workflow: 'minimax' }, hand);
+  assert.equal(moved.workflow.id, 'ltx');
+  assert.match(moved.notes.join(), /minimax ne prend pas ces entrées ensemble/);
+  // Alone, MiniMax refuses by hand with the reason instead of failing later in its engine; the chat holds one apart.
+  await assert.rejects(catalogOf([minimax]).route('create_video', both(), hand), /do not combine/);
+  const alone = await catalogOf([minimax]).route('create_video', both(), media);
+  assert.deepEqual(alone.left.map(({ role, kind }) => [role, kind]), [['reference', 'apart']]);
   const refs = { prompt: 'x', intention: 'y', reference: [{ image: 1 }], workflow: 'minimax' };
   assert.equal((await tools.route('create_video', refs, media)).workflow.id, 'minimax');
 });
@@ -181,16 +205,30 @@ test('a MiniMax continuation takes subject references; an LTX one does not yet',
   const both = await extendTool([minimax, ltx]);
   assert.equal(both.properties.reference.maxItems, 2);
   assert.equal(both.properties.start_image, undefined, 'a continuation starts on its clip, not on an image');
-  const args = () => ({ prompt: 'x', intention: 'y', source: { output: 'video-run' }, reference: [{ image: 0 }] });
-  const routed = await catalogOf([minimax, ltx]).route('extend_video', args(), media);
-  assert.equal(routed.workflow.id, 'minimax-next');
-  assert.deepEqual(routed.args.references, [
-    { input: 'clip', output_id: 'video-run' },
-    { input: 'r1', image: 0 },
-  ]);
-  // LTX 2.5 alone: its subject references are not offered beside a continuation, nor accepted.
+  const args = () => ({ prompt: 'x', intention: 'y', source: { output: 'video-run' }, reference: [{ image: 0 }] }),
+    hand = { ...media, byHand: true },
+    // (0.6.493) The clip made by MiniMax H3: its suite stays with its model, which takes the subject.
+    own = { ...media, originOf: async () => ({ workflowId: 'minimax-next', pipeline: 'minimax_h3' }) };
+  for (const options of [hand, own]) {
+    const routed = await catalogOf([minimax, ltx]).route('extend_video', args(), options);
+    assert.equal(routed.workflow.id, 'minimax-next');
+    assert.deepEqual(routed.args.references, [
+      { input: 'clip', output_id: 'video-run' },
+      { input: 'r1', image: 0 },
+    ]);
+  }
+  // (0.6.493) Another clip, in the chat: LTX 2.5 all the same, the subject held, greyed in the card with why, never
+  // MiniMax H3 because it takes more (relecture, G1).
+  const kept = await catalogOf([minimax, ltx]).route('extend_video', args(), media);
+  assert.equal(kept.workflow.id, 'ltx-next');
+  assert.deepEqual(kept.args.references, [{ input: 'clip', output_id: 'video-run' }]);
+  assert.deepEqual(kept.left.map(({ role, kind }) => [role, kind]), [['reference', 'none']]);
+  // LTX 2.5 alone: its subject references are not offered beside a continuation, nor accepted by hand; one passed
+  // all the same by the chat model is held.
   assert.equal((await extendTool([ltx])).properties.reference, undefined);
-  await assert.rejects(catalogOf([ltx]).route('extend_video', args(), media), /Aucun workflow/);
+  await assert.rejects(catalogOf([ltx]).route('extend_video', args(), hand), /Aucun workflow/);
+  const alone = await catalogOf([ltx]).route('extend_video', args(), media);
+  assert.deepEqual(alone.left.map(item => item.role), ['reference']);
   // The Studio shows the reference slots of the MiniMax continuation only.
   const studio = (await catalogOf([minimax, ltx]).studio()).extend_video;
   const roles = Object.fromEntries(studio.map(item => [item.id, item.roles.reference.count]));
@@ -528,7 +566,7 @@ test('an image given to create_image: Qwen-Image-Edit when it is ready here, els
   });
 });
 
-test('a video of Moodix AI: LTX 2.5 as soon as it is ready and takes what is passed; MiniMax H3 Omni named, for its own clip, or without LTX 2.5 (0.6.476)', async () => {
+test('a video of Moodix AI: LTX 2.5 ready or to download, what it does not take greyed; MiniMax H3 Omni named, for its own clip, or without LTX 2.5 (0.6.476, 0.6.493)', async () => {
   const all = everyShipped(),
     absent = [
       otherwise(all, ['ltx25'], TO_FETCH),
@@ -538,39 +576,115 @@ test('a video of Moodix AI: LTX 2.5 as soon as it is ready and takes what is pas
   const [a, b, c] = ['a', 'b', 'c'].map(resource => ({ resource })),
     v = { resource: 'v' },
     LTX = 'LTX 2.5',
-    MINIMAX = 'MiniMax H3 Omni';
-  // What the chat passes; what is made with LTX 2.5 ready; what is made without it.
+    FETCH = 'LTX 2.5 (à télécharger)',
+    MINIMAX = 'MiniMax H3 Omni',
+    // (0.6.493) What LTX 2.5 does not take stays in the card, greyed, with why (relecture, G1).
+    third = 'LTX 2.5 prend 2 sujets au plus : celui-ci reste là, mais n’est pas envoyé.',
+    inSuite =
+      'LTX 2.5 ne prend pas de sujet dans une suite. Pour une suite avec des sujets : MiniMax H3 Omni. ' +
+      'Il reste là, mais n’est pas envoyé.';
+  // What the chat passes; what is made with LTX 2.5 ready; with its files to download (0.6.493: its download is
+  // proposed, never another model taken in its place without a word, relecture S2); turned off for Moodix AI or
+  // impossible on this computer, where the order of before stays. MiniMax H3 Omni (no rights in Europe) is never the
+  // one by default while LTX 2.5 may be proposed: only named, or for its own clip, which brings its model.
   const table = [
     [
       'create_video',
       { duration: 5 },
       { model: LTX },
+      { model: FETCH },
       { model: MINIMAX, notes: [`Durée : 5 s → 5,17 s, la plus proche que ${MINIMAX} permet.`] },
     ],
-    ['create_video', { start_image: a }, { model: LTX }, { model: 'Wan 2.2' }],
-    ['create_video', { start_image: a, end_image: b }, { model: LTX }, { model: 'pi H3' }],
-    ['create_video', { reference: [a, b] }, { model: LTX }, { model: MINIMAX }],
-    // Three subjects: LTX 2.5 takes two, MiniMax H3 Omni three.
-    ['create_video', { reference: [a, b, c] }, { model: MINIMAX }, { model: MINIMAX }],
-    ['create_video', { workflow: MINIMAX_ID }, { model: MINIMAX }, { model: MINIMAX }],
-    // A suite: the model of its clip, else LTX 2.5; with a subject, MiniMax H3 Omni (LTX 2.5 takes none in a suite).
-    ['extend_video', { source: v }, { model: LTX }, { model: MINIMAX }],
-    ['extend_video', { source: { output: 'minimax-clip' } }, { model: MINIMAX }, { model: MINIMAX }],
-    ['extend_video', { source: { output: 'ltx-clip' } }, { model: LTX }, { model: MINIMAX }],
-    ['extend_video', { source: v, reference: [a] }, { model: MINIMAX }, { model: MINIMAX }],
+    ['create_video', { start_image: a }, { model: LTX }, { model: FETCH }, { model: 'Wan 2.2' }],
+    ['create_video', { start_image: a, end_image: b }, { model: LTX }, { model: FETCH }, { model: 'pi H3' }],
+    ['create_video', { reference: [a, b] }, { model: LTX }, { model: FETCH }, { model: MINIMAX }],
+    // Three subjects: LTX 2.5 takes two, the third greyed in its card (MiniMax H3 Omni took the three, 0.6.476).
+    [
+      'create_video',
+      { reference: [a, b, c] },
+      { model: LTX, left: [third] },
+      { model: FETCH, left: [third] },
+      { model: MINIMAX },
+    ],
+    ['create_video', { workflow: MINIMAX_ID }, { model: MINIMAX }, { model: MINIMAX }, { model: MINIMAX }],
+    [
+      'create_video',
+      { workflow: MINIMAX_ID, reference: [a, b, c] },
+      { model: MINIMAX },
+      { model: MINIMAX },
+      { model: MINIMAX },
+    ],
+    // A start image and a subject: LTX 2.5 takes both; without it, the model that takes most, the rest greyed (they
+    // were refused: relecture, M1).
+    [
+      'create_video',
+      { start_image: a, reference: [b] },
+      { model: LTX },
+      { model: FETCH },
+      { model: MINIMAX, left: [`${MINIMAX} ne prend pas d’image de début : elle reste là, mais n’est pas envoyée.`] },
+    ],
+    [
+      'create_video',
+      { start_image: a, end_image: b, reference: [c] },
+      { model: LTX },
+      { model: FETCH },
+      {
+        model: 'pi H3',
+        left: [`pi H3 ne prend pas de sujet : choisissez ${MINIMAX}. Il reste là, mais n’est pas envoyé.`],
+      },
+    ],
+    // A suite: the model of its clip, else LTX 2.5; with a subject, LTX 2.5 all the same, the subject greyed
+    // (MiniMax H3 Omni took it, 0.6.476), save for a clip of MiniMax H3 Omni or MiniMax H3 Omni named.
+    ['extend_video', { source: v }, { model: LTX }, { model: FETCH }, { model: MINIMAX }],
+    [
+      'extend_video',
+      { source: { output: 'minimax-clip' } },
+      { model: MINIMAX },
+      { model: MINIMAX },
+      { model: MINIMAX },
+    ],
+    ['extend_video', { source: { output: 'ltx-clip' } }, { model: LTX }, { model: FETCH }, { model: MINIMAX }],
+    [
+      'extend_video',
+      { source: v, reference: [a] },
+      { model: LTX, left: [inSuite] },
+      { model: FETCH, left: [inSuite] },
+      { model: MINIMAX },
+    ],
+    [
+      'extend_video',
+      { source: { output: 'ltx-clip' }, reference: [a] },
+      { model: LTX, left: [inSuite] },
+      { model: FETCH, left: [inSuite] },
+      { model: MINIMAX },
+    ],
+    [
+      'extend_video',
+      { source: { output: 'minimax-clip' }, reference: [a] },
+      { model: MINIMAX },
+      { model: MINIMAX },
+      { model: MINIMAX },
+    ],
+    [
+      'extend_video',
+      { source: v, reference: [a], workflow: MINIMAX_ID },
+      { model: MINIMAX },
+      { model: MINIMAX },
+      { model: MINIMAX },
+    ],
   ];
-  for (const [name, args, ready, without] of table) {
-    const asked = { intention: 'x', ...args };
+  for (const [name, args, ready, fetched, without] of table) {
+    const asked = { intention: 'x', ...args },
+      [toFetch, ...away] = absent;
     assert.deepEqual(await sayRouted(all, name, asked), { notes: [], left: [], ...ready }, JSON.stringify(args));
-    for (const list of absent)
+    assert.deepEqual(await sayRouted(toFetch, name, asked), { notes: [], left: [], ...fetched }, JSON.stringify(args));
+    for (const list of away)
       assert.deepEqual(await sayRouted(list, name, asked), { notes: [], left: [], ...without }, JSON.stringify(args));
   }
-  // A start image and a subject: LTX 2.5 takes both; without it no model here does, refused as before.
-  assert.equal((await sayRouted(all, 'create_video', { intention: 'x', start_image: a, reference: [b] })).model, LTX);
-  await assert.rejects(
-    sayRouted(absent[0], 'create_video', { intention: 'x', start_image: a, reference: [b] }),
-    /^Error: Aucun workflow ne correspond/,
-  );
+  // LTX 2.5 named for the suite of a clip of MiniMax H3 Omni: LTX 2.5, ready or to download.
+  const named = { intention: 'x', source: { output: 'minimax-clip' }, workflow: LTX_ID };
+  assert.equal((await sayRouted(all, 'extend_video', named)).model, LTX);
+  assert.equal((await sayRouted(absent[0], 'extend_video', named)).model, FETCH);
   // Nothing ready: the download of LTX 2.5, a video from words.
   const none = all.map(workflow => ({ ...workflow, ...TO_FETCH }));
   assert.equal((await sayRouted(none, 'create_video', { intention: 'x' })).model, 'LTX 2.5 (à télécharger)');
@@ -587,6 +701,12 @@ test('a video of Moodix AI: LTX 2.5 as soon as it is ready and takes what is pas
   // By the user's own hand (the buttons of a take), as before: the model with the fewest empty slots.
   assert.equal((await sayRouted(all, 'create_video', { intention: 'x' }, { byHand: true })).model, MINIMAX);
   assert.equal((await sayRouted(all, 'extend_video', { intention: 'x', source: v }, { byHand: true })).model, MINIMAX);
+  // (0.6.493) And what the chat now holds greyed: by hand, the model that takes it all, or refused, as before.
+  const hand = (list, name, args) => sayRouted(list, name, { intention: 'x', ...args }, { byHand: true });
+  assert.equal((await hand(all, 'create_video', { reference: [a, b, c] })).model, MINIMAX);
+  assert.equal((await hand(all, 'extend_video', { source: v, reference: [a] })).model, MINIMAX);
+  assert.equal((await hand(absent[0], 'create_video', {})).model, MINIMAX);
+  await assert.rejects(hand(absent[0], 'create_video', { start_image: a, reference: [b] }), /^Error: Aucun workflow/);
   // The Studio and the Bobine name their model: it is the one made, LTX 2.5 ready or not.
   for (const list of [all, ...absent])
     assert.equal(
@@ -603,6 +723,60 @@ test('a video of Moodix AI: LTX 2.5 as soon as it is ready and takes what is pas
   assert.deepEqual(
     [families('ltx25').chatFirst, families('qwen_image_edit').chatFirst],
     [['create_video', 'extend_video'], ['create_image']],
+  );
+});
+
+test('a video of Moodix AI no model here makes is refused in French with what to do; LTX 2.5 to download is told to the model; a suite lists what the card takes (0.6.493)', async () => {
+  const all = everyShipped(),
+    // Wan 2.2, the only video model of this computer: it cannot do without a start image, and takes no subject.
+    wan = all.filter(workflow => !['ltx25', 'minimax_h3', 'pi_h3'].includes(workflow.pipeline)),
+    [a, b] = ['a', 'b'].map(resource => ({ resource }));
+  const refusal = message => ({ status: 400, message });
+  await assert.rejects(
+    sayRouted(wan, 'create_video', { intention: 'x' }),
+    refusal('Wan 2.2 ne se fait pas sans « Image de début » : passez-en une.'),
+  );
+  await assert.rejects(
+    sayRouted(wan, 'create_video', { intention: 'x', reference: [a] }),
+    refusal(
+      'Aucun modèle vidéo de cet ordinateur ne prend de sujet : retirez les sujets, ' +
+        'ou décrivez dans le prompt ce qu’il faut en garder.',
+    ),
+  );
+  // What it takes goes, the rest greyed; by hand, refused as before (relecture, M1).
+  assert.deepEqual(await sayRouted(wan, 'create_video', { intention: 'x', start_image: a, reference: [b] }), {
+    model: 'Wan 2.2',
+    notes: [],
+    left: ['Wan 2.2 ne prend pas de sujet. Il reste là, mais n’est pas envoyé.'],
+  });
+  await assert.rejects(
+    sayRouted(wan, 'create_video', { intention: 'x', start_image: a, reference: [b] }, { byHand: true }),
+    /^Error: Aucun workflow ne correspond/,
+  );
+  // LTX 2.5 to download beside the ready models: the chat model is told of it, as the one routed (relecture, S2).
+  const lacking = otherwise(all, ['ltx25'], TO_FETCH),
+    told = async list =>
+      (await catalogOf(list).definitions()).find(tool => tool.function.name === 'create_video').function.parameters
+        .properties.workflow.enum;
+  assert.ok((await told(lacking)).includes(LTX_ID));
+  for (const list of [otherwise(all, ['ltx25'], { enabled: false }), otherwise(all, ['ltx25'], NOT_HERE)])
+    assert.equal((await told(list)).includes(LTX_ID), false);
+  // To a capable model: given without source, the first reference is the image changed, Picture 1 for
+  // Qwen-Image-Edit; told « Picture 2 and Picture 3 » alone, it named the wrong image (relecture, S1).
+  const words = (await catalogOf(all).definitions(undefined, { wording: CAPABLE })).find(
+    tool => tool.function.name === 'create_image',
+  ).function.parameters.properties.reference.description;
+  assert.match(words, /\(Picture 2 and Picture 3 for Qwen-Image-Edit, after the source\)\./);
+  assert.match(words, /Given without source, the first one is the image changed \(Picture 1 for Qwen-Image-Edit, /);
+  // A suite: the list of the card says what each takes beside its clip, not a role of the user's hand only (an end
+  // image), which the card has no place for (relecture, I).
+  const suite = await catalogOf(all).choices('extend_video', { source: [{ media: 'video' }] });
+  assert.deepEqual(
+    suite.filter(model => model.extend_video).map(model => [model.name, model.extend_video.roles]),
+    [
+      ['LTX 2.5', { source: { count: 1, required: true }, reference: { count: 0 } }],
+      ['MiniMax H3 Omni', { source: { count: 1, required: true }, reference: { count: 3 } }],
+    ],
   );
 });
 

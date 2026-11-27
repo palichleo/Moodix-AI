@@ -2892,6 +2892,8 @@ function cardChoice(host, proposal, abort, delay) {
     takes: () => projectTakes(),
     importImage: file => assetsUI.importFiles([file], { project: state.projectId || 'inbox' }).then(list => list[0] ?? null),
     onChange: () => scrollToBottom(),
+    // (0.6.493) A model downloaded from the card: the Studio and the Bobine read their models again (as missingFile).
+    onFetched: () => state.studio?.invalidate?.({ tools: true }),
   });
   state.proposalCard = pending;
   updateControls();
@@ -4574,7 +4576,14 @@ async function sendMessage(event) {
       }
       // A take that failed says why on itself (52): no second line under the message.
       // (0.6.464) (Made, the card alone held after it: the take says so, madeHeld.)
-      view.note.textContent = result.failed && result.record && !madeHeld(result.error) ? result.error || 'Analyse indisponible.' : '';
+      // (0.6.493) An image of Moodix AI made at once, without a card: what its routing says under its message (an image
+      // not sent, the one it starts from), as its tool promises the model the user is told (relecture, M2).
+      const routed =
+        result.record && !result.failed && !request.mediaType && (!viaStudio || away)
+          ? (request.notes ?? []).join(' ')
+          : '';
+      view.note.textContent =
+        result.failed && result.record && !madeHeld(result.error) ? result.error || 'Analyse indisponible.' : routed;
       if (result.denied || result.failed || result.stopped || iterations >= (state.generation?.maxIterations || 10)) allowTools = false;
       // After a refusal or a failure the model explains it: it does not go on inspecting outputs.
       if (result.denied || result.failed) resourceReads = 8;
