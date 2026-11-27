@@ -77,6 +77,33 @@ test('the model asks for seconds; the router picks frames and says when it round
   await assert.rejects(tools.route('create_video', { prompt: 'x', intention: 'y', duration: -1 }, media), /duration/);
 });
 
+test('(0.6.461) a film asked of one clip: the card says where a film is made, and a capable model how long a clip is', async () => {
+  // (27/11, a real request to his chat model: « un petit film de 30 secondes avec trois plans » was answered
+  // « ces trois plans de dix secondes », with one clip of 14,38 s at most on its card and not a word of the Bobine.)
+  const { CAPABLE } = await import('../lib/model-wording.mjs');
+  const tools = new ToolCatalog({ list: async () => [{ ...minimax(), ready: true }] });
+  const film = 'Un film plus long, ou en plusieurs plans, se monte dans la Bobine : un plan par prise.';
+  const asked = duration => tools.route('create_video', { prompt: 'x', intention: 'y', duration }, media);
+  // Much longer than the longest clip: its length rounded, and where a film is made.
+  assert.deepEqual((await asked(30)).notes, ['Durée : 30 s → 14,38 s, la plus proche que MiniMax H3 permet.', film]);
+  // A little longer, or shorter: a clip, nothing of a film.
+  for (const duration of [15, 10, 2.5]) assert.equal((await asked(duration)).notes.includes(film), false, String(duration));
+  // The continuation of a clip is no film.
+  const more = await tools.route(
+    'extend_video',
+    { prompt: 'x', intention: 'y', duration: 60, source: { output: '22222222-2222-4222-8222-222222222222' } },
+    media,
+  );
+  assert.equal(more.notes.includes(film), false);
+  // A capable model is told how long one clip is, and what a film of several shots is; the local one as before.
+  const told = async wording =>
+    (await tools.definitions(undefined, wording ? { wording } : {})).find(tool => tool.function.name === 'create_video')
+      .function.parameters.properties.duration.description;
+  assert.match(await told(CAPABLE), /One clip is 14\.38 seconds at most here\. A longer film, or several shots/);
+  assert.match(await told(CAPABLE), /propose its first shot only.*Bobine page/);
+  assert.doesNotMatch(await told(), /Bobine|at most here/);
+});
+
 test('a locked clip length keeps the workflow’s value and tells the model', async () => {
   const tools = new ToolCatalog({
     list: async () => [{ ...minimax({ policy: 'fixed', value: 124 }), ready: true }],
