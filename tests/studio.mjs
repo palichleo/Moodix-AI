@@ -4302,6 +4302,40 @@ test('(0.6.260) « Libérer le GPU » is in the glass of « Générer », as bef
   }
 });
 
+test('(0.6.463) the card held after a take that was made: neither « Échec » nor « Rien n’a été enregistré »', async () => {
+  // (The engine could not say the card was free again after a retouch that had worked, 8 MiB left there: the Studio
+  // said « ÉCHEC … Rien n’a été enregistré » over a take that was in its Sortie.)
+  let made = true;
+  const held = { gpuBlocked: () => true, gpuMade: () => made };
+  const page = await studioPage({ create_video: [wanStudio()] }, {}, { extra: held });
+  const { body, restore } = page;
+  const shown = () => [
+    body.find('studio-failed-chip').length,
+    body.find('studio-held-kicker')[0]?.textContent,
+    body.find('studio-held-text')[0]?.children.map(line => line.textContent),
+  ];
+  try {
+    page.mode(1);
+    assert.deepEqual(shown(), [
+      0,
+      'Carte prise',
+      ['La carte graphique est restée prise par la dernière génération.', ' La prise est faite : elle est dans la Sortie.'],
+    ]);
+    // « Libérer le GPU » is still the only thing to do.
+    assert.match(body.find('studio-go')[0].className, /studio-recover/);
+    // Nothing made: as before.
+    made = false;
+    page.studio.render();
+    assert.deepEqual(shown(), [
+      1,
+      'Arrêtée',
+      ['La carte graphique est restée prise par la dernière génération.', ' Rien n’a été enregistré.'],
+    ]);
+  } finally {
+    restore();
+  }
+});
+
 test('(0.6.456) the card held after a take that failed: the Studio says why under its screen, held and once free', async () => {
   const image = {
     id: 'w',

@@ -507,6 +507,8 @@ export function setupStudio({
   gpuBlocked = () => false,
   // (0.6.456) What the generation that left it held said (its error): why it failed, under its screen.
   gpuError = () => '',
+  // (0.6.463) Whether that generation made its take all the same (kept): the card alone is to free.
+  gpuMade = () => false,
   recoverGPU = async () => {},
   // The mark of Moodix AI drawn with a mask of its own (app.js, moodixMark): it breathes.
   mark = null,
@@ -3816,13 +3818,16 @@ export function setupStudio({
       // The same words as in the chat (54b); « Libérer le GPU » says what to do, under it. (0.6.456) Why the take
       // failed is said under the screen (preview): in a screen of 9:16, 150 px wide at 1280 × 720, it went out of it.
       // There, the first words go too (moodix.css, .studio-held-words).
+      // (0.6.463) Its take made and kept, the card alone held after it (the engine could not say it was free again):
+      // neither « ÉCHEC » nor « Rien n’a été enregistré », which were false then; the take is in the Sortie.
+      const made = gpuMade();
       const said = node('p', 'studio-held-text');
       said.append(
         node('span', 'studio-held-words', 'La carte graphique est restée prise par la dernière génération.'),
-        node('span', '', ' Rien n’a été enregistré.'),
+        node('span', '', made ? ' La prise est faite : elle est dans la Sortie.' : ' Rien n’a été enregistré.'),
       );
-      veil.append(node('p', 'studio-held-kicker', 'Arrêtée'), said);
-      frame.append(node('span', 'studio-failed-chip', 'Échec'), veil);
+      veil.append(node('p', 'studio-held-kicker', made ? 'Carte prise' : 'Arrêtée'), said);
+      frame.append(...(made ? [] : [node('span', 'studio-failed-chip', 'Échec')]), veil);
     } else if (!working && refilming()) {
       // (0.6.240) While the camera of a clip is set: its simple guide, in the place of the take on the screen.
       frame.append(orbitGuide(current()));

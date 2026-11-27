@@ -5160,6 +5160,8 @@ const studioUI = setupStudio({
   gpuBlocked: () => Boolean(state.status.toolJob?.blocked),
   // (0.6.456) Why the generation that held it failed: said under the screen of the Studio.
   gpuError: () => (state.status.toolJob?.blocked ? state.status.toolJob.error || '' : ''),
+  // (0.6.463) Its take made and kept all the same: the Studio does not say « Échec » then.
+  gpuMade: () => Boolean(state.status.toolJob?.blocked && state.status.toolJob.record),
   mark: () => moodixMark()[0],
   recoverGPU: () => recoverGPU(),
   blocked: () =>
