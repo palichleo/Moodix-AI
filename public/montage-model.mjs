@@ -225,6 +225,21 @@ export function takeSeconds(record) {
   return seconds > 0 ? round(seconds) : null;
 }
 
+const folded = text => String(text ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+/**
+ * (0.6.458, Bobine Pro, B01) Whether « Chercher une prise » finds `record` with the words `sought`: each one of them,
+ * without accents nor capitals. A word of digits is the start of its number (« 8 » finds the takes 8, 80 to 89,
+ * 800…), the others are in its text or the name of its model; « prise » is in every take numbered.
+ */
+export function takeFound(record, sought) {
+  const words = folded(sought).split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const take = record?.outputs?.[0]?.take,
+    numbered = Number.isInteger(take),
+    text = folded([numbered ? 'prise' : '', record?.prompt, record?.workflowName].join(' '));
+  return words.every(word => (/^\d+$/.test(word) ? numbered && String(take).startsWith(word) : text.includes(word)));
+}
+
 const sourceOf = (record, output = 0) => ({ conversationId: record.conversationId, runId: record.id, output });
 
 /**

@@ -45,6 +45,7 @@ import {
   planStarts,
   seriesOf,
   snapped,
+  takeFound,
   takeSeconds,
   todoPlans,
   trackOf,
@@ -242,6 +243,10 @@ export function setupMontage({
     stored = false,
     chosen = null,
     filter = 'all',
+    // (0.6.458, Bobine Pro, B01) « Prises » in a grid or in a list, and what is looked for there (null: the field is
+    // closed). Kept while the page lives, as the filter is.
+    layout = 'grid',
+    sought = null,
     head = 0,
     playing = null,
     // (0.6.457, Bobine Pro) The film read again from its start when it ends; its sound cut while it is read. Kept
@@ -1426,10 +1431,27 @@ export function setupMontage({
   function takes() {
     const { section, body } = block('is-settings', 'montage-takes'),
       all = runs() ?? [],
-      shown = all.filter(record => filter === 'all' || (record.mediaType || 'image') === filter),
-      headRow = headOf('Prises', all.length, { named: 'montage-label', counted: 'montage-count' }),
+      // (0.6.458, Bobine Pro, B01) At the right of its head: the search, then the grid or the list. Its icon says the
+      // one shown, its words what a press turns it to, as « Couper le son » does under the screen.
+      seek = button('bobine-panel-tool montage-seek', '', toggleSeek, 'search', sought === null ? 'Chercher une prise' : 'Fermer la recherche'),
+      shape = button(
+        'bobine-panel-tool montage-shape',
+        '',
+        () => {
+          // (Its words change with it: the focus goes back to it by its place, not by them.)
+          const had = page?.document?.activeElement === shape;
+          layout = layout === 'grid' ? 'list' : 'grid';
+          redrawTakes();
+          if (had) live.shapeTool?.focus?.({ preventScroll: true });
+        },
+        layout,
+        layout === 'grid' ? 'En liste' : 'En grille',
+      ),
+      headRow = headOf('Prises', all.length, { named: 'montage-label', counted: 'montage-count', tools: [seek, shape] }),
       filters = node('div', 'montage-filters'),
       grid = node('div', 'montage-grid');
+    seek.setAttribute('aria-expanded', String(sought !== null));
+    grid.dataset.layout = layout;
     section.setAttribute('aria-label', 'Prises du projet');
     for (const [id, label] of FILTERS) {
       const pill = button('montage-filter', label, () => {
@@ -1439,87 +1461,152 @@ export function setupMontage({
       pill.setAttribute('aria-pressed', String(filter === id));
       filters.append(pill);
     }
-    for (const record of shown) {
-      const output = record.outputs?.[0] ?? {},
-        track = trackOf(record),
-        seconds = takeSeconds(record),
-        name = Number.isInteger(output.take) ? 'Prise ' + output.take : 'Création',
-        tile = button('montage-take', '', null);
-      tile.dataset.kind = track;
-      tile.dataset.id = record.id;
-      tile.title = name + ' : cliquez pour l’ouvrir en grand, double-cliquez pour la poser à la fin, ou glissez-la sur la bobine';
-      tile.setAttribute('aria-label', name);
-      const picture = pictureOf(record);
-      if (picture) tile.append(Object.assign(node('img'), { src: picture, alt: '', loading: 'lazy', draggable: false }));
-      else if (track === 'video' && output.originalUrl) {
-        // Its first picture, of which a small one is made for the next time (and for the timeline).
-        const first = Object.assign(node('video'), { muted: true, preload: 'metadata', playsInline: true, draggable: false });
-        first.src = output.originalUrl + '#t=0.1';
-        // (0.6.142) Once made it is shown on the timeline too.
-        first.onloadeddata = () =>
-          void Promise.resolve(thumbnail(api, record, 0, first))
-            .then(() => {
-              if (pictureOf(record) && montage?.plans.some(plan => plan.source?.runId === record.id)) update({ panel: false });
-            })
-            .catch(() => {});
-        tile.append(first);
-      } else tile.append(node('span', track === 'video' ? 'montage-take-blank' : 'montage-wave'));
-      // (Capture 70: « PRISE n » at the left, its length, or « IMAGE », at the right, on dark grounds.)
-      tile.append(
-        node('span', 'montage-take-number', Number.isInteger(output.take) ? 'Prise ' + output.take : ''),
-        node('span', 'montage-take-length', track === 'image' ? 'Image' : seconds ? mono(seconds) + ' s' : ''),
-      );
-      // (0.6.169, his words of 21/11) « Un click simple dans un média à gauche doit l'ouvrir en grand. Le
-      // double click doit le mettre dans la timeline. » The click waits the time of a double click: the
-      // second one lays it, the take not opened.
-      tile.onclick = event => {
-        if ((event?.detail ?? 1) > 1) return;
-        if (opening) timers.clear(opening);
-        opening = timers.set(() => {
-          opening = null;
-          showTake(record);
-        }, DOUBLE_CLICK);
-      };
-      tile.ondblclick = () => {
-        if (opening) timers.clear(opening);
-        opening = null;
-        lay(record);
-      };
-      tile.onkeydown = event => {
-        if (event.key !== 'Enter') return;
-        // (Entrée lays it, as before: not the click a button gets from it, which would open it too.)
-        event.preventDefault?.();
-        lay(record);
-      };
-      tile.draggable = true;
-      tile.ondragstart = event => {
-        if (opening) timers.clear(opening);
-        opening = null;
-        carried = record;
-        event.dataTransfer?.setData?.('text/plain', name);
-        if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy';
-        // (0.6.169) « Aussi intuitif que dans Studio »: carried small, at the size of a take of the track,
-        // tilted, as the Studio carries its takes; the tile stays where it was, dimmed; the tracks it can
-        // go on light up (moodix.css), and the timeline shows where it would go (carry).
-        dragImage?.(tile, event.dataTransfer, track === 'music' || track === 'effects' ? 'audio' : track, output.take, carriedSize(record));
-        tile.classList?.add?.('is-carried');
-        if (root) root.dataset.carrying = track === 'music' || track === 'effects' ? 'sound' : track;
-        // (0.6.152) A photo carried lights up the places where it can go: the timeline is drawn with them.
-        if (track === 'image') update({ panel: false });
-      };
-      tile.ondragend = () => {
-        const was = carried;
-        carried = null;
-        tile.classList?.remove?.('is-carried');
-        if (root) delete root.dataset.carrying;
-        uncarry();
-        if (was && track === 'image') update({ panel: false });
-      };
-      grid.append(tile);
-    }
-    if (!shown.length) grid.append(node('p', 'montage-none', all.length ? 'Aucune prise de ce type.' : 'Aucune prise dans ce projet.'));
-    body.append(headRow, filters, grid);
+    Object.assign(live, { grid, seekTool: seek, shapeTool: shape });
+    fillTakes(grid, all);
+    body.append(headRow, ...(sought === null ? [] : [seekField()]), filters, grid);
     return section;
+  }
+  /** (0.6.458) What « Prises » shows: the takes of its filter that the search finds, in a grid or in a list. */
+  function fillTakes(grid, all) {
+    const shown = all.filter(record => (filter === 'all' || (record.mediaType || 'image') === filter) && takeFound(record, sought ?? '')),
+      words = (sought ?? '').trim();
+    grid.replaceChildren(...shown.map(tileOf));
+    if (!shown.length)
+      grid.append(
+        node('p', 'montage-none', !all.length ? 'Aucune prise dans ce projet.' : words ? `Aucune prise ne correspond à « ${words} ».` : 'Aucune prise de ce type.'),
+      );
+  }
+  /**
+   * (0.6.458, Bobine Pro, B01) The field of « Chercher une prise », under the head: the takes shown follow each
+   * letter, the rest of the page untouched. Échap empties it, then closes it.
+   */
+  function seekField() {
+    const box = node('label', 'montage-search'),
+      field = node('input', 'montage-search-words'),
+      again = () => live.grid && fillTakes(live.grid, runs() ?? []);
+    field.type = 'search';
+    field.value = sought ?? '';
+    field.placeholder = 'Numéro ou mots du texte';
+    field.autocomplete = 'off';
+    field.spellcheck = false;
+    field.setAttribute('aria-label', 'Chercher une prise');
+    field.oninput = () => {
+      sought = field.value;
+      again();
+    };
+    field.onkeydown = event => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault?.();
+      event.stopPropagation?.();
+      if (!field.value) return toggleSeek();
+      field.value = sought = '';
+      again();
+    };
+    box.append(icon('search'), field);
+    live.seek = field;
+    return box;
+  }
+  function toggleSeek() {
+    sought = sought === null ? '' : null;
+    redrawTakes();
+    (sought === null ? live.seekTool : live.seek)?.focus?.({ preventScroll: true });
+  }
+  /** (0.6.458) « Prises » alone drawn again (its search, its grid or its list): the screen goes on as it was. */
+  function redrawTakes() {
+    if (!root || !montage) return;
+    if (!parts || !root.replaceChild) return draw();
+    const focused = page?.document?.activeElement,
+      old = parts.takes,
+      next = takes();
+    root.replaceChild(next, old);
+    parts.takes = next;
+    if (focused && old.contains?.(focused)) refocus(focused, next);
+  }
+  /**
+   * A take of « Prises »: its picture in a frame (it grows a little under the pointer, moodix.css), « PRISE 112 » at
+   * its foot with its length or the sign of an image; in the list, the start of its text beside it.
+   */
+  function tileOf(record) {
+    const output = record.outputs?.[0] ?? {},
+      track = trackOf(record),
+      seconds = takeSeconds(record),
+      name = Number.isInteger(output.take) ? 'Prise ' + output.take : 'Création',
+      tile = button('montage-take', '', null),
+      picture = node('span', 'montage-take-picture');
+    tile.dataset.kind = track;
+    tile.dataset.id = record.id;
+    tile.title = name + ' : cliquez pour l’ouvrir en grand, double-cliquez pour la poser à la fin, ou glissez-la sur la bobine';
+    tile.setAttribute('aria-label', name);
+    const small = pictureOf(record);
+    if (small) picture.append(Object.assign(node('img'), { src: small, alt: '', loading: 'lazy', draggable: false }));
+    else if (track === 'video' && output.originalUrl) {
+      // Its first picture, of which a small one is made for the next time (and for the timeline).
+      const first = Object.assign(node('video'), { muted: true, preload: 'metadata', playsInline: true, draggable: false });
+      first.src = output.originalUrl + '#t=0.1';
+      // (0.6.142) Once made it is shown on the timeline too.
+      first.onloadeddata = () =>
+        void Promise.resolve(thumbnail(api, record, 0, first))
+          .then(() => {
+            if (pictureOf(record) && montage?.plans.some(plan => plan.source?.runId === record.id)) update({ panel: false });
+          })
+          .catch(() => {});
+      picture.append(first);
+    } else picture.append(node('span', track === 'video' ? 'montage-take-blank' : 'montage-wave'));
+    // (0.6.458, Bobine Pro, B01) At its foot, on a dark gradient: « PRISE 112 » at the left, its length or the sign of
+    // an image at the right; no more labels on black. In the list, the start of its text under them.
+    const foot = node('span', 'montage-take-foot'),
+      length = node('span', 'montage-take-length', track === 'image' ? '' : seconds ? mono(seconds) + ' s' : '');
+    if (track === 'image') length.append(icon('image'));
+    foot.append(node('span', 'montage-take-number', Number.isInteger(output.take) ? 'Prise ' + output.take : ''), length);
+    tile.append(picture, foot);
+    if (layout === 'list') tile.append(node('span', 'montage-take-text', String(record.prompt ?? '').trim().slice(0, 240) || record.workflowName || ''));
+    // (0.6.169, his words of 21/11) « Un click simple dans un média à gauche doit l'ouvrir en grand. Le
+    // double click doit le mettre dans la timeline. » The click waits the time of a double click: the
+    // second one lays it, the take not opened.
+    tile.onclick = event => {
+      if ((event?.detail ?? 1) > 1) return;
+      if (opening) timers.clear(opening);
+      opening = timers.set(() => {
+        opening = null;
+        showTake(record);
+      }, DOUBLE_CLICK);
+    };
+    tile.ondblclick = () => {
+      if (opening) timers.clear(opening);
+      opening = null;
+      lay(record);
+    };
+    tile.onkeydown = event => {
+      if (event.key !== 'Enter') return;
+      // (Entrée lays it, as before: not the click a button gets from it, which would open it too.)
+      event.preventDefault?.();
+      lay(record);
+    };
+    tile.draggable = true;
+    tile.ondragstart = event => {
+      if (opening) timers.clear(opening);
+      opening = null;
+      carried = record;
+      event.dataTransfer?.setData?.('text/plain', name);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy';
+      // (0.6.169) « Aussi intuitif que dans Studio »: carried small, at the size of a take of the track,
+      // tilted, as the Studio carries its takes; the tile stays where it was, dimmed; the tracks it can
+      // go on light up (moodix.css), and the timeline shows where it would go (carry).
+      dragImage?.(tile, event.dataTransfer, track === 'music' || track === 'effects' ? 'audio' : track, output.take, carriedSize(record));
+      tile.classList?.add?.('is-carried');
+      if (root) root.dataset.carrying = track === 'music' || track === 'effects' ? 'sound' : track;
+      // (0.6.152) A photo carried lights up the places where it can go: the timeline is drawn with them.
+      if (track === 'image') update({ panel: false });
+    };
+    tile.ondragend = () => {
+      const was = carried;
+      carried = null;
+      tile.classList?.remove?.('is-carried');
+      if (root) delete root.dataset.carrying;
+      uncarry();
+      if (was && track === 'image') update({ panel: false });
+    };
+    return tile;
   }
   /**
    * (0.6.169) The size a take carried from « Prises » is drawn at under the pointer: that of a take on
@@ -2095,13 +2182,13 @@ export function setupMontage({
     sayStep();
     // (0.6.456, Bobine Pro, B01) What is asked to Moodix AI, above « Créer » and what is said of it: the same box while
     // the panel is drawn again (its words, its place in them), made again when the page is.
-    const asking = arrange ? (live.ask?.host ?? askBox()) : null;
-    if (asking) sayAsk();
+    const askHost = arrange ? (live.ask?.host ?? askBox()) : null;
+    if (askHost) sayAsk();
     body.append(
-      // (0.6.456, Bobine Pro, B01) The head of « Prises », its count the takes to create.
+      // (0.6.456, Bobine Pro, B01) The same head as « Prises », its count the takes to create.
       headOf('À créer', series.length, { named: 'bobine-create-title', counted: 'bobine-create-count' }),
       lines,
-      ...(asking ? [asking] : []),
+      ...(askHost ? [askHost] : []),
       ...(said ? [node('p', 'bobine-missing', said)] : []),
       live.waiting,
       live.step,

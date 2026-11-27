@@ -318,7 +318,9 @@ test('a new bobine shows the takes of the project, its four tracks and « À cr�
     'studio-block is-output montage-timeline',
   ]);
   assert.deepEqual(f.said('montage-take-number'), ['Prise 1', 'Prise 2', 'Prise 3', 'Prise 4']);
-  assert.deepEqual(f.said('montage-take-length'), ['05.00 s', '03.00 s', 'Image', '30.00 s']);
+  // (0.6.458, Bobine Pro, B01) An image says what it is by its sign, not by « Image » on black.
+  assert.deepEqual(f.said('montage-take-length'), ['05.00 s', '03.00 s', '', '30.00 s']);
+  assert.deepEqual(f.get('montage-take-length')[2].children.map(child => child.className), ['icon-image']);
   // (0.6.198) The track of the images says « Images », as the Bobine says « image de début » (« Photos » before).
   assert.deepEqual(f.said('montage-track-name'), ['Images', 'Prises', 'Piste audio 1', 'Piste audio 2']);
   // The preview of an empty bobine: its frame and the Éclipse, no words.
@@ -3220,7 +3222,8 @@ test('the styles of his returns of 21/11: the row under the preview as high as w
   assert.match(rule("#bobine-view .montage-frame-words[data-more='true'] > .montage-frame-text"), /\bmask-image: linear-gradient\(#000, #000\), linear-gradient\(to left, transparent, #000 96px\);/);
   // (Its own rule, not the one of the motion reduced that names it too.)
   assert.match(css, /\n\.bobine-drop \{\n  position: absolute;[^}]*pointer-events: none;/);
-  assert.match(rule('#bobine-view .montage-take.is-carried > :is(img, video)'), /opacity: 0.35;/);
+  // (0.6.458) The picture of a tile is in its frame.
+  assert.match(rule('#bobine-view .montage-take.is-carried .montage-take-picture > :is(img, video)'), /opacity: 0.35;/);
   // (The bar of the take chosen stayed at its place while the takes slid, and took the drop for itself.)
   assert.match(rule('.bobine-desk[data-carrying] :is(.montage-pop, .bobine-edge-hint)'), /opacity: 0;\n  pointer-events: none;/);
 });
@@ -4848,4 +4851,151 @@ test('(0.6.457, Bobine Pro, B01) the styles of the screen: black, the picture 14
   // At 1280 × 720, « Au début » and « À la fin » give their place (Origine and Fin do the same).
   assert.match(css, /@container bobine-transport \(width < 600px\) \{\n  #bobine-view \.montage-controls > \.montage-step:is\(:first-child, :last-child\) \{\n    display: none;/);
   assert.match(rule('#bobine-view .montage-screen:fullscreen'), /border: 0;\n  border-radius: 0;/);
+});
+
+// (0.6.458, Bobine Pro, lot 3, B01) The takes of the project.
+test('(0.6.458, Bobine Pro, B01) « Prises »: its loupe and « En grille ou en liste » in its head; a tile, its picture in a frame and at its foot « Prise n » with its length or the sign of an image', async () => {
+  const f = await setup().open();
+  const [head] = find(f.get('montage-takes')[0], 'bobine-panel-head');
+  assert.deepEqual(
+    find(head, 'bobine-panel-tools')[0].children.map(tool => [tool.attributes['aria-label'], tool.title, tool.children[0].className]),
+    [
+      ['Chercher une prise', 'Chercher une prise', 'icon-search'],
+      ['En liste', 'En liste', 'icon-grid'],
+    ],
+  );
+  assert.equal(f.button('Chercher une prise').attributes['aria-expanded'], 'false');
+  // (The kinds stay in the order of the Archives, 0.6.194: the maquette drew « Tout · Vidéos · Images · Sons ».)
+  assert.deepEqual(f.said('montage-filter'), ['Tout', 'Images', 'Vidéos', 'Sons']);
+  const tiles = f.get('montage-take');
+  assert.deepEqual(
+    tiles.map(tile => [tile.children.map(child => child.className), tile.children[0].children.map(child => child.tagName + '.' + child.className)]),
+    [
+      [['montage-take-picture', 'montage-take-foot'], ['IMG.']],
+      [['montage-take-picture', 'montage-take-foot'], ['IMG.']],
+      [['montage-take-picture', 'montage-take-foot'], ['IMG.']],
+      [['montage-take-picture', 'montage-take-foot'], ['SPAN.montage-wave']],
+    ],
+  );
+  assert.deepEqual(
+    tiles.map(tile => tile.children[1].children.map(child => [child.className, child.textContent])),
+    [
+      [['montage-take-number', 'Prise 1'], ['montage-take-length', '05.00 s']],
+      [['montage-take-number', 'Prise 2'], ['montage-take-length', '03.00 s']],
+      [['montage-take-number', 'Prise 3'], ['montage-take-length', '']],
+      [['montage-take-number', 'Prise 4'], ['montage-take-length', '30.00 s']],
+    ],
+  );
+  assert.deepEqual(find(tiles[2], 'montage-take-length')[0].children.map(child => child.className), ['icon-image']);
+  // Its text is for the list alone.
+  assert.deepEqual([f.get('montage-grid')[0].dataset.layout, f.get('montage-take-text').length], ['grid', 0]);
+});
+
+test('(0.6.458) the search of « Prises » finds every word: a number by its start, the words of its text or of its model without accents nor capitals', async () => {
+  const { takeFound } = await import('../public/montage-model.mjs');
+  const record = { prompt: 'Une fusée décolle', workflowName: 'LTX 2.5', outputs: [{ take: 86 }] };
+  assert.deepEqual(
+    ['', '  ', '8', '86', '860', '6', 'FUSEE', 'fusée ltx', 'prise 86', 'Prise', 'fusée lune'].map(words => takeFound(record, words)),
+    [true, true, true, true, false, false, true, true, true, true, false],
+  );
+  // A creation without a number: no word of digits finds it, nor « prise ».
+  assert.deepEqual(['1', 'prise', 'fusee'].map(words => takeFound({ prompt: 'fusée' }, words)), [false, false, true]);
+});
+
+test('(0.6.458, Bobine Pro, B01) « Chercher une prise »: its field under the head, the takes found at each letter, the rest of the page untouched; Échap empties it, then closes it', async () => {
+  const extra = [
+    take(12, 'video', { prompt: 'Une fusée décolle à l’aube', workflowName: 'LTX 2.5', parameters: { frames: 48, fps: 24 } }),
+    take(120, 'image', { prompt: 'Astronaut on the Moon' }),
+  ];
+  const f = await setup({ extra }).open();
+  const screen = f.get('montage-screen')[0],
+    create = f.get('bobine-create')[0];
+  f.button('Chercher une prise').onclick();
+  const [field] = f.get('montage-search-words');
+  assert.deepEqual(
+    [field.type, field.value, field.placeholder, field.attributes['aria-label'], f.focused(), f.button('Fermer la recherche').attributes['aria-expanded']],
+    ['search', '', 'Numéro ou mots du texte', 'Chercher une prise', field, 'true'],
+  );
+  // Under the head, over the kinds.
+  assert.deepEqual(f.get('montage-takes')[0].children[0].children.map(part => part.className), ['bobine-panel-head', 'montage-search', 'montage-filters', 'montage-grid']);
+  const type = words => {
+    field.value = words;
+    field.oninput();
+    return f.said('montage-take-number').filter(Boolean);
+  };
+  const all = f.said('montage-take-number');
+  assert.deepEqual(all.slice().sort(), ['Prise 1', 'Prise 12', 'Prise 120', 'Prise 2', 'Prise 3', 'Prise 4']);
+  const order = words => all.filter(name => words.includes(name));
+  assert.deepEqual(type('1'), order(['Prise 1', 'Prise 12', 'Prise 120']));
+  assert.deepEqual(type('12'), order(['Prise 12', 'Prise 120']));
+  assert.deepEqual(type('FUSEE'), ['Prise 12']);
+  assert.deepEqual(type('fusée aube'), ['Prise 12']);
+  assert.deepEqual(type('ltx'), ['Prise 12']);
+  assert.deepEqual(type('moon'), ['Prise 120']);
+  assert.deepEqual(type('prise 2'), ['Prise 2']);
+  assert.deepEqual([type('lune'), f.said('montage-none')], [[], ['Aucune prise ne correspond à « lune ».']]);
+  // Only the takes shown were drawn again: the field keeps the hand, the screen and « À créer » are those they were.
+  assert.deepEqual([f.get('montage-search-words')[0], f.focused(), f.get('montage-screen')[0], f.get('bobine-create')[0]], [field, field, screen, create]);
+  // A kind chosen: the search stays, with it.
+  type('1');
+  f.get('montage-filter')[1].onclick();
+  const [again] = f.get('montage-search-words');
+  assert.deepEqual([again.value, f.said('montage-take-number')], ['1', ['Prise 120']]);
+  // Échap: emptied (the takes of the kind back), then closed (the loupe has the hand).
+  const escape = () => again.onkeydown({ key: 'Escape', preventDefault() {}, stopPropagation() {} });
+  escape();
+  assert.deepEqual([again.value, f.said('montage-take-number').sort()], ['', ['Prise 120', 'Prise 3']]);
+  escape();
+  assert.deepEqual(
+    [f.get('montage-search').length, f.focused(), f.button('Chercher une prise').attributes['aria-expanded']],
+    [0, f.button('Chercher une prise'), 'false'],
+  );
+  // The loupe again: an empty field (nothing looked for is kept once it is closed).
+  f.button('Chercher une prise').onclick();
+  assert.equal(f.get('montage-search-words')[0].value, '');
+  f.button('Fermer la recherche').onclick();
+  assert.deepEqual([f.get('montage-search').length, f.focused()], [0, f.button('Chercher une prise')]);
+});
+
+test('(0.6.458, Bobine Pro, B01) « En liste »: a line per take, its picture, « Prise n », its length and the start of its text; « En grille » brings the grid back, the screen untouched', async () => {
+  const extra = [take(7, 'video', { prompt: '  ' + 'a'.repeat(300), parameters: { frames: 48, fps: 24 } }), take(8, 'image', { prompt: '' })];
+  const f = await setup({ extra }).open();
+  const screen = f.get('montage-screen')[0];
+  f.button('En liste').focus();
+  f.button('En liste').onclick();
+  assert.deepEqual([f.get('montage-grid')[0].dataset.layout, f.focused(), f.button('En grille').children[0].className], ['list', f.button('En grille'), 'icon-list']);
+  const text = n => find(f.get('montage-take').find(tile => tile.dataset.id === id(n)), 'montage-take-text')[0].textContent;
+  // Its text, cut to 240 letters (the line ends it with « … »); without one, its model.
+  assert.deepEqual([text(1), text(7), text(8)], ['Prise 1', 'a'.repeat(240), 'Wan 2.2']);
+  assert.deepEqual(
+    f.get('montage-take').find(tile => tile.dataset.id === id(7)).children.map(child => child.className),
+    ['montage-take-picture', 'montage-take-foot', 'montage-take-text'],
+  );
+  assert.equal(f.get('montage-screen')[0], screen);
+  f.button('En grille').onclick();
+  assert.deepEqual([f.get('montage-grid')[0].dataset.layout, f.get('montage-take-text').length, f.focused(), f.get('montage-screen')[0]], ['grid', 0, f.button('En liste'), screen]);
+  // Kept while the page lives: drawn again (another kind), the list stays a list.
+  f.button('En liste').onclick();
+  f.get('montage-filter')[2].onclick();
+  assert.equal(f.get('montage-grid')[0].dataset.layout, 'list');
+});
+
+test('(0.6.458, Bobine Pro, B01) the styles of « Prises »: tiles at 5:3 in rows as high as them, corners of 6, a gradient at their foot, the picture growing 4 % under the pointer, the edge at 42 %', async () => {
+  const { rule } = await proCss();
+  assert.match(rule('#bobine-view .montage-grid'), /grid-auto-rows: min-content;/);
+  assert.match(rule('#bobine-view .montage-take'), /border: 1px solid rgba\(238, 232, 222, 0.1\);\n  border-radius: 6px;/);
+  assert.match(rule('#bobine-view .montage-take:is(:hover, :focus-visible)'), /border-color: rgba\(238, 232, 222, 0.42\);/);
+  assert.match(rule('#bobine-view .montage-take-picture'), /position: relative;[\s\S]*aspect-ratio: 5 \/ 3;\n  overflow: hidden;/);
+  assert.match(rule('#bobine-view .montage-take:hover .montage-take-picture > :is(img, video)'), /transform: scale\(1.04\);/);
+  assert.match(rule("#bobine-view .montage-take:is([data-kind='video'], [data-kind='image'])::after"), /background: linear-gradient\(0deg, rgba\(6, 5, 8, 0.82\), rgba\(6, 5, 8, 0\)\);/);
+  assert.match(
+    rule('#bobine-view .montage-take-foot'),
+    /bottom: 8px;[\s\S]*font: 300 10.5px\/1 var\(--font-mono\);\n  letter-spacing: 0.08em;\n  text-transform: uppercase;[\s\S]*color: rgba\(238, 232, 222, 0.92\);/,
+  );
+  // No more labels on black.
+  assert.doesNotMatch(rule('#bobine-view :is(.montage-take-number, .montage-take-length)'), /background/);
+  assert.match(rule("#bobine-view .montage-filter[aria-pressed='true']"), /border-color: rgba\(238, 232, 222, 0.1\);\n  background: rgba\(238, 232, 222, 0.06\);/);
+  assert.match(rule("#bobine-view .montage-grid[data-layout='list']"), /grid-template-columns: minmax\(0, 1fr\);/);
+  assert.match(rule("#bobine-view .montage-grid[data-layout='list'] .montage-take-picture"), /width: 80px;\n  height: 48px;/);
+  assert.match(rule('#bobine-view .montage-take-text'), /white-space: nowrap;\n  text-overflow: ellipsis;/);
 });

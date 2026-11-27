@@ -16221,8 +16221,8 @@ body:not([data-view='studio']) .ai-cursor {
 .montage-take:focus-visible {
   border-color: rgba(238, 232, 222, 0.4);
 }
-.montage-take > img,
-.montage-take > video {
+.montage-take-picture,
+.montage-take-picture > :is(img, video) {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -16984,33 +16984,240 @@ body[data-view='bobine'] .chat-panel {
   margin-left: auto;
 }
 #bobine-view .montage-takes > .studio-block-body {
-  gap: 10px;
+  gap: 0;
   overflow: hidden;
 }
-/* Les prises du projet (capture 70) : « PRISE n » et sa durée, ou « IMAGE », sur fond sombre. */
+/* Les prises du projet (0.6.458, Bobine Pro, B01). Dans la tête, à droite, la loupe et « En grille ou en liste » ;
+   sous elle, la recherche quand elle est ouverte, puis Tout · Images · Vidéos · Sons (l'ordre des Archives). */
+#bobine-view .bobine-panel-tool {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+/* (Au bord du panneau, comme la maquette : la loupe à 284 px, la grille à 317 px.) */
+#bobine-view .montage-takes .bobine-panel-tools {
+  margin-right: -8px;
+}
+#bobine-view .bobine-panel-tool svg {
+  width: 15px;
+  height: 15px;
+}
+#bobine-view .bobine-panel-tool:is(:hover, :focus-visible, [aria-expanded='true']) {
+  background: rgba(238, 232, 222, 0.07);
+  color: var(--ink);
+}
+#bobine-view .montage-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  margin: 0 0 10px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: rgba(12, 11, 15, 0.62);
+  box-shadow: inset 0 0 0 1px rgba(238, 232, 222, 0.1);
+}
+#bobine-view .montage-search:focus-within {
+  box-shadow: inset 0 0 0 1px rgba(238, 232, 222, 0.32);
+}
+#bobine-view .montage-search > svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--text-3);
+}
+#bobine-view .montage-search-words {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+  font: 400 13px/1 var(--font-ui);
+  outline: none;
+}
+#bobine-view .montage-search-words::placeholder {
+  color: var(--text-4);
+}
+#bobine-view .montage-filters {
+  flex: none;
+  margin: 0 0 12px;
+}
+#bobine-view .montage-filter {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text-3);
+}
+#bobine-view .montage-filter:hover {
+  color: var(--text-2);
+}
+#bobine-view .montage-filter[aria-pressed='true'] {
+  border-color: rgba(238, 232, 222, 0.1);
+  background: rgba(238, 232, 222, 0.06);
+  color: var(--ink);
+}
+/* Deux colonnes de vignettes de même taille, l'image en cover aux coins de 6 ; à leur pied, sur un dégradé, « PRISE 112 »
+   et sa durée, ou le signe d'une image (plus d'étiquettes sur fond noir). Au survol, l'image grandit de 4 % et le liseré
+   passe à 42 %. Une rangée a la hauteur de ses vignettes : la grille déborde, elle ne leur donnerait que leur bord. */
+#bobine-view .montage-grid {
+  grid-auto-rows: min-content;
+}
 #bobine-view .montage-take {
-  height: 70px;
+  height: auto;
+  border: 1px solid rgba(238, 232, 222, 0.1);
+  border-radius: 6px;
+  background: rgba(238, 232, 222, 0.03);
+  transition: border-color 160ms ease;
+}
+#bobine-view .montage-take:is(:hover, :focus-visible) {
+  border-color: rgba(238, 232, 222, 0.42);
+}
+/* (Le cadre est dans le flux, au rapport 5:3 : c'est lui qui donne sa hauteur à la vignette et à sa rangée ; un
+   aspect-ratio sur le bouton n'était pas compté par la grille, dont les rangées s'écrasaient.) */
+#bobine-view .montage-take-picture {
+  position: relative;
+  inset: auto;
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 5 / 3;
+  overflow: hidden;
+  border-radius: 5px;
+}
+#bobine-view .montage-take-picture > :is(img, video) {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition:
+    transform 260ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    opacity 160ms ease;
+}
+#bobine-view .montage-take:hover .montage-take-picture > :is(img, video) {
+  transform: scale(1.04);
 }
 #bobine-view .montage-take:is([data-kind='video'], [data-kind='image'])::after {
-  content: none;
+  content: '';
+  inset: auto 0 0;
+  height: 58%;
+  border-radius: 0 0 5px 5px;
+  background: linear-gradient(0deg, rgba(6, 5, 8, 0.82), rgba(6, 5, 8, 0));
 }
-#bobine-view .montage-take-number,
-#bobine-view .montage-take-length {
-  top: 6px;
-  bottom: auto;
-  padding: 3px 5px;
-  border-radius: 4px;
-  background: rgba(10, 10, 12, 0.78);
-  text-shadow: none;
-  font: 500 10.5px/1 var(--font-mono);
-  letter-spacing: 0.06em;
+#bobine-view .montage-take-foot {
+  position: absolute;
+  z-index: 1;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  /* (300 : à 10,5 px, la taille des étiquettes, le trait fin des 9,5 px de la maquette.) */
+  font: 300 10.5px/1 var(--font-mono);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  color: rgba(238, 232, 222, 0.92);
+  white-space: nowrap;
+}
+#bobine-view :is(.montage-take-number, .montage-take-length) {
+  position: static;
+  text-shadow: none;
 }
 #bobine-view .montage-take-number {
-  left: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 #bobine-view .montage-take-length {
-  right: 6px;
+  flex: none;
+  display: flex;
+}
+#bobine-view .montage-take-length > svg {
+  width: 12px;
+  height: 12px;
+}
+/* Un son : sa bande lilas, comme sur sa piste (B02). */
+#bobine-view .montage-take:is([data-kind='music'], [data-kind='effects']) {
+  border-color: rgba(208, 202, 221, 0.22);
+  background: rgba(208, 202, 221, 0.07);
+}
+#bobine-view .montage-take:is([data-kind='music'], [data-kind='effects']):is(:hover, :focus-visible) {
+  border-color: rgba(208, 202, 221, 0.5);
+}
+#bobine-view .montage-wave {
+  inset: 22% 10px 36%;
+  background: repeating-linear-gradient(90deg, rgba(208, 202, 221, 0.42) 0 1.2px, transparent 1.2px 3px);
+}
+/* En liste : une ligne par prise, sa vignette à gauche, « PRISE 112 » et sa durée, le début de son texte dessous. */
+#bobine-view .montage-grid[data-layout='list'] {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+}
+#bobine-view .montage-grid[data-layout='list'] > .montage-take {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-content: center;
+  column-gap: 10px;
+  row-gap: 6px;
+  height: 60px;
+  padding: 0 8px 0 6px;
+  border-color: transparent;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+}
+#bobine-view .montage-grid[data-layout='list'] > .montage-take:is(:hover, :focus-visible) {
+  background: rgba(238, 232, 222, 0.04);
+}
+#bobine-view .montage-grid[data-layout='list'] > .montage-take::after {
+  content: none;
+}
+#bobine-view .montage-grid[data-layout='list'] .montage-take-picture {
+  grid-row: 1 / span 2;
+  width: 80px;
+  height: 48px;
+  aspect-ratio: auto;
+  border: 1px solid rgba(238, 232, 222, 0.1);
+  border-radius: 6px;
+  background: rgba(238, 232, 222, 0.03);
+  transition: border-color 160ms ease;
+}
+#bobine-view .montage-grid[data-layout='list'] > .montage-take:is(:hover, :focus-visible) .montage-take-picture {
+  border-color: rgba(238, 232, 222, 0.42);
+}
+#bobine-view .montage-grid[data-layout='list'] > .montage-take:is([data-kind='music'], [data-kind='effects']) .montage-take-picture {
+  border-color: rgba(208, 202, 221, 0.22);
+  background: rgba(208, 202, 221, 0.07);
+}
+#bobine-view .montage-grid[data-layout='list'] .montage-take-foot {
+  position: static;
+  align-self: end;
+  color: var(--text-2);
+}
+#bobine-view .montage-take-text {
+  align-self: start;
+  overflow: hidden;
+  font: 400 12px/1.2 var(--font-ui);
+  color: var(--text-3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 #bobine-view .montage-none {
   font: 400 12px/1.4 var(--font-ui);
@@ -18694,10 +18901,7 @@ body[data-view='bobine'] .chat-panel {
 /* Une prise glissée depuis « Prises » (« aussi intuitif que dans Studio ») : elle s'estompe à sa place,
    petite sous la main (studio.mjs, dragGhost) ; les pistes qui la prennent s'éclairent ; sur la timeline,
    son ombre là où elle irait, et les prises qu'elle pousserait glissent déjà. */
-#bobine-view .montage-take > :is(img, video) {
-  transition: opacity 160ms ease;
-}
-#bobine-view .montage-take.is-carried > :is(img, video) {
+#bobine-view .montage-take.is-carried .montage-take-picture > :is(img, video) {
   opacity: 0.35;
 }
 #bobine-view .montage-lane {
@@ -18771,7 +18975,7 @@ body[data-view='bobine'] .chat-panel {
     5px 0 10px -5px rgba(238, 232, 222, 0.85);
 }
 @media (prefers-reduced-motion: reduce) {
-  #bobine-view .montage-take > :is(img, video),
+  #bobine-view .montage-take-picture > :is(img, video),
   #bobine-view .montage-lane,
   .bobine-desk[data-carrying] .montage-track[data-track='plans'] .montage-piece,
   .bobine-desk[data-carrying] .montage-photos > .montage-photo,
