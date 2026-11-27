@@ -166,6 +166,8 @@ const SHORT_WAITS = [
   [/^Moodix attend votre accord/, 'Répondez d’abord à Moodix.'],
   [/^Moodix répond/, 'Attendez la fin de la réponse de Moodix.'],
   [/^(Génération|Une création est) en cours/, 'Attendez la fin de la génération en cours.'],
+  // (0.6.466) The queue of the Studio goes on (studio.mjs, whyNot).
+  [/^Le Studio a encore/, 'Attendez la fin de la file du Studio.'],
 ];
 /** (0.6.200) What is said of a wait above « Créer », short (SHORT_WAITS); any other words as they are. */
 const briefly = whole => SHORT_WAITS.find(([pattern]) => pattern.test(whole))?.[1] ?? whole;

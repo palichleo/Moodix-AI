@@ -2524,7 +2524,7 @@ test('(0.6.203) « Ajouter », the last piece of the plateau: its list gives wha
     assert.equal(lyrics(), 1);
     assert.deepEqual(list(), [[true, 'Paroles · déjà ouvertes', 'Les paroles sont déjà ouvertes, sous le prompt.']]);
 
-    // While a take is made: greyed, why in its tooltip; its list closed.
+    // (0.6.466) While a take of the Studio is made: free, the next request is set meanwhile; its list as it was.
     page.mode(1);
     model('l');
     pick().onclick();
@@ -2532,7 +2532,7 @@ test('(0.6.203) « Ajouter », the last piece of the plateau: its list gives wha
     page.prompt().oninput();
     void body.find('studio-go')[0].onclick();
     await settle();
-    assert.deepEqual([pick().disabled, pick().title, menu().hidden], [true, 'Génération en cours dans cette conversation : attendez sa fin.', true]);
+    assert.deepEqual([body.find('studio-stop').length, pick().disabled, menu().hidden], [1, false, false]);
     // In the page: its case as the others, its word in 12 px.
     const { readFile } = await import('node:fs/promises');
     const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
@@ -2901,13 +2901,16 @@ test('(0.6.204) the window of a piece closes at a press beside it, at Échap, wi
     page.mode(1);
     assert.deepEqual([body.find('studio-model-pick')[0].value, pane()], ['s', []]);
     model('l');
-    // While a take is made, no window: its case cannot be pressed then.
+    // (0.6.466) While a take of the Studio is made, its window stays: the next request is set meanwhile.
     open(0);
     page.prompt().value = 'Un phare';
     page.prompt().oninput();
     void body.find('studio-go')[0].onclick();
     await settle();
-    assert.deepEqual([pane(), body.find('studio-slot-pick')[0].disabled], [[], true]);
+    assert.deepEqual(
+      [body.find('studio-stop').length, pane(), body.find('studio-slot-pick')[0].disabled],
+      [1, ['Image de début'], false],
+    );
     // In the page: 292 px wide, its fields 34 px high, a line of the accent around the case of its piece.
     const { readFile } = await import('node:fs/promises');
     const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
@@ -4332,9 +4335,9 @@ test('(0.6.255) the actions of the take stand in a column at the right of the fr
       'tools/actions': () => ({ upscale: ['image', 'video'], extend_video: ['video'], refilm_video: ['video'] }),
       'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }),
       'tools/execute': () => {
-        // While it is made: the column of the take on the screen, held.
+        // While it is made: the column of the take on the screen, each greyed with why (0.6.466, D7: held before).
         const row = rail()[0];
-        held.push([row?.inert, row?.className]);
+        held.push([row?.inert, row?.className, ...named().map(([, , greyed, title]) => [greyed, title])]);
         return { id: 'j', state: 'error', error: 'rien' };
       },
     },
@@ -4369,13 +4372,18 @@ test('(0.6.255) the actions of the take stand in a column at the right of the fr
     buttons()[1].onclick();
     await settle();
     assert.deepEqual([page.said, body.dataset.mode], [['Aucun modèle vidéo ne part d’une image.'], 'image']);
-    // Held while a take is made, lit again at its end.
+    // Greyed while a take is made, why in its bubble (0.6.466, D7: the form is free, they wait), lit again at its end.
     page.prompt().value = 'un phare';
     page.prompt().oninput();
     await body.find('studio-go')[0].onclick();
     await settle();
-    assert.deepEqual(held, [[true, 'output-actions studio-rail']]);
+    const waits = 'Attendez la fin de la génération en cours.';
+    assert.deepEqual(held, [[false, 'output-actions studio-rail', [true, waits], [true, waits]]]);
     assert.equal(rail()[0].inert, false);
+    assert.deepEqual(
+      named().map(([, , greyed]) => greyed),
+      [false, true],
+    );
     // A clip: its four, in that order.
     page.mode(1);
     await settle();
@@ -4831,7 +4839,8 @@ test('(0.6.253) « Générer » greyed still answers: pressed or its keys, its r
   }
 });
 
-test('(0.6.254) « × 3 »: three takes one after the other, the same settings and a new seed for each, « 1 SUR 3 » on « Générer »; one again on another page of the Studio; a failure ends the series', async () => {
+// « 1/3 » beside « Générer ensuite » (0.6.466); one again on another page of the Studio; a failure ends the series.
+test('(0.6.254) « × 3 »: three takes one after the other, the same settings and a new seed for each', async () => {
   const image = { id: 'w', name: 'Image', roles: {}, limits: sizes, direct: true, size: { width: 1024, height: 1024 }, settings: [], seeded: true };
   let made = 0,
     fails = 0;
@@ -4841,8 +4850,10 @@ test('(0.6.254) « × 3 »: three takes one after the other, the same settings a
     {
       'tools/action': () => ({ requestId: 'q' + (made + 1), plan: { parameters: {} } }),
       'tools/execute': () => {
-        // What « Générer » says while this one is made.
-        labels.push(page.body.find('studio-go-label')[0]?.textContent);
+        // What « Générer » says while this one is made: « Générer ensuite », which try at its right (0.6.466).
+        labels.push(
+          ['studio-go-label', 'studio-go-percent'].map(name => page.body.find(name)[0]?.textContent).join(' '),
+        );
         if (fails && made + 1 === fails) return { id: 'j', state: 'error', error: 'rien' };
         const record = { id: 'r' + ++made, conversationId: 'c1', prompt: 'un phare', outputs: [{ originalUrl: `/r${made}.png`, take: made }] };
         page.runs.unshift(record);
@@ -4891,7 +4902,7 @@ test('(0.6.254) « × 3 »: three takes one after the other, the same settings a
     assert.deepEqual([made, sent().map(args => args.prompt), seeds[0]], [3, ['un phare', 'un phare', 'un phare'], 42]);
     assert.ok(seeds.slice(1).every(value => Number.isSafeInteger(value) && value >= 0 && value !== 42), String(seeds));
     assert.notEqual(seeds[1], seeds[2]);
-    assert.deepEqual(labels, ['1 SUR 3', '2 SUR 3', '3 SUR 3']);
+    assert.deepEqual(labels, ['Générer ensuite 1/3', 'Générer ensuite 2/3', 'Générer ensuite 3/3']);
     // Three takes in the Sortie; the count stays for the next « Générer ».
     assert.deepEqual([page.runs.map(record => record.id), tries().attributes['aria-label']], [['r3', 'r2', 'r1'], 'Essais : 3']);
     // A failure: the series ends there, its reason said.
@@ -4913,7 +4924,8 @@ test('(0.6.254) « × 3 »: three takes one after the other, the same settings a
   }
 });
 
-test('(0.6.260) a series ends at « Arrêter » pressed once its take is saved, or between two takes; another conversation opened ends it with a word', async () => {
+// Another conversation opened, it goes on in its own (0.6.466, D9).
+test('(0.6.260) a series ends at « Arrêter » pressed once its take is saved, or between two takes', async () => {
   const image = { id: 'w', name: 'Image', roles: {}, limits: sizes, direct: true, size: { width: 1024, height: 1024 }, settings: [], seeded: true };
   let made = 0,
     shown = 'c1',
@@ -4958,20 +4970,29 @@ test('(0.6.260) a series ends at « Arrêter » pressed once its take is saved, 
     asked = record => ((onRead = halt), { id: 'j', state: 'running', record });
     await go();
     assert.deepEqual([made, page.runs.map(record => record.id), body.find('studio-go-label')[0].textContent], [1, ['r1'], 'Générer']);
-    // Between two takes, the first being put on its screen: the second does not go.
+    // Between two takes, the first being put on its screen: the second does not go. (0.6.466) Said, as any stop.
     asked = null;
     onRead = halt;
     await go();
-    assert.equal(made, 2);
-    // Another conversation opened while the first take is made: the series ends there, and says it.
+    assert.deepEqual([made, body.find('studio-error')[0]?.textContent], [2, 'Génération arrêtée.']);
+    // (0.6.466, D9) Another conversation opened while the first take is made: the series goes on in its own, the
+    // Studio held there meanwhile (« Studio occupé »), and the other one's at its end. Nothing to say.
     assert.equal(tries().attributes['aria-label'], 'Essais : 3');
+    const away = [];
     asked = record => {
       shown = 'c2';
       page.studio.conversationChanged();
+      away.push(body.find('studio-away').length);
       return { id: 'j', state: 'done', record };
     };
     await go();
-    assert.deepEqual([made, notices.at(-1)], [3, 'Série arrêtée après la prise 1 sur 3 : une autre conversation a été ouverte.']);
+    const where = page.asked.filter(([route]) => route === 'tools/action').slice(-3);
+    assert.deepEqual(
+      [made, where.map(([, action]) => action.conversationId), away],
+      [5, ['c1', 'c1', 'c1'], [1, 1, 1]],
+    );
+    assert.ok(!notices.some(text => /Série arrêtée/.test(text)), notices.join(' | '));
+    assert.deepEqual([page.studio.holds(), body.find('studio-away').length], [false, 0]);
   } finally {
     restore();
   }
@@ -9708,11 +9729,18 @@ test('the Studio stays the conversation’s whose take it makes: another one sho
     assert.equal(held.find('studio-away-text')[0].textContent, 'La génération de « Renard dans la neige » occupe le Studio jusqu’à sa fin.');
     assert.match(held.find('studio-away-hint')[0].textContent, /La miniature, en bas à droite, vous ramène à « Renard dans la neige »\./);
     assert.equal(body.find('studio-go').length, 0, 'nothing of c1 is drawn in c2');
-    // Back in c1 meanwhile: as it was, the take in progress on « Générer ».
+    // Back in c1 meanwhile: as it was, the take in progress under « Générer ensuite » (0.6.466: the form free).
     shown = 'c1';
     studio.conversationChanged();
     assert.equal(body.find('studio-away').length, 0);
-    assert.equal(body.find('studio-go')[0].disabled, true);
+    assert.deepEqual(
+      [
+        body.find('studio-go')[0].disabled,
+        body.find('studio-go-label')[0].textContent,
+        body.find('studio-stop').length,
+      ],
+      [false, 'Générer ensuite', 1],
+    );
     assert.equal(page.prompt().value, 'un phare');
     // Away again, and the take ends there: the Studio is c2's (its own drafts, empty).
     shown = 'c2';
@@ -10849,12 +10877,14 @@ test('(0.6.257) the camera before a video: its block under the images, its switc
     await generate();
     assert.deepEqual([sent().prompt, sent().camera, sent().camera_speed], ['Le pêcheur lève les yeux', 'pan_left', 'slow']);
     assert.equal(page.prompt().value, 'Le pêcheur lève les yeux', 'nothing is written in the prompt of the Studio');
-    // While it is made: the block is there, held, why on a press; its menu does not open.
+    // (0.6.466) While it is made: the block stays free, for the next request (the form is free); its menu opens. What
+    // was sent stays as it was.
     ({ toggle, ball } = now());
-    assert.deepEqual([toggle.disabled, ball.disabled, ball.title, greyed(now().speeds)], [true, true, 'Génération en cours dans cette conversation : attendez sa fin.', [true, true, true]]);
+    assert.deepEqual([toggle.disabled, ball.disabled, greyed(now().speeds)], [false, false, [false, false, false]]);
+    const before = notices.length;
     ball.onclick();
-    toggle.onclick();
-    assert.deepEqual([notices.slice(-2), body.find('camera-menu').length, sent().camera], [['Génération en cours dans cette conversation : attendez sa fin.', 'Génération en cours dans cette conversation : attendez sa fin.'], 0, 'pan_left']);
+    studio.render();
+    assert.deepEqual([notices.length, body.find('camera-menu').length, sent().camera], [before, 1, 'pan_left']);
   } finally {
     restore();
   }
@@ -12088,9 +12118,10 @@ test('the tries of a series « × n » on a continuation draw their seed for its
   }
 });
 
-test('the formats of « ··· » are greyed while a creation runs, its menu left open as it was (0.6.320)', async () => {
-  // (Report 4, point 9. Opened before Ctrl+Entrée, its choices still answered: 4:3 changed the frame of the screen
-  // during the take, and the next one went at that format.)
+// The screen keeps the shape of the take.
+test('the formats of « ··· » stay free during a take of the Studio, for the next request (0.6.466)', async () => {
+  // (Report 4, point 9, 0.6.320: opened before Ctrl+Entrée, 4:3 changed the frame of the screen during the take; they
+  // were greyed then. 0.6.466: the form is free for the next request, the screen shows the take as it was asked.)
   let done;
   const page = await studioPage(
     { create_image: [still] },
@@ -12110,12 +12141,16 @@ test('the formats of « ··· » are greyed while a creation runs, its menu lef
     await settle();
     const before = checked(),
       [menu] = body.find('studio-format-menu'),
-      greyed = menu.children.every(choice => choice.disabled);
-    assert.deepEqual([body.find('studio-stop').length, menu.hidden, greyed], [1, false, true]);
+      greyed = menu.children.some(choice => choice.disabled),
+      readout = () => body.find('studio-readout')[0]?.textContent;
+    assert.deepEqual([body.find('studio-stop').length, menu.hidden, greyed, readout()], [1, false, false, before]);
     menu.children.find(choice => choice.children[0]?.textContent === '4:3').onclick();
-    assert.equal(checked(), before);
+    // (Chosen from « ··· »: its chip says it, « 4:3 ··· ».)
+    assert.deepEqual([checked(), readout()], ['4:3 ···', before]);
     done({ id: 'j', state: 'error', error: 'rien' });
     await settle();
+    // Once it is over, the screen is the form's.
+    assert.equal(readout(), '4:3');
   } finally {
     page.restore();
   }
@@ -12551,4 +12586,1185 @@ test('(0.6.450) a size the card of this computer cannot make is greyed on the pa
     ]);
     assert.deepEqual([note(), go().disabled], [[], false]);
   });
+});
+
+// ------------------------------------------------------------------ (0.6.466) the queue of the Studio
+/** (0.6.466) The sessionStorage of a tab, where the queue of the Studio is kept (studio-queue.mjs). */
+const tabStore = (items = new Map()) => ({
+  items,
+  getItem: key => (items.has(key) ? items.get(key) : null),
+  setItem: (key, value) => void items.set(key, String(value)),
+  removeItem: key => void items.delete(key),
+});
+/**
+ * (0.6.466) A Studio of Krea 2, Clip and Bruitages (lookModels) whose takes are made by the page (`run`, as app.js
+ * runInStudio makes them), each one ended by the test: `takes` lists them as they are asked ({ verb, args,
+ * conversationId }); `finish()` ends the oldest one still made, a take of its prompt in the Sortie (`{ error }`:
+ * failed, as the server says it; an Error: thrown, as a refusal of the server is). A stop ends it as the page does.
+ * `routes(route)`: what else the server answers.
+ */
+async function queueStudio(options = {}, routes = () => undefined) {
+  const takes = [],
+    runs = options.runs ?? [],
+    media = { create_video: 'video', create_audio: 'audio' };
+  let made = 0;
+  const action = body =>
+    body.estimate
+      ? { workflowName: 'LTX 2.5', seconds: 5.042 }
+      : {
+          requestId: 'q' + (takes.length + 1),
+          plan: { parameters: {} },
+          asked: { name: body.name, arguments: body.arguments },
+        };
+  const answer = route => routes(route) ?? (route === 'tools/action' ? action : undefined);
+  const table = new Proxy({}, { get: (_, route) => (typeof route !== 'string' ? undefined : answer(route)) });
+  const page = await studioPage(options.tools ?? lookModels(), table, {
+    ...options,
+    runs,
+    run: (proposed, hooks) =>
+      new Promise((resolve, reject) => {
+        const take = {
+          verb: proposed.asked.name,
+          args: proposed.asked.arguments,
+          conversationId: hooks.conversationId,
+          resolve,
+          reject,
+          over: false,
+        };
+        takes.push(take);
+        hooks.signal.addEventListener('abort', () => {
+          take.over = true;
+          resolve({ record: null, cancelled: true, error: 'Génération arrêtée.' });
+        });
+      }),
+  });
+  function finish(outcome = null) {
+    const take = takes.find(item => !item.over);
+    take.over = true;
+    if (outcome instanceof Error) return take.reject(outcome);
+    if (outcome?.error) return take.resolve({ record: null, error: outcome.error });
+    made += 1;
+    const record = {
+      id: 'r' + made,
+      conversationId: take.conversationId,
+      mediaType: media[take.verb] ?? 'image',
+      prompt: take.args.prompt ?? '',
+      parameters: {},
+      outputs: [{ take: made, originalUrl: `/r${made}` }],
+    };
+    runs.unshift(record);
+    take.resolve({ record });
+  }
+  const { body } = page;
+  return {
+    ...page,
+    takes,
+    finish,
+    type: text => {
+      page.prompt().value = text;
+      page.prompt().oninput();
+    },
+    go: () => body.find('studio-go')[0],
+    /** « Générer », « Générer ensuite » or « Reprendre · n », clicked. */
+    press: () => body.find('studio-go')[0].onclick({ detail: 1 }),
+    /** Ctrl+Entrée in the Studio. */
+    keys: () => page.page['studio-view'].onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {}, target: {} }),
+    /** Its words, how far the take is at their right. */
+    label: () =>
+      ['studio-go-label', 'studio-go-percent']
+        .map(name => body.find(name)[0]?.textContent)
+        .filter(Boolean)
+        .join(' '),
+    /**
+     * The requests of the queue as its tiles of the Sortie said them (0.6.466), from the left: their word and their
+     * rank (the next one at the right), their text; then those that failed, the newest first. (0.6.478, variante A:
+     * read on the lines of the window at the bottom right, studio.mjs queueView; the Sortie has no tile any more.)
+     */
+    tiles: () => {
+      assert.equal(body.find('is-queued').length, 0);
+      const groups = page.studio.queueView().flatMap(part => part.groups),
+        rows = state => groups.filter(group => group.state === state).flatMap(group => group.rows),
+        waits = [...rows('waiting').map(row => ['En attente', row]), ...rows('paused').map(row => ['En pause', row])];
+      return [
+        ...waits.map(([word, row], at) => [`${word} ${at + 1}`, row.prompt]).reverse(),
+        ...rows('failed')
+          .reverse()
+          .map(row => ['Échec', row.reason]),
+      ];
+    },
+    /** (0.6.478) The lines of the window at the bottom right, of every conversation: { id, prompt, what, tip, … }. */
+    rows: () => page.studio.queueView().flatMap(part => part.groups.flatMap(group => group.rows)),
+    /** The line under the screen. */
+    line: () => body.find('studio-error')[0]?.textContent ?? '',
+    format: text =>
+      body
+        .find('studio-format')
+        .find(chip => chip.children.some(child => child.textContent === text))
+        .onclick(),
+    asks: () => takes.map(take => take.args.prompt),
+  };
+}
+const NEXT_WORDS = 'Générer ensuite : cette demande attendra la fin de celle en cours (Ctrl+Entrée)',
+  WAND_PAUSED = 'Moodix AI est en pause pendant la génération.',
+  STILL_HERE = 'Génération en cours dans cette conversation : attendez sa fin.',
+  refusedByCard = () => Object.assign(new Error('Une opération GPU est déjà en cours.'), { status: 409 });
+
+// The request as it is written, Ctrl+Entrée too, a double click asks once; greyed for the reasons of « Générer »,
+// and with 20 waiting (D6).
+test('(0.6.466) a take of the Studio being made: the form free, « Générer ensuite » freezes a request', async () => {
+  const page = await queueStudio();
+  const { body, said, takes, restore } = page;
+  try {
+    page.type('un phare');
+    page.press();
+    await until(() => takes.length === 1);
+    // The modes free, « Générer ensuite » over the bar of the take, ■ at its right; the wand paused, and why (B4).
+    assert.deepEqual(
+      [
+        page.page['studio-kinds'].children.map(tab => tab.disabled),
+        page.label(),
+        page.go().disabled,
+        page.go().title,
+        body.find('studio-stop').length,
+      ],
+      [[false, false, false], 'Générer ensuite', false, NEXT_WORDS, 1],
+    );
+    assert.deepEqual(
+      [body.find('studio-enrich-go')[0].disabled, body.find('studio-enrich-go')[0].title],
+      [true, WAND_PAUSED],
+    );
+    // Asked as it is written now: what is written after changes nothing of it.
+    page.type('un bateau');
+    page.press();
+    page.type('une île au loin');
+    assert.deepEqual(page.tiles(), [['En attente 1', 'un bateau']]);
+    // Ctrl+Entrée the same; the second click of a double click asks nothing more.
+    page.keys();
+    page.go().onclick({ detail: 2 });
+    assert.deepEqual(page.tiles(), [['En attente 2', 'une île au loin'], ['En attente 1', 'un bateau']]);
+    // Nothing written: greyed, why in its bubble, said when pressed; nothing asked.
+    page.type('');
+    page.studio.render();
+    assert.deepEqual([page.go().disabled, page.go().title], [true, 'Décrivez d’abord votre image.']);
+    page.press();
+    await settle();
+    assert.deepEqual([said.at(-1), page.tiles().length], ['Décrivez d’abord votre image.', 2]);
+    // Its cross takes one out of the queue (0.6.478: the cross of its line in the window at the bottom right).
+    page.studio.queueRemove(page.rows()[1].id);
+    assert.deepEqual(page.tiles(), [['En attente 1', 'un bateau']]);
+    // 20 waiting at most: the 21st is greyed, and says why (under the list of the window too).
+    page.type('encore');
+    for (let at = 1; at < 20; at++) page.press();
+    const full = 'La file est pleine : 20 demandes attendent.';
+    assert.deepEqual([page.tiles().length, page.go().disabled, page.go().title], [20, true, full]);
+    assert.equal(page.studio.queueView()[0].note, full);
+    page.press();
+    await settle();
+    assert.deepEqual([said.at(-1), page.tiles().length], [full, 20]);
+    // None of them was made meanwhile; the take over, the first one that waits goes.
+    assert.equal(takes.length, 1);
+    page.finish();
+    await until(() => takes.length === 2);
+    assert.deepEqual([page.asks(), page.tiles().length], [['un phare', 'un bateau'], 19]);
+  } finally {
+    restore();
+  }
+});
+
+// The screen shows the one being made, the form is never written.
+test('(0.6.466) three requests made in their order, each with its page, its model and its format', async () => {
+  const tools = lookModels();
+  tools.create_audio = tools.create_audio.map(model => ({ ...model, name: 'Bruitages (MOSS-SoundEffect v2)' }));
+  const page = await queueStudio({ tools });
+  const { body, takes, restore } = page;
+  const readout = () => body.find('studio-readout')[0]?.textContent;
+  try {
+    // Each page set as it will be asked, and what the screen says of it: Vidéo at 9:16, Son, Image at 16:9.
+    page.mode(1);
+    page.type('la mer');
+    page.format('9:16');
+    const film = readout();
+    page.mode(2);
+    page.type('des vagues');
+    const sound = readout();
+    page.mode(0);
+    page.type('un phare');
+    page.format('16:9');
+    const still = readout();
+    page.press();
+    await until(() => takes.length === 1);
+    // While the image is made: the video and the sound asked after it.
+    page.mode(1);
+    page.press();
+    page.mode(2);
+    page.press();
+    // The form is the user's meanwhile: Vidéo at 16:9 now, another image being written at 1:1.
+    page.mode(1);
+    page.format('16:9');
+    page.mode(0);
+    page.type('un brouillon');
+    page.format('1:1');
+    assert.deepEqual([readout(), page.tiles()], [still, [['En attente 2', 'des vagues'], ['En attente 1', 'la mer']]]);
+    // Their foot: the model without what its name says in brackets, the format and the length as the screen said them.
+    // (0.6.478: the lines of the window at the bottom right, in their order; their kind with them in their bubble.)
+    const feet = page.rows().map(row => row.what);
+    assert.deepEqual(feet, ['Clip · ' + film.replace(' - ', ' · '), 'Bruitages · ' + sound]);
+    assert.deepEqual(
+      page.rows().map(row => [row.kind, row.icon, row.tip.split('\n')[0]]),
+      [
+        ['video', 'video', 'Vidéo · Clip · ' + film.replace(' - ', ' · ')],
+        ['audio', 'wave', 'Son · Bruitages · ' + sound],
+      ],
+    );
+    assert.match(film, /^9:16 - \d\d\.\d\d S$/);
+    page.finish();
+    await until(() => takes.length === 2);
+    // The video, at 9:16 as it was asked; the screen shows it, the form is as it was left.
+    const [, clip] = takes;
+    assert.deepEqual(
+      [clip.verb, clip.args.prompt, clip.args.width < clip.args.height],
+      ['create_video', 'la mer', true],
+    );
+    assert.deepEqual(
+      [readout(), body.dataset.mode, page.prompt().value, page.tiles()],
+      [film, 'image', 'un brouillon', [['En attente 1', 'des vagues']]],
+    );
+    page.finish();
+    await until(() => takes.length === 3);
+    assert.deepEqual(
+      [takes[2].verb, takes[2].args.prompt, readout(), body.dataset.mode, page.prompt().value],
+      ['create_audio', 'des vagues', sound, 'image', 'un brouillon'],
+    );
+    page.finish();
+    await until(() => !page.studio.holds());
+    await settle();
+    // Over: nothing waits, the form as it was left, the screen its own again.
+    assert.deepEqual(
+      [page.tiles(), page.label(), body.dataset.mode, page.prompt().value, readout()],
+      [[], 'Générer', 'image', 'un brouillon', '1:1'],
+    );
+    assert.deepEqual(
+      [takes[0].args.width > takes[0].args.height, takes.map(take => take.conversationId)],
+      [true, ['c1', 'c1', 'c1']],
+    );
+  } finally {
+    restore();
+  }
+});
+
+// Why as the server said it, its tries stop; a click on it gives its settings back to the Studio.
+test('(0.6.466) a request that fails: its tile says « Échec » and why, the next one goes (D5)', async () => {
+  const page = await queueStudio();
+  const { body, takes, restore } = page;
+  try {
+    // « × 2 »: each request its two tries, one after the other (D2).
+    body.find('studio-tries')[0].onclick();
+    body.find('studio-tries-menu')[0].children[1].onclick();
+    page.type('A');
+    page.press();
+    await until(() => takes.length === 1);
+    for (const prompt of ['B', 'C']) {
+      page.type(prompt);
+      page.press();
+    }
+    page.type('mon brouillon');
+    page.finish();
+    await until(() => takes.length === 2);
+    page.finish();
+    await until(() => takes.length === 3);
+    // B fails at its first try: its second one is not made, C goes.
+    page.finish({ error: 'Mémoire vidéo insuffisante.' });
+    await until(() => takes.length === 4);
+    assert.deepEqual([page.asks(), page.tiles()], [['A', 'A', 'B', 'C'], [['Échec', 'Mémoire vidéo insuffisante.']]]);
+    // (0.6.478) Its line in the window at the bottom right: « Échec · » and why in place of its model and its tries,
+    // under the title « ÉCHEC · 1 » while nothing else waits; in its bubble, its prompt and what a click does.
+    const [{ groups }] = page.studio.queueView(),
+      said = row => [row.prompt, row.reason, row.tip, row.tries];
+    assert.deepEqual(
+      groups.map(({ word, state, rows }) => [word, state, rows.map(said)]),
+      [['Échec', 'failed', [['B', 'Mémoire vidéo insuffisante.', 'B\nUn clic remet ses réglages dans le Studio.', 1]]]],
+    );
+    // Said on its line, not under the screen of the take being made.
+    assert.equal(page.line(), '');
+    page.finish();
+    await until(() => takes.length === 5);
+    page.finish();
+    await until(() => !page.studio.holds());
+    await settle();
+    assert.deepEqual(
+      [page.asks(), page.tiles(), page.prompt().value],
+      [['A', 'A', 'B', 'C', 'C'], [['Échec', 'Mémoire vidéo insuffisante.']], 'mon brouillon'],
+    );
+    // A click on it: its prompt and its tries in the Studio, why under the screen; its line goes.
+    page.studio.queueTakeBack(page.rows()[0].id);
+    assert.deepEqual(
+      [page.prompt().value, body.find('studio-tries')[0].attributes['aria-label'], page.line(), page.tiles()],
+      ['B', 'Essais : 2', 'Mémoire vidéo insuffisante.', []],
+    );
+    // « Revenir »: the Studio as it was.
+    body.find('studio-look-back')[0].onclick();
+    assert.equal(page.prompt().value, 'mon brouillon');
+  } finally {
+    restore();
+  }
+});
+
+// 409 « Une opération GPU est déjà en cours. »: it waits for the end of what holds the card; no failure.
+test('(0.6.466) a request refused because the card is still taken (409): it waits, then goes again', async () => {
+  const seen = [],
+    jobs = [{ id: 'j1', state: 'running' }];
+  const page = await queueStudio({}, route =>
+    route === 'tools/job'
+      ? () => {
+          const { body, studio } = page;
+          seen.push([
+            body.find('studio-progress')[0]?.textContent,
+            page.label(),
+            body.find('studio-enrich-go')[0]?.title,
+            studio.queueHolds(),
+            studio.holds(),
+            studio.finishBlocked(),
+          ]);
+          return jobs.shift() ?? { id: 'j1', state: 'done' };
+        }
+      : undefined,
+  );
+  const { takes, restore } = page;
+  try {
+    page.type('A');
+    page.press();
+    await until(() => takes.length === 1);
+    page.type('B');
+    page.press();
+    page.finish();
+    await until(() => takes.length === 2);
+    page.finish(refusedByCard());
+    await until(() => takes.length === 3);
+    assert.deepEqual(page.asks(), ['A', 'B', 'B']);
+    // Meanwhile: said on the line of the step, the Chat and the wand held, « Générer ensuite » still there.
+    const waiting = ['Attente de la carte graphique…', 'Générer ensuite', WAND_PAUSED, true, true, STILL_HERE];
+    assert.deepEqual(seen, [waiting, waiting]);
+    assert.deepEqual([page.tiles(), page.line()], [[], '']);
+    page.finish();
+    await until(() => !page.studio.holds());
+    await settle();
+    assert.deepEqual([page.tiles(), page.line(), page.label()], [[], '', 'Générer']);
+  } finally {
+    restore();
+  }
+});
+
+// The take stops, what waits is « EN PAUSE », it goes again in its order; nothing goes by itself.
+test('(0.6.466) « Arrêter »: what waits is paused, « Reprendre · n » makes it go again, × empties it', async () => {
+  const page = await queueStudio();
+  const { body, takes, restore } = page;
+  const stop = () => body.find('studio-stop')[0];
+  try {
+    page.type('A');
+    page.press();
+    await until(() => takes.length === 1);
+    for (const prompt of ['B', 'C']) {
+      page.type(prompt);
+      page.press();
+    }
+    // What ■ does to them, said; the Chat waits for them, and says why.
+    assert.deepEqual(
+      [stop().title, page.studio.queued(), page.studio.queueHolds(), page.studio.queueWaits()],
+      ['Arrêter la génération : la file se met en pause', 2, true, 2],
+    );
+    assert.equal(
+      page.studio.queueReason(),
+      'Le chat attend la fin de la file du Studio : 2 demandes en attente. Arrêter la met en pause.',
+    );
+    stop().onclick();
+    await until(() => !page.studio.holds());
+    await settle();
+    assert.deepEqual(
+      [page.label(), page.tiles(), page.line()],
+      [
+        'Reprendre · 2',
+        [['En pause 2', 'C'], ['En pause 1', 'B']],
+        'Génération arrêtée. Les 2 demandes de la file attendent « Reprendre ».',
+      ],
+    );
+    assert.deepEqual(
+      [page.go().title, body.find('studio-clear')[0].title, body.find('studio-go-glass')[0].className],
+      [
+        'Reprendre la file : les 2 demandes en attente, dans l’ordre (Ctrl+Entrée)',
+        'Vider la file : retirer les 2 demandes en attente',
+        'studio-go-glass is-paused',
+      ],
+    );
+    // Paused, they hold nothing: the Chat and the Bobine are free. Closing the tab would lose them (B1).
+    assert.deepEqual(
+      [
+        page.studio.queued(),
+        page.studio.queueHolds(),
+        page.studio.queueReason(),
+        page.studio.queueWaits(),
+        takes.length,
+      ],
+      [0, false, '', 2, 1],
+    );
+    // (0.6.478) The window at the bottom right says it too: why, « EN PAUSE · 2 », and at its foot « ▸ Reprendre · 2 »
+    // and « Vider la file » (no shortcut: it is the Studio's); under the settings of this Studio, no foot (its button),
+    // and no why (said under its screen, as the maquette's 4a-pause-studio).
+    const [part] = page.studio.queueView();
+    assert.deepEqual(
+      [part.title, part.why, part.stopped, part.groups.map(group => group.word), part.foot.label, part.foot.icon],
+      ['Nouvelle conversation', 'Génération arrêtée.', true, ['En pause'], 'Reprendre · 2', 'go'],
+    );
+    const [lying] = page.studio.queueView({ docked: true });
+    assert.deepEqual(
+      [part.foot.tip, part.foot.clear, lying.foot, lying.why, lying.groups.map(group => group.word)],
+      [
+        'Reprendre la file : les 2 demandes en attente, dans l’ordre',
+        'Vider la file : retirer les 2 demandes en attente',
+        null,
+        '',
+        ['En pause'],
+      ],
+    );
+    // « Reprendre » (0.6.478: that of the window, from any page): B goes, C waits for its turn.
+    page.studio.queueResume(part.conversation);
+    await until(() => takes.length === 2);
+    assert.deepEqual(
+      [page.asks(), page.tiles(), page.label()],
+      [['A', 'B'], [['En attente 1', 'C']], 'Générer ensuite'],
+    );
+    stop().onclick();
+    await until(() => !page.studio.holds());
+    await settle();
+    assert.deepEqual(
+      [page.label(), page.tiles(), page.line()],
+      ['Reprendre · 1', [['En pause 1', 'C']], 'Génération arrêtée. La demande de la file attend « Reprendre ».'],
+    );
+    // Its ×: emptied, « Générer » again. (0.6.478) Told its click, as the browser tells it: it emptied nothing once
+    // « Vider la file » took the conversation of the window (seen in the page, not here).
+    body.find('studio-clear')[0].onclick({ type: 'click' });
+    assert.deepEqual(
+      [page.label(), page.tiles(), page.line(), page.studio.queueWaits(), takes.length],
+      ['Générer', [], 'Génération arrêtée.', 0, 2],
+    );
+  } finally {
+    restore();
+  }
+});
+
+// (0.6.478) Its answer first: the window's « Reprendre » greyed, saying why, and lit again once Moodix AI is answered.
+test('(0.6.478) « Reprendre » of the window greyed while Moodix AI waits in the Studio', async () => {
+  const page = await queueStudio();
+  const { body, takes, restore } = page;
+  const AI_HELD = 'Moodix AI attend votre réponse dans le Studio : répondez-lui d’abord.';
+  try {
+    page.type('A');
+    page.press();
+    await until(() => takes.length === 1);
+    page.type('B');
+    page.press();
+    body.find('studio-stop')[0].onclick();
+    await until(() => !page.studio.holds());
+    await settle();
+    // A proposal of Moodix AI set in the Studio meanwhile: its answer first, said above the foot and in its bubble.
+    const answer = page.studio.propose(proposalOf().request, new AbortController().signal);
+    await settle();
+    const [part] = page.studio.queueView();
+    assert.deepEqual(
+      [part.foot.label, part.foot.held, part.foot.tip, part.held],
+      ['Reprendre · 1', true, AI_HELD, AI_HELD],
+    );
+    page.studio.decline();
+    assert.equal(await answer, 'deny');
+    await settle();
+    const [again] = page.studio.queueView();
+    assert.deepEqual(
+      [again.foot.held, again.held, again.foot.tip],
+      [false, '', 'Reprendre la file : la demande en attente'],
+    );
+  } finally {
+    restore();
+  }
+});
+
+// (0.6.478, the maquette's 7a) The queue paused, then the page reloaded during a take of the Bobine: « Reprendre » of
+// the window greyed until that take is over, saying why (the requests never go before a take of the Bobine).
+test('(0.6.478) « Reprendre » of the window greyed while the Bobine makes a take', async () => {
+  const kept = { queueStorage: tabStore(), tab: 'onglet-1' },
+    first = await queueStudio({ extra: kept });
+  try {
+    first.type('A');
+    first.press();
+    await until(() => first.takes.length === 1);
+    first.type('B');
+    first.press();
+    first.body.find('studio-stop')[0].onclick();
+    await until(() => !first.studio.holds());
+    await settle();
+  } finally {
+    first.restore();
+  }
+  const page = await queueStudio({ extra: kept });
+  try {
+    const { request } = proposalOf();
+    assert.equal(page.studio.followAgain({ ...request, bobine: { id: 'm1', plan: 'a', from: 0 } }), true);
+    const [part] = page.studio.queueView();
+    assert.deepEqual(
+      [part.foot.label, part.foot.held, part.foot.tip, part.held],
+      [
+        'Reprendre · 1',
+        true,
+        'La Bobine fait une prise : attendez sa fin, puis reprenez la file.',
+        'Attendez la fin de la prise de la Bobine.',
+      ],
+    );
+  } finally {
+    page.restore();
+  }
+});
+
+// « Libérer le GPU » says it; freed, « Reprendre · n », nothing goes by itself.
+test('(0.6.466, D4) the card held by the take that failed: what waits is paused, « Libérer le GPU »', async () => {
+  let held = false;
+  const page = await queueStudio({
+    extra: { gpuBlocked: () => held, gpuError: () => 'Mémoire vidéo insuffisante.' },
+  });
+  const { body, takes, restore } = page;
+  try {
+    page.type('A');
+    page.press();
+    await until(() => takes.length === 1);
+    page.type('B');
+    page.press();
+    held = true;
+    page.finish({ error: 'Mémoire vidéo insuffisante.' });
+    await until(() => !page.studio.holds());
+    await settle();
+    const free = body.find('studio-recover')[0];
+    assert.deepEqual(
+      [page.label(), free.title, page.line(), page.tiles()],
+      [
+        'Libérer le GPU',
+        'La carte graphique est restée prise par la dernière génération : la libérer. La file attendra « Reprendre ».',
+        'Mémoire vidéo insuffisante. La carte graphique est restée prise : la demande de la file attend.',
+        [['En pause 1', 'B'], ['Échec', 'Mémoire vidéo insuffisante.']],
+      ],
+    );
+    // (0.6.478) The window at the bottom right: why, « Libérer le GPU » at its foot (neither under the settings of this
+    // Studio, whose button and line say them), the request that failed in red under the one paused, untitled.
+    const [part] = page.studio.queueView();
+    assert.deepEqual(
+      [part.why, part.card, part.foot.label, part.foot.recover, part.groups.map(group => [group.word, group.state])],
+      ['La carte graphique est restée prise.', true, 'Libérer le GPU', true, [['En pause', 'paused'], ['', 'failed']]],
+    );
+    assert.deepEqual(['foot', 'why'].map(key => page.studio.queueView({ docked: true })[0][key]), [null, '']);
+    // Freed (what its button asks the server, recoverGPU; its drawing again 4 s later is left out here).
+    held = false;
+    page.studio.render();
+    await settle();
+    assert.deepEqual([page.label(), takes.length], ['Reprendre · 1', 1]);
+    page.press();
+    await until(() => takes.length === 2);
+    assert.deepEqual(page.asks(), ['A', 'B']);
+  } finally {
+    restore();
+  }
+});
+
+// The Studio held there (« Studio occupé »), the page’s again at its end.
+test('(0.6.466, D9) another conversation opened while the queue goes on: it goes on in its own', async () => {
+  let shown = 'c1';
+  const page = await queueStudio({ conversation: () => shown });
+  const { body, takes, notices, restore } = page;
+  try {
+    page.type('A');
+    page.press();
+    await until(() => takes.length === 1);
+    page.type('B');
+    page.press();
+    shown = 'c2';
+    page.studio.conversationChanged();
+    assert.equal(body.find('studio-away').length, 1);
+    page.finish();
+    await until(() => takes.length === 2);
+    const where = page.asked.filter(([route]) => route === 'tools/action').map(([, sent]) => sent.conversationId);
+    assert.deepEqual(
+      [
+        page.asks(),
+        takes.map(take => take.conversationId),
+        where,
+        body.find('studio-away').length,
+        page.studio.heldFor(),
+      ],
+      [['A', 'B'], ['c1', 'c1'], ['c1', 'c1'], 1, 'c1'],
+    );
+    page.finish();
+    await until(() => !page.studio.holds());
+    await settle();
+    assert.deepEqual(
+      [body.find('studio-away').length, page.studio.heldFor(), notices.filter(text => /Série arrêtée/.test(text))],
+      [0, null, []],
+    );
+  } finally {
+    restore();
+  }
+});
+
+// With the try of the take not begun (its seed its own); the take followed again ends; a tab duplicated from it
+// takes nothing.
+test('(0.6.466, D3, B1) the page reloaded: what its tab kept comes back paused, nothing goes by itself', async () => {
+  const storage = tabStore(),
+    kept = { queueStorage: storage, tab: 'onglet-1' };
+  const first = await queueStudio({ extra: kept });
+  try {
+    const { body, takes } = first;
+    body.find('studio-tries')[0].onclick();
+    body.find('studio-tries-menu')[0].children[1].onclick();
+    body.find('studio-more-pill')[0].onclick();
+    const seed = body.find('studio-seed')[0].children[1];
+    seed.value = '42';
+    seed.oninput();
+    first.type('A');
+    first.press();
+    await until(() => takes.length === 1);
+    first.type('B');
+    first.press();
+    // Closing the tab would lose B and the second try of A: the browser asks (B1).
+    assert.equal(first.studio.queueWaits(), 2);
+  } finally {
+    first.restore();
+  }
+  // Reloaded: the same tab (its identity kept in it, app.js TAB).
+  const again = await queueStudio({ extra: kept });
+  try {
+    const { body, takes } = again;
+    assert.deepEqual(
+      [again.tiles(), again.label(), again.line()],
+      [
+        [['En pause 2', 'B'], ['En pause 1', 'A']],
+        'Reprendre · 2',
+        'Page rechargée : les 2 demandes de la file attendent « Reprendre ».',
+      ],
+    );
+    // The take of before followed again to its end: « EN COURS » beside them (B2); nothing goes after it.
+    again.studio.followAgain();
+    assert.deepEqual(
+      [body.find('is-making').length, again.tiles().length, again.label().startsWith('Reprendre')],
+      [1, 2, false],
+    );
+    const record = { id: 'r9', conversationId: 'c1', prompt: 'A', outputs: [{ take: 9, originalUrl: '/r9' }] };
+    again.runs.unshift(record);
+    await again.studio.settled({ record });
+    await settle();
+    assert.deepEqual([takes.length, again.label(), again.tiles().length], [0, 'Reprendre · 2', 2]);
+    // « Reprendre »: the try of A not begun, with a seed of its own (its first one had 42); then B, with 42.
+    again.press();
+    await until(() => takes.length === 1);
+    assert.deepEqual(
+      [takes[0].args.prompt, takes[0].args.seed !== 42, again.tiles()],
+      ['A', true, [['En attente 1', 'B']]],
+    );
+    again.finish();
+    await until(() => takes.length === 2);
+    assert.deepEqual([takes[1].args.prompt, takes[1].args.seed], ['B', 42]);
+  } finally {
+    again.restore();
+  }
+  // A tab duplicated from it: the same storage, another identity; nothing of it.
+  const copy = await queueStudio({ extra: { queueStorage: tabStore(new Map(storage.items)), tab: 'onglet-2' } });
+  try {
+    assert.deepEqual([copy.tiles(), copy.label()], [[], 'Générer']);
+  } finally {
+    copy.restore();
+  }
+});
+
+// (0.6.478, Q3 of claude_design/maquette-file-bas-droite) The window at the bottom right offers « Reprendre » at once:
+// the requests go after the take followed again, in their order; that take stopped, they are paused again.
+test('(0.6.478) the page reloaded during a take: « Reprendre » of the window, they go after it', async () => {
+  /** A tab that made A and queued `queued`, reloaded while A is made: the page that follows A again. */
+  async function reloaded(queued) {
+    const kept = { queueStorage: tabStore(), tab: 'onglet-1' },
+      first = await queueStudio({ extra: kept });
+    try {
+      first.type('A');
+      first.press();
+      await until(() => first.takes.length === 1);
+      for (const prompt of queued) {
+        first.type(prompt);
+        first.press();
+      }
+    } finally {
+      first.restore();
+    }
+    const again = await queueStudio({ extra: kept });
+    again.studio.followAgain();
+    return again;
+  }
+  const record = { id: 'r9', conversationId: 'c1', prompt: 'A', outputs: [{ take: 9, originalUrl: '/r9' }] };
+  const page = await reloaded(['B', 'C']);
+  try {
+    const { takes } = page;
+    // Why, and « Reprendre · 2 » lit, under the settings too: the button of the Studio says « En cours » meanwhile.
+    const [part] = page.studio.queueView();
+    assert.deepEqual(
+      [part.conversation, part.why, part.foot.label, part.foot.held, part.foot.tip, part.held],
+      [
+        'c1',
+        'Page rechargée : les 2 demandes attendent « Reprendre ».',
+        'Reprendre · 2',
+        false,
+        'Reprendre la file : les 2 demandes partiront après la prise en cours, dans l’ordre',
+        '',
+      ],
+    );
+    // Under the settings, its foot and why: the line under the screen says the take meanwhile.
+    const [lying] = page.studio.queueView({ docked: true });
+    assert.deepEqual([lying.foot.label, lying.why], ['Reprendre · 2', part.why]);
+    // Pressed: they wait for their turn, nothing goes before the end of the take; the Chat waits for them.
+    page.studio.queueResume('c1');
+    assert.deepEqual(
+      [page.tiles(), takes.length, page.studio.queued(), page.studio.queueHolds(), page.studio.queueView()[0].foot],
+      [[['En attente 2', 'C'], ['En attente 1', 'B']], 0, 2, true, null],
+    );
+    page.runs.unshift(record);
+    await page.studio.settled({ record });
+    await until(() => takes.length === 1);
+    assert.deepEqual([page.asks(), page.tiles(), page.label()], [['B'], [['En attente 1', 'C']], 'Générer ensuite']);
+    page.finish();
+    await until(() => takes.length === 2);
+    page.finish();
+    await until(() => !page.studio.holds());
+    assert.deepEqual([page.asks(), page.tiles()], [['B', 'C'], []]);
+  } finally {
+    page.restore();
+  }
+  // The take stopped meanwhile (« Arrêter »): paused again, nothing goes; « Vider la file » of the window empties it.
+  const stopped = await reloaded(['B']);
+  try {
+    stopped.studio.queueResume('c1');
+    await stopped.studio.settled({ error: 'Génération arrêtée.' });
+    await settle();
+    const [part] = stopped.studio.queueView();
+    assert.deepEqual(
+      [stopped.takes.length, stopped.tiles(), part.why, part.stopped, part.foot.label, stopped.label()],
+      [0, [['En pause 1', 'B']], 'Génération arrêtée.', true, 'Reprendre · 1', 'Reprendre · 1'],
+    );
+    assert.equal(stopped.studio.queueView({ docked: true })[0].foot, null);
+    stopped.studio.queueClear('c1');
+    assert.deepEqual([stopped.tiles(), stopped.studio.queueView(), stopped.label()], [[], [], 'Générer']);
+  } finally {
+    stopped.restore();
+  }
+});
+
+// No take yet, or none of the kind the Sortie keeps: drawn all the same.
+test('(0.6.466, B2) a project with no take of the kind shown: « EN COURS » and what waits are drawn', async () => {
+  const page = await queueStudio({ runs: [] });
+  try {
+    const { body, takes } = page;
+    assert.equal(body.find('studio-empty-strip').length, 1);
+    page.type('un phare');
+    page.press();
+    await until(() => takes.length === 1);
+    page.type('un bateau');
+    page.press();
+    assert.deepEqual(
+      [body.find('studio-empty-strip').length, body.find('is-making').length, page.tiles()],
+      [0, 1, [['En attente 1', 'un bateau']]],
+    );
+  } finally {
+    page.restore();
+  }
+  // Only a video in the project, the Sortie keeping the images (its button released): the same.
+  const clip = {
+    id: 'v1',
+    conversationId: 'c1',
+    mediaType: 'video',
+    prompt: 'la mer',
+    outputs: [{ take: 1, originalUrl: '/v1.mp4' }],
+  };
+  const other = await queueStudio({ runs: [clip] });
+  try {
+    const { body, takes } = other;
+    await settle();
+    other.mode(0);
+    body.find('studio-sort-go')[0].onclick();
+    assert.equal(body.find('studio-empty-strip').length, 1);
+    other.type('un phare');
+    other.press();
+    await until(() => takes.length === 1);
+    assert.deepEqual([body.find('studio-empty-strip').length, body.find('is-making').length], [0, 1]);
+  } finally {
+    other.restore();
+  }
+});
+
+// The queue for the page: ■ of the Chat between two requests (stopQueue).
+test('(0.6.466) a conversation deleted takes its requests (forgetQueue); ■ of the Chat pauses them', async () => {
+  const page = await queueStudio({}, route =>
+    route === 'tools/job' ? () => (page.studio.stopQueue(), { id: 'j1', state: 'running' }) : undefined,
+  );
+  const { takes, restore } = page;
+  try {
+    page.type('A');
+    page.press();
+    await until(() => takes.length === 1);
+    for (const prompt of ['B', 'C']) {
+      page.type(prompt);
+      page.press();
+    }
+    page.studio.forgetQueue('c2');
+    assert.equal(page.tiles().length, 2);
+    page.studio.forgetQueue('c1');
+    assert.deepEqual([page.tiles(), page.studio.queued()], [[], 0]);
+    // Every conversation deleted (the history emptied): the same.
+    page.type('D');
+    page.press();
+    page.studio.forgetQueue(null);
+    assert.deepEqual(page.tiles(), []);
+    // ■ of the Chat between two requests (the card still taken, no take on the server to stop): paused.
+    page.type('E');
+    page.press();
+    page.finish();
+    await until(() => takes.length === 2);
+    page.finish(refusedByCard());
+    await until(() => !page.studio.holds());
+    await settle();
+    assert.deepEqual(
+      [takes.length, page.tiles(), page.label(), page.line()],
+      [2, [['En pause 1', 'E']], 'Reprendre · 1', 'Génération arrêtée. La demande de la file attend « Reprendre ».'],
+    );
+  } finally {
+    restore();
+  }
+});
+
+// Such a take writes in the form. The Bobine waits for the queue of the Studio, greyed with why, free once it is
+// paused.
+test('(0.6.466) no « Générer ensuite » during a take of the Chat or of the Bobine; the Bobine waits', async () => {
+  const { clip: chatClip, request } = proposalOf({ prompt: 'Un phare dans la tempête' });
+  let take = null;
+  const chat = await queueStudio({
+    tools: { ...lookModels(), create_video: [chatClip] },
+    extra: { making: () => take },
+  });
+  const held = page => [
+    page.go().className.includes('is-next'),
+    page.label().startsWith('Générer ensuite'),
+    page.page['studio-kinds'].children.map(tab => tab.disabled),
+  ];
+  try {
+    chat.type('un bateau');
+    take = chatTakeOf(request);
+    chat.studio.watch();
+    assert.deepEqual(held(chat), [false, false, [true, true, true]]);
+    chat.press();
+    chat.keys();
+    await settle();
+    assert.deepEqual([chat.tiles(), chat.studio.queued(), chat.takes.length], [[], 0, 0]);
+  } finally {
+    chat.restore();
+  }
+  const photo = {
+    id: 'p1',
+    conversationId: 'c0',
+    mediaType: 'image',
+    prompt: 'Un pêcheur',
+    parameters: {},
+    outputs: [{ take: 3, originalUrl: '/media/p1', thumbUrl: '/thumb/p1' }],
+  },
+    stored = {
+      schemaVersion: 1, id: 'm1', name: 'Film', format: '16:9', width: 1344, height: 768, fps: 24, sounds: [],
+      plans: [
+        {
+          id: 'a',
+          kind: 'video',
+          todo: { prompt: 'Il lève les yeux.' },
+          from: 0,
+          to: 5,
+          frame: 'fit',
+          volume: 1,
+          photos: { start: { conversationId: 'c0', runId: 'p1', output: 0 } },
+        },
+      ],
+      createdAt: '2026-11-20T03:00:00.000Z',
+      updatedAt: '2026-11-20T03:00:00.000Z',
+    };
+  const montages = route =>
+    route === 'montages/save'
+      ? body => ({ ...body.montage, createdAt: 'a', updatedAt: 'b' })
+      : /^montages\/[^/]+\/m1$/.test(route)
+        ? () => stored
+        : /^montages\/[^/]+$/.test(route)
+          ? () => ({ montages: [{ id: 'm1', name: 'Film' }] })
+          : undefined;
+  const page = await queueStudio({ runs: [photo] }, montages);
+  try {
+    const { body, takes } = page,
+      desk = page.studio.bobine().desk(),
+      create = () => desk.find('bobine-go-main')[0],
+      waits = () => desk.find('bobine-waits').map(line => [line.textContent, line.hidden]);
+    await until(
+      () => desk.find('montage-piece').length === 1 && desk.find('bobine-line-right')[0]?.textContent === 'LTX 2.5',
+    );
+    // A take of the Studio, a request after it: « Créer » waits for the queue, short above it, whole in its bubble.
+    page.type('un phare');
+    page.press();
+    await until(() => takes.length === 1);
+    page.type('un bateau');
+    page.press();
+    page.studio.busyChanged();
+    const why = 'Le Studio a encore 1 demande en file : attendez sa fin, ou arrêtez-la.';
+    assert.deepEqual(
+      [create().disabled, waits(), desk.find('bobine-waits')[0].title, create().dataset.tip],
+      [true, [['Attendez la fin de la file du Studio.', false]], why, why],
+    );
+    // Paused, the queue holds nothing: « Créer » is free.
+    body.find('studio-stop')[0].onclick();
+    await until(() => !page.studio.holds());
+    page.studio.busyChanged();
+    assert.deepEqual([create().disabled, waits()], [false, [['', true]]]);
+    // A take of the Bobine: the form is its own meanwhile; no « Générer ensuite », nothing asked by its keys.
+    body.find('studio-clear')[0].onclick();
+    create().onclick();
+    await until(() => takes.length === 2);
+    assert.deepEqual(held(page), [false, false, [true, true, true]]);
+    page.press();
+    page.keys();
+    await settle();
+    assert.deepEqual([page.tiles(), page.studio.queued(), takes.length], [[], 0, 2]);
+  } finally {
+    page.restore();
+  }
+});
+
+// Left, the next request is asked.
+test('(0.6.466, D7) the page Agrandir while its take is made: « Générer ensuite » greyed, not queued', async () => {
+  const seedvr = {
+    id: 'sv',
+    name: 'Upscale SeedVR2',
+    media: 'image',
+    verb: 'upscale',
+    roles: { source: { count: 1, media: ['image'], required: true } },
+    settings: [],
+    finish: { key: 'scale', choices: [2, 4], standard: 2 },
+  },
+    still = {
+      id: 'a',
+      conversationId: 'c1',
+      prompt: 'un phare',
+      outputs: [{ originalUrl: '/a.png', take: 1, width: 1024, height: 1024 }],
+    };
+  const page = await queueStudio({ tools: { ...lookModels(), upscale: [seedvr] }, runs: [still] }, route =>
+    route === 'tools/actions' ? () => ({ upscale: ['image'] }) : undefined,
+  );
+  const { body, said, takes, restore } = page;
+  try {
+    await settle();
+    page.mode(0);
+    body.find('studio-rail')[0].find('output-action-upscale')[0].onclick();
+    page.press();
+    await until(() => takes.length === 1);
+    const why = 'Agrandir ne se met pas en file : attendez la fin de la génération en cours.';
+    assert.deepEqual(
+      [takes[0].verb, page.label(), page.go().disabled, page.go().title],
+      ['upscale', 'Générer ensuite', true, why],
+    );
+    page.press();
+    await settle();
+    assert.deepEqual([said.at(-1), page.tiles()], [why, []]);
+    // Its page left: an image of its own, asked after it.
+    body.find('studio-finish')[0].find('studio-slot-remove')[0].onclick();
+    page.type('un bateau');
+    page.press();
+    assert.deepEqual(page.tiles(), [['En attente 1', 'un bateau']]);
+    page.finish();
+    await until(() => takes.length === 2);
+    assert.deepEqual([takes[1].verb, takes[1].args.prompt], ['create_image', 'un bateau']);
+  } finally {
+    restore();
+  }
+});
+
+// (0.6.480, merged with the queue) The model of Image not on this computer, a take of Vidéo made: « Générer ensuite »
+// over it, greyed with why, between two requests too (« Télécharger » came there for a moment). Paused: « Télécharger »
+// in the glass, what it lacks above it, and « Reprendre · 1 » with why at the foot of the window; the keys of
+// « Générer » resume nothing and download nothing.
+test('(0.6.480, queue) a model not on this computer in hand: no « Générer ensuite » on « Télécharger »', async () => {
+  const tools = lookModels();
+  tools.create_image = [absentModel('h3', 'MiniMax H3 Omni')];
+  // (The page busy a moment between two requests, freeAgain: what the Studio shows then stays to be looked at.)
+  let busy = '';
+  const page = await queueStudio({ tools, extra: { blocked: () => busy } });
+  const { body, said, takes, asked, restore } = page;
+  const why = 'MiniMax H3 Omni n’est pas sur cet ordinateur : téléchargez-le d’abord.',
+    under = () => body.find('studio-under')[0].children.map(line => [line.className, line.textContent]);
+  try {
+    page.mode(1);
+    page.type('A');
+    page.press();
+    await until(() => takes.length === 1);
+    for (const prompt of ['B', 'C']) {
+      page.type(prompt);
+      page.press();
+    }
+    // Image in hand meanwhile: « Générer ensuite », greyed with why; pressed, it says it and queues nothing.
+    page.mode(0);
+    page.type('un phare');
+    assert.deepEqual(
+      [page.label(), page.go().disabled, page.go().title, body.find('studio-get').length],
+      ['Générer ensuite', true, why, 0],
+    );
+    page.press();
+    await settle();
+    assert.deepEqual([said.at(-1), page.tiles().length], [why, 2]);
+    // Between A and B: « Générer ensuite » stays, its bar waiting; never « Télécharger ».
+    busy = 'Ouverture de la conversation…';
+    page.finish();
+    await settle();
+    assert.deepEqual([takes.length, page.label(), body.find('studio-get').length], [1, 'Générer ensuite', 0]);
+    busy = '';
+    await until(() => takes.length === 2);
+    // B stopped, C paused: « Télécharger · 17,7 Go » in the glass, what it lacks above it, never « Reprendre » there.
+    body.find('studio-stop')[0].onclick();
+    await until(() => !page.studio.holds());
+    await settle();
+    assert.deepEqual(
+      [labelOf(body.find('studio-get')[0]), body.find('studio-clear').length, under()],
+      ['Télécharger · 17,7 Go', 0, [['studio-absent-line', 'MiniMax H3 Omni n’est pas sur cet ordinateur.']]],
+    );
+    // Under the settings, the window says why and offers « Reprendre · 1 » (« Génération arrêtée. » said once).
+    const [lying] = page.studio.queueView({ docked: true });
+    assert.deepEqual(
+      [lying.why, lying.foot?.label, lying.foot?.held, lying.groups.map(group => group.word)],
+      ['Génération arrêtée.', 'Reprendre · 1', false, ['En pause']],
+    );
+    // The keys of « Générer »: why, in the bubble of « Télécharger »; nothing resumed, nothing downloaded.
+    page.keys();
+    await settle();
+    assert.deepEqual(
+      [said.at(-1), asked.filter(([route]) => route === 'downloads/start').length, takes.length, page.tiles()],
+      [why, 0, 2, [['En pause 1', 'C']]],
+    );
+    // « Reprendre » of the window: C goes, with its own model (Clip, there); « Télécharger » again at its end.
+    page.studio.queueResume(lying.conversation);
+    await until(() => takes.length === 3);
+    assert.deepEqual(
+      [page.asks(), page.label(), body.find('studio-get').length],
+      [['A', 'B', 'C'], 'Générer ensuite', 0],
+    );
+    page.finish();
+    await until(() => !page.studio.holds());
+    await settle();
+    assert.deepEqual([labelOf(body.find('studio-get')[0]), page.tiles()], ['Télécharger · 17,7 Go', []]);
+  } finally {
+    restore();
+  }
+});
+
+// (0.6.480, merged with the queue) A request of the queue whose model is not on this computer any more (its files taken
+// away since it was asked, the tools read again): never sent, said on its line, and the next one goes. Said so by the
+// server (the tools read before still had it): its download offered and no plan, never sent on to be made.
+test('(0.6.480, queue) a request whose model is not here any more: said on its line, the next one goes', async () => {
+  const gone = 'Krea 2 n’est pas sur cet ordinateur : téléchargez-le d’abord.',
+    sent = asked => asked.filter(([route, body]) => route === 'tools/action' && !body?.estimate).length;
+  const tools = lookModels(),
+    page = await queueStudio({ tools });
+  try {
+    const { takes } = page;
+    page.type('A');
+    page.press();
+    await until(() => takes.length === 1);
+    page.type('B');
+    page.press();
+    page.mode(1);
+    page.type('C');
+    page.press();
+    // Krea 2 taken away meanwhile (Paramètres › Modèles): the tools read again say it not on this computer.
+    tools.create_image = [absentModel('k', 'Krea 2')];
+    page.studio.invalidate({ tools: true });
+    await page.studio.prefetch();
+    page.finish();
+    await until(() => takes.length === 2);
+    assert.deepEqual([page.asks(), page.tiles(), sent(page.asked)], [['A', 'C'], [['Échec', gone]], 2]);
+  } finally {
+    page.restore();
+  }
+  let stale = false;
+  const late = await queueStudio({}, route =>
+    route === 'tools/action' && stale
+      ? () => ({ requestId: 'm', workflowName: 'Krea 2', missing: absentModel('k', 'Krea 2').missing })
+      : undefined,
+  );
+  try {
+    const { takes } = late;
+    late.type('A');
+    late.press();
+    await until(() => takes.length === 1);
+    late.type('B');
+    late.press();
+    stale = true;
+    late.finish();
+    await until(() => !late.studio.holds());
+    await settle();
+    assert.deepEqual([late.asks(), late.tiles(), sent(late.asked)], [['A'], [['Échec', gone]], 2]);
+  } finally {
+    late.restore();
+  }
+});
+
+// (0.6.480, merged with the queue) The page reloaded while the engine starts (Moodix launched again): what waited comes
+// back paused; under « Le moteur démarre… » the window says why and its « Reprendre » is greyed, and asked all the same
+// nothing is sent. The engine ready: « Reprendre · 1 » on the button of the Studio, and pressed, the request goes.
+test('(0.6.480, queue) the engine that starts: « Reprendre » of the window greyed with why, nothing sent', async () => {
+  const kept = { queueStorage: tabStore(), tab: 'onglet-1' },
+    first = await queueStudio({ extra: kept });
+  try {
+    first.type('A');
+    first.press();
+    await until(() => first.takes.length === 1);
+    first.type('B');
+    first.press();
+  } finally {
+    first.restore();
+  }
+  // Every model said not ready while the engine starts, as the server says it.
+  const tools = lookModels(),
+    ready = on => {
+      for (const model of Object.values(tools).flat())
+        if (on) delete model.unavailable;
+        else model.unavailable = 'Le moteur de génération démarre…';
+    };
+  ready(false);
+  let engine = { state: 'starting' };
+  const page = await queueStudio({ extra: kept, tools, engine: () => engine });
+  const ENGINE = 'Le moteur de génération démarre.';
+  try {
+    const { body, takes, notices } = page;
+    assert.deepEqual([body.find('studio-engine-go').length, body.find('studio-go').length], [1, 0]);
+    const [lying] = page.studio.queueView({ docked: true });
+    assert.deepEqual(
+      [lying.why, lying.held, lying.foot?.label, lying.foot?.held, lying.foot?.tip],
+      ['Page rechargée : la demande attend « Reprendre ».', ENGINE, 'Reprendre · 1', true, ENGINE],
+    );
+    // Asked all the same (the keys of the Studio, « Reprendre » of the window): nothing sent, nothing failed, why said.
+    page.keys();
+    page.studio.queueResume(lying.conversation);
+    await settle();
+    assert.deepEqual(
+      [page.asked.filter(([route]) => route === 'tools/action').length, takes.length, page.tiles(), notices.at(-1)],
+      [0, 0, [['En pause 1', 'B']], ENGINE],
+    );
+    // Ready: the Studio whole, « Reprendre · 1 » on its button, no foot in the window under its settings.
+    engine = null;
+    ready(true);
+    page.studio.invalidate({ tools: true });
+    await page.studio.prefetch();
+    assert.deepEqual([page.label(), page.studio.queueView({ docked: true })[0].foot], ['Reprendre · 1', null]);
+    page.press();
+    await until(() => takes.length === 1);
+    assert.deepEqual(page.asks(), ['B']);
+  } finally {
+    page.restore();
+  }
 });

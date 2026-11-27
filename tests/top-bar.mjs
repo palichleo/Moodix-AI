@@ -98,10 +98,12 @@ test('the Archives: a page of its own, headed by the fil of the Chat and the Stu
     /#library-view > \.library-creations \{\n {2}flex: 1 1 auto;\n {2}min-height: 0;\n {2}padding: 0 36px 48px;\n/,
   );
   assert.match(css, /#library-view > \.library-creations \{[^}]*overflow-y: auto;/);
-  assert.match(
-    css,
-    /body:has\(> \.work-mini:not\(\[hidden\]\):not\(\.is-foot\)\) #library-view > \.library-creations \{\n {2}padding-bottom: 280px;/,
+  // (Merged with 0.6.478) Under the window at the bottom right, however tall it is with the queue of the Studio, and
+  // 56 px more (280 px fixed, as 224 + 56, left the last row under a window that lists the queue).
+  const sheet = css.match(
+    /body:has\(> \.work-mini:not\(\[hidden\]\):not\(\.is-foot\)\) #library-view > \.library-creations \{\n {2}(.*);/,
   );
+  assert.equal(sheet?.[1], 'padding-bottom: calc(var(--work-mini-height, 224px) + 56px)');
   assert.match(css, /\.library-row \{\n {2}display: flex;\n {2}flex-wrap: wrap;\n {2}gap: 10px;/);
   // (0.6.281) The rule that sizes them: 196 px times their ratio as a start, at their format (the width and
   // the height of 196 px written before it never acted).

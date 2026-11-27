@@ -11,6 +11,7 @@ import {
   withoutCall,
 } from '../public/take-recovery.mjs';
 import { closedCalls, STUDIO_NOTE } from '../public/transcript.mjs';
+import { QUEUE_KEY, createQueue } from '../public/studio-queue.mjs';
 
 /**
  * A creation the server finishes without the page that asked for it (0.6.82, public/take-recovery.mjs):
@@ -846,4 +847,51 @@ test('a turn begun in the conversation while its takes are read writes its own m
   state.work = null;
   await recovery.complete(ID, views());
   assert.equal(JSON.parse(state.messages[2].content).run_id, 'r1');
+});
+
+// The place of the tab is read once, the queue stays; the take followed again is given back to the Studio at its
+// end, nothing else goes.
+test('(0.6.466, D3) the queue of the Studio kept in the tab survives its reload, paused', async () => {
+  const kept = new Map(),
+    storage = {
+      getItem: key => kept.get(key) ?? null,
+      setItem: (key, value) => kept.set(key, value),
+      removeItem: key => kept.delete(key),
+    };
+  // Before the reload: a take of the Studio at its first try of two, a request after it, in the Studio of ID.
+  const before = createQueue({ storage, tab: 'onglet-1' });
+  before.begin({ mode: 'image', label: { prompt: 'un bateau rouge' }, conversation: ID, project: 'inbox', tries: 2 });
+  before.add({ mode: 'image', label: { prompt: 'un phare' }, conversation: ID, project: 'inbox', tries: 1 });
+  page({ storage, state: { view: 'studio' } }).recovery.rememberTab();
+  // Reloaded: the tab comes back where it was, and follows the take of the Studio being made there.
+  const studio = { messages: [{ role: 'user', content: 'Bonjour' }, ...studioAsked(call('call_st'))] };
+  const reloaded = page({
+    storage,
+    job: running({ callId: 'call_st', studio: true }),
+    fresh: running({ callId: 'call_st', studio: true }),
+    state: { conversationId: null, messages: [], stored: { [ID]: studio.messages } },
+  });
+  assert.equal(await reloaded.recovery.resumeTab(), true);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.deepEqual(
+    [kept.has(TAB_KEY), kept.has(QUEUE_KEY)],
+    [false, true],
+    'its place read once, its queue left to the Studio',
+  );
+  assert.deepEqual(
+    [reloaded.seen.adopted, reloaded.seen.studio],
+    [1, [['settled', 'made']]],
+    'followed, then given back',
+  );
+  // What the Studio finds of it then: paused, the second try of the take with the request after it (B1).
+  const found = createQueue({ storage, tab: 'onglet-1' }).entries();
+  assert.deepEqual(
+    found.map(entry => [entry.label.prompt, entry.state, entry.reason, entry.tries]),
+    [
+      ['un bateau rouge', 'paused', 'reload', 1],
+      ['un phare', 'paused', 'reload', 1],
+    ],
+  );
+  // A tab duplicated from it has another identity: nothing of it.
+  assert.deepEqual(createQueue({ storage, tab: 'onglet-2' }).entries(), []);
 });

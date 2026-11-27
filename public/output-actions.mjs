@@ -85,8 +85,20 @@ const tipOf = (action, reason = '') => (reason ? `${action.tip}\n${reason}` : ac
  * upscale, interpolate, extend and animate; Ouvrir calls `onDetails(record, index)`, Afficher dans
  * le Studio `onShow(record, index)` (absent: not offered, as in the Studio itself). Without
  * `onDetails`, no « Ouvrir » (the Studio: a click on the take on its screen opens it).
+ * (0.6.466) `held()`: why what makes a take of this one waits now ('' when nothing holds it): greyed, with that reason.
  */
-export function outputActions({ api, node, onDetails, onAction, onShow = null, icon: drawIcon = null, rail = false, greyable = null, onGreyed = null }) {
+export function outputActions({
+  api,
+  node,
+  onDetails,
+  onAction,
+  onShow = null,
+  icon: drawIcon = null,
+  rail = false,
+  greyable = null,
+  onGreyed = null,
+  held = () => '',
+}) {
   let available = null,
     loaded = 0,
     // (0.6.261) What the server said last: a row drawn again (the Studio draws itself again at each change) starts
@@ -140,8 +152,11 @@ export function outputActions({ api, node, onDetails, onAction, onShow = null, i
       };
       if (action.verb) {
         // Disabled until the server says an active workflow can do it (what it said last, when it did).
-        button.disabled = !(known?.[action.verb] || []).includes(media);
-        if (known && button.disabled) button.title = rail ? action.missing(media) : tipOf(action, action.missing(media));
+        const waits = held();
+        button.disabled = Boolean(waits) || !(known?.[action.verb] || []).includes(media);
+        if (waits) button.title = rail ? waits : tipOf(action, waits);
+        else if (known && button.disabled)
+          button.title = rail ? action.missing(media) : tipOf(action, action.missing(media));
         buttons.push([button, action]);
       }
       row.append(button);
@@ -149,10 +164,11 @@ export function outputActions({ api, node, onDetails, onAction, onShow = null, i
     function refresh() {
       return load().then(verbs => {
         for (const [button, action] of buttons) {
-          const ready = (verbs[action.verb] || []).includes(media);
+          const waits = held(),
+            ready = !waits && (verbs[action.verb] || []).includes(media);
           button.disabled = !ready;
-          if (!rail) button.title = tipOf(action, ready ? '' : action.missing(media));
-          else if (!ready) button.title = action.missing(media);
+          if (!rail) button.title = tipOf(action, ready ? '' : waits || action.missing(media));
+          else if (!ready) button.title = waits || action.missing(media);
           else {
             // Ready again: its bubble of before goes (public/help-tips.mjs turned its title into a tip).
             button.removeAttribute?.('title');

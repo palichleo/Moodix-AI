@@ -38,6 +38,17 @@ class Element {
     item.parentNode = this;
     this.children.unshift(item);
   }
+  replaceChildren(...items) {
+    for (const child of this.children) if (child && typeof child === 'object') child.parentNode = null;
+    this.children = [];
+    this.append(...items);
+  }
+  /** (0.6.478) Every element under it of that class. */
+  findAll(name) {
+    return this.children
+      .filter(child => child instanceof Element)
+      .flatMap(child => [...(child.classList.contains(name) ? [child] : []), ...child.findAll(name)]);
+  }
   setAttribute(name, value) {
     this.attributes[name] = String(value);
   }
@@ -60,7 +71,9 @@ const node = (tag, className, text) => new Element(tag, className, text);
 /** A miniature on a page, with what its Flux and its picture so far were told. */
 function miniature({ storage = null, mayClose, onClosed } = {}) {
   const drawn = { fluxes: [], shown: [] },
-    opened = [];
+    opened = [],
+    // (0.6.478) What the gestures of its list of the queue asked the page.
+    asked = [];
   const page = node('body');
   const mini = setupMiniature({
     node,
@@ -69,6 +82,12 @@ function miniature({ storage = null, mayClose, onClosed } = {}) {
     open: work => opened.push(work),
     ...(mayClose ? { mayClose } : {}),
     ...(onClosed ? { onClosed } : {}),
+    ...Object.fromEntries(
+      ['onRemove', 'onResume', 'onClear', 'onTakeBack', 'onOpenQueue', 'onRecover'].map(name => [
+        name,
+        (...args) => asked.push([name, ...args]),
+      ]),
+    ),
     storage,
     makeFlux: () => {
       const flux = { told: [], stopped: false, visible: null };
@@ -83,7 +102,7 @@ function miniature({ storage = null, mayClose, onClosed } = {}) {
   page.append(mini.element);
   const part = name => mini.element.find(name);
   // (The words of its stage, beside its time since 0.6.93.)
-  return { mini, page, drawn, opened, part, said: () => part('work-mini-said').textContent };
+  return { mini, page, drawn, opened, asked, part, said: () => part('work-mini-said').textContent };
 }
 const WORK = { conversationId: 'a1111111-1111-4111-8111-111111111111', title: 'Renard dans la neige', kind: 'turn' };
 const video = { mediaType: 'video', workflowName: 'LTX 2.5', requestId: 'r1' };
@@ -329,7 +348,8 @@ function appPart(from, to) {
   assert.ok(start >= 0 && end > start, `slice not found: ${from} … ${to}`);
   return appSource.slice(start, end);
 }
-function shownPage() {
+// (0.6.478) `studio`: more of the Studio (its queue); `elements`: more of the page, by their id; `page`: its document.
+function shownPage({ studio = {}, elements = {}, page = { body: { dataset: {} } } } = {}) {
   const { mini, part } = miniature(),
     foot = node('footer', 'settings-footer'),
     settings = { open: false, querySelector: selector => (selector === '.settings-footer' ? foot : null) },
@@ -347,13 +367,14 @@ function shownPage() {
       heldFor: () => (held.waiting ? WORK.conversationId : null),
       holds: () => held.waiting,
       watch: () => watched.push(structuredClone(state.work?.take ?? null)),
+      ...studio,
     },
   };
   const context = {
     state,
-    $: id => (id === 'settings' ? settings : null),
+    $: id => (id === 'settings' ? settings : (elements[id] ?? null)),
     shownHere: id => !id || state.conversationId === id,
-    document: { body: { dataset: {} } },
+    document: page,
   };
   runInNewContext(
     appPart('function syncMiniature(', '/** Whether `version`') +
@@ -487,4 +508,276 @@ test('the page keeps the take of the Chat being made for the Studio of its conve
   chatTake({ type: 'progress', compact: true, request: { requestId: 'studio' }, text: 'Génération · 1/8', fraction: 0.1 });
   assert.equal(state.work.take, before);
   assert.equal(watched.length, 6);
+});
+
+// (0.6.478) The queue of the Studio, as studio.mjs (queueView) gives it: a part per conversation.
+const row = (id, prompt, extra = {}) => ({
+  id,
+  kind: 'image',
+  icon: 'image',
+  prompt,
+  what: 'Krea 2 · 16:9',
+  tries: 1,
+  reason: '',
+  tip: `Image · Krea 2 · 16:9\n${prompt}`,
+  ...extra,
+});
+const RESUME = {
+  label: 'Reprendre · 2',
+  icon: 'go',
+  held: false,
+  tip: 'Reprendre la file : les 2 demandes en attente, dans l’ordre',
+  clear: 'Vider la file : retirer les 2 demandes en attente',
+};
+function queuePart(extra = {}) {
+  return {
+    conversation: WORK.conversationId,
+    title: 'Renard dans la neige',
+    groups: [
+      { word: 'En attente', state: 'waiting', rows: [row('q1', 'un bateau', { tries: 3 }), row('q2', 'une île')] },
+    ],
+    why: '',
+    card: false,
+    stopped: false,
+    note: '',
+    held: '',
+    foot: null,
+    ...extra,
+  };
+}
+/** All the words under an element, in their order. */
+const textOf = element =>
+  [element.textContent, ...element.children.filter(child => child instanceof Element).map(textOf)]
+    .filter(Boolean)
+    .join('');
+
+test('(0.6.478) under the take, what waits in its order: a line each, its cross; folded, « 2 en attente »', () => {
+  const { mini, asked, part } = miniature(),
+    lines = () => mini.element.findAll('work-mini-row');
+  mini.begin(WORK);
+  mini.take({ type: 'start', request: { workflowName: 'Krea 2', autoAllow: true } });
+  mini.take({ type: 'progress', text: 'Génération · 5/8', fraction: 0.46 });
+  mini.queue([queuePart()]);
+  mini.place('corner');
+  assert.deepEqual(
+    [mini.element.hidden, part('work-mini-file').hidden, mini.element.classList.contains('has-queue')],
+    [false, false, true],
+  );
+  // The take is its conversation's: its name is not said twice. Its title, then a line per request, the next first.
+  assert.equal(part('work-mini-queue-back'), null);
+  assert.equal(textOf(part('work-mini-queue-title')), 'En attente · 2');
+  assert.deepEqual(
+    lines().map(line => [
+      line.find('work-mini-row-text').textContent,
+      line.find('work-mini-row-model').textContent,
+      line.find('work-mini-row-tries')?.textContent ?? '',
+      line.find('work-mini-row-words').title,
+      line.find('work-mini-row-words').dataset.tipSide,
+      line.find('work-mini-row-del').title,
+    ]),
+    [
+      ['un bateau', 'Krea 2 · 16:9', '× 3', 'Image · Krea 2 · 16:9\nun bateau', 'left', 'Retirer de la file'],
+      ['une île', 'Krea 2 · 16:9', '', 'Image · Krea 2 · 16:9\nune île', 'left', 'Retirer de la file'],
+    ],
+  );
+  lines()[1].find('work-mini-row-del').onclick();
+  assert.deepEqual(asked, [['onRemove', 'q2', WORK.conversationId]]);
+  // The take draws the window each second: the list is drawn again only when what it says changes.
+  const drawnLine = lines()[0];
+  mini.take({ type: 'progress', text: 'Génération · 6/8', fraction: 0.6 });
+  assert.equal(lines()[0], drawnLine);
+  // Folded, the pill says what waits beside the percentage (moodix.css hides its list).
+  part('work-mini-fold').onclick();
+  const kind = part('work-mini-kind');
+  assert.deepEqual(
+    [kind.textContent, kind.classList.contains('is-count'), part('work-mini-percent').textContent],
+    ['2 en attente', true, '60 %'],
+  );
+  part('work-mini-fold').onclick();
+  assert.deepEqual([kind.textContent, kind.classList.contains('is-count')], ['Image · Krea 2', false]);
+  // In the foot of the Paramètres it is the pill too (the maquette's 6d): it says so there, its corner left open.
+  mini.place(node('footer', 'settings-footer'));
+  assert.deepEqual([kind.textContent, mini.element.classList.contains('has-count')], ['2 en attente', true]);
+  mini.place('corner');
+  assert.deepEqual([kind.textContent, mini.folded], ['Image · Krea 2', false]);
+});
+
+test('(0.6.478) a queue paused stays, no ×: why, « Reprendre · 2 », « Vider la file »; a failure given back', () => {
+  const { mini, asked, part } = miniature();
+  const paused = queuePart({
+    groups: [
+      { word: 'En pause', state: 'paused', rows: [row('q1', 'un bateau'), row('q2', 'une île')] },
+      { word: '', state: 'failed', rows: [row('q3', 'le phare', { reason: 'Mémoire vidéo insuffisante.' })] },
+    ],
+    why: 'Génération arrêtée.',
+    stopped: true,
+    foot: RESUME,
+  });
+  // No work: the list alone, under the name of its conversation (a click on it opens its Studio).
+  mini.queue([paused]);
+  mini.place('corner', { alone: true });
+  assert.deepEqual(
+    [
+      mini.element.hidden,
+      part('work-mini-back').hidden,
+      part('work-mini-close').hidden,
+      mini.element.classList.contains('has-now'),
+    ],
+    [false, true, true, false],
+  );
+  assert.equal(part('work-mini-queue-name').textContent, 'Renard dans la neige');
+  part('work-mini-queue-back').onclick();
+  assert.equal(part('work-mini-queue-why').textContent, 'Génération arrêtée.');
+  assert.equal(textOf(part('work-mini-queue-head')), 'En pause · 2');
+  assert.equal(mini.element.findAll('work-mini-queue-head').length, 1);
+  // The failure: in red, why in place of its model; a click gives its settings back to the Studio.
+  const failed = mini.element.findAll('work-mini-row').find(line => line.classList.contains('is-failed'));
+  assert.deepEqual(
+    [failed.tag, failed.find('work-mini-row-why').textContent, failed.find('work-mini-row-del').title],
+    ['li', 'Échec · Mémoire vidéo insuffisante.', 'Retirer cette demande'],
+  );
+  failed.find('work-mini-row-words').onclick();
+  const go = part('work-mini-resume');
+  assert.deepEqual([textOf(go), go.title, part('work-mini-clear').title], ['Reprendre · 2', RESUME.tip, RESUME.clear]);
+  go.onclick();
+  part('work-mini-clear').onclick();
+  assert.deepEqual(asked, [
+    ['onOpenQueue', WORK.conversationId],
+    ['onTakeBack', 'q3', WORK.conversationId],
+    ['onResume', WORK.conversationId],
+    ['onClear', WORK.conversationId],
+  ]);
+  // Greyed (a take of the Bobine): why above it, and it does nothing. The card held: « Libérer le GPU ».
+  const held = 'Attendez la fin de la prise de la Bobine.';
+  mini.queue([{ ...paused, held, foot: { ...RESUME, held: true, tip: held } }]);
+  mini.place('corner', { alone: true });
+  assert.deepEqual(
+    [part('work-mini-held').textContent, part('work-mini-resume').getAttribute('aria-disabled')],
+    [held, 'true'],
+  );
+  part('work-mini-resume').onclick();
+  mini.queue([{ ...paused, foot: { ...RESUME, label: 'Libérer le GPU', icon: 'chip', recover: true } }]);
+  mini.place('corner', { alone: true });
+  assert.ok(part('work-mini-resume').find('icon-chip'));
+  part('work-mini-resume').onclick();
+  assert.deepEqual(asked.slice(4), [['onRecover', WORK.conversationId]]);
+  // In the Chat or the Studio of its conversation, its name is not said; « Génération arrêtée. » is not said twice,
+  // under the take of its conversation that says it.
+  mini.place('corner', { alone: true, home: WORK.conversationId });
+  assert.equal(part('work-mini-queue-back'), null);
+  mini.begin(WORK);
+  mini.take({ type: 'start', request: { workflowName: 'Krea 2', autoAllow: true } });
+  mini.take({ type: 'stopped' });
+  mini.end();
+  mini.place('corner');
+  assert.deepEqual([part('work-mini-said').textContent, part('work-mini-queue-why')], ['Génération arrêtée.', null]);
+  // Folded with nothing else, the pill is its title alone; under a work (Moodix answers), « 2 en pause ».
+  mini.forget();
+  part('work-mini-fold').onclick();
+  mini.place('corner', { alone: true });
+  assert.deepEqual(
+    [mini.element.hidden, mini.folded, mini.element.classList.contains('has-count')],
+    [false, true, false],
+  );
+  mini.begin({ ...WORK, conversationId: 'b2222222-2222-4222-8222-222222222222', title: 'Affiche du festival' });
+  mini.place('corner');
+  const kind = part('work-mini-kind');
+  assert.deepEqual(
+    [kind.textContent, kind.classList.contains('is-paused'), mini.element.classList.contains('has-count')],
+    ['2 en pause', true, true],
+  );
+  // Nothing waits any more: the window goes with the queue.
+  mini.forget();
+  mini.queue([]);
+  mini.place('corner', { alone: true });
+  assert.equal(mini.element.hidden, true);
+});
+
+test('(0.6.478) in its Studio the list lies under the settings; no room: its title until its chevron opens it', () => {
+  const kept = new Map(),
+    storage = { getItem: key => kept.get(key) ?? null, setItem: (key, value) => kept.set(key, value) },
+    { mini, part } = miniature({ storage }),
+    classes = () => ['is-docked', 'is-folded', 'is-over'].filter(name => mini.element.classList.contains(name));
+  mini.queue([queuePart()]);
+  const dock = { left: 1148, width: 268, bottom: 200, room: 240, over: 380 };
+  mini.place('corner', { alone: true, home: WORK.conversationId, dock });
+  assert.deepEqual(classes(), ['is-docked']);
+  assert.deepEqual(mini.element.style.values, {
+    '--work-mini-left': '1148px',
+    '--work-mini-width': '268px',
+    '--work-mini-bottom': '200px',
+    '--work-mini-room': '240px',
+    '--work-mini-over': '380px',
+  });
+  // Its chevron folds it there alone: nothing kept for the other pages.
+  part('work-mini-fold').onclick();
+  assert.deepEqual([classes(), kept.size], [['is-docked', 'is-folded'], 0]);
+  mini.place('corner', { alone: true });
+  assert.deepEqual(classes(), []);
+  // 1280 × 720: 60 px under the settings, its title alone; its chevron opens it over them, a new drawing keeps it.
+  mini.place('corner', { alone: true, dock: { ...dock, room: 60 } });
+  assert.deepEqual(classes(), ['is-docked', 'is-folded']);
+  part('work-mini-fold').onclick();
+  mini.place('corner', { alone: true, dock: { ...dock, room: 60 } });
+  assert.deepEqual(classes(), ['is-docked', 'is-over']);
+  // In a Chat of 1168 px, its pill rises over the input; the user's choice for the other pages is left as it was.
+  mini.place('corner', { alone: true, pill: true, raise: 213 });
+  assert.deepEqual(
+    [mini.element.classList.contains('is-raised'), mini.folded, mini.element.style.values['--work-mini-raise']],
+    [true, true, '213px'],
+  );
+  mini.place('corner', { alone: true });
+  assert.deepEqual([mini.element.classList.contains('is-raised'), mini.folded, kept.size], [false, false, 0]);
+});
+
+test('(0.6.478) the page puts the queue under the settings of its Studio, over the input of a narrow Chat', () => {
+  const docked = { left: 1148, width: 268, bottom: 200, room: 240, over: 380 },
+    form = { getBoundingClientRect: () => ({ width: 760, right: 964, top: 575 }) },
+    screen = { clientWidth: 1168, clientHeight: 788 },
+    told = [];
+  let parts = [queuePart()];
+  const { mini, part, state, sync } = shownPage({
+    studio: {
+      queueView: options => (told.push(options.docked), parts),
+      queueDock: () => docked,
+    },
+    elements: { 'chat-form': form },
+    page: { body: { dataset: {} }, documentElement: screen },
+  });
+  const where = () => [
+    mini.element.hidden,
+    ...['has-now', 'is-docked', 'is-raised', 'is-folded'].filter(name => mini.element.classList.contains(name)),
+  ];
+  // Its Studio: the list alone, under the settings (and told so: « Reprendre » is its button's there).
+  state.view = 'studio';
+  sync();
+  assert.deepEqual([where(), told.at(-1), part('work-mini-queue-back')], [[false, 'is-docked'], true, null]);
+  // Its Chat at 1168 px: its pill over the input (open, it covered its end); at 1440 px, in its corner.
+  state.view = 'chat';
+  sync();
+  assert.deepEqual([where(), told.at(-1)], [[false, 'is-raised', 'is-folded'], false]);
+  assert.equal(mini.element.style.values['--work-mini-raise'], '225px');
+  Object.assign(screen, { clientWidth: 1440, clientHeight: 900 });
+  form.getBoundingClientRect = () => ({ width: 760, right: 1100, top: 799 });
+  sync();
+  assert.deepEqual(where(), [false]);
+  // Elsewhere, the name of its conversation above it.
+  state.view = 'library';
+  sync();
+  assert.deepEqual([where(), part('work-mini-queue-name').textContent], [[false], 'Renard dans la neige']);
+  // A take of its conversation, seen from another one: the take, then the list.
+  state.work = { ...WORK };
+  mini.begin(WORK);
+  mini.take({ type: 'start', request: { workflowName: 'Krea 2', autoAllow: true } });
+  state.conversationId = 'b2222222-2222-4222-8222-222222222222';
+  state.view = 'chat';
+  sync();
+  assert.deepEqual([where(), part('work-mini-back').hidden], [[false, 'has-now'], false]);
+  // Nothing waits, the take over and seen: nothing.
+  parts = [];
+  mini.end();
+  state.conversationId = WORK.conversationId;
+  state.view = 'studio';
+  sync();
+  assert.deepEqual([mini.element.hidden, mini.work], [true, null]);
 });
