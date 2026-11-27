@@ -159,6 +159,45 @@ test('cancel during launch acknowledgement is sent immediately and is scoped to 
     }
   }));
 
+test('(0.6.469) a page that goes away cancels nothing: its requests fail, the creation goes on at the server', async () =>
+  fixture(async ({ ui, state, calls, setIntercept }) => {
+    state.conversationId = 'conversation';
+    // The page reloaded while the server checks its engine (cold, some sixteen seconds): the request it waits
+    // for fails in the browser. Seen on 27/11: the take asked was cancelled, and never made.
+    const gone = () => Promise.reject(new TypeError('Failed to fetch'));
+    setIntercept(route => (route === 'tools/execute' ? gone() : route === 'tools/cancel' ? Response.json({}) : undefined));
+    const ask = () =>
+      assert.rejects(ui.requestTool({ autoAllow: true, requestId: 'request-mine' }, new AbortController().signal, () => {}), {
+        message: 'Failed to fetch',
+      });
+    state.leaving = true;
+    await ask();
+    assert.deepEqual(
+      calls.filter(call => call.route === 'tools/cancel'),
+      [],
+      'nothing is cancelled by a page that leaves',
+    );
+    // The same failure of a page that stays (the server gone, the network down): cancelled as before.
+    state.leaving = false;
+    await ask();
+    assert.deepEqual(
+      calls.filter(call => call.route === 'tools/cancel').map(call => call.body),
+      [{ requestId: 'request-mine' }],
+    );
+    // A job followed after a reload (followTool), the page leaving again: not cancelled either.
+    calls.length = 0;
+    state.leaving = true;
+    setIntercept(route => (route === 'tools/job' ? gone() : route === 'tools/cancel' ? Response.json({}) : undefined));
+    await assert.rejects(
+      ui.followTool({ id: 'job', state: 'generating' }, { call: { id: 'call_1' } }, new AbortController().signal, () => {}),
+      { message: 'Failed to fetch' },
+    );
+    assert.deepEqual(
+      calls.filter(call => call.route === 'tools/cancel'),
+      [],
+    );
+  }));
+
 test('a replaced job is never followed or cancelled as if it belonged to this message', async () =>
   fixture(async ({ ui, state, calls, setIntercept }) => {
     state.conversationId = 'conversation';

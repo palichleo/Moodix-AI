@@ -421,7 +421,10 @@ export function setupGenerationRuntime({
         error,
       };
     } catch (error) {
-      if (!terminal) cancel();
+      // (0.6.469) Not by a page that goes away (reloaded, closed: `state.leaving`, app.js): its requests fail then,
+      // the creation does not, and the server makes it to its end; the page found again follows it. Cancelled here,
+      // a take asked a few seconds before a reload was lost without a word (the engine starting, 27/11).
+      if (!terminal && !state.leaving) cancel();
       if (signal.aborted) throw signal.reason;
       throw error;
     } finally {
