@@ -953,6 +953,17 @@ test('in the void, a ghost of 5 s follows the pointer; a click lays it (0.6.169)
     [['bobine-line-when', false], ['bobine-line-parts', false], ['bobine-line-state', true]],
   );
   assert.deepEqual(find(g.plans()[0], 'bobine-part').map(cut => [cut.textContent, cut.style.left]), [['↳ Suite', '50%']]);
+  // (0.6.465, check 5 of PROMPT.md) Each part says its length at its top right; the length of the whole take is hidden
+  // (moodix.css), which went against the « ↳ SUITE » of its last part. Each part's only when it is 150 px wide or more.
+  assert.deepEqual(
+    [g.plans()[0].dataset.parts, find(g.plans()[0], 'bobine-part-time').map(time => [time.style.left, time.style.width, time.textContent])],
+    ['2', [['0%', '50%', '15.00 s'], ['50%', '50%', '15.00 s']]],
+  );
+  const { readFile } = await import('node:fs/promises');
+  const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  assert.match(css, /#bobine-view \.montage-piece\[data-parts\] > \.montage-piece-length \{\n  display: none;\n\}/);
+  assert.match(css, /#bobine-view \.bobine-part-time \{[^}]*container-type: inline-size;/);
+  assert.match(css, /@container \(max-width: 147\.98px\) \{\n  #bobine-view \.bobine-part-length \{\n    display: none;/);
 });
 
 test('the timeline is zoomed by its buttons and Ctrl + the wheel, around the pointer; « Voir toute la bobine » shows it whole (0.6.149)', async () => {
@@ -1398,8 +1409,14 @@ test('a take longer than its model makes is cut live in equal parts; « Créer �
   f.press(find(f.root, 'montage-grip')[1], 500);
   f.pointer.move(1400);
   assert.deepEqual([f.ui.state().montage.plans[1].to, find(f.plans()[1], 'bobine-part').length], [9, 0]);
+  // (0.6.465) Made at once, it says its own length, not that of parts.
+  assert.deepEqual([f.plans()[1].dataset.parts, find(f.plans()[1], 'bobine-part-time').length], [undefined, 0]);
   f.pointer.move(1600);
   assert.deepEqual(find(f.plans()[1], 'bobine-part').map(cut => [cut.textContent, cut.style.left]), [['↳ Suite', '50%']]);
+  assert.deepEqual(
+    [f.plans()[1].dataset.parts, find(f.plans()[1], 'bobine-part-time').map(time => time.textContent)],
+    ['2', ['05.50 s', '05.50 s']],
+  );
   f.pointer.up();
   // One line for it, one text: « 2 × 05.50 s »; the button counts each part.
   assert.deepEqual([f.lines(), f.said('bobine-line-parts')], [[['05.00 → 16.00', '', 'Suite de la prise 7', '']], ['2 × 05.50 s']]);
