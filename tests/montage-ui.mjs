@@ -2034,6 +2034,8 @@ test('a licence with conditions is read in « À créer » before the download, 
     [g.get('bobine-go-download')[0].disabled, g.said('bobine-missing-whole'), brief.textContent, brief.dataset.tip, brief.attributes['aria-hidden']],
     [true, [account], 'LTX 2.5 demande un compte Hugging Face.', account, 'true'],
   );
+  // (0.6.479) Greyed, its bubble says why, not its licences (« En téléchargeant, vous les acceptez »).
+  assert.equal(g.get('bobine-go-download')[0].title, account);
   // Its download already under way (from Paramètres › Modèles): followed here.
   Object.assign(job, { state: 'running', workflowId: 'ltx', name: 'LTX 2.5', received: 10 * GB, total: 20 * GB });
   const { f: h } = await series({ times: { workflowName: 'LTX 2.5', missing: offer }, downloads });
@@ -2061,9 +2063,15 @@ test('(0.6.479) a new installation: « Télécharger » of « À créer » bring
   const fetch = () => f.get('bobine-go-download')[0],
     engine =
       'Le moteur de génération de Moodix se télécharge avec : environ 3,0 Go, une seule fois pour tous les modèles.';
+  // (In a low window, what it lacks alone in a line, the whole in its bubble: two sentences took the room of
+  // « À créer ».)
   assert.deepEqual(
-    [fetch().textContent, f.said('bobine-missing')],
-    ['Télécharger · 23,0 Go', ['LTX 2.5 n’est pas sur cet ordinateur. ' + engine]],
+    [fetch().textContent, f.said('bobine-missing-whole'), f.said('bobine-missing-brief')],
+    [
+      'Télécharger · 23,0 Go',
+      ['LTX 2.5 n’est pas sur cet ordinateur. ' + engine],
+      ['LTX 2.5 n’est pas sur cet ordinateur.'],
+    ],
   );
   fetch().onclick();
   await settle();
@@ -2072,12 +2080,29 @@ test('(0.6.479) a new installation: « Télécharger » of « À créer » bring
   Object.assign(job, { received: 20 * GB, engine: 'preparing', current: 'Préparation du moteur' });
   await f.later({ ms: 1000 });
   assert.equal(fetch().textContent, 'Préparation du moteur…');
-  // Behind a Hugging Face account: the engine its button counts, said after where the token is made.
+  // Behind a Hugging Face account: the engine its button counts, said once the token is there (with it, the line took
+  // seven lines at 1440 × 900, and the card of « À créer » was cut).
   const gated = { ...offer, needsToken: true, page: 'huggingface.co/Lightricks' },
     { f: g } = await series({ times: { workflowName: 'LTX 2.5', missing: gated }, downloads: idle });
   assert.deepEqual(
-    [g.get('bobine-go-download')[0].textContent, g.said('bobine-missing-whole')[0].endsWith(' Fichiers. ' + engine)],
+    [g.get('bobine-go-download')[0].textContent, g.said('bobine-missing-whole')[0].endsWith(' Fichiers.')],
     ['Télécharger · 23,0 Go', true],
+  );
+  // Its files all here (decision of 27/11): offered as a file to download, what it lacks said, never « n’est pas sur
+  // cet ordinateur ».
+  const alone =
+      'Les fichiers sont là : il manque le moteur de génération de Moodix, environ 3,0 Go, ' +
+      'installé une seule fois pour tous les modèles.',
+    whole = { workflowId: 'ltx', files: [], bytes: 0, left: 0, needsToken: false, page: '', engine: { bytes: 3 * GB } },
+    { f: e } = await series({ times: { workflowName: 'LTX 2.5', missing: whole }, downloads: idle });
+  assert.deepEqual(
+    [
+      e.get('bobine-go-download')[0].textContent,
+      e.get('bobine-go-download')[0].title,
+      e.said('bobine-missing-whole'),
+      e.said('bobine-missing-brief'),
+    ],
+    ['Télécharger · 3,0 Go', alone, [alone], ['Il manque le moteur de génération.']],
   );
 });
 
@@ -2227,7 +2252,8 @@ test('« Enregistrer » puts the bobine in the Archives; its point says it chang
   const save = () => f.get('bobine-save')[0];
   assert.deepEqual([save().textContent, save().children[0].className, save().disabled, save().dataset.unsaved, save().title], ['Enregistrer', 'icon-save', true, 'false', 'Posez au moins une prise pour enregistrer la bobine']);
   f.get('montage-take')[0].ondblclick();
-  assert.deepEqual([save().disabled, save().dataset.unsaved, save().title], [false, 'true', 'Enregistrer la bobine dans les Archives : elle a changé depuis']);
+  // (0.6.475) Never put in the Archives: no point, nothing there changed; its bubble says what it does.
+  assert.deepEqual([save().disabled, save().dataset.unsaved, save().title], [false, 'false', 'Enregistrer la bobine dans les Archives']);
   await f.ui.archive();
   assert.deepEqual([f.saves().length, f.saves().at(-1).body.archive, f.saves().at(-1).body.montage.plans.length], [1, true, 1]);
   // (0.6.155) Nothing said in the fil: the point is gone.
@@ -2242,11 +2268,11 @@ test('« Enregistrer » puts the bobine in the Archives; its point says it chang
   assert.deepEqual([f.saves().length, f.saves().at(-1).body.archive], [2, undefined]);
   f.ui.undo();
   assert.equal(save().dataset.unsaved, 'false');
-  // Refused: said, and kept on its own all the same.
+  // Refused: said, and kept on its own all the same. (0.6.475) Not in the Archives: the fil says it, not the point.
   const failing = await setup({ fail: { 'montages/save': 'Disque plein.' } }).open();
   failing.get('montage-take')[0].ondblclick();
   await failing.ui.archive();
-  assert.deepEqual([failing.said('montage-status'), failing.get('montage-status')[0].dataset.problem, failing.get('bobine-save')[0].dataset.unsaved], [['Non enregistrée : Disque plein.'], 'true', 'true']);
+  assert.deepEqual([failing.said('montage-status'), failing.get('montage-status')[0].dataset.problem, failing.get('bobine-save')[0].dataset.unsaved], [['Non enregistrée : Disque plein.'], 'true', 'false']);
   await failing.later();
   assert.deepEqual(failing.saves().map(call => call.body.archive), [true, undefined]);
 });
@@ -6041,4 +6067,261 @@ test('(0.6.466, relecture du lot 7) an image refused where it is dropped leaves 
   assert.deepEqual(takes(), ['Début, fin, 2 sujets, son', '3 sujets, son', 'Début, fin, son', 'Début seulement, sans son']);
   models = models.map(model => (model.family === 'ltx25' ? { ...model, create_video: { ...model.create_video, roles: { ...model.create_video.roles, reference: { count: 2, lora: false } } } } : model));
   assert.deepEqual(takes()[0], 'Début, fin, son');
+});
+
+// ------------------------------------------------------------------ (0.6.475) Défauts de la Bobine du 27/11
+test('(0.6.475, défauts de la Bobine, n° 1) the wand and the Éclipse beside « Créer », greyed, say why in their bubble, as « Créer » does; lit, what they do; their names stay what they do', async () => {
+  const wandTip = 'Enrichir : Moodix AI détaille le texte d’une prise (cadre, lumière, mouvement) ; Échap pour finir',
+    agentTip = 'Moodix AI écrit ce qui se passe dans les prises sans texte',
+    enrich = () => new Promise(() => {}),
+    { write } = pen();
+  // Every take to create has its text: the Éclipse has nothing to write (it said « Moodix AI écrit ce qui se passe dans
+  // les prises sans texte »); the wand is lit.
+  let { f } = await series({ write, more: { enrich } });
+  const wand = () => f.get('bobine-go-wand')[0],
+    agent = () => f.get('bobine-go-agent')[0],
+    tipOf = part => [part.disabled, part.title];
+  assert.deepEqual([tipOf(agent()), agent().attributes['aria-label']], [[true, 'Toutes les prises à créer ont déjà un texte : rien à écrire.'], agentTip]);
+  assert.deepEqual(tipOf(wand()), [false, wandTip]);
+  // The wand in the hand: the Éclipse waits for it to be put down.
+  wand().onclick();
+  assert.deepEqual(tipOf(agent()), [true, 'Le mode Enrichir est ouvert : Échap, ou la baguette, pour le fermer.']);
+  f.pageKey('Escape');
+  assert.equal(agent().title, 'Toutes les prises à créer ont déjà un texte : rien à écrire.');
+  // No text yet: the wand has nothing to enrich, near the words it says when an empty text is clicked; the Éclipse is
+  // lit.
+  ({ f } = await series({ texts: ['', ''], write, more: { enrich } }));
+  assert.deepEqual([tipOf(wand()), wand().attributes['aria-label']], [[true, 'Un texte vide ne s’enrichit pas : écrivez d’abord ce qui se passe dans une prise.'], wandTip]);
+  assert.deepEqual(tipOf(agent()), [false, agentTip]);
+  // A text written, the panel not drawn again: the wand lit, its bubble what it does.
+  f.write(0, 'Il lève les yeux.');
+  assert.deepEqual(tipOf(wand()), [false, wandTip]);
+  // While Moodix AI writes: why, in the words the bobine says it.
+  agent().onclick();
+  await settle();
+  const writing = 'Moodix AI écrit les prises : attendez la fin, ou arrêtez l’écriture.';
+  assert.deepEqual([tipOf(agent()), tipOf(wand())], [[true, writing], [true, writing]]);
+  // A work outside the Bobine: its words, as « Créer » says them.
+  const outside = 'Une vidéo du Chat est en cours : attendez sa fin.';
+  ({ f } = await series({ texts: ['', 'Il regarde la mer.'], write, more: { enrich, busyWith: () => outside } }));
+  assert.deepEqual([tipOf(agent()), tipOf(wand()), f.goMain().dataset.tip], [[true, outside], [true, outside], outside]);
+  // Nothing to create: both say it, as « Créer ».
+  f = await setup({ write, enrich, create: () => new Promise(() => {}) }).open();
+  assert.deepEqual([tipOf(agent()), tipOf(wand()), f.goMain().dataset.tip], [[true, 'Aucune prise à créer dans cette bobine.'], [true, 'Aucune prise à créer dans cette bobine.'], 'Aucune prise à créer dans cette bobine.']);
+});
+
+test('(0.6.475, défauts de la Bobine, n° 2) a bobine never put in the Archives has no point on « Enregistrer », opened or changed: its bubble says what the button does; put there, then changed, its point', async () => {
+  const plan = { id: id(1051), at: 0, kind: 'video', source: { conversationId: C, runId: id(1), output: 0 }, from: 0, to: 5, frame: 'fit', volume: 1 },
+    stored = { schemaVersion: 1, id: id(1050), name: 'Le phare', format: '16:9', width: 1344, height: 768, fps: 24, plans: [plan], sounds: [] },
+    f = await setup({ stored: [stored] }).open(),
+    save = () => f.get('bobine-save')[0],
+    said = () => [save().textContent, save().disabled, save().dataset.unsaved, save().title];
+  // Opened (it said « Enregistrer la bobine dans les Archives : elle a changé depuis », its point lit).
+  assert.deepEqual(said(), ['Enregistrer', false, 'false', 'Enregistrer la bobine dans les Archives']);
+  f.get('montage-take')[1].ondblclick();
+  await f.later();
+  assert.deepEqual(said(), ['Enregistrer', false, 'false', 'Enregistrer la bobine dans les Archives']);
+  await f.ui.archive();
+  assert.deepEqual([f.saves().at(-1).body.archive, save().dataset.unsaved], [true, 'false']);
+  f.get('montage-take')[0].ondblclick();
+  assert.deepEqual(said(), ['Enregistrer', false, 'true', 'Enregistrer la bobine dans les Archives : elle a changé depuis']);
+});
+
+test('(0.6.475, défauts de la Bobine, n° 3) made in parts, the note of its subjects is the bubble of its parts in a low window, its line kept for a screen reader; the other notes stay on their line', async () => {
+  const image = n => ({ conversationId: C, runId: id(n), output: 0 }),
+    stored = {
+      schemaVersion: 1,
+      id: id(1070),
+      name: 'Parties',
+      format: '16:9',
+      width: 1344,
+      height: 768,
+      fps: 24,
+      sounds: [],
+      plans: [
+        { id: id(1071), at: 0, kind: 'video', source: { conversationId: C, runId: id(1), output: 0 }, from: 0, to: 5, frame: 'fit', volume: 1 },
+        // (25 s: three parts of 8,33 s with LTX 2.5, whose suites take no subject.)
+        { id: id(1072), at: 5, kind: 'video', todo: { prompt: 'La barque s’éloigne.', subjects: [image(5), image(6)] }, from: 0, to: 25, frame: 'fit', volume: 1 },
+        // (2 s with MiniMax H3, which makes 5,17 s at least: its note stays on its line, it has no parts.)
+        { id: id(1073), at: 30, kind: 'video', todo: { prompt: 'Un regard.', model: 'minimax_h3' }, from: 0, to: 2, frame: 'fit', volume: 1 },
+      ],
+    },
+    models = bobineModels(),
+    byFamily = family => models.find(model => model.family === family),
+    f = await setup({
+      stored: [stored],
+      extra: photos(),
+      videoModels: () => models,
+      modelFor: (verb, family) => byFamily(family)?.[verb]?.id ?? null,
+      longestFor: (verb, family) => byFamily(family)?.[verb]?.longest ?? null,
+      estimate: async () => ({ workflowName: 'LTX 2.5' }),
+    }).open();
+  await settle();
+  const [parted, short] = f.get('bobine-line'),
+    note = 'LTX 2.5 : les sujets ne vont qu’à la première partie (8,3 s). Pour toutes les parties : MiniMax H3.';
+  // Its parts, « 3 × 08.33 s », carry the whole note in their bubble; its line is the one only a low window hides.
+  const parts = find(parted, 'bobine-line-parts')[0];
+  assert.deepEqual([parts.textContent, parts.dataset.tip], ['3 × 08.33 s', note]);
+  assert.deepEqual(find(parted, 'bobine-line-reason').map(line => [line.className, find(line, 'bobine-line-whole')[0].textContent]), [['bobine-line-reason is-note is-parts', note]]);
+  // A take made at once: no parts, its note on its line as before.
+  assert.deepEqual([find(short, 'bobine-line-parts').length, find(short, 'bobine-line-reason').map(line => line.className)], [0, ['bobine-line-reason is-note']]);
+  const { readFile } = await import('node:fs/promises');
+  const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n'),
+    at = css.indexOf('  #bobine-view .bobine-line-reason.is-note.is-parts {'),
+    rule = css.slice(at, css.indexOf('}', css.indexOf('#bobine-view .bobine-line-parts[data-tip] {', at)) + 1);
+  assert.ok(at > 0, 'its rule');
+  // (In the block of a low window, not after it.)
+  const media = css.lastIndexOf('@media (max-height: 800px) {', at);
+  assert.equal([...css.slice(media, at)].reduce((depth, char) => depth + (char === '{') - (char === '}'), 0), 1, 'in a low window');
+  assert.match(rule, /\{\n    position: absolute;\n    width: 1px;\n    height: 1px;\n    margin: -1px;\n    overflow: hidden;\n    clip: rect\(0, 0, 0, 0\);/);
+  assert.match(rule, /#bobine-view \.bobine-line-parts\[data-tip\] \{\n    color: var\(--warning\);\n  \}$/);
+});
+
+test('(0.6.475, défauts de la Bobine, n° 4) the models read again before the Bobine is ever drawn (a download of a card of the Chat ended): the list drawn after says the model there', async () => {
+  const GB = 1024 ** 3,
+    offer = { workflowId: 'ltx-25', files: [{ file: 'ltx-2.5.safetensors', size: 20 * GB, license: { name: 'Apache 2.0' } }], bytes: 20 * GB, left: 20 * GB, needsToken: false, page: '' },
+    relists = [],
+    stored = {
+      schemaVersion: 1,
+      id: id(1080),
+      name: 'Le phare',
+      format: '16:9',
+      width: 1344,
+      height: 768,
+      fps: 24,
+      sounds: [],
+      plans: [{ id: id(1081), at: 0, kind: 'video', todo: { prompt: 'Le phare.' }, from: 0, to: 5, frame: 'fit', volume: 1, photos: { end: { conversationId: C, runId: id(3), output: 0 } } }],
+    };
+  let here = false,
+    models = bobineModels({ ltx: here });
+  const byFamily = family => models.find(model => model.family === family),
+    f = setup({
+      stored: [stored],
+      videoModels: () => models,
+      modelFor: (verb, family) => byFamily(family)?.[verb]?.id ?? null,
+      longestFor: (verb, family) => byFamily(family)?.[verb]?.longest ?? null,
+      estimate: async wanted => ({ workflowName: 'LTX 2.5', ...(wanted.args.workflow === 'ltx-25' && !here ? { missing: offer } : {}) }),
+      relist: async () => {
+        relists.push(here);
+        models = bobineModels({ ltx: here });
+      },
+    });
+  // The file there (app.js: the card of the Chat, then studio.mjs `invalidate`), the Bobine not drawn yet: read at
+  // once.
+  here = true;
+  f.ui.toolsChanged();
+  await settle();
+  assert.deepEqual(relists, [true]);
+  await f.open();
+  await settle();
+  find(f.get('bobine-line')[0], 'bobine-line-model')[0].onclick({ stopPropagation() {} });
+  const amber = f.get('bobine-model-menu')[0].children.filter(item => item.dataset.missing === 'true').map(item => find(item, 'bobine-model-name')[0].textContent);
+  assert.deepEqual([amber, f.get('bobine-go-download').length, f.go()], [[], 0, 'Créer 1 prise']);
+});
+
+test('(0.6.475, défauts de la Bobine, n° 5) on the track Images, a place its model does not take stays, greyed, why in its bubble in the words of its card; an image dropped there, or beside it on the track, is refused with them', async () => {
+  const image = n => ({ conversationId: C, runId: id(n), output: 0 }),
+    stored = {
+      schemaVersion: 1,
+      id: id(1060),
+      name: 'Places',
+      format: '16:9',
+      width: 1344,
+      height: 768,
+      fps: 24,
+      sounds: [],
+      plans: [
+        { id: id(1061), at: 0, kind: 'video', todo: { prompt: 'La barque part.', model: 'minimax_h3' }, from: 0, to: 5.5, frame: 'fit', volume: 1 },
+        { id: id(1062), at: 5.5, kind: 'video', todo: { prompt: 'Une mouette se pose.', model: 'wan22' }, from: 0, to: 4, frame: 'fit', volume: 1, photos: { start: image(3) } },
+        { id: id(1063), at: 9.5, kind: 'video', todo: { prompt: 'La brume se lève.', model: 'minimax_h3' }, from: 0, to: 5.5, frame: 'fit', volume: 1, photos: { end: image(5) } },
+        { id: id(1064), at: 15, kind: 'video', todo: { prompt: 'Il fait signe.' }, from: 0, to: 5, frame: 'fit', volume: 1 },
+      ],
+    },
+    models = bobineModels(),
+    byFamily = family => models.find(model => model.family === family),
+    f = await setup({
+      stored: [stored],
+      extra: photos(),
+      videoModels: () => models,
+      modelFor: (verb, family) => byFamily(family)?.[verb]?.id ?? null,
+      longestFor: (verb, family) => byFamily(family)?.[verb]?.longest ?? null,
+      estimate: async () => ({ workflowName: 'LTX 2.5' }),
+    }).open();
+  await settle();
+  const pins = () => find(f.photos(), 'montage-photo'),
+    pin = (plan, side) => pins().find(item => item.dataset.plan === id(plan) && item.className.includes('is-' + side)),
+    toldOf = item => [item.className, item.dataset.left ?? '', item.dataset.tip ?? '', item.attributes['aria-label']],
+    start = 'MiniMax H3 ne prend pas d’image de début : choisissez LTX 2.5, pi H3 ou Wan 2.2.',
+    end = 'MiniMax H3 ne prend pas d’image de fin : choisissez LTX 2.5 ou pi H3.',
+    noEnd = 'Wan 2.2 ne prend pas d’image de fin : choisissez LTX 2.5 ou pi H3.',
+    kept = 'MiniMax H3 ne prend pas d’image de fin : elle reste là, mais n’est pas envoyée.';
+  // MiniMax H3 takes neither: both places greyed (they were drawn as the others, « glissez une image ici »); Wan 2.2
+  // takes no end; an image laid where it is not sent says it as its piece does; LTX 2.5 takes both.
+  assert.deepEqual(pins().map(toldOf), [
+    ['montage-photo is-start is-slot', 'true', start, 'Image de début, prise de 00.00 à 05.50. ' + start],
+    ['montage-photo is-end is-slot', 'true', end, 'Image de fin, prise de 00.00 à 05.50. ' + end],
+    ['montage-photo is-start', '', '', 'Image de début, prise de 05.50 à 09.50'],
+    ['montage-photo is-end is-slot', 'true', noEnd, 'Image de fin, prise de 05.50 à 09.50. ' + noEnd],
+    ['montage-photo is-start is-slot', 'true', start, 'Image de début, prise de 09.50 à 15.00. ' + start],
+    ['montage-photo is-end', 'true', kept, 'Image de fin, prise de 09.50 à 15.00. ' + kept],
+    ['montage-photo is-start is-slot', '', '', 'Image de début, prise de 15.00 à 20.00 : glissez une image ici'],
+    ['montage-photo is-end is-slot', '', '', 'Image de fin, prise de 15.00 à 20.00 : glissez une image ici'],
+  ]);
+  // The words of its card: what its « + » says of the same place.
+  f.adder(0).onclick({ stopPropagation() {} });
+  assert.deepEqual(f.choices().slice(0, 2).map(choice => choice[2]), [start, end]);
+  f.pagePress({});
+  // Carried, an image does not light a greyed place; dropped there, it is refused with why, nothing laid.
+  const tile = n => f.get('montage-take').find(item => item.dataset.id === id(n)),
+    carry = n => tile(n).ondragstart({ dataTransfer: { setData() {} } }),
+    photosOf = () => f.ui.state().montage.plans.map(plan => [plan.photos?.start?.runId ?? null, plan.photos?.end?.runId ?? null]),
+    before = photosOf();
+  for (const [plan, side, why] of [[1061, 'start', start], [1062, 'end', noEnd], [1063, 'end', end]]) {
+    carry(6);
+    const target = pin(plan, side),
+      over = { ...event(0), stopPropagation() {} };
+    target.ondragover(over);
+    assert.deepEqual([over.prevented, target.dataset.over], [true, undefined], `${plan} ${side}`);
+    target.ondrop({ ...event(0), stopPropagation() {} });
+    assert.deepEqual([f.notices.at(-1), photosOf()], [why, before], `${plan} ${side}`);
+  }
+  // On the track beside them (thirty seconds on 1000 pixels): the second half of the take to Wan 2.2 is its end,
+  // refused.
+  carry(6);
+  f.photos().ondrop(event(267));
+  assert.deepEqual([f.notices.at(-1), photosOf()], [noEnd, before]);
+  // The first half of the take to LTX 2.5 is its start: laid.
+  carry(6);
+  f.photos().ondrop(event(534));
+  assert.deepEqual(photosOf()[3], [id(6), null]);
+  // A place its model takes is lit as before.
+  carry(5);
+  const lit = pin(1064, 'end'),
+    over = { ...event(0), stopPropagation() {} };
+  lit.ondragover(over);
+  assert.deepEqual([over.prevented, lit.dataset.over], [true, 'true']);
+  const { readFile } = await import('node:fs/promises');
+  const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  assert.match(css, /\n#bobine-view \.montage-photo\[data-left='true'\] \{\n  opacity: 0\.45;\n\}/);
+  assert.match(css, /\n#bobine-view \.montage-photos\[data-carrying='true'\] \.montage-photo\.is-slot\[data-left='true'\] \{\n  border-color: rgba\(238, 232, 222, 0\.3\);/);
+  assert.match(css, /\n\.montage-photos\[data-carrying='true'\] \.montage-photo\[data-left='true'\]:not\(\.is-slot\) \{\n  outline: none;\n\}/);
+  // A take without a model of its own: the model it has now, as its « + » says (LTX 2.5 not here, MiniMax H3 makes it
+  // as it is). Dropped, the image went there, and its model became pi H3 without a word.
+  const alone = { ...stored, id: id(1065), name: 'Seule', plans: [{ id: id(1066), at: 0, kind: 'video', todo: { prompt: 'Il attend.' }, from: 0, to: 5, frame: 'fit', volume: 1 }] },
+    without = bobineModels({ ltx: false }),
+    other = family => without.find(model => model.family === family),
+    g = await setup({
+      stored: [alone],
+      extra: photos(),
+      videoModels: () => without,
+      modelFor: (verb, family) => other(family)?.[verb]?.id ?? null,
+      longestFor: (verb, family) => other(family)?.[verb]?.longest ?? null,
+      estimate: async () => ({ workflowName: 'MiniMax H3 Omni' }),
+    }).open();
+  await settle();
+  assert.deepEqual(find(g.photos(), 'montage-photo').map(item => item.dataset.tip), [start, end]);
+  // (Ten seconds on 1000 pixels: the first half of the take is its start.)
+  g.get('montage-take').find(item => item.dataset.id === id(6)).ondragstart({ dataTransfer: { setData() {} } });
+  g.photos().ondrop(event(50));
+  assert.deepEqual([g.notices.at(-1), g.ui.state().montage.plans[0].photos ?? null], [start, null]);
 });

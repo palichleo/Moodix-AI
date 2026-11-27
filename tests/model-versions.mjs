@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -509,6 +510,28 @@ test('the page « Modèles » is given one line a model, in its order, and a cho
   assert.deepEqual(line('Krea 2').workflows[0].versions, [], 'none of its files here: to download');
   // Real-ESRGAN is one model in two workflows: images, videos.
   assert.deepEqual(line('Real-ESRGAN').workflows.map(({ family, version }) => [family, version]), [['realesrgan_image', '×4 Plus'], ['realesrgan_video', '×2 Plus']], 'the one of the images first');
+  // (0.6.481) pi H3 and Wan 2.2 Caméra are shown in the sections of MiniMax H3 and Wan 2.2; every other line in
+  // its own.
+  assert.deepEqual(
+    lines.filter(item => item.section).map(item => [item.name, item.section]),
+    [
+      ['pi H3', 'MiniMax H3'],
+      ['Wan 2.2 Caméra', 'Wan 2.2'],
+    ],
+  );
+  // The versions Moodix can download and that are not here: none of MiniMax H3, whose two are; Krea 2's own, by its
+  // workflow, which lacks it to run.
+  assert.deepEqual([line('MiniMax H3').workflows[0].absent, line('LTX 2.5').workflows[0].absent], [[], []]);
+  const krea = shipped('krea2'),
+    kreaFile = krea.components.model.file;
+  assert.deepEqual(line('Krea 2').workflows[0].absent, [
+    { file: kreaFile, name: versionName(kreaFile, families().krea2), download: krea.id },
+  ]);
+  assert.equal(
+    Object.hasOwn(line('ACE-Step 1.5').workflows[0], 'absent'),
+    false,
+    'a model whose file is not one to choose has none',
+  );
 
   // A version picked for a workflow as shipped: kept beside it.
   await service.useVersion(ltx.id, join(folder, OWN));
@@ -533,6 +556,155 @@ test('the page « Modèles » is given one line a model, in its order, and a cho
   for (const [id, path] of [[ltx.id, ''], [ltx.id, undefined], [undefined, join(folder, OWN)], [7, join(folder, OWN)]])
     await assert.rejects(service.useVersion(id, path), { status: 400, message: 'Version invalide.' });
   await assert.rejects(service.useVersion(ltx.id, join(folder, 'absent.safetensors')), { status: 404 });
+});
+
+/**
+ * (0.6.481) A service over a folder of models whose registry is the one of GenerationAssets in what matters here:
+ * a file of MiniMax H3 that is not there has another file of that model stand in for it (`pick`). The other files
+ * of the workflows are all here.
+ */
+async function downloading(t, files) {
+  const root = await mkdtemp(join(tmpdir(), 'moodix-version-download-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const folder = join(root, 'models', 'diffusion_models');
+  await mkdir(folder, { recursive: true });
+  await mkdir(join(root, 'data'));
+  for (const name of files) await writeFile(join(folder, name), 'x');
+  const service = new GenerationService({
+      root,
+      dataDir: join(root, 'data'),
+      workflowDir: join(root, 'workflow'),
+      builtinWorkflowDir: shippedFolder,
+      outputDir: join(root, 'output'),
+      worker: { status: () => ({ state: 'stopped' }) },
+      environment: { status: () => ({ state: 'ready' }) },
+    }),
+    registered = new Map();
+  Object.assign(service.assets, {
+    folder: (family, kind) => (kind === 'model' ? [folder] : []),
+    register: async ({ id, path, kind, family }) => {
+      const asset = { id: id ?? assetId(family, kind, basename(path)), path, kind, family };
+      registered.set(asset.id, asset);
+      return asset;
+    },
+    read: async id => registered.get(id) ?? Promise.reject(new Error(`Asset ${id} not found`)),
+    resolve: async (id, { kind, family, file }) => {
+      if (registered.has(id)) return registered.get(id);
+      if (!['model', 'referenceModel'].includes(kind)) return { id, path: join(folder, file ?? id), kind, family };
+      const stand = family === 'minimax_h3' && readdirSync(folder).find(name => SAID[name] && !/ref2va/i.test(name)),
+        here = existsSync(join(folder, file)) ? file : stand;
+      if (!here) throw Object.assign(new Error(`Asset ${id} not found`), { status: 400 });
+      return { id, path: join(folder, here), kind, family, ...(here === file ? {} : { automatic: true }) };
+    },
+  });
+  service.versions.describe = async path => SAID[basename(path)] ?? Promise.reject(new Error('unreadable'));
+  const absent = async () => (await service.models()).find(line => line.name === 'MiniMax H3').workflows[0].absent;
+  return { service, folder, registered, absent };
+}
+
+test('a version downloaded alone is found by its name: no other file of its model stands in (0.6.481)', async t => {
+  const minimax = shipped('minimax_h3'),
+    { service, folder, registered, absent } = await downloading(t, [OMNI]),
+    [base] = await absent();
+  // De base is not here: Omni is, and serves. What downloads De base is that version alone.
+  assert.deepEqual([base.file, base.name], [FL2VA, 'De base']);
+  assert.match(base.download, new RegExp(`^${minimax.id}_v[0-9a-f]{16}$`));
+  const version = await service.versionWorkflow(base.download);
+  assert.deepEqual(
+    [version.id, version.name, version.builtin, version.ready, version.components.model.file],
+    [base.download, 'MiniMax H3 · De base', true, false, FL2VA],
+  );
+  assert.match(version.components.model.asset, /^version-[0-9a-f]{24}$/);
+  assert.equal(version.components.referenceModel, undefined, 'Ref2VA, which nothing downloads, is not asked for');
+  assert.deepEqual(
+    version.components.textEncoder,
+    minimax.components.textEncoder,
+    'the other files as Moodix ships them',
+  );
+  for (const id of [minimax.id, `${minimax.id}_v0123456789abcdef`, 'x', 7, undefined])
+    assert.equal(await service.versionWorkflow(id), null, String(id));
+  // Offered all the same: Omni would stand in for it, but a version is looked for by its name.
+  const snapshot = await service.snapshot(),
+    offer = snapshot.downloads.versions[base.download];
+  assert.deepEqual(Object.keys(snapshot.downloads.versions), [base.download]);
+  assert.deepEqual(
+    [offer.files.map(file => [file.role, file.file, file.size]), offer.complete],
+    [[['model', FL2VA, 20970379616]], true],
+  );
+  // Nothing of it in what the Studio, the Bobine and Moodix AI read.
+  assert.equal(
+    snapshot.workflows.some(workflow => workflow.id === base.download),
+    false,
+  );
+  assert.equal(Object.hasOwn(snapshot.downloads.offers, base.download), false);
+
+  // Downloaded: its file under its name, registered under the id of the version; then a version here, to take.
+  const body = 'fl2v';
+  service.downloads.catalogCache = {
+    [FL2VA]: {
+      repo: 'Comfy-Org/MiniMax-H3',
+      revision: 'main',
+      path: FL2VA,
+      size: body.length,
+      sha256: createHash('sha256').update(body).digest('hex'),
+      license: { name: 'Libre' },
+    },
+  };
+  service.downloads.fetchImpl = async () => new Response(body);
+  service.downloads.statfs = async () => ({ bavail: 1e9, bsize: 4096 });
+  await service.downloads.start(version);
+  await service.downloads.task;
+  assert.equal(service.downloads.status().state, 'done', service.downloads.status().error);
+  assert.equal(service.downloads.status().name, 'MiniMax H3 · De base');
+  assert.equal(readFileSync(join(folder, FL2VA), 'utf8'), body);
+  assert.deepEqual(registered.get(version.components.model.asset), {
+    id: version.components.model.asset,
+    path: join(folder, FL2VA),
+    kind: 'model',
+    family: 'minimax_h3',
+  });
+  const after = (await service.models()).find(line => line.name === 'MiniMax H3').workflows[0];
+  assert.deepEqual(
+    [after.absent, after.versions.map(item => [item.name, item.used])],
+    [
+      [],
+      [
+        ['Omni', true],
+        ['De base', false],
+      ],
+    ],
+  );
+});
+
+test('the version a model ships with: by its workflow if nothing stands in for it, else alone (0.6.481)', async t => {
+  const minimax = shipped('minimax_h3');
+  // Nothing of MiniMax H3 here: Omni by the download of its workflow, as its line did; De base on its own.
+  const none = await downloading(t, []);
+  assert.deepEqual(
+    (await none.absent()).map(item => [item.file, item.name, item.download === minimax.id]),
+    [
+      [OMNI, 'Omni', true],
+      [FL2VA, 'De base', false],
+    ],
+  );
+  // De base here, standing in for Omni: Omni is downloaded on its own, with the files Moodix ships it with.
+  const standing = await downloading(t, [FL2VA]),
+    [omni] = await standing.absent();
+  assert.deepEqual([omni.file, omni.name, omni.download === minimax.id], [OMNI, 'Omni', false]);
+  const version = await standing.service.versionWorkflow(omni.download);
+  assert.deepEqual(
+    [version.name, version.components.model.file, version.parameters.steps.value],
+    ['MiniMax H3 · Omni', OMNI, 8],
+  );
+  assert.deepEqual(
+    Object.keys(
+      (await standing.service.snapshot()).downloads.versions[omni.download].files.reduce(
+        (all, file) => ({ ...all, [file.file]: true }),
+        {},
+      ),
+    ),
+    [OMNI],
+  );
 });
 
 

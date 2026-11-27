@@ -333,6 +333,112 @@ test('(0.6.479) 53 · behind a Hugging Face account: the model named, its token,
   assert.equal(find(host, 'missing-go')[0].children.at(-1).textContent, 'Télécharger · 23,0 Go');
 });
 
+test('(0.6.479) 53 · no token yet: « Télécharger » greyed, why in its bubble, back once one is saved', async () => {
+  // (Decision of 27/11: pressed, the server refused it, and said so in red under the card.)
+  const GIB = 1024 ** 3,
+    before = globalThis.document,
+    events = new EventTarget(),
+    account =
+      'LTX 2.5 demande un compte Hugging Face : acceptez la licence sur huggingface.co/Lightricks/LTX-2.5 avec ce ' +
+      'compte, créez un jeton de lecture sur huggingface.co/settings/tokens, puis enregistrez votre jeton dans ' +
+      'Paramètres › Modèles › Fichiers.',
+    request = () => ({
+      requestId: 'r',
+      tool: 'create_video',
+      mediaType: 'video',
+      workflowName: 'LTX 2.5',
+      missing: {
+        workflowId: 'ltx',
+        files: [{ file: 'ltx-2.5.safetensors', size: 20 * GIB }],
+        bytes: 20 * GIB,
+        left: 20 * GIB,
+        needsToken: true,
+        page: 'huggingface.co/Lightricks/LTX-2.5',
+      },
+    });
+  globalThis.document = events;
+  try {
+    const host = new Element('div'),
+      asked = [];
+    const card = missingFileCard({
+      host,
+      request: request(),
+      node,
+      icon,
+      api: async route => {
+        asked.push(route);
+        return { json: async () => ({ job: { state: 'idle' }, hasToken: false }) };
+      },
+      wait: () => settle(),
+    });
+    await settle();
+    const go = () => find(host, 'missing-go')[0];
+    assert.deepEqual([go().disabled, go().title, find(host, 'missing-note')[0].textContent], [true, account, account]);
+    await card.start();
+    assert.equal(asked.includes('downloads/start'), false);
+    // Saved in Paramètres › Modèles › Fichiers (app.js): « Télécharger » again, the note of a download.
+    events.dispatchEvent(new CustomEvent('moodix:token', { detail: { hasToken: true } }));
+    assert.deepEqual([go().disabled, go().title], [undefined, undefined]);
+    assert.match(find(host, 'missing-note')[0].textContent, /^Il va dans votre dossier des modèles/);
+  } finally {
+    if (before === undefined) delete globalThis.document;
+    else globalThis.document = before;
+  }
+  // Saved before the card is drawn (a conversation opened again later): never greyed.
+  const later = new Element('div');
+  missingFileCard({
+    host: later,
+    request: request(),
+    node,
+    icon,
+    api: async () => ({ json: async () => ({ job: { state: 'idle' }, hasToken: true }) }),
+    wait: () => settle(),
+  });
+  await settle();
+  assert.equal(find(later, 'missing-go')[0].disabled, undefined);
+});
+
+test('(0.6.479) 53 · several files: « Il manque des fichiers », and they are there once downloaded', async () => {
+  const host = new Element('div');
+  const card = missingFileCard({
+    host,
+    request: {
+      requestId: 'r',
+      tool: 'create_video',
+      workflowName: 'LTX 2.5',
+      mediaType: 'video',
+      missing: {
+        workflowId: 'ltx',
+        files: [
+          { file: 'a.safetensors', size: 5 },
+          { file: 'b.safetensors', size: 5 },
+        ],
+        bytes: 10,
+        left: 10,
+      },
+    },
+    node,
+    icon,
+    api: async route => ({
+      json: async () =>
+        route === 'downloads/start'
+          ? { state: 'running', workflowId: 'ltx', received: 0, total: 10 }
+          : { job: { state: 'done', workflowId: 'ltx' } },
+    }),
+    onReady: () => true,
+    wait: () => settle(),
+  });
+  await settle();
+  assert.equal(card.card.attributes['aria-label'], 'Il manque des fichiers');
+  assert.equal(find(host, 'missing-head')[0].textContent, 'Il manque des fichiers · Vidéo · LTX 2.5');
+  assert.match(
+    find(host, 'missing-note')[0].textContent,
+    /^Ils vont dans votre dossier des modèles, depuis Hugging Face\. /,
+  );
+  await card.start();
+  assert.equal(find(host, 'missing-done')[0].textContent, 'Les fichiers sont là. Je reprends votre demande…');
+});
+
 test('53 · the licences of the files are shown before the download; one with conditions is read and confirmed first', async () => {
   const minimax = {
       name: 'MiniMax H3 Community License Agreement',

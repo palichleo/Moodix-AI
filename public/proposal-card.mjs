@@ -1,6 +1,23 @@
-import { renderProposal } from './video-plan.mjs';
+import { closePopup, openPopup } from './glass-menu.mjs';
+import { missingFileCard } from './missing-file.mjs';
+import { takesWords } from './montage-model.mjs';
+import { renderProposal, symbol } from './video-plan.mjs';
 
 const KINDS = { video: 'Vidéo', audio: 'Son', image: 'Image' };
+// (0.6.476) What a proposal says only when it is so (lib/tool-runtime.mjs, #propose): the one revised says it again
+// when it still is. Kept from the one before, the line of an image taken out stayed under the card.
+const SAID_WHEN_SO = [
+  'notes',
+  'cited',
+  'held',
+  'warning',
+  'models',
+  'family',
+  'fixedInputs',
+  'styles',
+  'camera',
+  'series',
+];
 
 /**
  * The proposal of Moodix, in its message (direction-artistique.md, « La proposition vidéo »;
@@ -17,6 +34,10 @@ const KINDS = { video: 'Vidéo', audio: 'Son', image: 'Image' };
  * « + » on an input opens « Créations du projet » in the card (`takes()`: the creations of the project);
  * the image chosen goes in its case, as an image dropped or pasted on the card (`importImage(file)`:
  * kept as a reference of the project first); the server revises the proposal (`add`), no message.
+ * (0.6.476) The × of an image takes it out (`remove`). The model of a video of Moodix AI (`request.models`) is chosen
+ * in its title, « LTX 2.5 ⌄ », in a list of glass as in a card « À créer » of the Bobine: the server makes the proposal
+ * again for it (`workflow`); what it does not take stays in the card, greyed, why in its bubble, and a line says what
+ * to do. One that is not on this computer: its download offered in the card, as the card « Il manque un fichier » does.
  * Returns `answer` ('once' after the changes are sent, 'deny' or 'cancel'), `decline()` and `stop()`.
  */
 export function proposalCard({
@@ -41,6 +62,8 @@ export function proposalCard({
     panels = node('div', 'proposal-panels'),
     cancel = node('button', 'proposal-cancel', 'Annuler'),
     go = node('button', 'proposal-go'),
+    // (0.6.476) The download of the model chosen in the list, when it is not on this computer.
+    offered = node('div', 'proposal-offer'),
     counted = request.mediaType === 'video' && delay > 0;
   card.setAttribute('aria-label', 'Proposition de Moodix');
   card.tabIndex = -1;
@@ -50,11 +73,15 @@ export function proposalCard({
   go.setAttribute('aria-label', 'Générer');
   head.append(title, status);
   foot.append(toggles, cancel, go);
-  card.append(head, body, foot, panels);
+  offered.hidden = true;
+  card.append(head, body, foot, panels, offered);
   host.append(card);
+  const icon = name => symbol(node, name);
 
   let form = null,
-    saving = false;
+    saving = false,
+    // (0.6.476) What the server answered of a model chosen whose files are to download (revise: `offer`).
+    offer = null;
   /**
    * « Paramètres avancés » and « Prompt » unfold and fold back softly (16/11): their height and their
    * margin go from nothing to their own in 0.22 s, the words fading in; at once with less motion
@@ -87,12 +114,22 @@ export function proposalCard({
     move.oncancel = () => (panel.style.overflow = '');
   }
   function render() {
-    title.textContent = ['Proposition', KINDS[request.mediaType] ?? KINDS.image, request.workflowName].filter(Boolean).join(' · ');
+    // (0.6.476) The model of a video of Moodix AI is a button of its title, which opens the list of the models; chosen
+    // with the keys, they stay on it, drawn again with its new name.
+    const again = Boolean(title.contains?.(globalThis.document?.activeElement));
+    closeModels();
+    const chooser = request.models?.length ? modelButton() : null;
+    title.textContent = ['Proposition', KINDS[request.mediaType] ?? KINDS.image, chooser ? '' : request.workflowName]
+      .filter(Boolean)
+      .join(' · ');
+    if (chooser) title.append(' · ', chooser);
+    if (chooser && again) chooser.focus?.({ preventScroll: true });
     form = renderProposal(body, request, {
       node,
       card: true,
       onAdd: takes || importImage ? role => void openShelf(role) : null,
       onStage: (stage, edits) => void revise({ ...edits, stage }),
+      onRemove: which => void reviseWith({ remove: which }),
     });
     // « Paramètres avancés › » and « Prompt › » at the foot, their panel opening under it.
     toggles.replaceChildren();
@@ -110,6 +147,158 @@ export function proposalCard({
       toggles.append(toggle);
       panels.append(fold.panel);
     }
+    showOffer();
+  }
+  /**
+   * (0.6.476) The model of a video of Moodix AI in the title of its card, as the model of a card « À créer » of the
+   * Bobine (montage.mjs, modelButton): « LTX 2.5 ⌄ », which opens the list of the models (pickModel). In amber while
+   * the download of the one chosen is offered.
+   */
+  function modelButton() {
+    const shown = offer?.workflowName ?? request.workflowName,
+      control = node('button', 'proposal-model');
+    control.type = 'button';
+    control.append(node('span', 'proposal-model-name', shown), icon('chevron'));
+    control.setAttribute('aria-haspopup', 'menu');
+    control.setAttribute('aria-expanded', 'false');
+    control.setAttribute('aria-label', 'Modèle de la vidéo : ' + shown);
+    control.dataset.tip = 'Choisir le modèle de cette vidéo';
+    if (offer) control.dataset.missing = 'true';
+    control.onclick = event => {
+      event?.stopPropagation?.();
+      if (models) return closeModels({ refocus: true });
+      pickModel(control);
+    };
+    return control;
+  }
+  // (0.6.476) The list of the models while it is open: Échap, Tab or a press beside it closes it.
+  let models = null;
+  function closeModels({ refocus = false } = {}) {
+    if (!models) return;
+    const { menu, anchor, beside } = models;
+    models = null;
+    globalThis.document?.removeEventListener?.('pointerdown', beside, true);
+    closePopup(menu);
+    menu.remove?.();
+    anchor.setAttribute?.('aria-expanded', 'false');
+    if (refocus && anchor.isConnected !== false) anchor.focus?.();
+  }
+  /**
+   * (0.6.476) The models that make videos, in a list of glass under the model of the card, as the Bobine lists them
+   * (montage.mjs, pickModel): under each name what it takes (takesWords: « Début, fin, 2 sujets, son »), the one of
+   * the proposal checked in the accent. One that is not on this computer may be chosen, its name in amber: its download
+   * is offered in the card. One that cannot be chosen (this computer cannot run it, it makes no suite, it needs an
+   * image the card has not) is greyed, its reason in the bubble beside the list (`off`, ToolCatalog.choices).
+   */
+  function pickModel(anchor) {
+    const menu = node('div', 'glass-menu bobine-piece-menu bobine-model-menu'),
+      chosen = offer?.family ?? request.family,
+      items = [];
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', 'Modèle de la vidéo');
+    for (const model of request.models) {
+      const own = model.family === chosen,
+        words = takesWords(model),
+        item = node('button', 'glass-menu-item bobine-model-item' + (model.off ? ' is-off' : '')),
+        text = node('span', 'bobine-model-text');
+      item.type = 'button';
+      item.setAttribute('role', 'menuitemradio');
+      item.setAttribute('aria-checked', String(own));
+      item.setAttribute('aria-label', `${model.name}, ${words}`);
+      text.append(node('span', 'bobine-model-name', model.name), node('span', 'bobine-model-takes', words));
+      item.append(text);
+      if (own) item.append(icon('check'));
+      if (model.missing) item.dataset.missing = 'true';
+      if (model.off) {
+        item.setAttribute('aria-disabled', 'true');
+        item.dataset.tip = model.off;
+        item.dataset.tipSide = 'right';
+      }
+      item.onclick = () => {
+        if (model.off) return;
+        closeModels({ refocus: true });
+        if (!own) void chooseModel(model);
+      };
+      items.push(item);
+      menu.append(item);
+    }
+    menu.onkeydown = event => {
+      const at = items.indexOf(globalThis.document?.activeElement),
+        back = at + items.length - 1,
+        last = items.length - 1,
+        moves = { ArrowDown: at + 1, ArrowRight: at + 1, ArrowUp: back, ArrowLeft: back, Home: 0, End: last },
+        to = moves[event.key];
+      if (event.key === 'Tab') return closeModels();
+      if (event.key !== 'Escape' && (to === undefined || !items.length)) return;
+      event.preventDefault?.();
+      event.stopPropagation?.();
+      if (event.key === 'Escape') closeModels({ refocus: true });
+      else items[to % items.length]?.focus?.();
+    };
+    models = {
+      menu,
+      anchor,
+      beside: event => !menu.contains?.(event.target) && !anchor.contains?.(event.target) && closeModels(),
+    };
+    card.append(menu);
+    openPopup(menu, anchor, { align: 'start' });
+    anchor.setAttribute('aria-expanded', 'true');
+    globalThis.document?.addEventListener?.('pointerdown', models.beside, true);
+    // The first choice that can be made in hand; when none can, the first all the same: its reason is read there.
+    (items.find(item => item.getAttribute?.('aria-disabled') !== 'true') ?? items[0])?.focus?.();
+  }
+  /**
+   * (0.6.476) A model chosen in the list: the server makes the proposal again for it (`workflow`, ToolRuntime.revise),
+   * with what was changed in the card. One whose files are to download answers with this proposal and its download
+   * (`offer`), shown in the card in place of its settings; the model of the proposal chosen again takes it away.
+   */
+  async function chooseModel(model) {
+    if (model.family === request.family) return dismissOffer();
+    await reviseWith({ workflow: model.workflowId });
+  }
+  /** (0.6.476) A change of the card sent with what was changed in it (the card is drawn again from the answer). */
+  async function reviseWith(change) {
+    if (done) return false;
+    stop();
+    let edits = {};
+    try {
+      edits = form?.edits() ?? {};
+    } catch (error) {
+      form?.error(error.message);
+      return false;
+    }
+    return revise({ ...edits, ...change });
+  }
+  function dismissOffer() {
+    if (!offer) return;
+    offer = null;
+    render();
+  }
+  /**
+   * (0.6.476) The download of the model chosen that is not on this computer, offered as the card « Il manque un
+   * fichier » offers it (missing-file.mjs), in place of the settings of the card, of « Annuler » and of « Générer »:
+   * its own « Annuler » goes back to the proposal as it was. The files there, the proposal is made again for that
+   * model.
+   */
+  function showOffer() {
+    const shown = offer;
+    body.hidden = foot.hidden = panels.hidden = Boolean(shown);
+    offered.hidden = !shown;
+    offered.replaceChildren();
+    if (!shown) return;
+    missingFileCard({
+      // Its « Annuler » leaves the line « Proposition annulée. » where it was: here, the proposal again.
+      host: { append: item => (item.className === 'proposal-cancelled' ? dismissOffer() : offered.append(item)) },
+      request: { missing: shown, mediaType: request.mediaType, workflowName: shown.workflowName },
+      node,
+      icon,
+      api,
+      onReady: () => {
+        if (done || offer !== shown) return false;
+        void revise({ workflow: shown.workflowId });
+        return true;
+      },
+    });
   }
   /**
    * « Créations du projet » under the cases (as in the Studio): the images of the project, the newest
@@ -239,11 +428,22 @@ export function proposalCard({
       const revised = await (
         await api('tools/revise', { requestId: request.requestId, approvalToken: request.approvalToken, edits })
       ).json();
-      if (signal?.aborted) return false;
-      Object.assign(request, revised);
+      if (signal?.aborted || done) return false;
+      // (0.6.476) The new proposal says again what is still so (SAID_WHEN_SO); the download of a model chosen comes
+      // beside it (`offer`), shown in the card, not kept with the proposal.
+      const { offer: offering = null, ...proposal } = revised;
+      for (const key of SAID_WHEN_SO) delete request[key];
+      Object.assign(request, proposal);
+      offer = offering;
       render();
       return true;
     } catch (error) {
+      // (0.6.476) Refused while a download was offered (the files came, the proposal had expired meanwhile): the card
+      // of the proposal again, the reason under it.
+      if (offer) {
+        offer = null;
+        render();
+      }
       form?.error(error.message);
       return false;
     } finally {
@@ -328,6 +528,7 @@ export function proposalCard({
     if (done) return;
     done = true;
     clear();
+    closeModels();
     card.removeEventListener('pointerenter', enter);
     card.removeEventListener('pointerleave', leave);
     card.removeEventListener('pointerdown', touched, true);

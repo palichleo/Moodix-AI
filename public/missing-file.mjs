@@ -89,7 +89,14 @@ export function missingFileCard({
     pause = wait ?? (ms => new Promise(resolve => setTimeout(resolve, ms))),
     // The licences with conditions of these files: read and confirmed before the download.
     restricted = restrictedOf(missing.files);
-  const lacking = alone ? 'Il manque le moteur de génération' : 'Il manque un fichier';
+  // (0.6.479) « des fichiers » when there are several (decision of 27/11), as the sentence of the chat says it
+  // (app.js).
+  const plural = missing.files?.length > 1,
+    lacking = alone
+      ? 'Il manque le moteur de génération'
+      : plural
+        ? 'Il manque des fichiers'
+        : 'Il manque un fichier';
   card.setAttribute('aria-label', lacking);
   let state = 'idle',
     left = missing.left || missing.bytes,
@@ -101,7 +108,17 @@ export function missingFileCard({
     waiting = '',
     following = false,
     starting = false,
-    gone = false;
+    gone = false,
+    // (0.6.479) Its source asks for an account whose token is not on this computer: « Télécharger » greyed, why in its
+    // bubble (the server refused it at the click, decision of 27/11); back once a token is saved (moodix:token).
+    tokenNeeded = missing.needsToken === true;
+  // (0.6.479) What its source asks for, with where the token is made; the model named (« Ce fichier » stood under six
+  // files), as the Bobine and « Modèles » name it.
+  const account =
+    `${request.workflowName || 'Ce modèle'} demande un compte Hugging Face : acceptez la licence` +
+    `${missing.page ? ' sur ' + missing.page : ''} avec ce compte, ` +
+    'créez un jeton de lecture sur huggingface.co/settings/tokens, ' +
+    'puis enregistrez votre jeton dans Paramètres › Modèles › Fichiers.';
 
   function button(className, text, onclick, glyph) {
     const element = node('button', className);
@@ -132,22 +149,14 @@ export function missingFileCard({
     const note = node(
       'p',
       'missing-note',
-      // (0.6.479) Where the token is made, said with the rest; the model named (« Ce fichier » stood under six
-      // files), as the Bobine and « Modèles » name it, and the engine its button counts.
-      missing.needsToken
-        ? [
-            `${request.workflowName || 'Ce modèle'} demande un compte Hugging Face : acceptez la licence` +
-              `${missing.page ? ' sur ' + missing.page : ''} avec ce compte, ` +
-              'créez un jeton de lecture sur huggingface.co/settings/tokens, ' +
-              'puis enregistrez votre jeton dans Paramètres › Modèles › Fichiers.',
-            engineText(missing),
-          ]
-            .filter(Boolean)
-            .join(' ')
+      // (0.6.479) Where the token is made, said with the rest, and the engine its button counts.
+      tokenNeeded
+        ? [account, engineText(missing)].filter(Boolean).join(' ')
         : alone
           ? engineText(missing)
           : [
-              'Il va dans votre dossier des modèles, depuis Hugging Face. ' +
+              (plural ? 'Ils vont' : 'Il va') +
+                ' dans votre dossier des modèles, depuis Hugging Face. ' +
                 'Le téléchargement reprend où il en était si vous l’arrêtez.',
               roomText(missing),
               engineText(missing),
@@ -167,9 +176,8 @@ export function missingFileCard({
       progress.setAttribute('aria-valuenow', String(total ? Math.round((received / total) * 100) : 0));
       foot.append(progress, button('text-button missing-stop', 'Arrêter', () => void stop()));
     } else if (state === 'done') {
-      foot.append(
-        node('p', 'missing-done', `${alone ? 'Le moteur est prêt' : 'Le fichier est là'}. Je reprends votre demande…`),
-      );
+      const there = alone ? 'Le moteur est prêt' : plural ? 'Les fichiers sont là' : 'Le fichier est là';
+      foot.append(node('p', 'missing-done', `${there}. Je reprends votre demande…`));
     } else if (state === 'ready') {
       foot.append(
         node('p', 'missing-done', `${request.workflowName} est prêt`),
@@ -192,10 +200,15 @@ export function missingFileCard({
         ),
       );
     } else {
-      foot.append(
-        button('text-button missing-cancel', 'Annuler', () => cancel()),
-        button('missing-go', 'Télécharger · ' + sizeText(withEngine(left, missing)), () => void start(), 'download'),
+      const go = button(
+        'missing-go',
+        'Télécharger · ' + sizeText(withEngine(left, missing)),
+        () => void start(),
+        'download',
       );
+      // (0.6.479) Greyed for want of its token, the sentence in its bubble (and above it, in the note).
+      if (tokenNeeded) Object.assign(go, { disabled: true, title: account });
+      foot.append(button('text-button missing-cancel', 'Annuler', () => cancel()), go);
     }
     const parts = [head, list, note],
       licenses = licenseBlock({ node, files: missing.files, confirm: state === 'confirm' });
@@ -214,6 +227,8 @@ export function missingFileCard({
   }
   /** « Télécharger »: at once under free licences; one with conditions is shown alone and confirmed first. */
   async function start() {
+    // (0.6.479) Not without its token: the server refuses it (its button is greyed meanwhile).
+    if (tokenNeeded) return;
     if (!restricted.length) return download(false);
     error = '';
     state = 'confirm';
@@ -301,12 +316,23 @@ export function missingFileCard({
     card.remove();
     host.append(node('p', 'proposal-cancelled', 'Proposition annulée.'));
   }
+  /** (0.6.479) A token saved in Paramètres › Modèles › Fichiers (app.js, saveToken): « Télécharger » comes back. */
+  function tokenSaved(event) {
+    if (gone || card.isConnected === false)
+      return globalThis.document?.removeEventListener?.('moodix:token', tokenSaved);
+    if (!tokenNeeded || !event?.detail?.hasToken) return;
+    tokenNeeded = false;
+    render();
+  }
+  if (tokenNeeded) globalThis.document?.addEventListener?.('moodix:token', tokenSaved);
   render();
   host.append(card);
   // A download of this file already under way (stopped and started again from the settings).
   void api('downloads')
     .then(response => response.json())
-    .then(({ job }) => {
+    .then(({ job, hasToken } = {}) => {
+      // (0.6.479) Its token saved since the card was made (a conversation opened again later).
+      if (hasToken && tokenNeeded) tokenSaved({ detail: { hasToken } });
       if (job?.state === 'running' && job.workflowId === missing.workflowId) {
         state = 'running';
         ({ received = 0, total = total } = job);

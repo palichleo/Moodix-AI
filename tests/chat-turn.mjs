@@ -1360,6 +1360,78 @@ test('the message a button of a take writes is not one to edit nor to send again
   }
 });
 
+test('(0.6.474) « Animer » and « Prolonger » pressed in the Studio or the Archives are made by the Studio; over the Chat, its line', async () => {
+  // (Étude du 27/11, défaut 1.) From the viewer of the Sortie or the Archives a line was written in the box of the
+  // Chat, out of sight, once more at each press, and the conversation of the take opened, the Studio on its newest
+  // take. `view`, `chat`: where the button is pressed; the conversation shown is ID.
+  const OTHER = 'e5555555-5555-4555-8555-555555555555';
+  function pressed({ view, chat = false, busy = '' }) {
+    const seen = { acted: [], lines: [], loaded: [], chats: 0, notices: [] },
+      state = { view, conversationId: ID };
+    const context = {
+      state,
+      document: { body: { dataset: chat ? { chat: 'open' } : {} } },
+      // What the Studio makes, of the take of which conversation, in which one.
+      studioUI: {
+        finishBlocked: () => busy,
+        act: (record, action) => seen.acted.push([action, record.conversationId, state.conversationId]),
+      },
+      closeChat: async () => {},
+      revealStudio: async () => {},
+      notice: words => seen.notices.push(words),
+      showChat: () => seen.chats++,
+      runOutputAction: (record, index, action) => seen.lines.push([action, state.conversationId]),
+      requestSettingsClose: after => after(),
+      loadConversation: async id => {
+        seen.loaded.push(id);
+        state.conversationId = id;
+      },
+    };
+    runInNewContext(cut('function actOnOutput(', 'const actionButtons = outputActions('), context);
+    return { seen, press: async (record, action) => (context.actOnTake(record, 0, action), await settled()) };
+  }
+  // The viewer of the Sortie: in the conversation shown, as the buttons of the screen (its Sortie shows the takes of
+  // the whole project, another conversation's among them); nothing opened, nothing written.
+  const studio = pressed({ view: 'studio' });
+  await studio.press(take(), 'animate');
+  await studio.press(take({ conversationId: OTHER }), 'extend');
+  assert.deepEqual(studio.seen, {
+    acted: [
+      ['animate', ID, ID],
+      ['extend', OTHER, ID],
+    ],
+    lines: [],
+    loaded: [],
+    chats: 0,
+    notices: [],
+  });
+  // The Archives: in the conversation of the take, opened first, as for Agrandir.
+  const archives = pressed({ view: 'library' });
+  await archives.press(take(), 'extend');
+  await archives.press(take({ conversationId: OTHER }), 'animate');
+  assert.deepEqual(archives.seen, {
+    acted: [
+      ['extend', ID, ID],
+      ['animate', OTHER, OTHER],
+    ],
+    lines: [],
+    loaded: [OTHER],
+    chats: 0,
+    notices: [],
+  });
+  // The Studio making a take: said where the button was pressed, nothing opened.
+  const BUSY = 'Génération en cours dans cette conversation : attendez sa fin.',
+    held = pressed({ view: 'library', busy: BUSY });
+  await held.press(take({ conversationId: OTHER }), 'animate');
+  assert.deepEqual([held.seen.acted, held.seen.loaded, held.seen.notices], [[], [], [BUSY]]);
+  // Over the Chat (its page, or opened over the Studio): the line for Moodix AI, as before.
+  for (const where of [{ view: 'chat' }, { view: 'studio', chat: true }]) {
+    const chat = pressed(where);
+    await chat.press(take(), 'animate');
+    assert.deepEqual([chat.seen.acted, chat.seen.lines], [[], [['animate', ID]]], where.view);
+  }
+});
+
 test('a message sent again keeps its own words: the label of a shortcut is for the next one', async () => {
   const again = page({ state: { conversationId: ID, messages: exchange() } });
   // « Image » chosen under the message box (the label « Image × »), nothing written yet.
@@ -2832,6 +2904,31 @@ test('the request sent again once its file is downloaded never takes the takes o
   shown.state.messages = [asked, withTake[3], withTake[4]];
   shown.context.missingFile(shown.context.assistantMessage(), request, shown.state.messages, ID);
   assert.equal(offered.onReady(), true);
+});
+
+test('(0.6.475) the file of a card of the chat downloaded: the Studio and the Bobine read their models again, whether the request goes again by itself or not', async () => {
+  // (Downloaded from a card while another page was shown, the Bobine drawn after said its model missing, in amber,
+  // until the Studio read its tools again.)
+  const told = [],
+    shown = page({ state: { studio: { invalidate: options => told.push(plain(options)) } } }),
+    request = { tool: 'create_video', workflowName: 'LTX 2.5', missing: { files: [{ name: 'ltx.safetensors' }] } },
+    messages = [
+      { role: 'user', content: 'Fais une vidéo du phare' },
+      { role: 'assistant', content: '', tool_calls: [functionCall('create_video', 'call_b')] },
+      { role: 'tool', tool_call_id: 'call_b', content: JSON.stringify({ status: 'missing_file' }) },
+    ];
+  let offered = null;
+  shown.context.missingFileCard = options => (offered = options);
+  Object.assign(shown.state, { conversationId: ID, messages });
+  shown.context.missingFile(shown.context.assistantMessage(), request, messages, ID);
+  // Another conversation shown when it is there: nothing sent again, the models read again all the same.
+  shown.state.conversationId = ELSEWHERE;
+  assert.equal(offered.onReady(), false);
+  assert.deepEqual(told, [{ tools: true }]);
+  // Its conversation shown: sent again by itself, the models read again too.
+  shown.state.conversationId = ID;
+  assert.equal(offered.onReady(), true);
+  assert.deepEqual(told, [{ tools: true }, { tools: true }]);
 });
 
 // ------------------------------------------------------------------ guards of the history, the page (0.6.103)

@@ -20,7 +20,10 @@ export const GROUPS = Object.freeze([
 ]);
 
 const GIB = 1024 ** 3;
-const figure = (value, digits = 1) => value.toLocaleString('fr-FR', { maximumFractionDigits: digits });
+// (0.6.479) Always with its decimal, as the Studio, the Bobine and the card of the chat write it (« 3,0 Go », decision
+// of 27/11): the same engine was « 3 Go » here and « 3,0 Go » on the button of the Studio.
+const figure = (value, digits = 1) =>
+  value.toLocaleString('fr-FR', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 /** A size as the application writes it: « 27,3 Go », « 640 Mo ». */
 export const sizeText = bytes =>
   bytes >= GIB
@@ -120,8 +123,9 @@ export function progressText(job, speed = 0) {
   // (0.6.479) The engine of a new installation, prepared after the files: what it does, its bytes untold by uv.
   if (job?.state === 'running' && job.engine === 'preparing') return job.current || 'Préparation du moteur';
   if (!total) return '';
+  // (0.6.479) Nothing come yet: « 0 », as in the Studio and the Bobine.
   const unit = total >= GIB ? GIB : 1024 ** 2,
-    done = `${figure(received / unit, total >= GIB ? 1 : 0)} / ${sizeText(total)}`;
+    done = `${received > 0 ? figure(received / unit, total >= GIB ? 1 : 0) : '0'} / ${sizeText(total)}`;
   if (!(speed > 0) || received >= total) return done;
   const minutes = Math.ceil((total - received) / speed / 60);
   return `${done} · ${minutes >= 120 ? Math.round(minutes / 60) + ' h' : minutes + ' min'}`;

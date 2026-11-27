@@ -1,6 +1,7 @@
 import { setupGenerationRuntime } from './generation-runtime.mjs';
 import { engineOnly, engineText, roomText } from './missing-file.mjs';
 import { licenseBlock, restrictedOf } from './model-licenses.mjs';
+import { isSingle, partsOf, sectionsOf } from './model-sections.mjs';
 import {
   GROUPS,
   licenseSentence,
@@ -388,8 +389,9 @@ export function setupNativeWorkflows(options) {
       speed = 0;
       sampled = null;
       downloads.job = await (await api('downloads/start', { id: record.id, ...(accepted ? { accepted: true } : {}) })).json();
-      // (0.6.479) The engine of a new installation comes with it: said where the end of the download is said.
-      const offer = downloads.offers?.[record.id],
+      // (0.6.479) The engine of a new installation comes with it: said where the end of the download is said. (Or
+      // with a version of a section downloaded on its own, model-sections.mjs.)
+      const offer = downloads.offers?.[record.id] ?? downloads.versions?.[record.id],
         // (A file the engine converts needs it there: it comes before the files then, lib/model-downloads.mjs.)
         when = engineOnly(offer)
           ? 'maintenant'
@@ -443,7 +445,13 @@ export function setupNativeWorkflows(options) {
     // (0.6.479) And the engine of a new installation, which the same click prepares.
     const room = [roomText(offer), engineText(offer, sizeText)].filter(Boolean).join(' ');
     start.setAttribute('aria-label', `Télécharger ${model.name} (${size})` + (room ? '. ' + room : ''));
-    start.title = [licenseSentence(offer.files) || `Télécharger ${model.name} (${size})`, room].filter(Boolean).join(' ');
+    // (0.6.479) Its files all here: the engine it fetches, as the Studio and the Bobine say it.
+    const named = licenseSentence(offer.files) || `Télécharger ${model.name} (${size})`;
+    start.title = engineOnly(offer)
+      ? engineText(offer, sizeText)
+      : room
+        ? `${named.replace(/\.?$/, '.')} ${room}`
+        : named;
     start.dataset.nativeControl = 'true';
     if (downloads.job.state === 'running') {
       start.disabled = true;
@@ -619,29 +627,36 @@ export function setupNativeWorkflows(options) {
         block.append(row);
       }
       // Settings the user changed (« Réglages »): back to those Moodix ships.
-      if (record.customized) {
-        const reset = button(
-          'Rétablir les réglages de Moodix',
-          async () => {
-            try {
-              const result = await run(async signal =>
-                (await api('generation/reset', { id: record.id }, { signal })).json(),
-              );
-              if (result) {
-                changedWorkflows = true;
-                apply(result, { settings: false });
-              }
-            } catch (failure) {
-              importStatus(failure.message, true);
-            }
-          },
-          'text-button model-reset',
-        );
-        reset.dataset.nativeControl = 'true';
-        block.append(reset);
-      }
+      if (record.customized) block.append(resetControl(record));
     }
     return block;
+  }
+  /** « Rétablir les réglages de Moodix » of a workflow whose settings the user changed. */
+  function resetControl(record, name = '') {
+    const reset = button(
+      'Rétablir les réglages de Moodix',
+      async () => {
+        try {
+          const result = await run(async signal =>
+            (await api('generation/reset', { id: record.id }, { signal })).json(),
+          );
+          if (result) {
+            changedWorkflows = true;
+            apply(result, { settings: false });
+          }
+        } catch (failure) {
+          importStatus(failure.message, true);
+        }
+      },
+      'text-button model-reset',
+    );
+    // (0.6.481) In a section of several models: which one it sets back, under the pointer and read with it.
+    if (name) {
+      reset.title = 'Rétablir les réglages de Moodix pour ' + name;
+      reset.setAttribute('aria-label', reset.title);
+    }
+    reset.dataset.nativeControl = 'true';
+    return reset;
   }
   /**
    * A model on its line (capture 65): its name, what it does, and at the right the version it uses,
@@ -702,10 +717,162 @@ export function setupNativeWorkflows(options) {
     chevron.setAttribute('aria-label', 'Versions de ' + model.name);
     chevron.dataset.nativeControl = 'true';
     row.append(chevron);
+    // (0.6.481) Opened by a click anywhere on its line too (27/11: the chevron alone was too small to find).
+    row.onclick = event => toggleFrom(event, chevron);
     line.append(row);
     if (shown.state === 'download' && licenseAsked === shown.offer[0].id && asksLicense(shown.offer[1]))
       line.append(licenseConfirm(shown.offer[0], shown.offer[1]));
     if (open) line.append(versionsBlock(model, shown));
+    return line;
+  }
+  // ------------------------------------------------- (0.6.481) A model made of several, in its section
+  // 27/11, his words: « omni, de base, et pi-h3 doivent etre une sous section de Minimax H3 », « Quand on clique
+  // sur un modele (n'importe ou dans la box, ca ouvre les sous sections », « Les paramettres doivent etre intra
+  // modele, pas intra section ». What each model of a section is: public/model-sections.mjs.
+  /** A click on the line of a model opens or folds it, as its chevron; its buttons and its switch keep theirs. */
+  function toggleFrom(event, chevron) {
+    if (chevron.disabled || event?.target?.closest?.('button, input, label, a, select, textarea')) return;
+    chevron.onclick();
+  }
+  /** The chevron of a section: what it opens is said with it, and it keeps the focus as the list is drawn again. */
+  function foldControl(name, open) {
+    const chevron = button(
+      '',
+      () => {
+        if (openModels.has(name)) openModels.delete(name);
+        else openModels.add(name);
+        renderList();
+        $('workflow-list')
+          .querySelector?.(`.model-line[data-model="${name.replaceAll('"', '\\"')}"] .model-chevron`)
+          ?.focus();
+      },
+      'model-chevron',
+    );
+    chevron.append(icon('chevron'));
+    chevron.setAttribute('aria-expanded', String(open));
+    chevron.setAttribute('aria-label', 'Modèles de ' + name);
+    chevron.dataset.nativeControl = 'true';
+    return chevron;
+  }
+  /** The advance of the download under way, under the description of a line (capture 68). */
+  function progressLine() {
+    const advance = node('span', 'model-progress-line'),
+      bar = node('span', 'model-progress'),
+      fill = node('span');
+    fill.style.width = progressShare(downloads.job) + '%';
+    bar.append(fill);
+    advance.append(bar, node('span', 'model-progress-text', progressText(downloads.job, speed)));
+    return advance;
+  }
+  /** « Proposé à Moodix AI » of a model of a section that cannot be offered as it is: greyed, off, and why. */
+  function heldOffer(name, why) {
+    const label = node('label', 'history-toggle model-ai'),
+      box = input(null, false, 'checkbox');
+    box.setAttribute('aria-label', `Proposer ${name} à Moodix AI`);
+    box.dataset.nativeControl = 'true';
+    box.dataset.unavailable = 'true';
+    box.disabled = true;
+    label.title = why;
+    label.dataset.held = 'true';
+    label.append(box);
+    return label;
+  }
+  /** Its « Réglages », greyed the same way: a version its model does not make with has none to change. */
+  function heldSettings(name, why) {
+    const open = button('', () => {}, 'model-settings');
+    open.append(icon('sliders'));
+    open.setAttribute('aria-label', 'Réglages de ' + name);
+    open.title = why;
+    open.dataset.nativeControl = 'true';
+    open.dataset.unavailable = 'true';
+    open.disabled = true;
+    return open;
+  }
+  /** « Utiliser »: the version its model makes with from now on (one at a time), in the Studio as for Moodix AI. */
+  function useControl(part) {
+    const take = button('Utiliser', () => pickVersion(part.entry.id, part.version.path), 'text-button model-use');
+    take.setAttribute('aria-label', 'Utiliser ' + part.name);
+    take.title = `Prendre ${part.label} : ${part.line.name} n’utilise qu’une version à la fois.`;
+    take.dataset.nativeControl = 'true';
+    return take;
+  }
+  /**
+   * A model of a section on its row: its name, what it is (format, steps), then « Utilisée », « Utiliser »,
+   * « Télécharger » or « Arrêter », and its own « Proposé à Moodix AI » and « Réglages », in the columns of
+   * those of a line. A version its model does not make with has them greyed, and says why under the pointer.
+   */
+  function partRow(part) {
+    const row = node('div', 'model-part'),
+      side = node('div', 'model-side'),
+      file = part.version?.file ?? part.item?.file,
+      note = ['waiting', 'problem', 'unavailable', 'missing'].includes(part.state) ? part.note : '',
+      data = note
+        ? node('span', 'model-note' + (part.state === 'waiting' ? '' : ' is-warning'), note)
+        : node('span', 'model-version-data', part.data.join(' · '));
+    row.dataset.kind = part.kind;
+    row.dataset.state = part.state;
+    if (part.kind === 'used') row.dataset.used = 'true';
+    if (['convert', 'refused', 'missing', 'unavailable'].includes(part.state)) row.dataset.unavailable = 'true';
+    if (file) row.title = file;
+    if (note) data.title = note;
+    if (part.state === 'downloading') side.append(stopControl());
+    else if (part.download)
+      side.append(
+        downloadControl({ name: part.name }, { id: part.download.id }, part.download.offer, part.download.bytes),
+      );
+    else if (part.kind === 'used') side.append(node('span', 'model-version-used', 'Utilisée'));
+    else if (part.kind === 'other') side.append(useControl(part));
+    else if (part.kind === 'convert') side.append(node('span', 'model-version-used', 'À convertir'));
+    else if (part.kind === 'refused') side.append(node('span', 'model-version-used', 'Non lu'));
+    row.append(
+      node('span', 'model-part-name', part.label),
+      data,
+      side,
+      part.serves
+        ? offeredControl({ name: part.name }, { records: [[part.entry, part.record]], state: part.state })
+        : heldOffer(part.name, part.held),
+      part.serves ? settingsControl(part.record, part.name) : heldSettings(part.name, part.held),
+    );
+    return row;
+  }
+  /**
+   * A model made of several (MiniMax H3: Omni, De base, pi H3): its line says its name, what it does and how many
+   * it holds, and opens at a click anywhere on it; under it, a row for each, with its own « Télécharger »,
+   * « Proposé à Moodix AI » and « Réglages ». The line has none of these: they are its models'.
+   */
+  function sectionLine(section, parts) {
+    const line = node('article', 'model-line model-section'),
+      row = node('div', 'model-row'),
+      about = node('div', 'model-about'),
+      side = node('div', 'model-side'),
+      open = openModels.has(section.name),
+      running = parts.some(part => part.state === 'downloading'),
+      chevron = foldControl(section.name, open);
+    line.dataset.state = running
+      ? 'downloading'
+      : parts.length && parts.every(part => part.state === 'unavailable')
+        ? 'unavailable'
+        : 'section';
+    line.dataset.model = section.name;
+    if (open) line.dataset.open = 'true';
+    about.append(node('span', 'model-does', section.does));
+    // The download of one of its models is followed on its line, open or not.
+    if (running) about.append(progressLine());
+    side.append(node('span', 'model-version', parts.length + ' modèles'));
+    row.append(node('strong', 'model-name', section.name), about, side, chevron);
+    row.onclick = event => toggleFrom(event, chevron);
+    line.append(row);
+    if (!open) return line;
+    const block = node('div', 'model-parts');
+    parts.forEach((part, index) => {
+      block.append(partRow(part));
+      if (part.download && licenseAsked === part.download.id && asksLicense(part.download.offer))
+        block.append(licenseConfirm({ id: part.download.id }, part.download.offer));
+      // Settings the user changed: set back under the last model of that workflow.
+      if (part.record.customized && parts[index + 1]?.record !== part.record)
+        block.append(resetControl(part.record, part.name));
+    });
+    line.append(block);
     return line;
   }
   /** Follows a download while it runs; at its end, the list says again what each workflow lacks. */
@@ -767,7 +934,13 @@ export function setupNativeWorkflows(options) {
       // The column of the switches is named once, over the first of them.
       if (!list.children.length) head.append(node('span', 'model-ai-head', 'Moodix AI'));
       group.append(head);
-      for (const model of own) group.append(modelLine(model));
+      // (0.6.481) A model alone on its line, as before; one made of several in its section, a row for each.
+      for (const section of sectionsOf(own)) {
+        const parts = partsOf(section, workflows, downloads);
+        group.append(
+          isSingle(parts) && section.lines.length === 1 ? modelLine(section.lines[0]) : sectionLine(section, parts),
+        );
+      }
       list.append(group);
     }
     if (hiddenWorkflows > 0) {

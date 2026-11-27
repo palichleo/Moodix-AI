@@ -43,6 +43,7 @@ function world({
   projectOf,
   missing = [],
   savedStyles,
+  offerOf,
 } = {}) {
   const saved = [],
     closing = { close: async () => {} };
@@ -105,6 +106,8 @@ function world({
     extractStill,
     ...(projectOf ? { projectOf } : {}),
     ...(savedStyles ? { savedStyles } : {}),
+    // (0.6.476) What a shipped workflow lacks, to download from the card of a proposal.
+    ...(offerOf ? { offerOf } : {}),
     // (`path`: where the file is, as the application says it; `missing`: files gone from the disk.)
     sourceMedia: async (ref, conversationId) => {
       if (ref.resource_id) {
@@ -1206,7 +1209,8 @@ test('a length asked in seconds is counted at the rate of the profile the clip i
 });
 
 test('Krea 2: the denoise the assistant passes with an image to modify stays from 0.6 to 0.7, may be changed there, and is in the record of the take', async () => {
-  const list = shipped(),
+  // (0.6.476) Without Qwen-Image-Edit on this computer: with it, an image given goes to it (route, chatFirst).
+  const list = shipped().filter(workflow => workflow.pipeline !== 'qwen_image_edit'),
     krea = of(list, 'krea2'),
     SOURCE = uid(7),
     OTHER = uid(8),
@@ -1654,4 +1658,329 @@ test('(0.6.211) the camera chosen in the Studio: its sentence after the prompt o
   await held.runtime.execute({ requestId: kept.requestId, permission: 'once', approvalToken: kept.approvalToken });
   await held.runtime.finished;
   assert.deepEqual([held.runtime.status().state, jobs.at(-1)], ['done', ['run', 'A boat.']]);
+});
+
+// (0.6.476) The card of a video of Moodix AI chooses its model: LTX 2.5, MiniMax H3 Omni, pi H3 and Wan 2.2.
+const [START, END, SUBJECT, SUBJECT_2] = [uid(4), uid(5), uid(6), uid(7)];
+const framed = () => ({
+  [START]: picture('debut.png', 1280, 720),
+  [END]: picture('fin.png', 1280, 720),
+  [SUBJECT]: picture('sujet.png'),
+  [SUBJECT_2]: picture('sujet2.png'),
+});
+const everything = () => ({
+  start_image: { resource: START },
+  end_image: { resource: END },
+  reference: [{ resource: SUBJECT }],
+});
+const heldOf = request => (request.held ?? []).map(item => [item.as, item.label, item.why]);
+const sentOf = request => request.plan.references.map(ref => [ref.role, ref.label]);
+
+test('the model of a video of Moodix AI chosen in its card: what it does not take stays greyed, why said, LTX 2.5 again takes it all (0.6.476)', async () => {
+  const { runtime, saved } = world({ resources: framed() });
+  const place = { conversationId: A, turnId: turn, messages: [] };
+  const first = await runtime.request(
+    [call('create_video', { prompt: 'Un phare sous la pluie.', intention: 'x', duration: 30, ...everything() })],
+    place,
+  );
+  // LTX 2.5 by default: it takes the start, the end and the subject. Its list, in the order of the Bobine.
+  assert.equal(first.workflowName, 'LTX 2.5');
+  assert.equal(first.family, 'ltx25');
+  assert.deepEqual(sentOf(first), [
+    ['start_image', 'debut.png'],
+    ['end_image', 'fin.png'],
+    ['msr_image', 'sujet.png'],
+  ]);
+  assert.deepEqual(
+    first.models.map(model => [model.name, model.all, model.off ?? '', model.missing ?? false]),
+    [
+      ['LTX 2.5', true, '', false],
+      ['MiniMax H3 Omni', false, '', false],
+      ['pi H3', false, '', false],
+      ['Wan 2.2', false, '', false],
+    ],
+  );
+  assert.deepEqual([first.held, first.warning], [undefined, undefined]);
+  assert.ok(
+    first.notes.includes('Durée : 30 s → 10,04 s, la plus proche que LTX 2.5 permet.'),
+    JSON.stringify(first.notes),
+  );
+  const id = name => first.models.find(model => model.name === name).workflowId;
+
+  // MiniMax H3 Omni, with the prompt typed on the card: the subject goes, the start and the end stay greyed.
+  const minimax = await revise(runtime, first, { workflow: id('MiniMax H3 Omni'), prompt: 'Un phare sous la neige.' });
+  assert.equal(minimax.workflowName, 'MiniMax H3 Omni');
+  assert.equal(minimax.plan.prompt, 'Un phare sous la neige.');
+  assert.equal(minimax.plan.parameters.seed, first.plan.parameters.seed, 'the seed of the proposal');
+  assert.deepEqual(sentOf(minimax), [['reference_image', 'sujet.png']]);
+  assert.deepEqual(minimax.args.references, [{ input: 'subject-1', resource_id: SUBJECT }]);
+  assert.deepEqual(heldOf(minimax), [
+    [
+      'start_image',
+      'debut.png',
+      'MiniMax H3 Omni ne prend pas d’image de début : elle reste là, mais n’est pas envoyée.',
+    ],
+    ['end_image', 'fin.png', 'MiniMax H3 Omni ne prend pas d’image de fin : elle reste là, mais n’est pas envoyée.'],
+  ]);
+  assert.equal(
+    minimax.warning,
+    'L’image de début et l’image de fin ne sont pas envoyées à MiniMax H3 Omni : retirez-les, ou choisissez LTX 2.5.',
+  );
+  // Its length brought to what it makes, said as the router says it.
+  assert.ok(minimax.notes.includes('Durée : 30 s → 14,38 s, la plus proche que MiniMax H3 Omni permet.'));
+  assert.equal(runtime.pending.has(first.requestId), false, 'the proposal before it is given up');
+
+  // pi H3: the start and the end go, the subject is greyed.
+  const pi = await revise(runtime, minimax, { workflow: id('pi H3') });
+  assert.equal(pi.plan.prompt, 'Un phare sous la neige.', 'the prompt typed stays');
+  assert.deepEqual(sentOf(pi), [
+    ['start_image', 'debut.png'],
+    ['end_image', 'fin.png'],
+  ]);
+  assert.deepEqual(heldOf(pi), [
+    [
+      'reference',
+      'sujet.png',
+      'pi H3 ne prend pas de sujet : choisissez LTX 2.5 ou MiniMax H3 Omni. Il reste là, mais n’est pas envoyé.',
+    ],
+  ]);
+  assert.equal(pi.warning, 'Le sujet 1 n’est pas envoyé à pi H3 : retirez-le, ou choisissez LTX 2.5.');
+
+  // Wan 2.2: its start image only, which its card does not take out (it cannot do without).
+  const wan = await revise(runtime, pi, { workflow: id('Wan 2.2') });
+  assert.deepEqual(sentOf(wan), [['start_image', 'debut.png']]);
+  assert.deepEqual(wan.fixedInputs, [0]);
+  assert.deepEqual(
+    heldOf(wan).map(([as, label]) => [as, label]),
+    [
+      ['end_image', 'fin.png'],
+      ['reference', 'sujet.png'],
+    ],
+  );
+  assert.equal(
+    wan.warning,
+    'L’image de fin et le sujet 1 ne sont pas envoyés à Wan 2.2 : retirez-les, ou choisissez LTX 2.5.',
+  );
+  assert.ok(wan.notes.includes('Durée : 30 s → 5,06 s, la plus proche que Wan 2.2 permet.'));
+
+  // Back to LTX 2.5: everything goes again.
+  const back = await revise(runtime, wan, { workflow: id('LTX 2.5') });
+  assert.deepEqual(sentOf(back), sentOf(first));
+  assert.deepEqual([back.held, back.warning], [undefined, undefined]);
+  assert.equal(back.plan.parameters.frames, first.plan.parameters.frames);
+
+  // What runs is what the card shows: the take of MiniMax H3 Omni is made with its subject alone, and keeps what was
+  // not sent, by name, with the notes of its routing (its model is told so with its result).
+  const chosen = await revise(runtime, back, { workflow: id('MiniMax H3 Omni') });
+  await runtime.execute({ requestId: chosen.requestId, permission: 'once', approvalToken: chosen.approvalToken });
+  await runtime.finished;
+  assert.equal(runtime.status().state, 'done', runtime.status().error);
+  const record = saved.at(-1);
+  assert.equal(record.workflowName, 'MiniMax H3 Omni');
+  assert.deepEqual(record.parameters.references.map(ref => [ref.input, ref.resource_id]), [['subject-1', SUBJECT]]);
+  assert.ok(
+    record.parameters.routing_notes.includes('debut.png et fin.png ne sont pas envoyées à MiniMax H3 Omni.'),
+    JSON.stringify(record.parameters.routing_notes),
+  );
+});
+
+test('the × of the card takes an image out of it: what was greyed beside it goes when its model takes it now (0.6.476)', async () => {
+  const minimax = minimaxFull(),
+    list = [...shipped().filter(workflow => workflow.pipeline !== 'minimax_h3'), minimax],
+    { runtime } = world({ workflows: list, resources: framed() });
+  const place = { conversationId: A, turnId: turn, messages: [] };
+  const first = await runtime.request(
+    [call('create_video', { prompt: 'x', intention: 'x', duration: 5, ...everything() })],
+    place,
+  );
+  assert.equal(first.workflowName, 'LTX 2.5');
+  // A MiniMax H3 that takes a start and an end, or subjects: the start and the end go, the subject is greyed, and the
+  // line says which to take out.
+  const both = await revise(runtime, first, { workflow: 'minimax-full' });
+  assert.deepEqual(sentOf(both), [
+    ['start_image', 'debut.png'],
+    ['end_image', 'fin.png'],
+  ]);
+  assert.deepEqual(heldOf(both), [
+    [
+      'reference',
+      'sujet.png',
+      'MiniMax H3 prend des sujets ou un début et une fin, pas les deux : celui-ci reste là, mais n’est pas envoyé.',
+    ],
+  ]);
+  assert.equal(
+    both.warning,
+    'MiniMax H3 prend des sujets ou un début et une fin, pas les deux : retirez les images de début et de fin ou le sujet.',
+  );
+  // The start taken out: the subject is still not sent beside the end…
+  const noStart = await revise(runtime, both, { remove: { input: 0 } });
+  assert.deepEqual(sentOf(noStart), [['end_image', 'fin.png']]);
+  assert.deepEqual(heldOf(noStart).map(([as]) => as), ['reference']);
+  assert.equal(noStart.workflowName, 'MiniMax H3', 'the same model');
+  // …the end too: now it goes.
+  const subjectOnly = await revise(runtime, noStart, { remove: { input: 0 } });
+  assert.deepEqual(sentOf(subjectOnly), [['reference_image', 'sujet.png']]);
+  assert.deepEqual([subjectOnly.held, subjectOnly.warning], [undefined, undefined]);
+  assert.deepEqual(subjectOnly.args.references, [{ input: 'subject-1', resource_id: SUBJECT }]);
+  // An image greyed is taken out by its × as well.
+  const own = world({ resources: framed() }),
+    asked = await own.runtime.request(
+      [call('create_video', { prompt: 'x', intention: 'x', duration: 5, ...everything() })],
+      place,
+    ),
+    named = name => asked.models.find(model => model.name === name).workflowId,
+    omni = await revise(own.runtime, asked, { workflow: named('MiniMax H3 Omni') }),
+    lighter = await revise(own.runtime, omni, { remove: { held: 0 } });
+  assert.deepEqual(heldOf(lighter).map(([as, label]) => [as, label]), [['end_image', 'fin.png']]);
+  assert.equal(
+    lighter.warning,
+    'L’image de fin n’est pas envoyée à MiniMax H3 Omni : retirez-la, ou choisissez LTX 2.5.',
+  );
+  // Taken out, it is no longer in the card: a model that cannot do without it is greyed with its reason.
+  assert.equal(
+    lighter.models.find(model => model.name === 'Wan 2.2').off,
+    'Wan 2.2 part d’une image de début : ajoutez-en une à la carte, puis choisissez-le.',
+  );
+  // Never what its model cannot do without, nor anything that is not there.
+  const again = await own.runtime.request(
+      [call('create_video', { prompt: 'x', intention: 'x', duration: 5, ...everything() }, 'call-2')],
+      place,
+    ),
+    wan = await revise(own.runtime, again, { workflow: named('Wan 2.2') });
+  assert.equal(sentOf(wan)[0][0], 'start_image');
+  await assert.rejects(revise(own.runtime, wan, { remove: { input: 0 } }), {
+    message: 'Wan 2.2 ne se fait pas sans « Image de début ».',
+  });
+  for (const remove of [{ input: 5 }, { held: 9 }, { input: 0, held: 0 }, 'start', {}])
+    await assert.rejects(revise(own.runtime, wan, { remove }), { message: 'Entrée invalide.' }, JSON.stringify(remove));
+  assert.ok(own.runtime.pending.has(wan.requestId), 'a refusal changes nothing');
+});
+
+test('a model of the card that is not on this computer: its download offered with the proposal as it is, then the proposal made for it (0.6.476)', async () => {
+  const fetched = [],
+    workflows = shipped().map(workflow =>
+      workflow.pipeline === 'minimax_h3'
+        ? { ...workflow, ready: false, builtin: true, unavailableKind: 'files' }
+        : workflow,
+    ),
+    files = [{ file: 'minimax_h3_omni.safetensors', size: 21e9 }],
+    { runtime } = world({
+      workflows,
+      resources: framed(),
+      offerOf: async workflow => {
+        fetched.push(workflow.id);
+        return { complete: true, files, bytes: 21e9, left: 21e9, convert: true, room: 42e9 };
+      },
+    });
+  const place = { conversationId: A, turnId: turn, messages: [] };
+  const first = await runtime.request(
+    [
+      call('create_video', {
+        prompt: 'x',
+        intention: 'x',
+        duration: 5,
+        start_image: { resource: START },
+        reference: [{ resource: SUBJECT }],
+      }),
+    ],
+    place,
+  );
+  const minimax = first.models.find(model => model.name === 'MiniMax H3 Omni');
+  assert.deepEqual([first.workflowName, minimax.missing, minimax.off], ['LTX 2.5', true, undefined]);
+  const offered = await revise(runtime, first, { workflow: minimax.workflowId });
+  // The proposal stays the one of LTX 2.5 (a new token), its download beside it.
+  assert.equal(offered.workflowName, 'LTX 2.5');
+  assert.deepEqual(sentOf(offered), sentOf(first));
+  assert.deepEqual(offered.offer, {
+    workflowId: minimax.workflowId,
+    workflowName: 'MiniMax H3 Omni',
+    family: 'minimax_h3',
+    files,
+    bytes: 21e9,
+    left: 21e9,
+    needsToken: false,
+    page: '',
+    convert: true,
+    room: 42e9,
+  });
+  assert.deepEqual(fetched, [minimax.workflowId]);
+  assert.equal(runtime.pending.has(offered.requestId), true);
+  // The files there: the proposal made for it.
+  const there = workflows.find(workflow => workflow.pipeline === 'minimax_h3');
+  there.ready = true;
+  delete there.unavailableKind;
+  const made = await revise(runtime, offered, { workflow: minimax.workflowId });
+  assert.deepEqual([made.workflowName, made.offer], ['MiniMax H3 Omni', undefined]);
+  assert.deepEqual(heldOf(made).map(([as]) => as), ['start_image']);
+});
+
+test('(0.6.479) a model of the card lacking only the engine: offered as one lacking its files, with it', async () => {
+  // (Greyed with its reason before, its download nowhere to press.)
+  const engine = { bytes: 3213357020 },
+    workflows = shipped().map(workflow =>
+      workflow.pipeline === 'minimax_h3'
+        ? { ...workflow, ready: false, builtin: true, unavailableKind: 'engine' }
+        : workflow,
+    ),
+    { runtime } = world({
+      workflows,
+      resources: framed(),
+      offerOf: async () => ({ complete: true, files: [], bytes: 0, left: 0, needsToken: false, page: '', engine }),
+    });
+  const place = { conversationId: A, turnId: turn, messages: [] };
+  const first = await runtime.request(
+    [call('create_video', { prompt: 'x', intention: 'x', duration: 5, reference: [{ resource: SUBJECT }] })],
+    place,
+  );
+  const minimax = first.models.find(model => model.name === 'MiniMax H3 Omni');
+  assert.deepEqual([minimax.missing, minimax.off], [true, undefined]);
+  const offered = await revise(runtime, first, { workflow: minimax.workflowId });
+  const { files, bytes, left, engine: prepared } = offered.offer;
+  assert.deepEqual([files, bytes, left, prepared], [[], 0, 0, engine]);
+});
+
+test('a model the card cannot take is refused in its words, the proposal kept; by hand, or for an image, no list (0.6.476)', async () => {
+  const { runtime } = world({ resources: framed() });
+  const place = { conversationId: A, turnId: turn, messages: [] };
+  const text = await runtime.request([call('create_video', { prompt: 'x', intention: 'x', duration: 5 })], place);
+  const wan = text.models.find(model => model.name === 'Wan 2.2');
+  assert.equal(wan.off, 'Wan 2.2 part d’une image de début : ajoutez-en une à la carte, puis choisissez-le.');
+  await assert.rejects(revise(runtime, text, { workflow: wan.workflowId }), { status: 400, message: wan.off });
+  await assert.rejects(revise(runtime, text, { workflow: of(shipped(), 'krea2').id }), {
+    message: 'Ce modèle ne se choisit pas pour cette proposition.',
+  });
+  assert.ok(runtime.pending.has(text.requestId), 'still the one to confirm');
+  // By the user's own hand (the Studio names its model), and for an image: no list, no model changed there.
+  const hand = await runtime.request(
+    [call('create_video', { prompt: 'x', intention: 'x', duration: 5, start_image: { resource: START } }, 'call-2')],
+    { ...place, byHand: true },
+  );
+  assert.equal(hand.models, undefined);
+  await assert.rejects(revise(runtime, hand, { workflow: text.models[1].workflowId }), {
+    message: 'Le modèle de cette proposition ne se change pas ici.',
+  });
+  const image = await runtime.request([call('create_image', { prompt: 'x' }, 'call-3')], place);
+  assert.equal(image.models, undefined);
+});
+
+test('an image of Moodix AI whose model does not take every image given: said by name in its notes and its record (0.6.476)', async () => {
+  const list = shipped().filter(workflow => workflow.pipeline !== 'qwen_image_edit'),
+    { runtime, saved } = world({ workflows: list, resources: framed() });
+  const asked = await runtime.request(
+    [call('create_image', { prompt: 'x', reference: [{ resource: SUBJECT }, { resource: SUBJECT_2 }] })],
+    { conversationId: A, turnId: turn, messages: [] },
+  );
+  assert.equal(asked.workflowName, 'Krea 2');
+  assert.deepEqual(sentOf(asked), [['img2img', 'sujet.png']]);
+  assert.deepEqual(heldOf(asked), [
+    ['reference', 'sujet2.png', 'Krea 2 ne prend pas d’autre image : elle reste là, mais n’est pas envoyée.'],
+  ]);
+  assert.equal(asked.warning, undefined, 'no card shows it: a note says it');
+  assert.deepEqual(asked.notes, [
+    'La première référence est prise comme image à modifier : Krea 2 part d’elle.',
+    'sujet2.png n’est pas envoyée à Krea 2.',
+  ]);
+  await runtime.execute({ requestId: asked.requestId, permission: 'once', approvalToken: asked.approvalToken });
+  await runtime.finished;
+  assert.deepEqual(saved.at(-1).parameters.routing_notes, asked.notes);
 });
