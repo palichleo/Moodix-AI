@@ -7,6 +7,7 @@ import * as sessionCopies from '../public/session-copies.mjs';
 import * as chatVideos from '../public/chat-videos.mjs';
 import * as transcript from '../public/transcript.mjs';
 import { reflection, thoughtTime } from '../public/reflection.mjs';
+import { UNRELEASED, madeHeld } from '../public/generation-ui.mjs';
 const png = 'data:image/png;base64,iVBORw0KGgo=';
 const call = {
   id: 'call_1',
@@ -37,6 +38,8 @@ async function exchange({
   brief = false,
   // The turn is the agent's of the Studio.
   inStudio = false,
+  // What the take says went wrong, when something did (`failed`).
+  error = 'Model restart failed',
   // Written by the model with its call.
   callText = '',
 } = {}) {
@@ -91,6 +94,7 @@ async function exchange({
     ...transcript,
     reflection,
     thoughtTime,
+    madeHeld,
     turnActions() {},
     showLastReply() {},
     views,
@@ -147,7 +151,7 @@ async function exchange({
         images,
         failed,
         denied,
-        error: failed ? 'Model restart failed' : '',
+        error: failed ? error : '',
         ...(denied || !hasRecord ? {} : { record: { id: 'run', conversationId: state.conversationId, mediaType } }),
       }),
       saveReview: async (...args) => reviews.push(args),
@@ -280,6 +284,15 @@ test('missing image copies do not trigger an automatic review or an injected ana
     false,
   );
   assert.equal(result.reviews.length, 0);
+});
+test('(0.6.464) a take made, the card alone held after it: no line of the engine under the message', async () => {
+  // (The note of the last message is the time the answer took.)
+  const notes = result => result.views.map(view => view.note.textContent).filter(text => text && !/^[\d,.]+ s$/.test(text));
+  // (A distant chat model: nothing to load again, the turn goes on.) What else failed is still said.
+  assert.deepEqual(notes(await exchange({ images: [], failed: true })), ['Model restart failed']);
+  const held = await exchange({ images: [], failed: true, error: `${UNRELEASED} : GPU cleanup incomplete: 0.008 GiB still allocated` });
+  assert.deepEqual(notes(held), []);
+  assert.equal(held.requests[1].messages.at(-1).role, 'tool', 'the model is told as before');
 });
 test('a failed reload keeps the produced tool result and does not request a completion from a stopped engine', async () => {
   const result = await exchange({ ready: false, failed: true });

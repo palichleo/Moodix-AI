@@ -123,6 +123,16 @@ export function heldCause(message = '') {
     at = text.indexOf(UNRELEASED);
   return (at < 0 ? text : text.slice(0, at)).trim();
 }
+/**
+ * (0.6.464) A take made, the card alone held after it (nothing else failed): what its card says, in place of the
+ * engine's own words (« Libération du moteur de génération non confirmée : GPU cleanup incomplete: 0.008 GiB
+ * still allocated » under a picture that was there). '' for anything else that failed.
+ */
+export const MADE_HELD = HELD_WORDS + ' La prise est faite.';
+export function madeHeld(message = '') {
+  const text = String(message ?? '');
+  return text.includes(UNRELEASED) && !heldCause(text) ? MADE_HELD : '';
+}
 export function failedDuring(stage = '') {
   const words = String(stage).replace(/…$/, '').replace(/ · \d+\/\d+$/, '').trim().split(' '),
     article = ARTICLES[words[0]];
@@ -755,7 +765,7 @@ export function setupGenerationUI({
         if (slot.isVideo && record.outputs?.[slot.index]?.analysisDataUrl)
           slot.img.poster = record.outputs[slot.index].analysisDataUrl;
       if (result.record && !slots.size) fail('Original indisponible · consultez Output pour les détails.');
-      else if (result.failed) fail(result.error || 'Image produite · analyse indisponible.');
+      else if (result.failed) fail(madeHeld(result.error) || result.error || 'Image produite · analyse indisponible.');
       else if (record) {
         const count = record.parameters?.reference_count;
         caption(

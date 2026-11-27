@@ -15,7 +15,7 @@ import { setupSettingsSearch } from './settings-search.mjs';
 import { setupSettingsTabs } from './settings-tabs.mjs';
 import { setupInterfaceSettings } from './interface-settings.mjs';
 import { setupHelpTips } from './help-tips.mjs';
-import { setupGenerationUI } from './generation-ui.mjs';
+import { madeHeld, setupGenerationUI } from './generation-ui.mjs';
 import { setupMiniature } from './work-miniature.mjs';
 import { setupTakeRecovery, takesOf } from './take-recovery.mjs';
 import { detachedTakes, leavingQuestion, reattached, takesWord } from './detached-takes.mjs';
@@ -3134,7 +3134,8 @@ async function runOutputAction(record, index, action) {
     }
     history.push({ role: 'tool', tool_call_id: request.call.id, content: result.content });
     if (result.record || result.failed) state.status = await (await api('status')).json();
-    view.note.textContent = result.denied ? 'Action annulée.' : result.failed ? result.error || '' : '';
+    // (0.6.464) Made, the card alone held after it: its take says so (madeHeld), not the engine's words here.
+    view.note.textContent = result.denied ? 'Action annulée.' : result.failed && !madeHeld(result.error) ? result.error || '' : '';
   } catch (error) {
     view.note.textContent = signal.aborted ? 'Opération interrompue à votre demande.' : error.message;
     if (!signal.aborted) {
@@ -4535,7 +4536,8 @@ async function sendMessage(event) {
         break;
       }
       // A take that failed says why on itself (52): no second line under the message.
-      view.note.textContent = result.failed && result.record ? result.error || 'Analyse indisponible.' : '';
+      // (0.6.464) (Made, the card alone held after it: the take says so, madeHeld.)
+      view.note.textContent = result.failed && result.record && !madeHeld(result.error) ? result.error || 'Analyse indisponible.' : '';
       if (result.denied || result.failed || result.stopped || iterations >= (state.generation?.maxIterations || 10)) allowTools = false;
       // After a refusal or a failure the model explains it: it does not go on inspecting outputs.
       if (result.denied || result.failed) resourceReads = 8;

@@ -7,6 +7,7 @@ import {
   cardMeta,
   clipSeconds,
   heldCause,
+  madeHeld,
   setupGenerationUI,
   takeLine,
 } from '../public/generation-ui.mjs';
@@ -683,6 +684,35 @@ test('an analysis or model reload failure preserves an original that was already
   card.fail('Model reload failed');
   assert.notEqual(frame.hidden, true);
   assert.match(img.src, /^blob:/);
+});
+
+test('(0.6.464) a take made, the card alone held after it: its card says so, not the words of the engine', async t => {
+  const release = `${UNRELEASED} : GPU cleanup incomplete: 0.008 GiB still allocated`,
+    words = HELD_WORDS + ' La prise est faite.';
+  assert.equal(madeHeld(release), words);
+  // What else failed is said as it is: the card held is told by the composer then (« Libérer le GPU »).
+  assert.equal(madeHeld('La mémoire a manqué. ' + release), '');
+  assert.deepEqual([madeHeld('Analysis unavailable'), madeHeld(), madeHeld(null)], ['', '', '']);
+  const container = new Element(),
+    ui = setupGenerationUI({
+      node: (...args) => new Element(...args),
+      api: async () => {
+        throw Error('No request expected');
+      },
+      openOutput() {},
+    });
+  t.after(() => ui.clear());
+  const card = ui.mount(container),
+    record = { workflowName: 'Krea 2', parameters: {}, outputs: [{}] };
+  card.image({ record, index: 0, blob: new Blob(['original'], { type: 'image/png' }) });
+  const [frame, caption] = container.children[0].children;
+  card.finish({ record, failed: true, error: release });
+  assert.notEqual(frame.hidden, true, 'the picture stays');
+  assert.equal(container.children[0].classList.contains('is-failed'), false, 'not a take that failed');
+  assert.equal(caption.children[1].textContent, words);
+  // The page writes no second line under the message for it (public/app.js, both places a take ends).
+  const page = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.equal(page.split('!madeHeld(result.error) ? result.error').length, 3);
 });
 
 test('sequential runs and batch outputs append separate tiles to the same grid without replacing originals', async t => {
