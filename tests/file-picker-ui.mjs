@@ -51,6 +51,8 @@ async function pickerUI() {
     refreshTrash: async () => {},
     // The dictation, read as the settings open (0.6.452): nor is it.
     dictationUI: { load: async () => {} },
+    // The state of the Hugging Face token, read as the settings open (0.6.479): nor is it.
+    refreshToken: async () => {},
     document: { querySelectorAll: () => buttons },
     api: (_route, _body, options) =>
       _route === 'models'

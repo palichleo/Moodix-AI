@@ -84,7 +84,10 @@ export function lineOf(model, workflows, downloads) {
       ...line,
       state: 'download',
       offer: offers[0],
-      bytes: offers.reduce((sum, [, offer]) => sum + (offer.left ?? offer.bytes ?? 0), 0),
+      // (0.6.479) With the engine of a new installation, which its click prepares too: counted once.
+      bytes:
+        offers.reduce((sum, [, offer]) => sum + (offer.left ?? offer.bytes ?? 0), 0) +
+        Math.max(0, ...offers.map(([, offer]) => Number(offer.engine?.bytes) || 0)),
     };
   // « Proposé à Moodix AI » off (0.6.94): out of the tools of Moodix AI, never out of the Studio.
   const off = records.find(([, record]) => record.enabled === false)?.[1];
@@ -114,6 +117,8 @@ export function lineOf(model, workflows, downloads) {
 export function progressText(job, speed = 0) {
   const total = Number(job?.total) || 0,
     received = Math.min(Number(job?.received) || 0, total || Infinity);
+  // (0.6.479) The engine of a new installation, prepared after the files: what it does, its bytes untold by uv.
+  if (job?.state === 'running' && job.engine === 'preparing') return job.current || 'Préparation du moteur';
   if (!total) return '';
   const unit = total >= GIB ? GIB : 1024 ** 2,
     done = `${figure(received / unit, total >= GIB ? 1 : 0)} / ${sizeText(total)}`;

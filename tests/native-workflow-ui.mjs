@@ -572,7 +572,12 @@ test('a model to download says « Télécharger » and its size in the place of 
     apache = { name: 'Apache-2.0', url: 'https://spdx.org/licenses/Apache-2.0.html', limits: '', restricted: false },
     giga = 1024 ** 3;
   const lacking = (id, name) => ({ ...structuredClone(f.template), id, name, builtin: true, enabled: true, ready: false });
-  f.workflows.push(lacking('krea-two', 'Krea 2'), lacking('seedvr', 'Upscale SeedVR2'), lacking('gated', 'LTX 2.5'));
+  f.workflows.push(
+    lacking('krea-two', 'Krea 2'),
+    lacking('seedvr', 'Upscale SeedVR2'),
+    lacking('gated', 'LTX 2.5'),
+    lacking('whole', 'Real-ESRGAN'),
+  );
   const offer = (files, more = {}) => ({
     files,
     bytes: files.reduce((sum, file) => sum + file.size, 0),
@@ -590,6 +595,8 @@ test('a model to download says « Télécharger » and its size in the place of 
     // (0.6.225) Converted after its download: the offer says so, and the room the disk needs meanwhile.
     seedvr: offer([{ role: 'model', file: 'seedvr2.safetensors', size: giga, license: apache }], { convert: true, room: 2 * giga }),
     gated: offer([{ role: 'model', file: 'ltx.safetensors', size: 2 * giga, license: apache }], { needsToken: true, page: 'huggingface.co/Lightricks/LTX-2.5' }),
+    // (0.6.479) A new installation, a model whose files are all here: the engine alone.
+    whole: offer([], { engine: { bytes: 3 * giga } }),
   };
   const api = f.api,
     starts = [],
@@ -633,6 +640,20 @@ test('a model to download says « Télécharger » and its size in the place of 
   assert.equal(download('Upscale SeedVR2').title, 'Licence : Apache-2.0. En téléchargeant, vous l’acceptez. ' + room);
   assert.equal(download('Upscale SeedVR2').attributes['aria-label'], 'Télécharger Upscale SeedVR2 (1 Go). ' + room);
   assert.doesNotMatch(download('Krea 2').title + download('Krea 2').attributes['aria-label'], /place libre/);
+  // (0.6.479) The engine its click prepares, said on its button; none of it where it is prepared already. Its files
+  // all here, the engine alone.
+  const engine =
+    'Les fichiers sont là : il manque le moteur de génération de Moodix, environ 3 Go, ' +
+    'installé une seule fois pour tous les modèles.';
+  assert.deepEqual(
+    download('Real-ESRGAN')
+      .children.map(item => item.textContent)
+      .filter(Boolean),
+    ['Télécharger · 3 Go'],
+  );
+  assert.equal(download('Real-ESRGAN').title, 'Télécharger Real-ESRGAN (3 Go) ' + engine);
+  assert.equal(download('Real-ESRGAN').attributes['aria-label'], 'Télécharger Real-ESRGAN (3 Go). ' + engine);
+  assert.doesNotMatch(download('Krea 2').title, /moteur de génération/);
 
   // A licence with conditions: the click downloads nothing and shows it, to accept or to refuse.
   await download('Krea 2').onclick();
@@ -673,6 +694,8 @@ test('a model to download says « Télécharger » and its size in the place of 
   await download('LTX 2.5').onclick();
   assert.equal(starts.length, 2);
   assert.match(asked.at(-1), /^LTX 2\.5 demande un compte Hugging Face : acceptez la licence sur huggingface\.co\/Lightricks\/LTX-2\.5 /);
+  // (0.6.479) And where the token is made: « un jeton de lecture » told a beginner nothing.
+  assert.match(asked.at(-1), / créez un jeton de lecture sur huggingface\.co\/settings\/tokens, puis collez-le ici /);
   // Closing the settings forgets a confirmation left half-way.
   await download('Krea 2').onclick();
   assert.ok(confirm('Krea 2'));
@@ -699,6 +722,45 @@ test('a model to download says « Télécharger » and its size in the place of 
   f.api = answering;
   await download('Upscale SeedVR2').onclick();
   assert.deepEqual(starts.slice(sent), [{ id: 'seedvr' }, { id: 'seedvr' }]);
+
+  // (0.6.479) The engine alone (a model whose files are all here): one click, said above the list, then its phase.
+  job = { state: 'idle' };
+  await f.ui.refresh();
+  f.api = async (route, body) => {
+    if (route !== 'downloads/start') return answering(route, body);
+    starts.push(body);
+    job = { state: 'running', workflowId: body.id, name: 'Real-ESRGAN', received: 0, total: 3 * giga };
+    return Response.json(Object.assign(job, { engine: 'preparing', current: 'Préparation du moteur' }));
+  };
+  await download('Real-ESRGAN').onclick();
+  f.api = answering;
+  assert.deepEqual(starts.at(-1), { id: 'whole' });
+  assert.equal(
+    f.$('native-import-status').textContent,
+    'Le moteur de génération de Moodix s’installe maintenant : environ 3 Go, une seule fois pour tous les modèles.',
+  );
+  assert.deepEqual(
+    find(lineOf('Real-ESRGAN'), 'model-progress-text').map(item => item.textContent),
+    ['Préparation du moteur'],
+  );
+  await find(lineOf('Real-ESRGAN'), 'model-stop')[0].onclick();
+  // (0.6.479) A file the engine converts: the engine comes before the files, which need it.
+  offers.seedvr.engine = { bytes: 3 * giga };
+  job = { state: 'idle' };
+  await f.ui.refresh();
+  f.api = async (route, body) => {
+    if (route !== 'downloads/start') return answering(route, body);
+    job = { state: 'running', workflowId: body.id, name: 'Upscale SeedVR2', received: 0, total: 4 * giga };
+    return Response.json(Object.assign(job, { engine: 'preparing', current: 'Préparation du moteur' }));
+  };
+  await download('Upscale SeedVR2').onclick();
+  f.api = answering;
+  assert.equal(
+    f.$('native-import-status').textContent,
+    'Le moteur de génération de Moodix s’installe avant les fichiers, qui en ont besoin : environ 3 Go, ' +
+      'une seule fois pour tous les modèles.',
+  );
+  await find(lineOf('Upscale SeedVR2'), 'model-stop')[0].onclick();
 });
 
 test('an existing tokenizer is never replaced by a suggestion, and families without one show no tokenizer', async t => {

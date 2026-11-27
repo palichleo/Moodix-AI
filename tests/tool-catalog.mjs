@@ -441,6 +441,30 @@ test('music and sound effects: the model names the workflow, and each keeps its 
   assert.deepEqual(song.notes, []);
 });
 
+test('(0.6.479) a new installation: a model whose files are all here is offered for its engine', async () => {
+  // Qwen-Image-Edit downloaded on a new installation (27/11): neither ready (no engine) nor lacking a file, the chat
+  // model was never told of it, and a request named to it was refused.
+  const shipped = (id, more) => ({
+    ...JSON.parse(readFileSync(new URL(`../runner/workflows/${id}.json`, import.meta.url), 'utf8')),
+    builtin: true,
+    ready: false,
+    ...more,
+  });
+  const krea = shipped('fefb88eb-8311-4409-b636-6efbb42e952c', { unavailableKind: 'files' }),
+    qwen = shipped('a7601a5d-e43b-4f4e-8871-2d9dc7138bd9', { unavailableKind: 'engine' }),
+    // (A request of its own each time: the router writes on the sources it is given.)
+    edit = () => ({ prompt: 'Make it night', source: { resource: 'r2' }, workflow: qwen.id }),
+    told = async list => (await catalogOf(list).definitions()).some(item => item.function.name === 'create_image');
+  // Told to the chat model, alone too; named, it is routed, and its engine offered (tool-runtime.mjs #missing).
+  assert.equal(await told([qwen]), true);
+  const routed = await catalogOf([krea, qwen]).route('create_image', edit(), media);
+  assert.deepEqual([routed.workflow.id, routed.workflow.ready], [qwen.id, false]);
+  // Its engine there and only stopped (no kind): nothing to download for it, neither told nor routed.
+  const stopped = { ...qwen, unavailableKind: undefined };
+  assert.equal(await told([stopped]), false);
+  await assert.rejects(catalogOf([krea, stopped]).route('create_image', edit(), media), /ne peut pas exécuter/);
+});
+
 test('(0.6.460) music asked for with the music model not downloaded: it is offered to download, never the sound-effect model in its place', async () => {
   // (27/11, a real request to his chat model: « Fais-moi une musique douce au piano » was proposed with
   // « Bruitages (MOSS-SoundEffect v2) », the only audio workflow ready there: the model was told of no other.)

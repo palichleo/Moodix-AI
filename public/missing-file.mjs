@@ -11,6 +11,10 @@
  * limits. One with conditions (LTX 2.5, MiniMax H3, Krea 2, SAM 3.1) is confirmed first: « Télécharger »
  * then shows those licences alone, « À LIRE AVANT DE TÉLÉCHARGER », with « Retour » and « J’ai lu,
  * télécharger »; a free one is only named, and the download starts at once.
+ *
+ * (0.6.479) On a new installation the engine of generation comes with the first model downloaded (engineText,
+ * engineWait), in the size of its button; a model whose files are all here offers it alone: « IL MANQUE LE MOTEUR
+ * DE GÉNÉRATION », its one line « Moteur de génération de Moodix » and its size.
  */
 import { licenseBlock, restrictedOf } from './model-licenses.mjs';
 
@@ -35,6 +39,37 @@ export function roomText(offer) {
   return `Il faut ${sizeText(offer.room)} de place libre : après le téléchargement, les fichiers sont convertis pour le moteur de Moodix, puis les originaux sont effacés.`;
 }
 
+/** (0.6.479) An offer of the engine alone: the files of its model are all here, on a new installation. */
+export const engineOnly = offer =>
+  Array.isArray(offer?.files) && !offer.files.length && Number(offer?.engine?.bytes) > 0;
+/**
+ * (0.6.479) The engine of a new installation, which the same click prepares after the files (`offer.engine`, about
+ * what it downloads): one sentence, '' when it is there already. `size`: how the page beside it writes a size.
+ */
+export function engineText(offer, size = sizeText) {
+  const bytes = Number(offer?.engine?.bytes) || 0;
+  if (!(bytes > 0)) return '';
+  // Its files all here (Qwen-Image-Edit downloaded on a new installation, 27/11): the engine alone.
+  if (engineOnly(offer))
+    return (
+      `Les fichiers sont là : il manque le moteur de génération de Moodix, environ ${size(bytes)}, ` +
+      'installé une seule fois pour tous les modèles.'
+    );
+  return (
+    `Le moteur de génération de Moodix se télécharge avec : environ ${size(bytes)}, ` +
+    'une seule fois pour tous les modèles.'
+  );
+}
+/** (0.6.479) What a click on « Télécharger » fetches in all: `bytes` of files, and the engine of a new installation. */
+export const withEngine = (bytes, offer) => (Number(bytes) || 0) + (Number(offer?.engine?.bytes) || 0);
+/** (0.6.479) What a download says while the engine is prepared after its files, '' before and after. */
+export function engineWait(job) {
+  if (job?.engine !== 'preparing') return '';
+  return /^Démarrage/.test(job.current || '')
+    ? 'Démarrage du moteur de génération…'
+    : 'Préparation du moteur de génération : quelques minutes, une seule fois.';
+}
+
 export function missingFileCard({
   host,
   request,
@@ -47,15 +82,20 @@ export function missingFileCard({
   wait = null,
 }) {
   const missing = request.missing,
+    // (0.6.479) Its files all here, the engine of a new installation alone to fetch: « Il manque un fichier » then
+    // said a file none of its lines named.
+    alone = engineOnly(missing),
     card = node('section', 'missing-card'),
     pause = wait ?? (ms => new Promise(resolve => setTimeout(resolve, ms))),
     // The licences with conditions of these files: read and confirmed before the download.
     restricted = restrictedOf(missing.files);
-  card.setAttribute('aria-label', 'Il manque un fichier');
+  const lacking = alone ? 'Il manque le moteur de génération' : 'Il manque un fichier';
+  card.setAttribute('aria-label', lacking);
   let state = 'idle',
     left = missing.left || missing.bytes,
     received = 0,
-    total = missing.bytes,
+    // (0.6.479) With the engine of a new installation, which the server counts in the job too.
+    total = withEngine(missing.bytes, missing),
     error = '',
     // Said while Windows holds the file just downloaded (0.6.90: the line stood full, without a word).
     waiting = '',
@@ -76,10 +116,11 @@ export function missingFileCard({
     const head = node(
         'p',
         'missing-head',
-        ['Il manque un fichier', KINDS[request.mediaType] ?? KINDS.image, request.workflowName].filter(Boolean).join(' · '),
+        [lacking, KINDS[request.mediaType] ?? KINDS.image, request.workflowName].filter(Boolean).join(' · '),
       ),
       list = node('ul', 'missing-files');
-    for (const file of missing.files) {
+    const files = alone ? [{ file: 'Moteur de génération de Moodix', size: missing.engine.bytes }] : missing.files;
+    for (const file of files) {
       const item = node('li', 'missing-file');
       item.append(
         node('span', 'missing-dot'),
@@ -91,11 +132,28 @@ export function missingFileCard({
     const note = node(
       'p',
       'missing-note',
+      // (0.6.479) Where the token is made, said with the rest; the model named (« Ce fichier » stood under six
+      // files), as the Bobine and « Modèles » name it, and the engine its button counts.
       missing.needsToken
-        ? `Ce fichier demande un compte Hugging Face : acceptez la licence${missing.page ? ' sur ' + missing.page : ''}, puis enregistrez votre jeton dans Paramètres › Modèles › Fichiers.`
-        : ['Il va dans votre dossier des modèles, depuis Hugging Face. Le téléchargement reprend où il en était si vous l’arrêtez.', roomText(missing)]
+        ? [
+            `${request.workflowName || 'Ce modèle'} demande un compte Hugging Face : acceptez la licence` +
+              `${missing.page ? ' sur ' + missing.page : ''} avec ce compte, ` +
+              'créez un jeton de lecture sur huggingface.co/settings/tokens, ' +
+              'puis enregistrez votre jeton dans Paramètres › Modèles › Fichiers.',
+            engineText(missing),
+          ]
             .filter(Boolean)
-            .join(' '),
+            .join(' ')
+        : alone
+          ? engineText(missing)
+          : [
+              'Il va dans votre dossier des modèles, depuis Hugging Face. ' +
+                'Le téléchargement reprend où il en était si vous l’arrêtez.',
+              roomText(missing),
+              engineText(missing),
+            ]
+              .filter(Boolean)
+              .join(' '),
     );
     const foot = node('div', 'missing-foot');
     if (state === 'running') {
@@ -109,7 +167,9 @@ export function missingFileCard({
       progress.setAttribute('aria-valuenow', String(total ? Math.round((received / total) * 100) : 0));
       foot.append(progress, button('text-button missing-stop', 'Arrêter', () => void stop()));
     } else if (state === 'done') {
-      foot.append(node('p', 'missing-done', 'Le fichier est là. Je reprends votre demande…'));
+      foot.append(
+        node('p', 'missing-done', `${alone ? 'Le moteur est prêt' : 'Le fichier est là'}. Je reprends votre demande…`),
+      );
     } else if (state === 'ready') {
       foot.append(
         node('p', 'missing-done', `${request.workflowName} est prêt`),
@@ -124,12 +184,17 @@ export function missingFileCard({
           `Vous avez lu ${several ? 'ces licences' : 'cette licence'} et vous en acceptez les conditions ?`,
         ),
         button('text-button missing-back', 'Retour', () => back()),
-        button('missing-go', 'J’ai lu, télécharger · ' + sizeText(left), () => void confirm(), 'download'),
+        button(
+          'missing-go',
+          'J’ai lu, télécharger · ' + sizeText(withEngine(left, missing)),
+          () => void confirm(),
+          'download',
+        ),
       );
     } else {
       foot.append(
         button('text-button missing-cancel', 'Annuler', () => cancel()),
-        button('missing-go', 'Télécharger · ' + sizeText(left), () => void start(), 'download'),
+        button('missing-go', 'Télécharger · ' + sizeText(withEngine(left, missing)), () => void start(), 'download'),
       );
     }
     const parts = [head, list, note],
@@ -140,7 +205,7 @@ export function missingFileCard({
       alert.setAttribute('role', 'alert');
       parts.push(alert);
     }
-    // Under its line, while Windows holds the file just downloaded.
+    // Under its line, while Windows holds the file just downloaded (0.6.479: or while its engine is prepared).
     if (state === 'running' && waiting) {
       const said = node('p', 'missing-note missing-wait', waiting);
       said.setAttribute('role', 'status');
@@ -201,13 +266,17 @@ export function missingFileCard({
         }
         if (job.state === 'cancelled' || job.state === 'error' || job.state === 'idle') {
           state = 'idle';
-          left = Math.max(0, (job.total || total) - (job.received || 0)) || left;
+          // (0.6.479) The job counts the engine of a new installation too: what is left of the files alone, none
+          // once it stopped while the engine was prepared (its files are all there then).
+          const engine = job.engine && job.engine !== 'ready' ? Number(missing.engine?.bytes) || 0 : 0;
+          left =
+            job.engine === 'preparing' ? 0 : Math.max(0, (job.total || total) - (job.received || 0) - engine) || left;
           if (job.state === 'error') error = job.error;
           return;
         }
         received = job.received;
         total = job.total || total;
-        waiting = WAITING.test(job.current ?? '') ? job.current : '';
+        waiting = WAITING.test(job.current ?? '') ? job.current : engineWait(job);
         render();
         await pause(poll);
       }
@@ -241,7 +310,7 @@ export function missingFileCard({
       if (job?.state === 'running' && job.workflowId === missing.workflowId) {
         state = 'running';
         ({ received = 0, total = total } = job);
-        waiting = WAITING.test(job.current ?? '') ? job.current : '';
+        waiting = WAITING.test(job.current ?? '') ? job.current : engineWait(job);
         render();
         return follow();
       }

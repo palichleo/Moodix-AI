@@ -2224,6 +2224,9 @@ function openSettings() {
   updateControls();
   // The bin of the history, read each time (0.6.103).
   void refreshTrash();
+  // (0.6.479) The Hugging Face token: its field is in « Modèles › Fichiers » since 0.6.119, and its state (« Jeton
+  // enregistré », « Retirer ») was read only when « Mise à jour » showed: a token kept looked absent.
+  void refreshToken();
   // (0.6.452) The dictation: its model, a download under way, its settings.
   void dictationUI.load();
   Promise.all([
@@ -2898,9 +2901,11 @@ function missingFile(view, request, history, conversationId = state.conversation
   // (`conversationId`: the one of the turn, 0.6.87; the one shown when the answer came, which the
   // user may have left meanwhile, said « Ouvrez la conversation de cette demande » back in it.)
   const many = request.missing.files.length > 1,
+    // (0.6.479) Its files all here on a new installation: the engine of generation alone is missing.
+    lacks = request.missing.files.length ? (many ? 'des fichiers' : 'un fichier') : 'le moteur de génération de Moodix',
     sentence =
       `${MISSING_FOR[request.tool] ?? 'Pour cette création'}, il me faut ${request.workflowName}, et il lui manque ` +
-      `${many ? 'des fichiers' : 'un fichier'}. Dès qu’${many ? 'ils sont' : 'il est'} là, je reprends votre demande.`,
+      `${lacks}. Dès qu’${many ? 'ils sont' : 'il est'} là, je reprends votre demande.`,
     original = history.findLast(message => message.role === 'user' && !message.internal),
     asked = JSON.stringify(original?.content ?? '');
   view.generations.append(node('p', 'missing-say', sentence));
@@ -5277,9 +5282,12 @@ const workflowsUI = setupNativeWorkflows({
     updateControls();
   },
   showTokenField: message => {
-    settingsTabs.select('update');
+    // (0.6.479) The tab of its field, « Modèles »: « Mise à jour » was opened since 0.5.15, where it is not, and
+    // a click on « Télécharger » of LTX 2.5 led nowhere (27/11).
+    settingsTabs.select('workflows');
     $('hf-token-status').textContent = message;
-    $('hf-token').focus();
+    $('hf-token').focus({ preventScroll: true });
+    $('hf-token').scrollIntoView({ block: 'center' });
   },
   onHelpChange: target => helpTips.refresh(target),
 });

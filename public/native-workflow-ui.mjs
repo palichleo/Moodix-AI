@@ -1,5 +1,5 @@
 import { setupGenerationRuntime } from './generation-runtime.mjs';
-import { roomText } from './missing-file.mjs';
+import { engineOnly, engineText, roomText } from './missing-file.mjs';
 import { licenseBlock, restrictedOf } from './model-licenses.mjs';
 import {
   GROUPS,
@@ -388,6 +388,19 @@ export function setupNativeWorkflows(options) {
       speed = 0;
       sampled = null;
       downloads.job = await (await api('downloads/start', { id: record.id, ...(accepted ? { accepted: true } : {}) })).json();
+      // (0.6.479) The engine of a new installation comes with it: said where the end of the download is said.
+      const offer = downloads.offers?.[record.id],
+        // (A file the engine converts needs it there: it comes before the files then, lib/model-downloads.mjs.)
+        when = engineOnly(offer)
+          ? 'maintenant'
+          : offer?.convert
+            ? 'avant les fichiers, qui en ont besoin'
+            : 'après les fichiers';
+      if (downloads.job.engine && offer?.engine?.bytes > 0)
+        importStatus(
+          `Le moteur de génération de Moodix s’installe ${when} : ` +
+            `environ ${sizeText(offer.engine.bytes)}, une seule fois pour tous les modèles.`,
+        );
       renderList();
       followDownload();
     } catch (failure) {
@@ -407,9 +420,12 @@ export function setupNativeWorkflows(options) {
       start = button(
         '',
         () => {
+          // (0.6.479) Where the token is made, said: « un jeton de lecture » told a beginner nothing.
           if (offer.needsToken)
             return askToken(
-              `${model.name} demande un compte Hugging Face : acceptez la licence sur ${offer.page} avec ce compte, puis collez ici un jeton de lecture et relancez le téléchargement.`,
+              `${model.name} demande un compte Hugging Face : acceptez la licence sur ${offer.page} avec ce compte, ` +
+                'créez un jeton de lecture sur huggingface.co/settings/tokens, ' +
+                'puis collez-le ici et relancez le téléchargement.',
             );
           if (asksLicense(offer)) {
             licenseAsked = record.id;
@@ -424,7 +440,8 @@ export function setupNativeWorkflows(options) {
       );
     start.append(icon('download'), node('span', '', 'Télécharger · ' + size));
     // (0.6.225) Converted after its download (Wan 2.2 Caméra): the room it needs meanwhile is said with it.
-    const room = roomText(offer);
+    // (0.6.479) And the engine of a new installation, which the same click prepares.
+    const room = [roomText(offer), engineText(offer, sizeText)].filter(Boolean).join(' ');
     start.setAttribute('aria-label', `Télécharger ${model.name} (${size})` + (room ? '. ' + room : ''));
     start.title = [licenseSentence(offer.files) || `Télécharger ${model.name} (${size})`, room].filter(Boolean).join(' ');
     start.dataset.nativeControl = 'true';
@@ -707,7 +724,13 @@ export function setupNativeWorkflows(options) {
         if (ended) {
           following = false;
           if (next.state === 'error') importStatus(next.error, true);
-          else if (next.state === 'done') importStatus(`${next.name} : fichiers téléchargés et rangés.`);
+          // (0.6.479) With the engine of a new installation, prepared and started by the same click.
+          else if (next.state === 'done')
+            importStatus(
+              next.engine === 'ready'
+                ? `${next.name} est prêt, avec le moteur de génération.`
+                : `${next.name} : fichiers téléchargés et rangés.`,
+            );
           if ($('settings').open) await refresh({ settings: false }).catch(() => renderList());
           else renderList();
           return;

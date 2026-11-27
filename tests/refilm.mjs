@@ -474,6 +474,27 @@ test('without its two files, a request offers to fetch them, with their sizes an
   assert.equal(whole.files.length, 6);
 });
 
+test('(0.6.479) its files all here on a new installation, a request offers the engine alone', async () => {
+  // Qwen-Image-Edit downloaded on a new installation (27/11): the chat answered « … n’est pas prêt : Moteur de
+  // génération arrêté. », and nothing offered to prepare it.
+  const nowhere = join(tmpdir(), 'moodix-refilm-test-engine'),
+    engine = { bytes: 3 * 1024 ** 3, needed: async () => true, prepare: async () => {} };
+  const downloads = new ModelDownloads({
+    catalogPath: new URL('../runner/downloads.json', import.meta.url),
+    dataDir: nowhere,
+    assets: { resolve: async asset => ({ path: join(nowhere, asset) }) },
+    folderOf: (_family, role) => join(nowhere, role),
+    engine,
+  });
+  const offerOf = async workflow => (await downloads.offers([workflow]))[workflow.id] ?? null;
+  const { ask } = runtimeFor({ own: lacking, offerOf });
+  const { missing } = await ask(held({ azimuth: 30, elevation: 10, distance: 1 }));
+  assert.deepEqual([missing.files, missing.bytes, missing.left, missing.engine], [[], 0, 0, { bytes: engine.bytes }]);
+  // Prepared already: nothing to offer, the request says why it cannot be made, as before.
+  engine.needed = async () => false;
+  await assert.rejects(ask(held({ azimuth: 30, elevation: 10, distance: 1 })), /n’est pas prêt/);
+});
+
 test('on its proposal its camera may change, never its clip, its size or its length (0.6.242)', async () => {
   const jobs = [];
   const { runtime, ask } = runtimeFor({ jobs });

@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readdir, rm, link } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readdir, readFile, rm, link } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import {
+  PREPARATION,
   PythonEnvironment,
   environmentVariables,
   nothingInstalled,
+  preparationBytes,
   runEnvironmentCommand,
 } from '../lib/python-environment.mjs';
 
@@ -24,6 +26,95 @@ async function fixture(t, options = {}) {
   t.after(() => env.close());
   return { root, env };
 }
+/**
+ * (0.6.479) The libraries of runner/uv.lock a platform takes, walked from the project through their markers (only the
+ * forms the lock uses), each with the wheel uv picks there: the sizes the lock gives, and the names it gives none.
+ */
+async function lockedWheels(platform) {
+  const text = await readFile(new URL('../runner/uv.lock', import.meta.url), 'utf8'),
+    env = platform === 'win32' ? { sys_platform: 'win32', platform_machine: 'AMD64' } : { sys_platform: 'linux' },
+    packages = new Map(),
+    edges = list =>
+      [...list.matchAll(/\{ name = "([^"]+)"(?:, extra = \[([^\]]*)\])?(?:, marker = "([^"]*)")? \}/g)].map(m => ({
+        name: m[1],
+        extras: [...(m[2] ?? '').matchAll(/"([^"]+)"/g)].map(extra => extra[1]),
+        marker: m[3] ?? '',
+      }));
+  for (const block of text.split(/^\[\[package\]\]\s*$/m).slice(1)) {
+    const main = block.split(/^\[package\./m)[0],
+      optional = block.match(/^\[package\.optional-dependencies\]([\s\S]*)$/m)?.[1] ?? '',
+      extras = [...optional.matchAll(/^([\w-]+) = \[([\s\S]*?)^\]/gm)],
+      wheels = [...(main.match(/^wheels = \[([\s\S]*?)^\]/m)?.[1] ?? '').matchAll(/\{ url = "([^"]+)"[^}]*\}/g)];
+    packages.set(main.match(/^name = "([^"]+)"/m)[1], {
+      deps: edges(main.match(/^dependencies = \[([\s\S]*?)^\]/m)?.[1] ?? ''),
+      optional: Object.fromEntries(extras.map(m => [m[1], edges(m[2])])),
+      wheels: wheels.map(m => ({
+        file: decodeURIComponent(m[1].split('/').pop()),
+        size: Number(m[0].match(/size = (\d+)/)?.[1] ?? NaN),
+      })),
+    });
+  }
+  const holds = marker =>
+      !marker ||
+      marker.split(/ or /).some(part =>
+        part.split(/ and /).every(term => {
+          const [, key, op, value] = term.trim().match(/^(\w+) (==|!=) '([^']*)'$/);
+          return (env[key] === value) === (op === '==');
+        }),
+      ),
+    taken = new Map(),
+    walk = (name, extras = []) => {
+      const first = !taken.has(name),
+        seen = taken.get(name) ?? new Set(),
+        fresh = extras.filter(extra => !seen.has(extra));
+      fresh.forEach(extra => seen.add(extra));
+      taken.set(name, seen);
+      const own = packages.get(name);
+      for (const dep of [...(first ? own.deps : []), ...fresh.flatMap(extra => own.optional[extra] ?? [])])
+        if (holds(dep.marker)) walk(dep.name, dep.extras);
+    };
+  walk('atelier-generation-runtime');
+  taken.delete('atelier-generation-runtime');
+  const fits = file => {
+    const [python, abi, place] = file.replace(/\.whl$/, '').split('-').slice(-3);
+    const here = place === 'any' || (platform === 'win32' ? /win_amd64/.test(place) : /manylinux.*x86_64/.test(place));
+    const ours =
+      ['none', 'abi3', 'cp313'].includes(abi) &&
+      (python.split('.').some(tag => tag === 'cp313' || /^py3/.test(tag) || tag === 'py2') ||
+        (abi === 'abi3' && /^cp3\d+$/.test(python) && Number(python.slice(3)) <= 13));
+    return here && ours;
+  };
+  return [...taken.keys()].map(name => ({ name, ...packages.get(name).wheels.find(wheel => fits(wheel.file)) }));
+}
+
+test('(0.6.479) a first preparation downloads the wheels of runner/uv.lock, and PyTorch, estimated', async () => {
+  // The « Télécharger » of a model says it on a new installation (lib/model-downloads.mjs, offers).
+  for (const platform of ['win32', 'linux']) {
+    const wheels = await lockedWheels(platform),
+      unsized = wheels.filter(wheel => !Number.isFinite(wheel.size)).map(wheel => wheel.name);
+    // As many as uv checks on Windows once they are there (« Checked 52 packages », nothingInstalled).
+    if (platform === 'win32') assert.equal(wheels.length, 52);
+    assert.ok(wheels.every(wheel => wheel.file), 'a wheel for each library');
+    // The index of PyTorch gives the lock no size: they alone are estimated.
+    assert.deepEqual(unsized.sort(), ['torch', 'torchvision']);
+    const sized = wheels.reduce((sum, wheel) => sum + (Number.isFinite(wheel.size) ? wheel.size : 0), 0);
+    assert.equal(PREPARATION[platform].wheels, sized, `${platform} : runner/uv.lock changed, PREPARATION too`);
+    assert.equal(preparationBytes(platform), Math.round(sized + PREPARATION[platform].estimate));
+  }
+  assert.equal(preparationBytes('darwin'), 0);
+});
+
+test('(0.6.479) an environment is prepared once its preparation ended, not when its folder is there', async t => {
+  const { env } = await fixture(t);
+  assert.equal(await env.prepared(), false);
+  await mkdir(join(env.directory, 'venv'), { recursive: true });
+  await writeFile(join(env.directory, 'venv', 'pyvenv.cfg'), 'home = C:\\Python\n');
+  // Stopped on the way (uv makes the environment before its libraries): still to prepare.
+  assert.deepEqual([await env.exists(), await env.prepared()], [true, false]);
+  await writeFile(join(env.directory, 'verified.json'), '{"fingerprint":"x"}\n');
+  assert.equal(await env.prepared(), true);
+});
+
 async function cachedUv(env) {
   const binary = join(env.directory, 'uv', '0.13.7', env.platform === 'win32' ? 'uv.exe' : 'uv');
   await mkdir(resolve(binary, '..'), { recursive: true });

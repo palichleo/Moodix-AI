@@ -404,3 +404,132 @@ test('(0.6.443) the models directory of Moodix holds only the folders its models
   // controlnet and audio_encoders were made empty at each start, for no model.
   assert.deepEqual((await readdir(join(root, 'models'))).filter(name => !read.has(name)), []);
 });
+
+// (0.6.479) Qwen-Image-Edit's files as its download leaves them: the layouts its family checks, and those that
+// took them for files of LTX 2.5 (`transformer_blocks.N.`, `embed_tokens.weight`, `encoder.` and `decoder.`).
+const QWEN_EDIT = {
+  model: {
+    'img_in.weight': [3072, 64],
+    'txt_in.weight': [3072, 3584],
+    'transformer_blocks.0.attn.to_q.weight': [1, 1],
+  },
+  textEncoder: { 'model.embed_tokens.weight': [4, 3584], 'visual.merger.mlp.2.weight': [3584, 5120] },
+  // The VAE of Qwen-Image has every tensor of Wan 2.1's, in the same shapes: its decoder alone was trained again.
+  vae: {
+    'encoder.conv1.weight': [96, 3, 3, 3, 3],
+    'decoder.conv1.weight': [384, 16, 3, 3, 3],
+    'conv2.weight': [16, 16, 1, 1, 1],
+  },
+  stepLora: { 'transformer_blocks.0.attn.add_q_proj.lora_down.weight': [1, 3072] },
+};
+
+test('(0.6.479) a file shipped for another model, or that its family tells apart, is never its file', async t => {
+  const root = await directory(t),
+    folders = { model: join(root, 'diffusion_models'), vae: join(root, 'vae'), tokenizer: join(root, 'text_encoders') };
+  for (const folder of Object.values(folders)) await mkdir(folder, { recursive: true });
+  // What Moodix ships and for what (shippedFiles): the VAE of Qwen-Image, two tokenizers.
+  const shipped = new Map([
+    ['qwen_image_vae.safetensors', new Set(['krea2|vae', 'qwen_image_edit|vae'])],
+    ['qwen25_tokenizer', new Set(['krea2|tokenizer', 'qwen_image_edit|tokenizer'])],
+    ['qwen35_tokenizer', new Set(['moss|tokenizer'])],
+  ]);
+  const assets = new GenerationAssets(join(root, 'assets.json'), {
+      folder: (family, kind) => folders[kind] ?? null,
+      shipped: () => shipped,
+    }),
+    named = async (kind, family, options) => basename((await assets.pick(kind, family, options))?.path ?? '');
+  // The VAE of Qwen-Image serves Krea 2 as it ships it, never Wan, whose own it is not.
+  await checkpoint(join(folders.vae, 'qwen_image_vae.safetensors'), QWEN_EDIT.vae);
+  assert.equal(await named('vae', 'krea2'), 'qwen_image_vae.safetensors');
+  assert.equal(await named('vae', 'wan22'), '');
+  // A file nobody ships under its name is the user's: taken as before, whatever it is called.
+  await checkpoint(join(folders.vae, 'mon_vae_wan.safetensors'), QWEN_EDIT.vae);
+  assert.equal(await named('vae', 'wan22'), 'mon_vae_wan.safetensors');
+  // The tokenizer of Qwen 2.5 is not MOSS's (Qwen 3.5), with or without its text encoder to compare with.
+  await tokenizer(join(folders.tokenizer, 'qwen25_tokenizer'), 4);
+  const encoder = await checkpoint(join(root, 'encoder.safetensors'), MOSS.textEncoder);
+  assert.equal(await named('tokenizer', 'moss', { file: 'qwen35_tokenizer' }), '');
+  assert.equal(await named('tokenizer', 'moss', { encoder }), '');
+  assert.equal(await named('tokenizer', 'krea2', { file: 'qwen25_tokenizer' }), 'qwen25_tokenizer');
+  await tokenizer(join(folders.tokenizer, 'qwen35_tokenizer'), 4);
+  assert.equal(await named('tokenizer', 'moss', { encoder }), 'qwen35_tokenizer');
+  // What its family tells its files by (`fingerprint`, the page « Modèles » too): Qwen-Image-Edit 2509 has the
+  // layout of 2511, not the index of its zero timestep.
+  const edit = {
+    'img_in.weight': [3072, 64],
+    'txt_in.weight': [3072, 3584],
+    'transformer_blocks.59.attn.to_q.weight': [3072, 3072],
+  };
+  await checkpoint(join(folders.model, 'qwen_image_edit_2509.safetensors'), edit);
+  assert.equal(await named('model', 'qwen_image_edit'), '');
+  await checkpoint(join(folders.model, 'qwen_image_edit_2511_q8.safetensors'), {
+    ...edit,
+    __index_timestep_zero__: [1],
+  });
+  assert.equal(await named('model', 'qwen_image_edit'), 'qwen_image_edit_2511_q8.safetensors');
+});
+
+test('(0.6.479) Qwen-Image-Edit downloaded, LTX 2.5 offers its six files, Wan its VAE, MOSS its tokenizer', async t => {
+  // A new installation (27/11): « Télécharger · 2,1 Go » for LTX 2.5 (its ×2 upscaler and its LoRA of the
+  // subjects), where 38,2 Go were missing. Qwen-Image-Edit's model, encoder and VAE stood for the four others.
+  const { readFile } = await import('node:fs/promises'),
+    { fileURLToPath } = await import('node:url');
+  const root = await directory(t),
+    shippedDir = fileURLToPath(new URL('../runner/workflows', import.meta.url)),
+    worker = { status: () => ({ state: 'stopped', capabilities: {} }), start: async () => {}, close: async () => {} },
+    environment = {
+      status: () => ({ state: 'idle' }),
+      exists: async () => false,
+      ensure: async () => process.execPath,
+      cancel: async () => {},
+      close: async () => {},
+    };
+  const made = await new GenerationService({
+    root,
+    dataDir: join(root, 'data'),
+    workflowDir: join(root, 'workflow'),
+    builtinWorkflowDir: shippedDir,
+    outputDir: join(root, 'output'),
+    worker,
+    environment,
+  }).init();
+  t.after(() => made.close());
+  const catalog = JSON.parse(await readFile(join(shippedDir, '..', 'downloads.json'), 'utf8')),
+    shipped = await made.catalog.list(),
+    of = pipeline => shipped.find(workflow => workflow.builtin && workflow.pipeline === pipeline),
+    qwen = of('qwen_image_edit');
+  // Under the name of their source, in the folder of their kind, registered for it: as a download leaves them.
+  for (const [role, policy] of Object.entries(qwen.components)) {
+    const folder = made.folderOf('qwen_image_edit', role);
+    await mkdir(folder, { recursive: true });
+    const path =
+      role === 'tokenizer'
+        ? await tokenizer(join(folder, policy.file), 4)
+        : await checkpoint(join(folder, catalog[policy.file].path.split('/').pop()), QWEN_EDIT[role]);
+    await made.assets.register({ id: policy.asset, path, kind: role, family: 'qwen_image_edit' });
+  }
+  const offers = await made.downloads.offers(await made.catalog.list()),
+    files = pipeline => (offers[of(pipeline).id]?.files ?? []).map(file => file.file).sort();
+  // Qwen-Image-Edit lacks no file: on this new installation, the engine alone (prepared by its « Télécharger »).
+  assert.deepEqual(
+    [offers[qwen.id].files, offers[qwen.id].left, offers[qwen.id].engine],
+    [[], 0, { bytes: made.downloads.engine.bytes }],
+  );
+  assert.deepEqual(files('ltx25'), [
+    'LTX-2.5-Licon-MSR-V1.safetensors',
+    'gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot-v2.safetensors',
+    'ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors',
+    'ltx-2.5-audio-vae-bf16.safetensors',
+    'ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors',
+    'ltx-2.5-video-vae-bf16.safetensors',
+  ]);
+  // 38,2 Go, as the Bobine and the card of the Chat say it from the same offer.
+  assert.equal(offers[of('ltx25').id].bytes, 41018712772);
+  assert.equal(offers[of('ltx25').id].left, 41018712772);
+  assert.deepEqual(files('ltx25_refilm').filter(file => /gemma4|transformer|vae-bf16/.test(file)).length, 4);
+  for (const pipeline of ['wan22', 'wan22_camera', 'wan_scail2'])
+    assert.ok(files(pipeline).includes('Wan2_1_VAE_bf16.safetensors'), pipeline);
+  assert.ok(files('moss').includes('qwen35_tokenizer'));
+  // Krea 2 ships with the same VAE and tokenizer: neither is downloaded again.
+  assert.deepEqual(files('krea2').filter(file => /krea2RealVae|tokenizer/.test(file)), []);
+});

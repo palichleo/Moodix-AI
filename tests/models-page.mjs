@@ -67,6 +67,34 @@ test('a line says the version its model uses; what is in its way decides the res
   assert.equal(why({ enabled: false, unavailableReason: 'Fichier introuvable pour « Modèle ».' }).note, 'Pas proposé à Moodix AI. Fichier introuvable pour « Modèle ».');
 });
 
+test('(0.6.479) on a new installation, the engine its click prepares is in its size once, and said meanwhile', () => {
+  // The user's choice of 27/11 (« Oui, d'un seul clic »): the total on the button.
+  const engine = { engine: { bytes: 3 * GIB } },
+    lacking = [record('a', { ready: false }), record('b', { ready: false })],
+    line = lineOf(model({ id: 'a' }, { id: 'b' }), lacking, {
+      offers: { a: offer(20 * GIB, engine), b: offer(GIB, engine) },
+      job: { state: 'idle' },
+    });
+  assert.deepEqual([line.state, line.bytes], ['download', 24 * GIB]);
+  // Its files all here: the engine alone (the friend's Qwen-Image-Edit, downloaded before this version).
+  const alone = lineOf(model({ id: 'a' }), [record('a', { ready: false, unavailableReason: 'Moteur arrêté.' })], {
+    offers: { a: offer(0, engine) },
+    job: {},
+  });
+  assert.deepEqual([alone.state, alone.bytes], ['download', 3 * GIB]);
+  // Prepared after the files: what it does, in the place of the figures (uv does not tell its bytes).
+  const job = {
+    state: 'running',
+    engine: 'preparing',
+    current: 'Démarrage du moteur',
+    received: 20 * GIB,
+    total: 23 * GIB,
+  };
+  assert.equal(progressText(job, 5e6), 'Démarrage du moteur');
+  assert.equal(progressText({ ...job, current: '' }), 'Préparation du moteur');
+  assert.equal(progressText({ ...job, engine: 'waiting', current: 'ltx.safetensors' }), '20 / 23 Go');
+});
+
 test('without lines from the server, a line a workflow, in the group of what it makes', () => {
   const served = [model({ id: 'a' })];
   assert.equal(linesOf(served, [record('a')]), served);
