@@ -1170,7 +1170,13 @@ export function setupMontage({
           : outputOf(at.plan.source)
             ? ''
             : 'Prise introuvable';
-    if (media.caption.textContent !== said) media.caption.textContent = said;
+    if (media.caption.textContent !== said) {
+      // (0.6.463) What follows « À créer » in a span of its own, that a narrow picture leaves out (moodix.css): at
+      // 1280 × 720, in a square film, « 86 » went alone on a second line. The card of « À créer » says it all.
+      const [first, ...rest] = said.split(' · ');
+      media.caption.textContent = first;
+      if (rest.length) media.caption.append(node('span', 'montage-caption-more', ' · ' + rest.join(' · ')));
+    }
     // What happens in it, and the photo it arrives on. (0.6.159, capture 87) Not while it is made: the
     // preview shows what the engine draws, « EN COURS · 46 % », nothing else. Its text, three lines at
     // most, leaves the place of its end photo only when there is one (moodix.css). (0.6.169) Longer, its
@@ -1562,12 +1568,14 @@ export function setupMontage({
       shape = button(
         'bobine-panel-tool montage-shape',
         '',
-        () => {
-          // (Its words change with it: the focus goes back to it by its place, not by them.)
+        event => {
+          // (Its words change with it: the focus goes back to it by its place, not by them.) (0.6.463) Pressed with
+          // the mouse, to the desk: kept by the button, the space bar turned the takes back instead of reading the film.
           const had = page?.document?.activeElement === shape;
           layout = layout === 'grid' ? 'list' : 'grid';
           redrawTakes();
-          if (had) live.shapeTool?.focus?.({ preventScroll: true });
+          if (event?.detail > 0) root?.focus?.({ preventScroll: true });
+          else if (had) live.shapeTool?.focus?.({ preventScroll: true });
         },
         layout,
         layout === 'grid' ? 'En liste' : 'En grille',
@@ -1782,6 +1790,9 @@ export function setupMontage({
       whole = node('span', 'montage-clock-total', ' / ' + mono(total())),
       format = node('select', 'montage-format');
     section.setAttribute('aria-label', 'Aperçu de la bobine');
+    // (0.6.463) It takes the keys when it is pressed, as the timeline: on the whole screen, the desk (outside it) no
+    // longer has them, and a click on the picture left them to the page (the space bar, Origine and Fin did nothing).
+    section.tabIndex = -1;
     // (Its buttons said again when the full screen is left by Échap.)
     section.onfullscreenchange = () => sayTools();
     // The frame has the shape of the film, as large as its block lets it be (moodix.css).
@@ -1803,19 +1814,24 @@ export function setupMontage({
     // (0.6.148, capture 82) The format of the bobine, under the preview at the right of the time: it
     // decides the size of all that will be created; the takes laid follow their own frame setting.
     format.setAttribute('aria-label', 'Format de la bobine');
-    for (const item of FORMATS) {
-      const size = item.id === montage.format ? { width: montage.width, height: montage.height } : usualSize(item.id);
-      const option = Object.assign(node('option', '', item.label), { value: item.id, selected: item.id === montage.format });
-      // (What the list shows of the one chosen: « 16:9  1344 × 768 », glass-menu.mjs.)
-      if (size) option.dataset.face = `${item.id}  ${size.width} × ${size.height}`;
-      format.append(option);
-    }
-    format.disabled = busy();
+    for (const item of FORMATS) format.append(Object.assign(node('option', '', item.label), { value: item.id, selected: item.id === montage.format }));
+    sayFormat(format);
     format.onchange = () => change({ ...montage, format: format.value, ...usualSize(format.value) });
     // (0.6.162) What is asked to Moodix AI was between the time and the format. (0.6.456, Bobine Pro, B01) It is above
     // « Créer » now (createPanel): with panels of 316 px, the preview is 576 px wide at 1280 × 720, and its field went
     // on two lines there.
     times.append(time, whole);
+    // (0.6.463) A button of the row pressed with the mouse gives the keys back to the preview: a button keeps the space
+    // bar, Origine and Fin (root.onkeydown), and the space bar pressed it again (« Prise suivante » went on, « Boucle »
+    // was let go, « Plein écran » left it) while Origine and Fin did nothing, at 1280 × 720 the only way to the start
+    // and the end. With the keyboard (Tab, then the space bar or Entrée), the focus stays on the button.
+    for (const control of [...steps, playButton, loop, mute, full]) {
+      const act = control.onclick;
+      control.onclick = event => {
+        act(event);
+        if (event?.detail > 0) section.focus?.({ preventScroll: true });
+      };
+    }
     controls.append(steps[0], steps[1], playButton, steps[2], steps[3]);
     tools.append(loop, mute, format, full);
     transport.append(times, controls, tools);
@@ -1825,9 +1841,35 @@ export function setupMontage({
     media?.flux?.stop();
     for (const player of [...(media?.players ?? []), ...(media?.sounds.values() ?? [])]) untie(player);
     media = { video, spare, players: [video, spare], warm, picture, blank, caption, words, text, end, frame, sounds: new Map(), flux: null, fluxFrom: null, measured: false };
-    Object.assign(live, { clock: time, whole, play: playButton, steps, tools: { loop, mute, full, section } });
+    Object.assign(live, { clock: time, whole, play: playButton, steps, format, tools: { loop, mute, full, section } });
     sayTools();
     return section;
+  }
+  /**
+   * The format of the bobine in its list: the one chosen, what the list shows of it (« 16:9 », then its size,
+   * « 1344 × 768 », that a narrow row leaves out: glass-menu.mjs, moodix.css), and whether it can be changed.
+   */
+  function sayFormat(format) {
+    for (const option of format.options ?? format.children ?? []) {
+      const size = option.value === montage.format ? { width: montage.width, height: montage.height } : usualSize(option.value);
+      if (size) Object.assign(option.dataset, { face: option.value, faceMore: `${size.width} × ${size.height}` });
+    }
+    // (Set even when it is the same: the list of glass says its face again, its size perhaps another.)
+    format.value = montage.format;
+    format.disabled = busy();
+  }
+  /**
+   * (0.6.463) The preview kept on the whole screen while the rest of the bobine is drawn again (draw): the frame takes
+   * the shape of the film, its list the format chosen.
+   */
+  function reshape() {
+    const frame = media?.frame;
+    if (frame) {
+      frame.style.aspectRatio = `${montage.width} / ${montage.height}`;
+      frame.style.setProperty?.('--ratio', String(montage.width / montage.height));
+      frame.dataset.tall = String(montage.height > montage.width);
+    }
+    if (live.format) sayFormat(live.format);
   }
 
   // « À créer » -------------------------------------------------------------------------------------
@@ -4301,17 +4343,35 @@ export function setupMontage({
   function draw() {
     if (!root || !montage) return;
     const focused = page?.document?.activeElement,
-      inside = focused && focused !== root && root.contains?.(focused);
-    parts = { takes: takes(), screen: screen(), create: createPanel(), timeline: timeline() };
-    root.replaceChildren(...(ownFil ? [filRoot] : []), parts.takes, parts.screen, parts.create, parts.timeline);
+      inside = focused && focused !== root && root.contains?.(focused),
+      // (0.6.463) The preview on the whole screen stays where it is, and the film goes on: taken off the page, it left
+      // the full screen and stopped (a format chosen in its row, Ctrl + Z on it, a take that began or ended).
+      kept = Boolean(parts?.screen) && fullOf() === parts.screen && Boolean(root.replaceChild);
+    if (kept) {
+      for (const [name, make] of [
+        ['takes', takes],
+        ['create', createPanel],
+        ['timeline', timeline],
+      ]) {
+        const old = parts[name],
+          next = make();
+        root.replaceChild(next, old);
+        parts[name] = next;
+      }
+      reshape();
+    } else {
+      parts = { takes: takes(), screen: screen(), create: createPanel(), timeline: timeline() };
+      root.replaceChildren(...(ownFil ? [filRoot] : []), parts.takes, parts.screen, parts.create, parts.timeline);
+    }
     // (0.6.149) The timeline zoomed stays where it was scrolled: set once it is on the page.
     if (live.reel) live.reel.scrollLeft = scrolled;
     fil();
     // (0.6.459) Its ruler and the pictures of its takes, for the width it has there.
     paintFilms();
     fitBar();
-    if (inside) refocus(focused, root);
-    show();
+    // (What has the keys in the preview kept has them still: its list of formats, its own name changed meanwhile.)
+    if (inside && !(kept && parts.screen.contains?.(focused))) refocus(focused, root);
+    show(kept ? { sync: false } : {});
   }
   /**
    * What a change of the bobine alters (0.6.138): its timeline, « À créer » and what is chosen. The
@@ -4417,7 +4477,9 @@ export function setupMontage({
         next = make();
       root.replaceChild(next, old);
       parts[name] = next;
-      if (focused && old.contains?.(focused)) refocus(focused, next);
+      // (0.6.463) Or in the new one: the box of the demand to Moodix AI goes from one « À créer » to the next, and the
+      // field taken off the page a moment lost the keys (the letters typed next went nowhere).
+      if (focused && (old.contains?.(focused) || next.contains?.(focused))) refocus(focused, next);
     }
     if (live.reel) live.reel.scrollLeft = scrolled;
     paintFilms();

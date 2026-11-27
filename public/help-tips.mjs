@@ -58,15 +58,19 @@ export function setupHelpTips(root, { id = 'help-bubble', host = root, delay = 1
   }
   /**
    * What holds `target` above the page: an open dialog, or (0.6.189) a list or a small window shown as
-   * a popover. The bubble goes into it: left in the page, it was drawn under it.
+   * a popover. The bubble goes into it: left in the page, it was drawn under it. (0.6.463) Or what is on
+   * the whole screen (the preview of the Bobine): the page under it is not drawn at all, nor the bubble.
    */
   function above(target) {
+    let held;
     try {
-      return target.closest?.('dialog[open], :popover-open') ?? null;
+      held = target.closest?.('dialog[open], :popover-open') ?? null;
     } catch {
       // A browser that knows no popover: a dialog is all that lies above the page.
-      return target.closest?.('dialog[open]') ?? null;
+      held = target.closest?.('dialog[open]') ?? null;
     }
+    const whole = target.ownerDocument?.fullscreenElement;
+    return held ?? (whole?.contains?.(target) ? whole : null);
   }
   function place(target) {
     const set = (x, y) => {

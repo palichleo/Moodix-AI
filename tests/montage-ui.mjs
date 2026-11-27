@@ -337,9 +337,9 @@ test('a new bobine shows the takes of the project, its four tracks and « À cr�
   // The preview of an empty bobine: its frame and the Éclipse, no words.
   const [blank] = f.get('montage-blank');
   assert.deepEqual([blank.hidden, blank.children.map(child => child.className), blank.textContent], [false, ['icon-eclipse'], '']);
-  // The format under the preview, said with its size.
+  // The format under the preview, said with its size. (0.6.463) Its size apart, that a narrow row leaves out.
   const [format] = f.get('montage-format');
-  assert.equal(format.children.find(option => option.selected).dataset.face, '16:9  1344 × 768');
+  assert.deepEqual({ ...format.children.find(option => option.selected).dataset }, { face: '16:9', faceMore: '1344 × 768' });
   // The fil: the bobine, what it can do (no « Supprimer » for one not kept), « Exporter ».
   assert.deepEqual(f.get('montage-pick')[0].children.map(option => [option.textContent, option.value, Boolean(option.selected)]), [
     ['Sans titre', f.ui.state().montage.id, true],
@@ -2803,7 +2803,7 @@ async function asking(more = {}) {
 }
 const SUITE = { say: 'Deux prises : il se lève, puis la mer.', fill: [], add: [{ text: 'Il se lève lentement.', seconds: 4, link: 'suite', start: null, end: 5 }, { text: 'La mer, au matin.', seconds: 5, link: 'cut', start: 6, end: null }] };
 
-test('under the preview, a request is asked to Moodix AI; its plan is laid in takes to create, one step of « Annuler » (0.6.162)', async () => {
+test('above « Créer » (under the preview until 0.6.456), a request is asked to Moodix AI; its plan is laid in takes to create, one step of « Annuler » (0.6.162)', async () => {
   const { f, asked, box, field, send, state, type, enter, link, answer } = await asking();
   // At rest: its words of invitation, nothing to send. (0.6.456, Bobine Pro, B01) Above « Créer » and what is said of
   // it, no longer between the time and the format.
@@ -2995,8 +2995,8 @@ test('the styles of the request: above « Créer », what is laid is said above 
   assert.match(css, /\n#bobine-view \.bobine-create \.bobine-foot \{\n  margin-top: 10px;\n\}/);
   // (0.6.460) 8 px in a low window (1280 × 720), where a card holds whole above them, its text on one line at first
   // (the model missing, what is said above the button leaves 140 px to the list: two lines made it 156).
-  assert.match(css, /@media \(max-height: 760px\) \{\n  #bobine-view \.bobine-panel-head \{\n    height: 40px;\n  \}[\s\S]*?#bobine-view \.bobine-create \.bobine-ask,\n  #bobine-view \.bobine-create \.bobine-foot \{\n    margin-top: 8px;/);
-  assert.match(css, /@media \(max-height: 760px\) \{[\s\S]*?#bobine-view \.bobine-desk textarea\.bobine-line-words \{\n    min-height: calc\(1lh \+ 18px\);\n  \}/);
+  assert.match(css, /@media \(max-height: 800px\) \{\n  #bobine-view \.bobine-panel-head \{\n    height: 40px;\n  \}[\s\S]*?#bobine-view \.bobine-create \.bobine-ask,\n  #bobine-view \.bobine-create \.bobine-foot \{\n    margin-top: 8px;/);
+  assert.match(css, /@media \(max-height: 800px\) \{[\s\S]*?#bobine-view \.bobine-desk textarea\.bobine-line-words \{\n    min-height: calc\(1lh \+ 18px\);\n  \}/);
   assert.doesNotMatch(rule('.bobine-ask'), /position|height: 40px/);
   assert.match(rule('.bobine-ask-stack'), /display: flex;\n  flex-direction: column;\n  align-items: stretch;\n  gap: 8px;/);
   assert.doesNotMatch(rule('.bobine-ask-stack'), /position: absolute/);
@@ -4255,7 +4255,7 @@ test('(0.6.210) the styles of the pieces of a line: 26 px high, 12 px words; (0.
   assert.match(rule('#bobine-view .bobine-piece-add'), /width: 28px;\s+height: 44px;[\s\S]*border: 1px solid rgba\(238, 232, 222, 0\.12\);\s+border-radius: 6px;/);
   assert.match(rule("#bobine-view .bobine-piece:disabled,\n#bobine-view .bobine-piece-add:disabled,\n#bobine-view .bobine-piece-add[aria-disabled='true']"), /opacity: 0\.45;/);
   assert.match(rule("#bobine-view .bobine-piece[data-missing='true'] > .bobine-piece-box"), /border-color: rgba\(214, 160, 90, 0\.55\);/);
-  assert.match(css, /@media \(max-height: 760px\) \{\n  #bobine-view \.bobine-piece \{\n    width: 40px;\n    gap: 0;\n  \}\n  #bobine-view \.bobine-piece-box \{\n    width: 40px;\n    height: 30px;\n  \}\n  #bobine-view \.bobine-piece-word \{\n    display: none;\n  \}\n  #bobine-view \.bobine-piece-add \{\n    height: 30px;\n  \}\n\}/);
+  assert.match(css, /@media \(max-height: 800px\) \{\n  #bobine-view \.bobine-piece \{\n    width: 40px;\n    gap: 0;\n  \}\n  #bobine-view \.bobine-piece-box \{\n    width: 40px;\n    height: 30px;\n  \}\n  #bobine-view \.bobine-piece-word \{\n    display: none;\n  \}\n  #bobine-view \.bobine-piece-add \{\n    height: 30px;\n  \}\n\}/);
   // Its subjects on the track: 18 px at its bottom left.
   assert.match(rule('#bobine-view .montage-piece-subjects'), /left: 8px;\s+bottom: 8px;\s+display: flex;\s+gap: 3px;/);
   assert.match(rule('#bobine-view .montage-piece-subject'), /width: 18px;\s+height: 18px;[\s\S]*border-radius: 3px;/);
@@ -4899,6 +4899,122 @@ test('(0.6.457, Bobine Pro, B01) « Plein écran » puts the screen and its row 
     delete shown.fullscreenElement;
     delete shown.exitFullscreen;
   }
+});
+
+test('(0.6.463) a button of the row pressed with the mouse gives the keys back to the preview, « En liste » to the desk; pressed with the keyboard, each keeps them', async () => {
+  const f = await setup().open();
+  for (const at of [0, 1]) f.get('montage-take')[at].ondblclick();
+  const section = f.get('montage-screen')[0],
+    key = (name, target) => f.root.onkeydown({ key: name, target, preventDefault() {} });
+  // (As the timeline: on the whole screen, a click on the picture gives it the keys, the desk outside it cannot have them.)
+  assert.equal(section.tabIndex, -1);
+  for (const label of ['Au début (Origine)', 'Prise précédente', 'Prise suivante', 'À la fin (Fin)', 'Boucle', 'Couper le son', 'Plein écran']) {
+    const control = () => f.button(label) ?? f.button({ Boucle: 'Boucle : la bobine reprend au début', 'Couper le son': 'Remettre le son' }[label]);
+    shown.activeElement = control();
+    control().onclick({ detail: 0 });
+    assert.equal(shown.activeElement, control(), `${label}: pressed with the keyboard, it keeps the keys`);
+    control().onclick({ detail: 1 });
+    assert.equal(shown.activeElement, section, `${label}: pressed with the mouse, the preview has them`);
+  }
+  const play = f.get('montage-play')[0];
+  shown.activeElement = play;
+  play.onclick({ detail: 1 });
+  assert.deepEqual([f.ui.state().playing, shown.activeElement], [true, section]);
+  play.onclick({ detail: 1 });
+  // The space bar, Origine and Fin heard from the preview: the film read, at its end, at its start.
+  key('End', section);
+  assert.equal(f.ui.state().head, 8);
+  key('Home', section);
+  assert.equal(f.ui.state().head, 0);
+  key(' ', section);
+  assert.equal(f.ui.state().playing, true);
+  key(' ', section);
+  assert.equal(f.ui.state().playing, false);
+  // A button that has them (the keyboard) keeps them as before: the space bar presses it.
+  key('End', f.button('Prise suivante'));
+  assert.equal(f.ui.state().head, 0);
+  // « En liste »: pressed with the mouse, the desk has the keys; with the keyboard, the button again (its words changed).
+  shown.activeElement = f.button('En liste');
+  f.button('En liste').onclick({ detail: 1 });
+  assert.equal(shown.activeElement, f.root);
+  shown.activeElement = f.button('En grille');
+  f.button('En grille').onclick({ detail: 0 });
+  assert.equal(shown.activeElement, f.button('En liste'));
+});
+
+test('(0.6.463) on the whole screen, the preview stays as the bobine is drawn again (its format changed, Ctrl + Z, its takes read again): the film goes on, the frame takes its shape', async () => {
+  const f = await setup().open();
+  for (const at of [0, 1]) f.get('montage-take')[at].ondblclick();
+  const section = f.get('montage-screen')[0],
+    [frame] = f.get('montage-frame'),
+    [format] = f.get('montage-format'),
+    timeline = f.get('montage-timeline')[0];
+  shown.fullscreenElement = section;
+  try {
+    f.get('montage-play')[0].onclick();
+    format.value = '9:16';
+    format.onchange();
+    assert.equal(f.get('montage-screen')[0], section, 'the same preview, on the whole screen still');
+    assert.notEqual(f.get('montage-timeline')[0], timeline, 'the rest drawn again');
+    const { width, height } = f.ui.state().montage;
+    assert.deepEqual([frame.style.aspectRatio, frame.style['--ratio'], frame.dataset.tall, f.ui.state().playing], [`${width} / ${height}`, String(width / height), 'true', true]);
+    assert.deepEqual([format.value, { ...format.children.find(option => option.value === '9:16').dataset }], ['9:16', { face: '9:16', faceMore: `${width} × ${height}` }]);
+    // Ctrl + Z: its format back, the same preview.
+    f.pageKey('z', { ctrlKey: true });
+    assert.deepEqual([f.ui.state().montage.format, f.get('montage-screen')[0], frame.dataset.tall, format.value], ['16:9', section, 'false', '16:9']);
+    // The creations of the project read again (a take made meanwhile): the same preview, the film read still.
+    f.ui.refreshed();
+    await settle();
+    assert.deepEqual([f.get('montage-screen')[0], f.ui.state().playing], [section, true]);
+    // Out of the whole screen, a format chosen draws the preview again, as before.
+    shown.fullscreenElement = null;
+    f.get('montage-format')[0].value = '1:1';
+    f.get('montage-format')[0].onchange();
+    assert.notEqual(f.get('montage-screen')[0], section);
+  } finally {
+    delete shown.fullscreenElement;
+  }
+});
+
+test('(0.6.463) the field of the demand keeps the keys when « À créer » is drawn again under it', async () => {
+  const f = await setup({ create: async () => null, arrange: () => new Promise(() => {}) }).open();
+  for (const at of [0, 1]) f.get('montage-take')[at].ondblclick();
+  await f.later();
+  const field = f.get('bobine-ask-words')[0];
+  field.focus();
+  // As the page does it: what is appended elsewhere leaves where it was, and the keys with it.
+  const append = Fake.prototype.append;
+  Fake.prototype.append = function (...items) {
+    for (const item of items)
+      if (item instanceof Fake && item.parent && item.parent !== this) {
+        item.parent.children = item.parent.children.filter(child => child !== item);
+        if (under(item).includes(shown.activeElement)) shown.activeElement = null;
+      }
+    return append.apply(this, items);
+  };
+  try {
+    // A take chosen by a script, on the timeline: « À créer » is drawn again (update), the box of the demand in it.
+    f.plans()[0].onclick();
+    assert.equal(f.get('bobine-ask-words')[0], field, 'the same field');
+    assert.equal(shown.activeElement, field, 'it has the keys still');
+  } finally {
+    Fake.prototype.append = append;
+  }
+});
+
+test('(0.6.463) the screen says « À créer » on one line: what follows it apart, that a narrow picture leaves out; the size of the format apart too, for a narrow row', async () => {
+  const f = await setup({ stored: [suiteOf(6)], extra: [made(7, 120)] }).open();
+  await settle();
+  await settle();
+  f.button('Prise suivante').onclick();
+  const [caption] = f.get('montage-caption');
+  assert.deepEqual([caption.textContent, caption.own, find(caption, 'montage-caption-more').map(more => more.textContent)], ['À créer · suite de la prise 7', 'À créer', [' · suite de la prise 7']]);
+  const { css, rule } = await proCss();
+  assert.match(rule('#bobine-view .montage-frame'), /container: bobine-frame \/ inline-size;/);
+  assert.match(rule('#bobine-view .montage-caption'), /max-width: calc\(100% - 24px\);\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;/);
+  assert.match(css, /@container bobine-frame \(width < \d+px\) \{\n  #bobine-view \.montage-caption-more \{\n    display: none;/);
+  assert.match(css, /@container bobine-transport \(width < \d+px\) \{\n  #bobine-view \.montage-transport \.glass-select-more \{\n    display: none;/);
+  assert.match(rule('#bobine-view .bobine-desk:focus,\n#bobine-view .montage-timeline:focus,\n#bobine-view .montage-screen:focus'), /outline: none;/);
 });
 
 test('(0.6.457, Bobine Pro, B01-B03) the screen names only a take to create, or one not in the project any more; a take laid shows its picture alone', async () => {

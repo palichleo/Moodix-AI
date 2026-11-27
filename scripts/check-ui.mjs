@@ -1726,10 +1726,34 @@ try {
       })()`),
     { within: 2500 },
   );
+  // (0.6.463) At 1168 × 788, the size of his window: the list closed, the row of the preview whole (« Plein écran » was out
+  // of sight, the format cut: it leaves its size out there), the card of « À créer » whole in its list with the model said
+  // missing in one line (the low windows of the Bobine go to 800 px: at 760, the card with its words did not fit), the
+  // page not scrolling.
+  await run(
+    'Bobine : 1168 × 788',
+    async () => {
+      await click('#bobine-view .bobine-line .bobine-piece-add');
+      await send('Emulation.setDeviceMetricsOverride', { width: 1168, height: 788, deviceScaleFactor: 1, mobile: false });
+      await wait(300);
+      return true;
+    },
+    () =>
+      js(`(() => {
+        const view = document.getElementById('bobine-view'), row = view.querySelector('.montage-transport'), list = view.querySelector('.bobine-lines'), line = view.querySelector('.bobine-line');
+        const face = row?.querySelector('button.montage-format'), full = row?.querySelector('.montage-full');
+        if (!row || !list || !line || !face || !full || view.querySelector('.bobine-piece-menu')) return false;
+        const edge = row.getBoundingClientRect(), at = full.getBoundingClientRect(), shown = face.getBoundingClientRect(), box = line.querySelector('.bobine-piece-box')?.getBoundingClientRect();
+        return at.right <= edge.right - 15 && shown.right <= at.left && row.scrollWidth <= row.clientWidth + 1 && !face.querySelector('.glass-select-more')?.getClientRects().length &&
+          list.scrollHeight <= list.clientHeight + 1 && Math.round(box?.height ?? 0) === 30 && document.documentElement.scrollHeight <= innerHeight + 1 && document.documentElement.scrollWidth <= innerWidth + 1;
+      })()`),
+    { within: 2500 },
+  );
   await run(
     'Bobine : la liste refermée, la prise retirée',
     async () => {
-      await click('#bobine-view .bobine-line .bobine-piece-add');
+      // (0.6.463) Closed already at 1168 × 788 (the step before): « + » pressed only if its list is open.
+      if (await js(`Boolean(document.querySelector('#bobine-view .bobine-piece-menu'))`)) await click('#bobine-view .bobine-line .bobine-piece-add');
       await wait(200);
       const undone = await click('#bobine-fil .bobine-step[aria-label="Annuler (Ctrl+Z)"]');
       await size(1280);

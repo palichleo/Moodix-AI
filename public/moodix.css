@@ -16733,7 +16733,7 @@ html[data-page-hidden='true'] .montage-piece.is-making::after {
 /* Ses réglages. */
 /* Une fenêtre basse (1280 × 720) : quatre pistes là où il y en avait trois, et les réglages d'un plan
    à faire, resserrés pour que son texte garde deux lignes. */
-@media (max-height: 760px) {
+@media (max-height: 800px) {
   .montage-lanes {
     gap: 5px;
     padding: 8px 0;
@@ -16918,13 +16918,17 @@ body[data-view='bobine'] .chat-panel {
   grid-template-rows: minmax(0, 1fr) var(--line-h);
   grid-template-areas: 'takes prev create' 'line line line';
 }
-@media (max-height: 760px) {
+/* (0.6.463) Les fenêtres basses de la Bobine, jusqu’à 800 px de haut (760 avant) : à 1168 × 788 (la taille de sa fenêtre)
+   et à 1366 × 768, la carte entière d’« À créer » (214 px) ne tenait pas dans sa liste (205 et 185 px), ni la phrase du
+   modèle absent sur quatre lignes (125 px). Elles prennent la forme de 1280 × 720 : la timeline, les cartes, leurs pièces. */
+@media (max-height: 800px) {
   #bobine-view .bobine-desk {
     --line-h: 240px;
   }
 }
 #bobine-view .bobine-desk:focus,
-#bobine-view .montage-timeline:focus {
+#bobine-view .montage-timeline:focus,
+#bobine-view .montage-screen:focus {
   outline: none;
 }
 #bobine-view .bobine-desk > .montage-takes {
@@ -17238,6 +17242,8 @@ body[data-view='bobine'] .chat-panel {
   background: linear-gradient(180deg, #09080b, #040305);
 }
 #bobine-view .montage-frame {
+  /* (0.6.463) Ce qui y est dit suit sa largeur (sa légende, plus bas) : elle vient de sa forme, jamais de ce qu’elle montre. */
+  container: bobine-frame / inline-size;
   border-radius: 0;
 }
 #bobine-view .montage-transport {
@@ -17346,6 +17352,18 @@ body[data-view='bobine'] .chat-panel {
 @container bobine-transport (width < 600px) {
   #bobine-view .montage-controls > .montage-step:is(:first-child, :last-child) {
     display: none;
+  }
+}
+/* (0.6.463) Plus étroite encore (1168 × 788 : 462 px pour 521), le format ne dit plus que « 16:9 », sa taille dans sa liste,
+   et se resserre : « Plein écran » passait hors de vue, sans autre chemin vers lui, et la liste était coupée. (Sa largeur
+   ici est celle de son contenu : 542 px à 1280 × 720, où tout tenait déjà avec la taille.) */
+@container bobine-transport (width < 530px) {
+  #bobine-view .montage-transport .glass-select-more {
+    display: none;
+  }
+  #bobine-view .montage-transport button.montage-format.glass-select {
+    margin: 0 2px;
+    padding: 0 8px;
   }
 }
 /* Plein écran : l'aperçu et sa ligne, l'écran noir jusqu'aux bords. */
@@ -18460,6 +18478,18 @@ body[data-view='bobine'] .chat-panel {
   letter-spacing: 0.14em;
   text-transform: uppercase;
   text-shadow: none;
+  /* (0.6.463) Sur une ligne : dans une image étroite, « · suite de la prise 86 » s’efface (la carte d’« À créer » le dit),
+     et ce qui ne tiendrait pas encore finit par « … ». */
+  box-sizing: border-box;
+  max-width: calc(100% - 24px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@container bobine-frame (width < 290px) {
+  #bobine-view .montage-caption-more {
+    display: none;
+  }
 }
 #bobine-view .montage-caption:empty {
   display: none;
@@ -18600,7 +18630,7 @@ body[data-view='bobine'] .chat-panel {
 }
 /* (0.6.462) Dans une fenêtre basse, la carte doit tenir dans « À créer » (1280 × 720) : des pièces de 40 × 30, sans leur mot,
    que leur nom dit au lecteur d’écran et leur bulle sous le pointeur ; « + » de 28 × 30. */
-@media (max-height: 760px) {
+@media (max-height: 800px) {
   #bobine-view .bobine-piece {
     width: 40px;
     gap: 0;
@@ -18959,7 +18989,7 @@ body[data-view='bobine'] .chat-panel {
    bouton (140 px pour elle, 136 pour la carte). Les têtes des deux panneaux à 40 px, la carte à 9 px de ses bords et
    8 px entre ses parties, son texte sur une ligne d'abord (il grandit avec ce qui est écrit, jusqu'à quatre), 8 px
    au-dessus du champ de la demande et du bouton. */
-@media (max-height: 760px) {
+@media (max-height: 800px) {
   #bobine-view .bobine-panel-head {
     height: 40px;
   }
@@ -19799,7 +19829,7 @@ body[data-view='bobine'] .chat-panel {
 
 /* Une fenêtre basse (1280 × 720, 240 px de timeline) : la règle 26 px (25 dans le panneau), Images 32, Prises 92,
    chaque piste audio 38. */
-@media (max-height: 760px) {
+@media (max-height: 800px) {
   #bobine-view .bobine-rule-row {
     height: 25px;
   }

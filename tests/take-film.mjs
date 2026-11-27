@@ -56,6 +56,8 @@ test('(0.6.459) the film of a take is read by a command of the engine’s Python
   assert.deepEqual(args.slice(4, 7), ['film', '--input', 'clip.mp4']);
   assert.equal(dirname(dirname(args[args.indexOf('--wave') + 1])), work, 'written in a folder of the application');
   assert.deepEqual([options.env.A, options.env.PYTHONIOENCODING], ['1', 'utf-8']);
+  // (0.6.463) One thread for NumPy's OpenBLAS: 32 MiB committed when it loads instead of 643 on a 20-thread processor.
+  assert.equal(options.env.OPENBLAS_NUM_THREADS, '1');
   assert.ok(options.signal instanceof AbortSignal, 'never waits for ever');
   assert.deepEqual(await readdir(work), [], 'nothing left behind');
   // A sound: no pictures asked.
@@ -242,6 +244,86 @@ test('(0.6.459) a take whose film cannot be read says so, and the next one is re
   assert.equal(reads, 1);
 });
 
+test('(0.6.463) a take removed while its film is read leaves no film behind; closing, the application reads no other', async t => {
+  const data = await folder(t);
+  await mkdir(join(data, 'output'), { recursive: true });
+  await writeFile(join(data, 'output', 'clip.mp4'), 'media');
+  await writeFile(join(data, 'output', 'son.wav'), 'media');
+  const gallery = new Gallery({ historyDir: join(data, 'history') });
+  for (const [id, mediaType, filename] of [
+    [video, 'video', 'clip.mp4'],
+    [sound, 'audio', 'son.wav'],
+    [picture, 'video', 'clip.mp4'],
+  ])
+    await gallery.put(
+      {
+        id,
+        conversationId: conversation,
+        provider: 'native',
+        mediaType,
+        workflowId: 'basic',
+        workflowName: 'Basic',
+        prompt: 'p',
+        parameters: {},
+        createdAt: '2026-11-27T10:00:00.000Z',
+        outputs: [{ source: { filename, subfolder: '', type: 'output' } }],
+      },
+      { persist: true },
+    );
+  const reads = [];
+  let release;
+  const takeFilm = async (path, options) => {
+    reads.push(path);
+    await new Promise(resolve => (release = resolve));
+    return options.pictures
+      ? { wave: { rate: 12, sound: true, levels: [10, 90] }, strip: STRIP, frames: 3 }
+      : { wave: { rate: 12, sound: true, levels: [40] }, strip: null, frames: 0 };
+  };
+  const app = await createApplication({ port: 0, dataDir: data, takeFilm });
+  t.after(() => app.close());
+  const { token } = await (await fetch(app.url + '/api/bootstrap?brief=1')).json(),
+    auth = { Authorization: 'Bearer ' + token };
+  const listed = await (await fetch(app.url + '/api/gallery/' + conversation + '?images=0', { headers: auth })).json();
+  const urlOf = id => listed.runs.find(run => run.id === id).outputs[0].filmUrl;
+  const until = async (seen, what) => {
+    for (const deadline = Date.now() + 5000; !seen(); ) {
+      assert.ok(Date.now() < deadline, what);
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  };
+  // Its film being read, the take is removed: the removal waits for the reading, then its film goes with it.
+  const asked = fetch(app.url + urlOf(video));
+  await until(() => reads.length === 1, 'its film is being read');
+  let removed = false;
+  const removal = fetch(app.url + '/api/studio/delete', {
+    method: 'POST',
+    headers: { ...auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conversationId: conversation, id: video }),
+  }).then(response => ((removed = true), response));
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(removed, false, 'the removal waits for the reading');
+  release();
+  assert.equal((await removal).status, 200);
+  assert.equal((await asked).status, 200, 'asked before, it had its film');
+  assert.deepEqual(await readdir(join(data, 'thumbnails')), [], 'nothing of the take left');
+  assert.ok((await fetch(app.url + urlOf(video))).status >= 400, 'and nothing served');
+  assert.equal(reads.length, 1, 'nor read again');
+  // Two films asked, the application stops while the first is read: it waits for it, the second is not read.
+  const both = [fetch(app.url + urlOf(sound)).catch(() => null)];
+  await until(() => reads.length === 2, 'the first is being read');
+  both.push(fetch(app.url + urlOf(picture)).catch(() => null));
+  await new Promise(resolve => setTimeout(resolve, 100));
+  let closed = false;
+  const closing = app.close().then(() => (closed = true));
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(closed, false, 'the closing waits for the film being read');
+  release();
+  await closing;
+  await Promise.all(both);
+  assert.equal(reads.length, 2, 'the one waiting its turn is not read');
+  assert.deepEqual((await readdir(join(data, 'thumbnails'))).sort(), [`${conversation}.${sound}.0.wave.json`]);
+});
+
 // The Python of the generation engine, when this machine has it (as tests/video-still.mjs).
 const python = [
   process.env.ATELIER_PYTHON,
@@ -253,19 +335,31 @@ test(
   { skip: python ? false : 'the Python environment of the generation engine is not installed here', timeout: 120000 },
   async t => {
     const work = await folder(t),
-      clip = join(work, 'clip.mp4'),
+      clip = join(work, 'clip.mkv'),
       env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1', CUDA_VISIBLE_DEVICES: '-1' };
-    // 48 frames of 96 × 64 from black to white (two seconds), encoded on the processor.
+    // 48 frames of 96 × 64 from black to white (two seconds), encoded on the processor. (0.6.463) With its sound: two
+    // seconds of a 440 Hz sine, in PCM (a Matroska file, as runner/tests/test_film.py): without it, the only wave that
+    // came out was { sound: false, levels: [] }, which waveOf takes without looking at any value.
     const code = [
       'import sys, av, numpy as np',
       "target = av.open(sys.argv[1], 'w')",
       "stream = target.add_stream('mpeg4', rate=24)",
       "stream.width, stream.height, stream.pix_fmt = 96, 64, 'yuv420p'",
+      "audio = target.add_stream('pcm_s16le', rate=12000)",
+      "audio.layout = 'mono'",
       'for index in range(48):',
       '    pixels = np.full((64, 96, 3), round(255 * index / 47), dtype=np.uint8)',
       "    for packet in stream.encode(av.VideoFrame.from_ndarray(pixels, format='rgb24')):",
       '        target.mux(packet)',
       'for packet in stream.encode():',
+      '    target.mux(packet)',
+      'samples = np.round(0.5 * np.sin(2 * np.pi * 440 * np.arange(24000) / 12000) * 32767).astype(np.int16)',
+      'for start in range(0, samples.size, 1024):',
+      "    frame = av.AudioFrame.from_ndarray(samples[start : start + 1024].reshape(1, -1), format='s16', layout='mono')",
+      '    frame.sample_rate = 12000',
+      '    for packet in audio.encode(frame):',
+      '        target.mux(packet)',
+      'for packet in audio.encode():',
       '    target.mux(packet)',
       'target.close()',
     ].join('\n');
@@ -276,7 +370,9 @@ test(
     const started = performance.now();
     const film = await service.takeFilm(clip);
     t.diagnostic(`film read in ${Math.round(performance.now() - started)} ms`);
-    assert.deepEqual(film.wave, { rate: 12, sound: false, levels: [] });
+    // Twelve values a second for its two seconds, none silent: its sound heard through Python, its JSON and waveOf.
+    assert.deepEqual([film.wave.rate, film.wave.sound, film.wave.levels.length], [12, true, 24]);
+    assert.ok(film.wave.levels.every(level => level > 0), film.wave.levels.join(' '));
     assert.equal(film.frames, 4);
     assert.deepEqual(imageSize(film.strip), { width: 4 * 124, height: 124 });
     assert.deepEqual(await readdir(join(data, 'runtime', 'tmp')), []);

@@ -354,6 +354,27 @@ test('(0.6.189) a « ? » in a small window shown above the page (a popover): it
   assert.deepEqual([bubble.parentNode, bubble.textContent], [body, 'Générer']);
 });
 
+test('(0.6.463) on the whole screen (the preview of the Bobine), the bubble of a control in it goes into it: the page under it is not drawn', () => {
+  const { document, body } = page();
+  const screen = new Element('section', { className: 'montage-screen' }),
+    next = new Element('button', { attributes: { 'data-tip': 'Prise suivante' } }),
+    outside = new Element('button', { attributes: { 'data-tip': 'Exporter' } });
+  screen.append(next);
+  body.append(screen, outside);
+  for (const element of [screen, next, outside]) element.ownerDocument = document;
+  setupHelpTips(body);
+  const bubble = body.children.find(child => child.className === 'help-bubble');
+  document.fullscreenElement = screen;
+  body.fire('focusin', { target: next });
+  assert.deepEqual([bubble.parentNode, bubble.textContent, bubble.hidden], [screen, 'Prise suivante', false]);
+  // What is not in it stays in the page; the whole screen left, a bubble of the page is in the page again.
+  body.fire('focusin', { target: outside });
+  assert.equal(bubble.parentNode, body);
+  document.fullscreenElement = null;
+  body.fire('focusin', { target: next });
+  assert.deepEqual([bubble.parentNode, bubble.textContent], [body, 'Prise suivante']);
+});
+
 test('(0.6.189) a browser that knows no popover still shows the bubble, in its dialog', () => {
   const { body } = page();
   const dialog = new Element('dialog', { id: 'settings' });

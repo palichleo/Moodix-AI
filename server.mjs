@@ -924,6 +924,10 @@ export async function createApplication({
     let reading = filmsRead.get(key);
     if (!reading) {
       reading = filmTurn.then(async () => {
+        // (0.6.463) The application asked to stop, closing, or being updated: what waited its turn is not read. A
+        // Python started after « Application arrêtée » wrote in data/thumbnails and kept Node alive meanwhile, while
+        // the new version of an update started.
+        if (closing || leaving || applyingUpdate) throw problem('L’application se ferme.', 503);
         const record = await gallery.get(conversationId, runId, { includeImages: false }),
           source = record.outputs[Number(index)]?.source;
         if (record.provider !== 'native' || !source || !['video', 'audio'].includes(record.mediaType))
@@ -940,6 +944,13 @@ export async function createApplication({
     if (!film) throw problem('Le film de cette prise n’a pas pu être gardé.', 500);
     return film;
   }
+  /**
+   * (0.6.463) The readings of films under way or waiting whose key starts with `start` (« conversation. », a take:
+   * « conversation.take. »), ended: a take removed while its film was read had its strip and its wave written after
+   * thumbnails.forget, served and found again at each start.
+   */
+  const filmsDone = start =>
+    Promise.allSettled([...filmsRead].filter(([key]) => key.startsWith(start)).map(([, reading]) => reading));
   /** The creation the cover of a conversation shows: its thumbnail when there is one, else the image itself. */
   const coverOf = conversationId =>
     history.preview(conversationId, async runId => {
@@ -2320,7 +2331,9 @@ export async function createApplication({
       if (path === '/api/studio/delete') {
         if (runtime.active || clearingHistory || persistingGallery) throw problem('Une opération est en cours.', 409);
         await gallery.remove(body.conversationId ?? STUDIO_ID, body.id);
-        // Its thumbnail goes with it (it would stay the cover of its conversation).
+        // Its thumbnail goes with it (it would stay the cover of its conversation). (0.6.463) Its film too, once
+        // read if it was being read.
+        await filmsDone(`${body.conversationId ?? STUDIO_ID}.${body.id}.`);
         await thumbnails.forget(body.conversationId ?? STUDIO_ID, body.id).catch(() => {});
         return send(200, { removed: body.id });
       }
@@ -2659,6 +2672,7 @@ export async function createApplication({
         clearingHistory = true;
         try {
           const erased = await history.erase(body.id, { tab });
+          await filmsDone(`${body.id}.`);
           await thumbnails.forget(body.id);
           return send(200, { erased: erased.erased === true });
         } finally {
@@ -3355,6 +3369,8 @@ export async function createApplication({
       let failure;
       for (const step of [
         () => updates,
+        // (0.6.463) The film being read, if one is: those waiting their turn are refused (filmOf).
+        () => filmTurn,
         () => resources.close(),
         () => modelOperation,
         () => models.pending,
