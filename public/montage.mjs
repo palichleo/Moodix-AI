@@ -49,6 +49,7 @@ import {
   rulerWord,
   seriesOf,
   snapped,
+  subjectsTaken,
   takeFound,
   takeSeconds,
   takesPhoto,
@@ -64,11 +65,13 @@ import {
   withPlanMoved,
   withPlanPlaced,
   withSoundsFrom,
+  withSubject,
   withTake,
   withTodoDrawn,
   withTodoMade,
   withoutItem,
   withoutPhoto,
+  withoutSubject,
 } from './montage-model.mjs';
 
 // (0.6.461, Bobine Pro, B04) The model of a take to create that has none of its own (« Oui, LTX 2.5 », 20/11), and where
@@ -1844,6 +1847,8 @@ export function setupMontage({
     if (wanted.start) args.start_image = named(wanted.start, wanted.start.frame ? 'La vidéo d’avant' : 'L’image de début');
     if (wanted.end) args.end_image = named(wanted.end, 'L’image de fin');
     if (wanted.continues) args.source = named({ source: wanted.continues }, 'La vidéo continuée');
+    // (0.6.462, Bobine Pro, B05) Its subjects, under their role (`reference`): the server gives them to the slots of its model.
+    if (wanted.subjects?.length) args.reference = wanted.subjects.map((item, at) => named(item, `Le sujet ${at + 1}`));
     return args;
   }
   /** (0.6.144) The size a take is made at: the one of its film (a continuation keeps the size of its video, the server sees to it). */
@@ -2000,17 +2005,20 @@ export function setupMontage({
    * (0.6.210, « Créations du projet », as the « + » of a card of the Chat) The images of the project, the
    * newest first: the one taken is the image the take starts from, or ends on (withPhotoIn, as an image
    * dropped on its place of the track Images). The one it has now is marked.
+   * (0.6.462, Bobine Pro, B05) Or one of its subjects (`side` 'subject'): the one at `at`, taken in its place, or one more
+   * (withSubject); its subjects are marked.
    */
-  function pickImage(plan, side, anchor) {
-    const menu = node('div', 'glass-menu bobine-piece-menu bobine-pick'),
+  function pickImage(plan, side, anchor, at = null) {
+    const subject = side === 'subject',
+      menu = node('div', 'glass-menu bobine-piece-menu bobine-pick'),
       grid = node('div', 'bobine-pick-grid'),
       // (0.6.349) All of them, as « Prises » shows them: its grid scrolls (moodix.css). Beyond the 40 newest,
       // the older ones were left out without a word.
       images = (runs() ?? []).filter(record => trackOf(record) === 'image'),
-      now = plan.photos?.[side],
+      now = subject ? (Number.isInteger(at) ? [plan.todo.subjects?.[at]] : (plan.todo.subjects ?? [])) : [plan.photos?.[side]],
       items = [];
     menu.setAttribute('role', 'dialog');
-    menu.setAttribute('aria-label', `${PIECES[side + '_image'].name} : créations du projet`);
+    menu.setAttribute('aria-label', `${subject ? PIECES.reference.name + (Number.isInteger(at) ? ' ' + (at + 1) : '') : PIECES[side + '_image'].name} : créations du projet`);
     menu.append(node('p', 'bobine-pick-title', 'Créations du projet'));
     for (const record of images) {
       const take = record.outputs?.[0]?.take,
@@ -2020,7 +2028,7 @@ export function setupMontage({
           '',
           () => {
             closePieces();
-            const laid = withPhotoIn(montage, record, plan.id, side);
+            const laid = subject ? withSubject(montage, record, plan.id, at) : withPhotoIn(montage, record, plan.id, side);
             if (laid.reason) return notice(laid.reason);
             change(laid.montage, { select: laid.chosen });
           },
@@ -2030,12 +2038,12 @@ export function setupMontage({
         picture = pictureOf(record);
       if (picture) pick.append(Object.assign(node('img'), { src: picture, alt: '', loading: 'lazy', decoding: 'async', draggable: false }));
       else pick.append(node('span', 'bobine-pick-name', name));
-      pick.setAttribute('aria-pressed', String(Boolean(now) && now.runId === record.id && now.conversationId === record.conversationId));
+      pick.setAttribute('aria-pressed', String(now.some(source => Boolean(source) && source.runId === record.id && source.conversationId === record.conversationId)));
       items.push(pick);
       grid.append(pick);
     }
     menu.append(images.length ? grid : node('p', 'bobine-pick-none', 'Aucune image dans ce projet pour l’instant.'));
-    openPieces(plan, 'pick-' + side, anchor, menu, items);
+    openPieces(plan, 'pick-' + side + (subject ? '-' + (at ?? 'new') : ''), anchor, menu, items);
   }
   /**
    * (0.6.461, Bobine Pro, B04) The model of a take to create, at the right of its card: « LTX 2.5 ⌄ », which opens the
@@ -2127,6 +2135,87 @@ export function setupMontage({
     if (!able || takesPhoto(plan, side, able, partsOf(plan, limits(plan)).count)) return '';
     return `${able.name} ne prend pas d’${side === 'start' ? 'image de début' : 'image de fin'} : elle reste là, mais n’est pas envoyée.`;
   }
+  /** (0.6.462, Bobine Pro, B05) The verb the first part of a take to create is asked with: a suite continues its video. */
+  const verbOf = plan => (isSuite(plan) ? 'extend_video' : 'create_video');
+  /** (0.6.462) How many subjects a model of the list takes with `verb` (subjectsTaken); none for one this computer cannot run. */
+  const subjectsOf = (model, verb) => (model?.[verb] && !model[verb].unavailable ? subjectsTaken({ takes: { [verb]: model[verb].roles } }, verb) : 0);
+  /**
+   * (0.6.462, Bobine Pro, B05) The other model that takes the most subjects with `verb`, more than `than`: `{ name, count }`,
+   * or null. What a « + » with nothing left names (« MiniMax H3 prend jusqu’à 3 sujets »).
+   */
+  function moreSubjects(plan, verb, than) {
+    return (
+      (videoModels() ?? [])
+        .filter(item => item.family !== familyOf(plan))
+        .map(item => ({ name: item.name, count: subjectsOf(item, verb) }))
+        .filter(item => item.count > than)
+        .sort((a, b) => b.count - a.count)[0] ?? null
+    );
+  }
+  /**
+   * (0.6.462, Bobine Pro, B05) Why the model of a take to create takes no subject ('' when it takes some, or when it is not
+   * known): without their LoRA (a workflow of LTX 2.5 that lacks it), in a suite beside the video it continues (LTX 2.5:
+   * its engine does not put them together), or never (pi H3, Wan 2.2). The models that take some are named.
+   */
+  function noSubject(plan) {
+    const able = abilities(plan),
+      verb = verbOf(plan);
+    if (!able || subjectsTaken(able, verb) > 0) return '';
+    const others = orList((videoModels() ?? []).filter(item => item.family !== familyOf(plan) && subjectsOf(item, verb) > 0).map(item => item.name));
+    if (able.takes?.[verb]?.reference?.lora === false) return `${able.name} : un sujet demande son LoRA, que son workflow n’a pas.${others ? ' Pour des sujets : ' + others + '.' : ''}`;
+    if (verb === 'extend_video' && subjectsTaken(able, 'create_video') > 0)
+      return `${able.name} ne prend pas de sujet dans une suite.${others ? ' Pour une suite avec des sujets : ' + others + '.' : ''}`;
+    return `${able.name} ne prend pas de sujet${others ? ' : choisissez ' + others : ''}.`;
+  }
+  /**
+   * (0.6.462, Bobine Pro, B05) Why the subject `at` of a take to create is not sent ('' when it is): its model takes none, or
+   * fewer. It stays in its card, greyed with this reason, as an image its model does not take (notTaken).
+   */
+  function subjectLeft(plan, at) {
+    const none = noSubject(plan);
+    if (none) return none + ' Il reste là, mais n’est pas envoyé.';
+    const able = abilities(plan),
+      taken = subjectsTaken(able, verbOf(plan));
+    return at < taken ? '' : `${able.name} prend ${taken} sujet${taken > 1 ? 's' : ''} au plus : celui-ci reste là, mais n’est pas envoyé.`;
+  }
+  /** (0.6.462, Bobine Pro, B05) Why one more subject cannot be laid in a take to create ('' when it can). */
+  function subjectOff(plan) {
+    const given = plan.todo.subjects?.length ?? 0;
+    if (given >= TODO_LIMITS.subjects) return `Une prise prend ${TODO_LIMITS.subjects} sujets au plus.`;
+    const none = noSubject(plan);
+    if (none) return none;
+    const able = abilities(plan),
+      verb = verbOf(plan),
+      taken = subjectsTaken(able, verb);
+    if (given < taken) return '';
+    const more = moreSubjects(plan, verb, taken);
+    return `${able.name} prend ${taken} sujet${taken > 1 ? 's' : ''} au plus${more ? ' : ' + more.name + ' en prend jusqu’à ' + more.count : ''}.`;
+  }
+  /**
+   * (0.6.462, Bobine Pro, B05) An image of « Prises » dropped on `target` (a piece of a card, or the card): laid there
+   * (`laid`, `{ montage, chosen }` or `{ reason }`), as on its place of the track Images. Lit while it is over it.
+   */
+  function dropsImage(target, laid, { inner = false } = {}) {
+    target.ondragover = event => {
+      if (!carried || trackOf(carried) !== 'image') return;
+      event.preventDefault();
+      // (On a piece: the piece is lit, not its card.)
+      if (inner) event.stopPropagation?.();
+      target.dataset.over = 'true';
+    };
+    target.ondragleave = () => delete target.dataset.over;
+    target.ondrop = event => {
+      delete target.dataset.over;
+      if (!carried || trackOf(carried) !== 'image') return;
+      event.preventDefault();
+      event.stopPropagation?.();
+      const dropped = carried;
+      carried = null;
+      const done = laid(dropped);
+      if (done.reason) return notice(done.reason);
+      change(done.montage, { select: done.chosen });
+    };
+  }
   /**
    * (0.6.210, LOTS.md, lot 13; captures 103, 103b and 104) The pieces of a take to create, in its line of
    * « À créer », where « Nouvelle prise · image de fin » was written: what it starts from and ends on, named
@@ -2139,18 +2228,27 @@ export function setupMontage({
    * - « + »: « Image de début » and « Image de fin », greyed once given; then what the Bobine does not make,
    *   greyed with its reason. Greyed itself, as the pieces, while the bobine cannot be changed (takes being
    *   made or written, Moodix AI arranging it), in the words of what is refused then (`refusal`).
+   * (0.6.462, Bobine Pro, B05) From left to right: « À prolonger » (a suite) or « Début » (a new take), « Fin », « Sujet 1 »,
+   * « Sujet 2 »…, then « + ». Each 54 × 44, its word under it (moodix.css). The place of its start or its end is drawn
+   * empty, in dashes with the sign Image, while its model takes it: pressed, the images of the project (pickImage). « + »
+   * offers its start, its end and one more subject while its model takes more; with nothing left, it is greyed, why in its
+   * bubble (« Rien d’autre à ajouter avec LTX 2.5 : MiniMax H3 prend jusqu’à 3 sujets. »). An image of « Prises » dropped
+   * on a piece takes its place (dropsImage); on the card, it is one more subject (createPanel).
    */
   function piecesOf(plan, model) {
     const row = node('div', 'bobine-pieces'),
       held = refusal(),
       suite = isSuite(plan),
+      able = abilities(plan),
+      count = partsOf(plan, limits(plan)).count,
       short = SHORT_MODELS.wan_scail2;
     const chip = (tag, className, word, picture, glyph) => {
-      const piece = node(tag, 'bobine-piece' + className);
+      const piece = node(tag, 'bobine-piece' + className),
+        box = node('span', 'bobine-piece-box');
       if (tag === 'button') piece.type = 'button';
-      if (picture) piece.append(Object.assign(node('img'), { src: picture, alt: '', decoding: 'async', draggable: false }));
-      else piece.append(icon(glyph));
-      piece.append(node('span', 'bobine-piece-word', word));
+      if (picture) box.append(Object.assign(node('img'), { src: picture, alt: '', decoding: 'async', draggable: false }));
+      else box.append(icon(glyph));
+      piece.append(box, node('span', 'bobine-piece-word', word));
       return piece;
     };
     if (suite) {
@@ -2161,13 +2259,31 @@ export function setupMontage({
       row.append(piece);
     }
     // (A suite has no start image: with one, it is a new take, isSuite.)
-    for (const side of ['start', 'end']) {
-      const photo = plan.photos?.[side];
-      if (!photo) continue;
-      const role = side + '_image',
-        record = recordOf(photo),
+    for (const side of suite ? ['end'] : ['start', 'end']) {
+      const photo = plan.photos?.[side],
+        role = side + '_image',
         // (0.6.461, Bobine Pro, B04) Its model does not take it: greyed, with why; kept, not sent.
-        left = notTaken(plan, side),
+        left = notTaken(plan, side);
+      // (0.6.462, B05) Its place empty, while its model takes it (« + » says why it does not).
+      if (!photo && left) continue;
+      if (!photo) {
+        const slot = chip('button', ' is-empty', PIECE_WORDS[role], '', 'image');
+        slot.dataset.side = side;
+        slot.setAttribute('aria-label', `${PIECES[role].name} : choisir une image`);
+        slot.setAttribute('aria-haspopup', 'dialog');
+        slot.setAttribute('aria-expanded', 'false');
+        slot.dataset.tip = held || `${PIECES[role].name} : choisissez-la, ou glissez une image ici`;
+        slot.disabled = Boolean(held);
+        slot.onclick = event => {
+          event?.stopPropagation?.();
+          if (pieceMenu?.id === plan.id && pieceMenu.kind === 'pick-' + side) return closePieces({ refocus: true });
+          pickImage(plan, side, slot);
+        };
+        dropsImage(slot, dropped => withPhotoIn(montage, dropped, plan.id, side), { inner: true });
+        row.append(slot);
+        continue;
+      }
+      const record = recordOf(photo),
         said = PIECES[role].name + (record ? ' · ' + (takeLabel(photo) || 'Image') : ' : sa prise n’est plus dans le projet') + (left ? '. ' + left : ''),
         piece = chip('button', '', PIECE_WORDS[role], pictureOf(record), 'image');
       piece.dataset.side = side;
@@ -2187,41 +2303,76 @@ export function setupMontage({
           { name: side === 'start' ? 'Retirer l’image de début' : 'Retirer l’image de fin', run: () => change(withoutPhoto(montage, plan.id, side)) },
         ]);
       };
+      dropsImage(piece, dropped => withPhotoIn(montage, dropped, plan.id, side), { inner: true });
       row.append(piece);
     }
+    // (0.6.462, Bobine Pro, B05) Its subjects, « Sujet 1 », « Sujet 2 »…: one its model does not take stays, greyed with why.
+    (plan.todo.subjects ?? []).forEach((subject, at) => {
+      const record = recordOf(subject),
+        name = `${PIECES.reference.name} ${at + 1}`,
+        left = subjectLeft(plan, at),
+        said = name + (record ? ' · ' + (takeLabel(subject) || 'Image') : ' : sa prise n’est plus dans le projet') + (left ? '. ' + left : ''),
+        piece = chip('button', '', `${PIECE_WORDS.reference} ${at + 1}`, pictureOf(record), 'image');
+      piece.dataset.subject = String(at);
+      piece.dataset.missing = String(!record);
+      if (left) piece.dataset.left = 'true';
+      piece.setAttribute('aria-label', said);
+      piece.setAttribute('aria-haspopup', 'menu');
+      piece.setAttribute('aria-expanded', 'false');
+      piece.dataset.tip = held || left || said;
+      piece.disabled = Boolean(held);
+      piece.onclick = event => {
+        event?.stopPropagation?.();
+        if (pieceMenu?.id === plan.id && pieceMenu.kind === 'subject-' + at) return closePieces({ refocus: true });
+        piecesList(plan, 'subject-' + at, piece, name, [
+          { name: 'Changer…', run: () => pickImage(plan, 'subject', piece, at) },
+          { name: 'Retirer le sujet', run: () => change(withoutSubject(montage, plan.id, at)) },
+        ]);
+      };
+      dropsImage(piece, dropped => withSubject(montage, dropped, plan.id, at), { inner: true });
+      row.append(piece);
+    });
+    const side = (which, role) => {
+      const { name, given } = PIECES[role];
+      if (which === 'start' && suite) return { name, off: 'Une suite part de la fin de sa vidéo : elle n’a que son image de fin.' };
+      if (plan.photos?.[which]) return { name, note: given, off: `${name} : ${given}. Cliquez sur sa pièce pour en changer.` };
+      // (0.6.461, Bobine Pro, B04) One its model does not take: which ones do.
+      if (able && !takesPhoto(plan, which, able, count)) {
+        const verb = which === 'start' || !(suite || count > 1) ? 'create_video' : 'extend_video',
+          others = orList((videoModels() ?? []).filter(item => (item[verb]?.roles?.[role]?.count ?? 0) > 0).map(item => item.name));
+        return { name, off: `${able.name} ne prend pas d’${which === 'start' ? 'image de début' : 'image de fin'}${others ? ' : choisissez ' + others : ''}.` };
+      }
+      return { name, run: () => pickImage(plan, which, add) };
+    };
+    // (0.6.462, Bobine Pro, B05) One more subject, while its model takes more: how many it takes, beside its name.
+    const off = subjectOff(plan),
+      taken = subjectsTaken(able, verbOf(plan)),
+      subject = off
+        ? { name: PIECES.reference.name, off }
+        : { name: PIECES.reference.name, ...(Number.isFinite(taken) ? { note: `jusqu’à ${taken}` } : {}), run: () => pickImage(plan, 'subject', add) },
+      choices = [side('start', 'start_image'), side('end', 'end_image'), subject],
+      // Nothing left to add: greyed, and why (B05).
+      more = moreSubjects(plan, verbOf(plan), Number.isFinite(taken) ? taken : Infinity),
+      nothing = choices.every(choice => choice.off)
+        ? `Rien d’autre à ajouter avec ${able?.name || model?.name || 'ce modèle'}${more ? ' : ' + more.name + ' prend jusqu’à ' + more.count + ' sujets' : ''}.`
+        : '';
     const add = button('bobine-piece-add', '', event => {
       event?.stopPropagation?.();
+      if (nothing) return;
       if (pieceMenu?.id === plan.id && pieceMenu.kind === 'add') return closePieces({ refocus: true });
-      const side = (which, role) => {
-        const { name, given } = PIECES[role];
-        if (which === 'start' && suite) return { name, off: 'Une suite part de la fin de sa vidéo : elle n’a que son image de fin.' };
-        if (plan.photos?.[which]) return { name, note: given, off: `${name} : ${given}. Cliquez sur sa pièce pour en changer.` };
-        // (0.6.461, Bobine Pro, B04) One its model does not take: which ones do.
-        const able = abilities(plan);
-        if (able && !takesPhoto(plan, which, able, partsOf(plan, limits(plan)).count)) {
-          const verb = which === 'start' || !(suite || partsOf(plan, limits(plan)).count > 1) ? 'create_video' : 'extend_video',
-            others = orList((videoModels() ?? []).filter(item => (item[verb]?.roles?.[role]?.count ?? 0) > 0).map(item => item.name));
-          return { name, off: `${able.name} ne prend pas d’${which === 'start' ? 'image de début' : 'image de fin'}${others ? ' : choisissez ' + others : ''}.` };
-        }
-        return { name, run: () => pickImage(plan, which, add) };
-      };
       // (Capture 104) What only another model takes is not made here. (0.6.461, B04) The models of the Bobine, by name.
       const names = (videoModels() ?? []).map(item => item.name),
         outside = names.length
           ? `Pas dans la Bobine : ses prises se font avec ${orList(names)}.`
           : `Pas dans la Bobine : toutes ses prises sont faites par ${model?.name || 'LTX 2.5'}.`;
-      piecesList(plan, 'add', add, 'Ajouter une pièce', [
-        side('start', 'start_image'),
-        side('end', 'end_image'),
-        null,
-        ...['follow', 'character'].map(kind => ({ name: PIECES[kind].name, note: 'avec ' + short, off: outside })),
-      ]);
+      piecesList(plan, 'add', add, 'Ajouter une pièce', [...choices, null, ...['follow', 'character'].map(kind => ({ name: PIECES[kind].name, note: 'avec ' + short, off: outside }))]);
     }, 'plus');
     add.setAttribute('aria-label', 'Ajouter une pièce');
     add.setAttribute('aria-haspopup', 'menu');
     add.setAttribute('aria-expanded', 'false');
-    add.dataset.tip = held || 'Ajouter une pièce : une image de début, de fin…';
+    add.dataset.tip = held || nothing || 'Ajouter une pièce : une image de début, de fin, un sujet…';
     add.disabled = Boolean(held);
+    if (nothing) add.setAttribute('aria-disabled', 'true');
     row.append(add);
     return row;
   }
@@ -2337,6 +2488,12 @@ export function setupMontage({
       middle.setAttribute('role', 'group');
       middle.setAttribute('aria-label', whatOf(plan));
       middle.append(piecesOf(plan, model));
+      // (0.6.462, Bobine Pro, B05) An image of « Prises » dropped on the card: one more subject, as « + » lays it (subjectOff
+      // says why it cannot); on one of its pieces, that piece (piecesOf).
+      dropsImage(line, dropped => {
+        const off = subjectOff(plan);
+        return off ? { reason: off } : withSubject(montage, dropped, plan.id);
+      });
       box.append(field);
       if (written) box.append(node('span', 'bobine-line-writing', 'Moodix AI écrit'));
       if (enrichingId === item.id) box.append(node('span', 'bobine-line-writing', 'Moodix AI enrichit'));
@@ -3684,6 +3841,19 @@ export function setupMontage({
             live.pieceModels.set(item.id, model);
             live.under.push({ piece, from: at, to: at + (item.to - item.from) });
             piece.append(model);
+            // (0.6.462, Bobine Pro, B05) Its subjects, small, at its bottom left: they do not go on the track Images. One its
+            // model does not take is dimmed, as in its card.
+            if (item.todo.subjects?.length) {
+              const faces = node('span', 'montage-piece-subjects');
+              item.todo.subjects.forEach((subject, place) => {
+                const face = node('span', 'montage-piece-subject'),
+                  seen = pictureOf(recordOf(subject));
+                if (seen) face.style.backgroundImage = `url("${seen}")`;
+                face.dataset.left = String(Boolean(subjectLeft(item, place)));
+                faces.append(face);
+              });
+              piece.append(faces);
+            }
             // (0.6.152, capture 74) Made in parts: where each part after the first begins, a suite.
             const { count } = partsOf(item, limits(item));
             for (let part = 1; part < count; part++) {

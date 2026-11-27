@@ -457,8 +457,9 @@ export function mono(seconds) {
  * Once created, the plan is a plan as the others, with the take that was made.
  */
 // (0.6.152) A take to create may be longer than its model makes at once (`longest`, a minute): it is
-// cut in equal parts, each within the model's own longest (`part` when nobody knows it).
-export const TODO_LIMITS = Object.freeze({ shortest: 1, longest: 60, part: 20, usual: 5, prompt: 4000 });
+// cut in equal parts, each within the model's own longest (`part` when nobody knows it). (0.6.462) Nine subjects at most,
+// what MiniMax H3 takes (its family, runner/families/minimax_h3.json).
+export const TODO_LIMITS = Object.freeze({ shortest: 1, longest: 60, part: 20, usual: 5, prompt: 4000, subjects: 9 });
 export const isTodo = plan => Boolean(plan?.todo);
 export const todoPlans = montage => montage.plans.filter(isTodo);
 const tenth = value => Math.round(value * 10) / 10;
@@ -614,6 +615,45 @@ export function withPhotoIn(montage, record, id, side) {
   };
 }
 
+/**
+ * (0.6.462, Bobine Pro, B05) A subject laid in a take to create (« Sujet 1 », « Sujet 2 »…): an image of the project that
+ * must be seen in it as it looks, given to its model beside its text (create_video and extend_video `reference`). At
+ * `at` among its subjects it takes the place of the one there; else it comes after them. The same image is never two of
+ * its subjects. `{ montage, chosen }`, or the montage as it was and `reason`. Its model may take fewer (creationOf):
+ * those are kept, never sent.
+ */
+export function withSubject(montage, record, id, at = null) {
+  const refused = reason => ({ montage, reason });
+  if (trackOf(record) !== 'image') return refused('Seule une image peut être un sujet.');
+  const plan = montage.plans.find(item => item.id === id);
+  if (!isTodo(plan)) return refused('Un sujet se pose dans une prise à créer.');
+  const subjects = [...(plan.todo.subjects ?? [])],
+    laid = sourceOf(record),
+    twice = subjects.findIndex(item => sameSource(item, laid)),
+    instead = Number.isInteger(at) && at >= 0 && at < subjects.length;
+  if (twice >= 0 && !(instead && twice === at)) return refused(`Cette image est déjà le sujet ${twice + 1} de cette prise.`);
+  if (instead) subjects[at] = laid;
+  else if (subjects.length >= TODO_LIMITS.subjects) return refused(`Une prise prend ${TODO_LIMITS.subjects} sujets au plus.`);
+  else subjects.push(laid);
+  return {
+    montage: { ...montage, plans: montage.plans.map(item => (item === plan ? { ...plan, todo: { ...plan.todo, subjects } } : item)) },
+    chosen: id,
+  };
+}
+
+/** (0.6.462) `montage` without the subject `at` of a take to create; those after it come one place nearer. */
+export function withoutSubject(montage, id, at) {
+  return {
+    ...montage,
+    plans: montage.plans.map(plan => {
+      if (plan.id !== id || !isTodo(plan) || !plan.todo.subjects?.[at]) return plan;
+      const subjects = plan.todo.subjects.filter((_, index) => index !== at),
+        { subjects: _all, ...todo } = plan.todo;
+      return { ...plan, todo: subjects.length ? { ...todo, subjects } : todo };
+    }),
+  };
+}
+
 /** `montage` without the start or the end photo of a plan. */
 export function withoutPhoto(montage, id, side) {
   return {
@@ -653,8 +693,9 @@ export function withTodoMade(montage, id, record, { from = 0, limits = {}, partI
   const { count } = partsOf(plan, limitsFor(limits, plan));
   if (count > 1 && partId && montage.plans.length < MONTAGE_LIMITS.plans) {
     const part = { ...made, id: partId },
-      // (To the millisecond, not the tenth: the take ends where it ended, part after part.) (0.6.461) With its model.
-      left = { ...todoPlan(id, TODO_LIMITS.shortest, { at: endOf(part), todo: { prompt: plan.todo.prompt, suite: true, ...(plan.todo.model ? { model: plan.todo.model } : {}) } }), to: round(Math.max(TODO_LIMITS.shortest, plan.to - plan.from - (part.to - part.from))), frame: plan.frame, volume: plan.volume, ...(plan.photos?.end ? { photos: { end: plan.photos.end } } : {}) },
+      // (To the millisecond, not the tenth: the take ends where it ended, part after part.) (0.6.461) With its model,
+      // (0.6.462) and its subjects.
+      left = { ...todoPlan(id, TODO_LIMITS.shortest, { at: endOf(part), todo: { prompt: plan.todo.prompt, suite: true, ...(plan.todo.model ? { model: plan.todo.model } : {}), ...(plan.todo.subjects?.length ? { subjects: plan.todo.subjects } : {}) } }), to: round(Math.max(TODO_LIMITS.shortest, plan.to - plan.from - (part.to - part.from))), frame: plan.frame, volume: plan.volume, ...(plan.photos?.end ? { photos: { end: plan.photos.end } } : {}) },
       plans = [...montage.plans];
     plans.splice(index, 1, part, left);
     // (0.6.438) What started under the take goes on with its first part, which starts where it did.
@@ -706,6 +747,18 @@ export function takesPhoto(plan, side, able, parts = 1) {
   const suite = Boolean(plan.todo?.suite) && !plan.photos?.start,
     roles = able?.takes?.[side === 'end' && (suite || parts > 1) ? 'extend_video' : 'create_video'];
   return !roles || (roles[side + '_image']?.count ?? 0) > 0;
+}
+
+/**
+ * (0.6.462, Bobine Pro, B05) How many subjects the model of a take to create takes with `verb` ('create_video' for a new
+ * clip, 'extend_video' for a suite), read on what it takes (`able.takes`, see creationOf): its role `reference`; none
+ * without their LoRA (`lora: false`, LTX 2.5 lacking its file), nor beside the video it continues when its engine does
+ * not combine them (LTX 2.5: count 0), nor for a verb it does not make. Infinity when it is not known: nothing is left out.
+ */
+export function subjectsTaken(able, verb) {
+  if (!able?.takes) return Infinity;
+  const reference = able.takes[verb]?.reference;
+  return reference && reference.lora !== false ? (reference.count ?? 0) : 0;
 }
 
 /**
@@ -787,7 +840,7 @@ export function seriesOf(montage, lengthOf = () => null, { limits = {}, abilitie
 
 /**
  * What must be asked for a plan to make to be created, read on the montage: `{ verb, prompt, duration,
- * format, start, end, continues, from }`, or `{ reason }` in the user's words when it cannot be yet.
+ * format, start, end, subjects, continues, from }`, or `{ reason }` in the user's words when it cannot be yet.
  * `lengthOf(source)`: the length of a take of the project, or null.
  * - a start photo: a new clip that starts on it (`start: { source }`);
  * - no start photo, after a video shown to its end: it continues that video (`continues`, `verb:
@@ -819,12 +872,19 @@ export function creationOf(montage, id, lengthOf = () => null, { limits = {}, ab
     return {
       reason: `Elle se crée en ${parts.count} parties, une prise chacune, et la bobine est pleine (${MONTAGE_LIMITS.plans} prises au plus) : retirez-en ${over}.`,
     };
+  // (0.6.462, Bobine Pro, B05) Its subjects, as many as its model takes with the verb it is asked: those beyond stay on the
+  // take and are not asked (subjectsTaken), as a photo it does not take.
+  const subjectsFor = verb => {
+    const taken = (plan.todo.subjects ?? []).slice(0, subjectsTaken(able, verb));
+    return taken.length ? { subjects: taken.map(source => ({ source })) } : {};
+  };
   const wanted = {
     verb: 'create_video',
     prompt,
     duration: tenth(parts.seconds),
     format: montage.format,
     ...(plan.photos?.end && parts.count === 1 && takesPhoto(plan, 'end', able) ? { end: { source: plan.photos.end } } : {}),
+    ...subjectsFor('create_video'),
     from: 0,
     ...(parts.count > 1 ? { parts: parts.count } : {}),
   };
@@ -852,8 +912,8 @@ export function creationOf(montage, id, lengthOf = () => null, { limits = {}, ab
     return { reason: `${able.name} ne prolonge pas une vidéo.${suites ? ' Pour une suite : ' + suites + '.' : ''}` };
   // (0.6.152) A suite towards its photo is a continuation that arrives on it (end_image on extend_video,
   // his choice of 20/11 for the Bobine and the Studio), no longer a new clip from the last image.
-  const { format: _format, ...rest } = wanted;
-  return { ...rest, verb: 'extend_video', continues: before.source, from: link.whole };
+  const { format: _format, subjects: _subjects, ...rest } = wanted;
+  return { ...rest, ...subjectsFor('extend_video'), verb: 'extend_video', continues: before.source, from: link.whole };
 }
 
 /**

@@ -461,3 +461,93 @@ test('each take to create with its own model: cut by what it makes at once, refu
   // Kept by the server as it is.
   assert.deepEqual(kept(minimax).plans, minimax.plans);
 });
+
+test('the subjects of a take to create: laid, changed, taken away; asked of its model as many as it takes, the others kept (0.6.462)', async () => {
+  const { TODO_LIMITS, subjectsTaken, withSubject, withoutSubject } = await import('../public/montage-model.mjs');
+  // (Bobine Pro, B05) The models as the server lists them (lib/tool-catalog.mjs videoModels): LTX 2.5 takes two subjects for a
+  // new take and none beside the video it continues; MiniMax H3 three, in a suite too; pi H3 none; a workflow of LTX 2.5
+  // without the LoRA of its subjects, none.
+  const roles = (start, end, subjects, more = {}) => ({ start_image: { count: start }, end_image: { count: end }, reference: { count: subjects, ...more } }),
+    suite = (end, subjects) => ({ source: { count: 1, required: true }, reference: { count: subjects }, end_image: { count: end } }),
+    models = {
+      ltx25: { name: 'LTX 2.5', create_video: { roles: roles(1, 1, 2), longest: 10.042 }, extend_video: { roles: suite(1, 0), longest: 9.667 } },
+      minimax_h3: { name: 'MiniMax H3', create_video: { roles: roles(0, 0, 3), longest: 14.375 }, extend_video: { roles: suite(0, 3), longest: 13.458 } },
+      pi_h3: { name: 'pi H3', create_video: { roles: roles(1, 1, 0), longest: 14.375 }, extend_video: null },
+      bare_ltx: { name: 'LTX 2.5', create_video: { roles: roles(1, 1, 2, { lora: false }), longest: 10.042 }, extend_video: { roles: suite(1, 0), longest: 9.667 } },
+    },
+    familyOf = plan => plan.todo?.model ?? 'ltx25',
+    limits = plan => {
+      const model = models[familyOf(plan)];
+      return { create_video: model.create_video.longest, extend_video: model.extend_video ? model.extend_video.longest : false };
+    },
+    abilities = plan => {
+      const model = models[familyOf(plan)];
+      return { name: model.name, unavailable: '', takes: { create_video: model.create_video.roles, extend_video: model.extend_video?.roles ?? null }, extenders: ['LTX 2.5', 'MiniMax H3'] };
+    };
+  const image = n => record(n, 'image'),
+    source = n => ({ conversationId: C, runId: id(n), output: 0 }),
+    lengthOf = wanted => (wanted.runId === id(1) ? 5 : null),
+    film = withTake(empty(), clip(1, 5), { id: id(11) }),
+    drawn = withTodoDrawn(film, { id: id(21), at: 10, seconds: 5 }).montage,
+    // A suite of 4 s right after the video; a new take of 5 s at 10 s.
+    both = withItemChanged(
+      { ...drawn, plans: [drawn.plans[0], { id: id(22), at: 5, kind: 'video', todo: { prompt: 'Il marche.', suite: true }, from: 0, to: 4, frame: 'fit', volume: 1 }, drawn.plans[1]] },
+      id(21),
+      { prompt: 'Il se lève.' },
+    ),
+    asked = (montage, plan, able = abilities) => creationOf(montage, plan, lengthOf, { limits, abilities: able }),
+    subjectsOf = (montage, plan) => montage.plans.find(item => item.id === plan).todo.subjects;
+  // Laid one after the other, the take chosen; the same image never twice; at a place, it takes the place of the one there.
+  let montage = both;
+  for (const n of [2, 3, 4]) {
+    const laid = withSubject(montage, image(n), id(21));
+    assert.equal(laid.chosen, id(21));
+    montage = laid.montage;
+  }
+  assert.deepEqual(subjectsOf(montage, id(21)), [source(2), source(3), source(4)]);
+  assert.deepEqual(withSubject(montage, image(3), id(21)), { montage, reason: 'Cette image est déjà le sujet 2 de cette prise.' });
+  assert.deepEqual(subjectsOf(withSubject(montage, image(5), id(21), 1).montage, id(21)), [source(2), source(5), source(4)]);
+  assert.deepEqual(subjectsOf(withSubject(montage, image(3), id(21), 1).montage, id(21)), [source(2), source(3), source(4)], 'in its own place');
+  assert.deepEqual(withSubject(montage, image(2), id(21), 1).reason, 'Cette image est déjà le sujet 1 de cette prise.');
+  // Only an image, only in a take to create, nine at most.
+  assert.equal(withSubject(montage, clip(6, 5), id(21)).reason, 'Seule une image peut être un sujet.');
+  assert.equal(withSubject(montage, image(6), id(11)).reason, 'Un sujet se pose dans une prise à créer.');
+  let full = montage;
+  for (let n = 30; n < 30 + TODO_LIMITS.subjects - 3; n++) full = withSubject(full, image(n), id(21)).montage;
+  assert.deepEqual([subjectsOf(full, id(21)).length, withSubject(full, image(99), id(21)).reason], [9, 'Une prise prend 9 sujets au plus.']);
+  // Taken away: those after it come one place nearer; the last one gone, no list is left.
+  assert.deepEqual(subjectsOf(withoutSubject(montage, id(21), 0), id(21)), [source(3), source(4)]);
+  const alone = withSubject(both, image(2), id(21)).montage;
+  assert.deepEqual(withoutSubject(alone, id(21), 0).plans.find(plan => plan.id === id(21)).todo, { prompt: 'Il se lève.' });
+  assert.deepEqual(withoutSubject(montage, id(21), 7), montage);
+  // Kept by the server as they are.
+  assert.deepEqual(kept(montage).plans, montage.plans);
+  // How many each model takes.
+  assert.deepEqual(
+    [
+      subjectsTaken(abilities({ todo: {} }), 'create_video'),
+      subjectsTaken(abilities({ todo: {} }), 'extend_video'),
+      subjectsTaken(abilities({ todo: { model: 'minimax_h3' } }), 'extend_video'),
+      subjectsTaken(abilities({ todo: { model: 'pi_h3' } }), 'create_video'),
+      subjectsTaken(abilities({ todo: { model: 'pi_h3' } }), 'extend_video'),
+      subjectsTaken(abilities({ todo: { model: 'bare_ltx' } }), 'create_video'),
+      subjectsTaken(null, 'create_video'),
+    ],
+    [2, 0, 3, 0, 0, 0, Infinity],
+  );
+  // Asked: LTX 2.5 the first two of the three; the third kept, not sent.
+  assert.deepEqual([asked(montage, id(21)).subjects, subjectsOf(montage, id(21)).length], [[{ source: source(2) }, { source: source(3) }], 3]);
+  // MiniMax H3: all three. pi H3, or LTX 2.5 without its LoRA: none. Its model not known: all, nothing is left out.
+  const minimax = withItemChanged(montage, id(21), { model: 'minimax_h3' });
+  assert.deepEqual(asked(minimax, id(21)).subjects, [{ source: source(2) }, { source: source(3) }, { source: source(4) }]);
+  assert.deepEqual(['pi_h3', 'bare_ltx'].map(model => 'subjects' in asked(withItemChanged(montage, id(21), { model }), id(21))), [false, false]);
+  assert.equal(asked(montage, id(21), null).subjects.length, 3);
+  // A suite: none to LTX 2.5 beside the video it continues; MiniMax H3 takes them with it.
+  const followed = withSubject(withSubject(montage, image(2), id(22)).montage, image(3), id(22)).montage;
+  assert.deepEqual([asked(followed, id(22)).verb, 'subjects' in asked(followed, id(22))], ['extend_video', false]);
+  assert.deepEqual(asked(withItemChanged(followed, id(22), { model: 'minimax_h3' }), id(22)).subjects, [{ source: source(2) }, { source: source(3) }]);
+  // Made in parts: what is left to create keeps them, its suites made with them.
+  const long = withItemChanged(minimax, id(21), { to: 25 }),
+    made = withTodoMade(long, id(21), clip(5, 12.5), { limits, partId: id(23) });
+  assert.deepEqual(made.plans.find(plan => plan.id === id(21)).todo, { prompt: 'Il se lève.', suite: true, model: 'minimax_h3', subjects: [source(2), source(3), source(4)] });
+});

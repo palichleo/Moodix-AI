@@ -281,6 +281,13 @@ function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed =
         ...find(line, 'bobine-piece').map(piece => find(piece, 'bobine-piece-word')[0].textContent),
         ...find(line, 'bobine-piece-add').map(() => '+'),
       ]),
+    // (0.6.462, Bobine Pro, B05) The places of each line drawn empty, in dashes: their words.
+    holes: () =>
+      f.get('bobine-line').map(line =>
+        find(line, 'bobine-piece')
+          .filter(piece => String(piece.className).split(' ').includes('is-empty'))
+          .map(piece => find(piece, 'bobine-piece-word')[0].textContent),
+      ),
     piece: (at, word) => find(f.get('bobine-line')[at], 'bobine-piece').find(piece => find(piece, 'bobine-piece-word')[0].textContent === word),
     adder: at => find(f.get('bobine-line')[at], 'bobine-piece-add')[0],
     // The list open on a piece or on « + »: each choice [its name, what is said of it, why it is greyed], '—' for a rule.
@@ -2491,7 +2498,12 @@ test('the styles of the Bobine: a take being made fills from the left, no moving
   assert.match(rule('#bobine-view .montage-frame-text'), /-webkit-line-clamp: 3;[\s\S]*overflow: hidden;/);
   // (0.6.281) Hidden, never drawn: by the rule of the whole page, which wins over any display of its own.
   assert.match(css, /\n\[hidden\] \{\n  display: none !important;\n\}/);
-  assert.match(rule("#bobine-view .montage-frame[data-end='true'][data-tall='true'] > .montage-frame-words"), /bottom: 82px;/);
+  // (0.6.462, Bobine Pro, B05) Above its end photo in an upright film: 96 px high there.
+  assert.match(rule("#bobine-view .montage-frame[data-end='true'][data-tall='true'] > .montage-frame-words"), /bottom: 145px;/);
+  // Its end photo: 96 px wide at the shape of the film (28 % of a small picture at most), at the bottom right; « FIN ·
+  // 1:04.72 » under it, 12 px from the bottom of the picture, against its right edge.
+  assert.match(rule('#bobine-view .montage-frame-end'), /right: 12px;\s+bottom: 37px;\s+width: min\(96px, 28%, calc\(96px \* var\(--ratio, 1\.7778\)\)\);\s+height: auto;\s+aspect-ratio: var\(--ratio, 1\.7778\);/);
+  assert.match(rule('#bobine-view .montage-frame-end-label'), /left: auto;\s+right: -1px;\s+top: calc\(100% \+ 8px\);[\s\S]*height: 18px;[\s\S]*white-space: nowrap;/);
 });
 
 // ------------------------------------------------------------------ what was left of the review (0.6.160)
@@ -3985,31 +3997,40 @@ test('(0.6.210) the pieces of a take to create, in its line: Début, Fin, « + �
     },
     photosOf = at => f.ui.state().montage.plans[at].photos ?? {},
     pins = () => laid(f).map(pin => [pin.style.backgroundImage, pin.textContent]);
-  // The first from an image to an image, the second towards its own: their pieces, then « + ».
-  assert.deepEqual(f.pieces(), [[PIECE_WORDS.start_image, PIECE_WORDS.end_image, '+'], [PIECE_WORDS.end_image, '+']]);
-  assert.deepEqual(f.pieces(), [['Début', 'Fin', '+'], ['Fin', '+']]);
+  // The first from an image to an image, the second towards its own: their pieces, then « + ». (0.6.462, Bobine Pro, B05)
+  // The place of its start drawn empty, in dashes, while its model takes it.
+  assert.deepEqual(f.pieces(), [[PIECE_WORDS.start_image, PIECE_WORDS.end_image, '+'], [PIECE_WORDS.start_image, PIECE_WORDS.end_image, '+']]);
+  assert.deepEqual([f.pieces(), f.holes()], [[['Début', 'Fin', '+'], ['Début', 'Fin', '+']], [[], ['Début']]]);
+  // Empty: the sign Image in its box; pressed, the images of the project (below).
+  const hole = f.piece(1, 'Début');
+  assert.deepEqual(
+    [hole.tagName, hole.className, hole.children[0].className, find(hole.children[0], 'icon-image').length, hole.attributes['aria-label'], hole.attributes['aria-haspopup'], hole.dataset.tip, hole.dataset.side],
+    ['BUTTON', 'bobine-piece is-empty', 'bobine-piece-box', 1, 'Image de début : choisir une image', 'dialog', 'Image de début : choisissez-la, ou glissez une image ici', 'start'],
+  );
   // What it is stays the name of that row, for a screen reader; nothing else is written in the line.
   assert.deepEqual(f.get('bobine-line-middle').map(row => [row.attributes.role, row.attributes['aria-label']]), [
     ['group', 'Nouvelle prise · images de début et de fin'],
     ['group', 'Nouvelle prise · image de fin'],
   ]);
   assert.equal(f.get('bobine-line-what').length, 0);
-  // A piece: the picture of its image, its word, what it is under the pointer.
+  // A piece: the picture of its image in its box, its word under it, what it is under the pointer.
   const start = f.piece(0, 'Début');
-  assert.deepEqual([start.tagName, start.children[0].tagName, start.children[0].src, start.attributes['aria-label'], start.dataset.tip, start.dataset.side, start.dataset.missing, start.disabled], [
-    'BUTTON', 'IMG', '/thumb/3', 'Image de début · Prise 3', 'Image de début · Prise 3', 'start', 'false', false,
+  assert.deepEqual([start.tagName, start.children[0].className, start.children[0].children[0].tagName, start.children[0].children[0].src, start.children[1].className, start.attributes['aria-label'], start.dataset.tip, start.dataset.side, start.dataset.missing, start.disabled], [
+    'BUTTON', 'bobine-piece-box', 'IMG', '/thumb/3', 'bobine-piece-word', 'Image de début · Prise 3', 'Image de début · Prise 3', 'start', 'false', false,
   ]);
   assert.equal(f.piece(1, 'Fin').attributes['aria-label'], 'Image de fin · Prise 6');
 
   // « + »: what the take can still be given, then what the Bobine does not make, greyed with its reason.
   const chosen = f.ui.state().chosen,
     add = f.adder(1);
-  assert.deepEqual([add.attributes['aria-label'], add.attributes['aria-haspopup'], add.attributes['aria-expanded'], add.disabled, add.dataset.tip], ['Ajouter une pièce', 'menu', 'false', false, 'Ajouter une pièce : une image de début, de fin…']);
+  assert.deepEqual([add.attributes['aria-label'], add.attributes['aria-haspopup'], add.attributes['aria-expanded'], add.disabled, add.dataset.tip], ['Ajouter une pièce', 'menu', 'false', false, 'Ajouter une pièce : une image de début, de fin, un sujet…']);
   press(add);
   const outside = 'Pas dans la Bobine : toutes ses prises sont faites par LTX 2.5.';
+  // (0.6.462, B05) A subject: its model not known here, nothing is refused.
   assert.deepEqual(f.choices(), [
     ['Image de début', '', ''],
     ['Image de fin', 'déjà donnée', 'Image de fin : déjà donnée. Cliquez sur sa pièce pour en changer.'],
+    ['Sujet', '', ''],
     '—',
     ['Vidéo à suivre', 'avec SCAIL-2', outside],
     ['Personnage', 'avec SCAIL-2', outside],
@@ -4034,7 +4055,7 @@ test('(0.6.210) the pieces of a take to create, in its line: Début, Fin, « + �
   list.onkeydown({ key: 'ArrowDown', preventDefault() {}, stopPropagation() {} });
   assert.equal(f.focused(), list.children[1]);
   list.onkeydown({ key: 'End', preventDefault() {}, stopPropagation() {} });
-  assert.equal(f.focused(), list.children[4]);
+  assert.equal(f.focused(), list.children[5]);
   list.onkeydown({ key: 'ArrowDown', preventDefault() {}, stopPropagation() {} });
   assert.equal(f.focused(), list.children[0], 'from the last to the first');
   // Échap closes it, the focus back on « + »; pressed again, « + » closes it too.
@@ -4098,10 +4119,10 @@ test('(0.6.210) the pieces of a take to create, in its line: Début, Fin, « + �
   press(f.piece(1, 'Début'));
   assert.deepEqual(f.choices().map(choice => choice[0]), ['Changer…', 'Retirer l’image de début']);
   f.choose('Retirer l’image de début');
-  assert.deepEqual([photosOf(1), f.pieces()[1], f.menu(), f.lines()[1][2]], [{ end: { conversationId: C, runId: id(3), output: 0 } }, ['Fin', '+'], undefined, 'Nouvelle prise · image de fin']);
+  assert.deepEqual([photosOf(1), f.pieces()[1], f.holes()[1], f.menu(), f.lines()[1][2]], [{ end: { conversationId: C, runId: id(3), output: 0 } }, ['Début', 'Fin', '+'], ['Début'], undefined, 'Nouvelle prise · image de fin']);
   assert.deepEqual(pins(), [['url("/thumb/3")', 'Début'], ['url("/thumb/5")', 'Fin'], ['url("/thumb/3")', 'Fin']]);
   f.pageKey('z', { ctrlKey: true });
-  assert.deepEqual(f.pieces()[1], ['Début', 'Fin', '+']);
+  assert.deepEqual([f.pieces()[1], f.holes()[1]], [['Début', 'Fin', '+'], []]);
   // The menu of « Exporter » and a list of a line: never both.
   press(f.adder(0));
   f.get('montage-export')[0].onclick();
@@ -4129,7 +4150,7 @@ test('(0.6.210) the pieces of a take to create, in its line: Début, Fin, « + �
   lay(other);
   await other.later();
   press(other.adder(0));
-  assert.equal(other.choices()[3][2], 'Pas dans la Bobine : toutes ses prises sont faites par MiniMax H3 Omni.');
+  assert.equal(other.choices()[4][2], 'Pas dans la Bobine : toutes ses prises sont faites par MiniMax H3 Omni.');
 });
 
 test('(0.6.210) a suite has « À prolonger » for its first piece, the video it goes on from; a take whose image is gone says so on its piece', async () => {
@@ -4141,10 +4162,11 @@ test('(0.6.210) a suite has « À prolonger » for its first piece, the video it
   f.press(grips()[1], 500);
   f.pointer.move(700);
   f.pointer.up();
-  assert.deepEqual([f.lines().map(line => line[2]), f.pieces()], [['Suite de la prise 1'], [['À prolonger', '+']]]);
+  // (0.6.462, Bobine Pro, B05) The place of its end empty, in dashes.
+  assert.deepEqual([f.lines().map(line => line[2]), f.pieces(), f.holes()], [['Suite de la prise 1'], [['À prolonger', 'Fin', '+']], [['Fin']]]);
   // The clip it goes on from: its picture, what it is under the pointer; nothing opens from it, it is the take before.
   const clip = f.piece(0, 'À prolonger');
-  assert.deepEqual([clip.tagName, clip.className, clip.children[0].src, clip.dataset.tip, clip.onclick ?? null, clip.attributes['aria-haspopup'] ?? null], [
+  assert.deepEqual([clip.tagName, clip.className, clip.children[0].children[0].src, clip.dataset.tip, clip.onclick ?? null, clip.attributes['aria-haspopup'] ?? null], [
     'SPAN', 'bobine-piece is-fixed', '/thumb/1', 'Suite de la prise 1', null, null,
   ]);
   // No start of its own: « Image de début » greyed, in the words of the track Images when an image is dropped there.
@@ -4156,7 +4178,7 @@ test('(0.6.210) a suite has « À prolonger » for its first piece, the video it
   // Its end given from the list: « À prolonger », « Fin ».
   f.choose('Image de fin');
   f.get('bobine-pick-item')[0].onclick();
-  assert.deepEqual([f.pieces(), f.lines()[0][2]], [[['À prolonger', 'Fin', '+']], 'Suite de la prise 1 · image de fin']);
+  assert.deepEqual([f.pieces(), f.holes(), f.lines()[0][2]], [[['À prolonger', 'Fin', '+']], [[]], 'Suite de la prise 1 · image de fin']);
 
   // Images taken out of the project since: their pieces say so, in amber; they can still be changed or taken away.
   const photo = n => ({ conversationId: C, runId: id(n), output: 0 }),
@@ -4167,15 +4189,21 @@ test('(0.6.210) a suite has « À prolonger » for its first piece, the video it
   const gone = await setup({ stored: [stored({ start: photo(42), end: photo(3) })], create: async () => null }).open();
   await settle();
   const [lost, kept] = [gone.piece(0, 'Début'), gone.piece(0, 'Fin')];
-  assert.deepEqual([lost.dataset.missing, lost.attributes['aria-label'], lost.children[0].tagName === 'IMG', kept.dataset.missing, kept.attributes['aria-label']], [
+  assert.deepEqual([lost.dataset.missing, lost.attributes['aria-label'], lost.children[0].children[0].tagName === 'IMG', kept.dataset.missing, kept.attributes['aria-label']], [
     'true', 'Image de début : sa prise n’est plus dans le projet', false, 'false', 'Image de fin · Prise 3',
   ]);
   press(lost);
   assert.deepEqual(gone.choices().map(choice => choice[0]), ['Changer…', 'Retirer l’image de début']);
-  // A take to create without any image: « + » alone. No image in the project: « Créations du projet » says so.
+  // A take to create without any image: its two places empty, then « + ». (0.6.462) Its empty end pressed: « Créations du
+  // projet », which says there is no image in the project.
   const bare = await setup({ stored: [stored(null)], create: async () => null, base: false, extra: [take(7, 'video', { parameters: { frames: 80, fps: 16 } })] }).open();
   await settle();
-  assert.deepEqual(bare.pieces(), [['+']]);
+  assert.deepEqual([bare.pieces(), bare.holes()], [[['Début', 'Fin', '+']], [['Début', 'Fin']]]);
+  press(bare.piece(0, 'Fin'));
+  assert.deepEqual([bare.menu().attributes['aria-label'], bare.piece(0, 'Fin').attributes['aria-expanded']], ['Image de fin : créations du projet', 'true']);
+  // Pressed again, it closes it.
+  press(bare.piece(0, 'Fin'));
+  assert.equal(bare.menu(), undefined);
   press(bare.adder(0));
   bare.choose('Image de fin');
   assert.deepEqual([bare.get('bobine-pick-item').length, bare.said('bobine-pick-none'), bare.get('bobine-pick-grid').length], [0, ['Aucune image dans ce projet pour l’instant.'], 0]);
@@ -4196,9 +4224,10 @@ test('(0.6.210) while a take is made, the pieces of every line and their « + »
   // (The words of what is refused then, whatever is tried on the bobine: `refusal`.)
   const why = 'Des prises sont en cours de création : attendez la fin, ou arrêtez.';
   assert.equal(f.get('bobine-piece-menu').length, 0);
-  assert.deepEqual([...f.get('bobine-piece'), ...f.get('bobine-piece-add')].map(control => [control.disabled, control.dataset.tip]), Array(5).fill([true, why]));
+  // (0.6.462) The empty place of the start of the second too.
+  assert.deepEqual([...f.get('bobine-piece'), ...f.get('bobine-piece-add')].map(control => [control.disabled, control.dataset.tip]), Array(6).fill([true, why]));
   // (Their words stay: what the take is made from is still read.)
-  assert.deepEqual(f.pieces(), [['Début', 'Fin', '+'], ['Fin', '+']]);
+  assert.deepEqual(f.pieces(), [['Début', 'Fin', '+'], ['Début', 'Fin', '+']]);
   // An image dropped on the track Images then is refused in the same words.
   f.get('montage-take')[2].ondragstart({ dataTransfer: { setData() {} } });
   f.photos().ondrop(event(900));
@@ -4215,12 +4244,21 @@ test('(0.6.210) the styles of the pieces of a line: 26 px high, 12 px words; (0.
       assert.ok(at >= 0, selector);
       return css.slice(at, css.indexOf('}', at));
     };
-  assert.match(rule('#bobine-view .bobine-piece'), /height: 26px;/);
-  assert.match(rule('#bobine-view .bobine-piece'), /font: 400 12px\/1 var\(--font-ui\);/);
-  assert.match(rule('#bobine-view .bobine-piece > img'), /width: 24px;/);
-  assert.match(rule('#bobine-view .bobine-piece-add'), /width: 26px;\s+height: 26px;/);
-  assert.match(rule('#bobine-view .bobine-piece:disabled,\n#bobine-view .bobine-piece-add:disabled'), /opacity: 0\.45;/);
-  assert.match(rule("#bobine-view .bobine-piece[data-missing='true']"), /border-color: rgba\(214, 160, 90, 0\.55\);/);
+  // (0.6.462, Bobine Pro, B05) 54 × 44, 6 px apart, the word under its box, 10 px under it, in 12 px TX3 (11 on the mockup:
+  // 12 px at least); an empty one in dashes; « + » 28 × 44. In a low window: 40 × 30 without their words.
+  assert.match(rule('.bobine-pieces'), /flex-wrap: wrap;\s+align-items: flex-start;\s+gap: 10px 6px;/);
+  assert.match(rule('#bobine-view .bobine-piece'), /flex-direction: column;\s+align-items: center;\s+gap: 10px;[\s\S]*width: 54px;/);
+  assert.match(rule('#bobine-view .bobine-piece'), /color: var\(--text-3\);\s+font: 400 12px\/1 var\(--font-ui\);/);
+  assert.match(rule('#bobine-view .bobine-piece-box'), /width: 54px;\s+height: 44px;\s+overflow: hidden;\s+border: 1px solid rgba\(238, 232, 222, 0\.12\);\s+border-radius: 6px;/);
+  assert.match(rule('#bobine-view .bobine-piece-box > img'), /width: 100%;\s+height: 100%;\s+object-fit: cover;/);
+  assert.match(rule('#bobine-view .bobine-piece.is-empty > .bobine-piece-box'), /border-style: dashed;/);
+  assert.match(rule('#bobine-view .bobine-piece-add'), /width: 28px;\s+height: 44px;[\s\S]*border: 1px solid rgba\(238, 232, 222, 0\.12\);\s+border-radius: 6px;/);
+  assert.match(rule("#bobine-view .bobine-piece:disabled,\n#bobine-view .bobine-piece-add:disabled,\n#bobine-view .bobine-piece-add[aria-disabled='true']"), /opacity: 0\.45;/);
+  assert.match(rule("#bobine-view .bobine-piece[data-missing='true'] > .bobine-piece-box"), /border-color: rgba\(214, 160, 90, 0\.55\);/);
+  assert.match(css, /@media \(max-height: 760px\) \{\n  #bobine-view \.bobine-piece \{\n    width: 40px;\n    gap: 0;\n  \}\n  #bobine-view \.bobine-piece-box \{\n    width: 40px;\n    height: 30px;\n  \}\n  #bobine-view \.bobine-piece-word \{\n    display: none;\n  \}\n  #bobine-view \.bobine-piece-add \{\n    height: 30px;\n  \}\n\}/);
+  // Its subjects on the track: 18 px at its bottom left.
+  assert.match(rule('#bobine-view .montage-piece-subjects'), /left: 8px;\s+bottom: 8px;\s+display: flex;\s+gap: 3px;/);
+  assert.match(rule('#bobine-view .montage-piece-subject'), /width: 18px;\s+height: 18px;[\s\S]*border-radius: 3px;/);
   // (Captures 103 and 103b) To hold at 1280 × 720. (0.6.460, Bobine Pro, B01) Each line a card: no margins to take
   // off above the first and under the last any more.
   assert.doesNotMatch(css, /\.bobine-lines > \.bobine-line:(first|last)-child/);
@@ -5185,7 +5223,7 @@ test('(0.6.460, Bobine Pro, B01) « À créer »: a card by take to create, what
     ['bobine-line-head', 'bobine-line-title', pieces.attributes['aria-label'], 'bobine-line-sub', '05.00 → 09.00', 'bobine-line-right', 'LTX 2.5'],
   );
   assert.match(title.textContent, /^Suite de la prise \d+$/);
-  assert.deepEqual([find(field, 'bobine-line-words')[0].placeholder, f.pieces()], ['Ce qui se passe dans cette prise', [['À prolonger', '+']]]);
+  assert.deepEqual([find(field, 'bobine-line-words')[0].placeholder, f.pieces(), f.holes()], ['Ce qui se passe dans cette prise', [['À prolonger', 'Fin', '+']], [['Fin']]]);
   // The head at the start of the bobine, then on its take (said without drawing « À créer » again), then past it.
   assert.equal(card().dataset.under, 'false');
   const drawn = card();
@@ -5283,13 +5321,17 @@ test('(0.6.461, Bobine Pro, B04) the model of each take to create: chosen in its
   // Its « + »: no image of end with MiniMax H3 for a suite, which LTX 2.5 takes; the models of the Bobine named.
   f.adder(0).onclick({ stopPropagation() {} });
   const outside = 'Pas dans la Bobine : ses prises se font avec LTX 2.5, MiniMax H3, pi H3 ou Wan 2.2.';
+  // (0.6.462, Bobine Pro, B05) Its subjects: three with MiniMax H3, in a suite too. Its end it does not take is not drawn
+  // empty in its card: « + » says why.
   assert.deepEqual(f.choices(), [
     ['Image de début', '', 'Une suite part de la fin de sa vidéo : elle n’a que son image de fin.'],
     ['Image de fin', '', 'MiniMax H3 ne prend pas d’image de fin : choisissez LTX 2.5.'],
+    ['Sujet', 'jusqu’à 3', ''],
     '—',
     ['Vidéo à suivre', 'avec SCAIL-2', outside],
     ['Personnage', 'avec SCAIL-2', outside],
   ]);
+  assert.deepEqual([f.pieces()[0], f.holes()[0]], [['À prolonger', '+'], []]);
   f.adder(0).onclick({ stopPropagation() {} });
   // A take laid now is made with MiniMax H3, the model last chosen.
   const before = new Set(f.ui.state().montage.plans.map(plan => plan.id));
@@ -5325,4 +5367,120 @@ test('(0.6.461, Bobine Pro, B04) the model of each take to create: chosen in its
   f.goMain().onclick();
   await settle();
   assert.deepEqual(asked[0], { verb: 'extend_video', args: { prompt: 'Il marche.', intention: INTENTION, duration: 4, workflow: 'minimax-h3', source: { output: id(1) } }, size: FILM, place: placeOf(f, 1, 5) });
+});
+
+test('(0.6.462, Bobine Pro, B05) the subjects of a take to create: after its start and its end, chosen in « Créations du projet » or dropped on its card, sent under their role, small on its take; those its model does not take greyed, never thrown away', async () => {
+  const roles = (start, end, subjects) => ({ start_image: { count: start }, end_image: { count: end }, reference: { count: subjects } }),
+    suiteRoles = (end, subjects) => ({ source: { count: 1, required: true }, reference: { count: subjects }, end_image: { count: end } }),
+    models = [
+      { family: 'ltx25', name: 'LTX 2.5', sound: true, create_video: { id: 'ltx-25', name: 'LTX 2.5', roles: roles(1, 1, 2), longest: 10.04 }, extend_video: { id: 'ltx-25', name: 'LTX 2.5', roles: suiteRoles(1, 0), longest: 9.67 } },
+      { family: 'minimax_h3', name: 'MiniMax H3', sound: true, create_video: { id: 'minimax-h3', name: 'MiniMax H3 Omni', roles: roles(0, 0, 3), longest: 14.375 }, extend_video: { id: 'minimax-h3', name: 'MiniMax H3 Omni', roles: suiteRoles(0, 3), longest: 13.46 } },
+      { family: 'pi_h3', name: 'pi H3', sound: true, create_video: { id: 'pi-h3', name: 'pi H3', roles: roles(1, 1, 0), longest: 14.375 }, extend_video: null },
+    ],
+    byFamily = Object.fromEntries(models.map(model => [model.family, model])),
+    asked = [],
+    image = n => ({ conversationId: C, runId: id(n), output: 0 }),
+    stored = {
+      schemaVersion: 1,
+      id: id(990),
+      name: 'Mars',
+      format: '16:9',
+      width: 1344,
+      height: 768,
+      fps: 24,
+      sounds: [],
+      plans: [
+        { id: id(991), at: 0, kind: 'video', source: { conversationId: C, runId: id(1), output: 0 }, from: 0, to: 5, frame: 'fit', volume: 1 },
+        // (Its suite without its text: only the new take is made below.)
+        { id: id(992), at: 5, kind: 'video', todo: { prompt: '', suite: true }, from: 0, to: 4, frame: 'fit', volume: 1 },
+        { id: id(993), at: 12, kind: 'video', todo: { prompt: 'Il se lève.' }, from: 0, to: 5, frame: 'fit', volume: 1, photos: { end: image(5) } },
+      ],
+    };
+  const f = await setup({
+    stored: [stored],
+    extra: [...photos(), take(7, 'image'), take(8, 'image')],
+    videoModels: () => models,
+    modelFor: (verb, family) => byFamily[family]?.[verb]?.id ?? null,
+    longestFor: (verb, family) => byFamily[family]?.[verb]?.longest ?? null,
+    estimate: async () => ({ workflowName: 'LTX 2.5' }),
+    create: wanted => (asked.push(structuredClone(wanted)), new Promise(() => {})),
+  }).open();
+  await settle();
+  const press = target => target.onclick({ stopPropagation() {} }),
+    todo = () => f.ui.state().montage.plans[2].todo,
+    carry = n => f.get('montage-take').find(tile => tile.dataset.id === id(n)).ondragstart({ dataTransfer: { setData() {} } }),
+    drop = target => target.ondrop({ preventDefault() {}, stopPropagation() {} }),
+    faces = () => find(f.get('montage-piece').find(piece => String(piece.className).includes('is-todo') && find(piece, 'montage-piece-subjects').length) ?? f.root, 'montage-piece-subject').map(face => [face.style.backgroundImage, face.dataset.left]);
+  // The suite: « À prolonger », its end empty; the new take: its start empty, its end. No subject yet.
+  assert.deepEqual([f.pieces(), f.holes()], [[['À prolonger', 'Fin', '+'], ['Début', 'Fin', '+']], [['Fin'], ['Début']]]);
+  // A suite to LTX 2.5 takes no subject beside the video it continues: « Sujet » greyed, why, and who does.
+  press(f.adder(0));
+  assert.deepEqual(f.choices()[2], ['Sujet', '', 'LTX 2.5 ne prend pas de sujet dans une suite. Pour une suite avec des sujets : MiniMax H3.']);
+  press(f.adder(0));
+  // Dropped on its card: refused in those words.
+  carry(7);
+  drop(f.get('bobine-line')[0]);
+  assert.deepEqual([f.notices.at(-1), f.ui.state().montage.plans[1].todo.subjects], ['LTX 2.5 ne prend pas de sujet dans une suite. Pour une suite avec des sujets : MiniMax H3.', undefined]);
+  // The new take: « Sujet », up to two with LTX 2.5; « Créations du projet », the one taken is its first subject.
+  press(f.adder(1));
+  assert.deepEqual(f.choices()[2], ['Sujet', 'jusqu’à 2', '']);
+  f.choose('Sujet');
+  assert.equal(f.menu().attributes['aria-label'], 'Sujet : créations du projet');
+  f.get('bobine-pick-item').find(pick => pick.attributes['aria-label'] === 'Prendre : Prise 6').onclick();
+  assert.deepEqual([todo().subjects, f.pieces()[1]], [[image(6)], ['Début', 'Fin', 'Sujet 1', '+']]);
+  const first = f.piece(1, 'Sujet 1');
+  assert.deepEqual([first.children[0].children[0].src, first.attributes['aria-label'], first.dataset.tip, first.dataset.subject, first.dataset.left], ['/thumb/6', 'Sujet 1 · Prise 6', 'Sujet 1 · Prise 6', '0', undefined]);
+  // Dropped on its card: one more; on its empty start, its start (as on the track Images).
+  carry(7);
+  drop(f.get('bobine-line')[1]);
+  carry(3);
+  drop(f.piece(1, 'Début'));
+  assert.deepEqual([todo().subjects, f.ui.state().montage.plans[2].photos, f.pieces()[1], f.holes()[1]], [[image(6), image(7)], { start: image(3), end: image(5) }, ['Début', 'Fin', 'Sujet 1', 'Sujet 2', '+'], []]);
+  // Small on its take of the timeline, not on the track Images.
+  assert.deepEqual(faces(), [['url("/thumb/6")', 'false'], ['url("/thumb/7")', 'false']]);
+  assert.deepEqual(laid(f).map(pin => pin.style.backgroundImage), ['url("/thumb/3")', 'url("/thumb/5")']);
+  // Nothing left to add with LTX 2.5: « + » greyed, why in its bubble, who takes more; pressed, nothing opens.
+  const full = f.adder(1);
+  assert.deepEqual([full.attributes['aria-disabled'], full.disabled, full.dataset.tip], ['true', false, 'Rien d’autre à ajouter avec LTX 2.5 : MiniMax H3 prend jusqu’à 3 sujets.']);
+  press(full);
+  assert.equal(f.menu(), undefined);
+  // To MiniMax H3: its images kept, greyed; one more subject, its third.
+  const pick = name => {
+    find(f.get('bobine-line')[1], 'bobine-line-model')[0].onclick({ stopPropagation() {} });
+    f.get('bobine-model-menu')[0].children.find(item => find(item, 'bobine-model-name')[0].textContent === name).onclick();
+  };
+  pick('MiniMax H3');
+  assert.deepEqual([f.piece(1, 'Début').dataset.left, f.piece(1, 'Fin').dataset.left, f.adder(1).attributes['aria-disabled']], ['true', 'true', undefined]);
+  press(f.adder(1));
+  assert.deepEqual(f.choices()[2], ['Sujet', 'jusqu’à 3', '']);
+  f.choose('Sujet');
+  // (Its subjects marked among the images of the project.)
+  assert.deepEqual(f.get('bobine-pick-item').map(item => item.attributes['aria-pressed']), ['false', 'false', 'true', 'true', 'false']);
+  f.get('bobine-pick-item').find(item => item.attributes['aria-label'] === 'Prendre : Prise 8').onclick();
+  assert.deepEqual(todo(), { prompt: 'Il se lève.', model: 'minimax_h3', subjects: [image(6), image(7), image(8)] });
+  // Back to LTX 2.5: the third greyed, why in its bubble, kept; dimmed on its take too.
+  pick('LTX 2.5');
+  const third = f.piece(1, 'Sujet 3');
+  assert.deepEqual([todo().subjects.length, third.dataset.left, third.dataset.tip], [3, 'true', 'LTX 2.5 prend 2 sujets au plus : celui-ci reste là, mais n’est pas envoyé.']);
+  assert.deepEqual(faces().map(face => face[1]), ['false', 'false', 'true']);
+  // A subject pressed: « Changer… » and « Retirer le sujet ». The first taken away, the third is the second, sent.
+  press(f.piece(1, 'Sujet 1'));
+  assert.deepEqual([f.menu().attributes['aria-label'], f.choices().map(choice => choice[0])], ['Sujet 1', ['Changer…', 'Retirer le sujet']]);
+  f.choose('Retirer le sujet');
+  assert.deepEqual([todo().subjects, f.piece(1, 'Sujet 2').dataset.left], [[image(7), image(8)], undefined]);
+  // « Changer… »: the one it has marked; another takes its place.
+  press(f.piece(1, 'Sujet 2'));
+  f.choose('Changer…');
+  assert.equal(f.menu().attributes['aria-label'], 'Sujet 2 : créations du projet');
+  assert.deepEqual(f.get('bobine-pick-item').map(item => item.attributes['aria-pressed']), ['false', 'false', 'false', 'false', 'true']);
+  f.get('bobine-pick-item').find(item => item.attributes['aria-label'] === 'Prendre : Prise 6').onclick();
+  assert.deepEqual(todo().subjects, [image(7), image(6)]);
+  // Dropped on a subject: it takes its place.
+  carry(8);
+  drop(f.piece(1, 'Sujet 1'));
+  assert.deepEqual(todo().subjects, [image(8), image(6)]);
+  // Created: its subjects under their role, with its images, to LTX 2.5.
+  f.goMain().onclick();
+  await settle();
+  assert.deepEqual([asked[0].verb, asked[0].args.workflow, asked[0].args.start_image, asked[0].args.end_image, asked[0].args.reference], ['create_video', 'ltx-25', { output: id(3) }, { output: id(5) }, [{ output: id(8) }, { output: id(6) }]]);
 });

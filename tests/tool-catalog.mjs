@@ -752,3 +752,32 @@ test('a take of the Bobine named to a model that lacks its files goes to it, its
   // Named by Moodix AI, as before: refused, LTX 2.5 being here.
   await assert.rejects(catalog.route('create_video', asked, media), /ne peut pas exécuter create_video/);
 });
+
+test('the subjects of a take of the Bobine go to its model under their role; LTX 2.5 without its LoRA takes none (0.6.462)', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const shippedOf = async (id, more = {}) => ({
+    ...JSON.parse(await readFile(new URL(`../runner/workflows/${id}.json`, import.meta.url), 'utf8')),
+    ready: true,
+    builtin: true,
+    ...more,
+  });
+  const ltx = await shippedOf('eaec4e2f-0649-4e56-9bd9-809dc9390452'),
+    minimax = await shippedOf('e06b6ac9-0d3f-4538-b9ff-bf41cf3ef38f'),
+    conversation = 'c3333333-3333-4333-8333-333333333333',
+    // (A list of its own each time: the router writes on the sources it is given.)
+    asked = workflow => ({ prompt: 'Un astronaute marche.', workflow, reference: ['run-a', 'run-b'].map(output => ({ output, index: 0, conversation })) });
+  // LTX 2.5: its two subject slots (msr_image), its LoRA switched on by them (native-workflows.mjs).
+  const byLtx = await catalogOf([ltx, minimax]).route('create_video', asked(ltx.id), { ...media, byHand: true });
+  assert.deepEqual(
+    byLtx.args.references.map(reference => [reference.input, reference.output_id, reference.output_conversation]),
+    [['subject-1', 'run-a', conversation], ['subject-2', 'run-b', conversation]],
+  );
+  // MiniMax H3 Omni: its slots of reference images.
+  const byMinimax = await catalogOf([ltx, minimax]).route('create_video', asked(minimax.id), { ...media, byHand: true });
+  const roles = Object.fromEntries(minimax.references.map(slot => [slot.id, slot.role]));
+  assert.deepEqual(byMinimax.args.references.map(reference => roles[reference.input]), ['reference_image', 'reference_image']);
+  // The Bobine is told the subjects of a model whose workflow lacks their LoRA: none taken, said so.
+  const lacking = { ...ltx, loras: [] },
+    told = async list => (await catalogOf(list).videoModels()).find(model => model.family === 'ltx25').create_video.roles.reference;
+  assert.deepEqual([await told([ltx]), await told([lacking])], [{ count: 2 }, { count: 2, lora: false }]);
+});

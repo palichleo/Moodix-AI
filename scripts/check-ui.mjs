@@ -1696,9 +1696,10 @@ try {
     js(`(() => { const field = document.querySelector('#bobine-view .bobine-ask-words'); if (!field) return; field.value = 'Invente la suite.'; field.dispatchEvent(new Event('input', { bubbles: true })); })()`), () =>
     js(`(() => { const panel = document.querySelector('#bobine-view .bobine-create'), box = panel?.querySelector('.bobine-ask-field'), field = box?.querySelector('.bobine-ask-words'), send = box?.querySelector('.bobine-ask-send'), go = panel?.querySelector('.bobine-go'); if (!box || !field || !send || !go || document.querySelector('#bobine-view .montage-transport .bobine-ask')) return false; const at = box.getBoundingClientRect(), button = go.getBoundingClientRect(), column = panel.getBoundingClientRect(); return box.dataset.state === 'typed' && !send.disabled && at.bottom <= button.top && at.left >= column.left && at.right <= column.right && at.width > 250 && at.height >= 42 && at.height <= 46 && at.bottom <= innerHeight + 1; })()`), { within: 1500 });
   // (0.6.210, LOTS.md, lot 13) A take to create, laid by a click in the void of the takes: its line of « À créer »
-  // shows its pieces (none yet: « + » alone, 26 px high), whose list opens whole in the window, one of our
-  // lists of glass; at 1280 × 720 « À créer » does not scroll and the page neither. Then the list closed and
-  // the take taken back (« Annuler »): the bobine as it was for what follows.
+  // shows its pieces, whose list opens whole in the window, one of our lists of glass; at 1280 × 720 « À créer »
+  // does not scroll and the page neither. Then the list closed and the take taken back (« Annuler »): the bobine
+  // as it was for what follows. (0.6.462, Bobine Pro, B05) Its start and its end empty, in dashes, 40 × 30 without
+  // their words in this low window, then « + » 28 × 30; in its list a subject too (LTX 2.5 takes two).
   await run(
     'Bobine : une prise à créer, ses pièces (1280 × 720)',
     async () => {
@@ -1716,10 +1717,12 @@ try {
       js(`(() => {
         const view = document.getElementById('bobine-view'), lines = view.querySelectorAll('.bobine-line'), list = view.querySelector('.bobine-lines'), add = lines[0]?.querySelector('.bobine-piece-add'), menu = view.querySelector('.bobine-piece-menu');
         if (lines.length !== 1 || !add || !menu?.matches(':popover-open')) return false;
-        const box = menu.getBoundingClientRect(), items = [...menu.querySelectorAll('.glass-menu-item')], field = lines[0].querySelector('textarea').getBoundingClientRect(), go = view.querySelector('.bobine-go').getBoundingClientRect();
+        const box = menu.getBoundingClientRect(), items = [...menu.querySelectorAll('.glass-menu-item')], field = lines[0].querySelector('textarea').getBoundingClientRect(), go = view.querySelector('.bobine-go').getBoundingClientRect(),
+          holes = [...lines[0].querySelectorAll('.bobine-piece.is-empty > .bobine-piece-box')].map(hole => hole.getBoundingClientRect()), plus = add.getBoundingClientRect();
         return list.scrollHeight <= list.clientHeight + 1 && document.documentElement.scrollHeight <= innerHeight + 1 && document.documentElement.scrollWidth <= innerWidth + 1 &&
-          box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight && items.length === 4 && items.filter(item => item.getAttribute('aria-disabled') === 'true').length === 2 &&
-          add.getAttribute('aria-expanded') === 'true' && Math.round(add.getBoundingClientRect().height) === 26 && field.bottom <= go.top && lines[0].querySelector('.bobine-line-middle').getAttribute('aria-label') === 'Nouvelle prise';
+          box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight && items.length === 5 && items.filter(item => item.getAttribute('aria-disabled') === 'true').length === 2 &&
+          holes.length === 2 && holes.every(hole => Math.round(hole.width) === 40 && Math.round(hole.height) === 30) && !lines[0].querySelector('.bobine-piece-word')?.getClientRects().length &&
+          add.getAttribute('aria-expanded') === 'true' && Math.round(plus.height) === 30 && Math.round(plus.width) === 28 && field.bottom <= go.top && lines[0].querySelector('.bobine-line-middle').getAttribute('aria-label') === 'Nouvelle prise';
       })()`),
     { within: 2500 },
   );

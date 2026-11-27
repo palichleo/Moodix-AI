@@ -18475,95 +18475,146 @@ body[data-view='bobine'] .chat-panel {
 #bobine-view .bobine-line-middle {
   align-items: center;
 }
+/* (0.6.462, Bobine Pro, B05) De gauche à droite : « À prolonger » ou « Début », « Fin », « Sujet 1 »…, puis « + ». Chaque pièce
+   fait 54 × 44, à 6 px de la suivante : son image dans une case de 6 px de rayon, son mot dessous, centré, à 10 px, en Jost
+   12 px TX3 (11 px sur la maquette : 12 px au moins, référence du 16/11). Une case vide est en pointillés, le signe Image au
+   milieu. « + » fait 28 × 44, son bord plein ; grisé quand il n’y a plus rien à ajouter. Trop de pièces pour la carte : elles
+   passent à la ligne. */
 .bobine-pieces {
   display: flex;
   flex: 1 1 auto;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 5px;
+  align-items: flex-start;
+  gap: 10px 6px;
   min-width: 0;
 }
 #bobine-view .bobine-piece {
   display: inline-flex;
   flex: none;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   box-sizing: border-box;
-  height: 26px;
+  width: 54px;
+  height: auto;
   min-height: 0;
-  padding: 0 8px 0 3px;
-  border: 1px solid rgba(238, 232, 222, 0.12);
-  border-radius: 8px;
-  background: rgba(238, 232, 222, 0.04);
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
   box-shadow: none;
-  color: var(--text-2);
+  color: var(--text-3);
   font: 400 12px/1 var(--font-ui);
   white-space: nowrap;
   cursor: pointer;
+}
+#bobine-view .bobine-piece-box {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 54px;
+  height: 44px;
+  overflow: hidden;
+  border: 1px solid rgba(238, 232, 222, 0.12);
+  border-radius: 6px;
+  background: rgba(238, 232, 222, 0.04);
+  transition: border-color 120ms ease;
+}
+#bobine-view .bobine-piece-box > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+#bobine-view .bobine-piece-box > svg {
+  width: 15px;
+  height: 15px;
+  color: var(--text-3);
+}
+#bobine-view .bobine-piece.is-empty > .bobine-piece-box {
+  border-style: dashed;
+  border-color: rgba(238, 232, 222, 0.24);
+  background: transparent;
 }
 /* (Ce qu’une suite prolonge : la prise d’avant, rien ne s’ouvre d’elle.) */
 #bobine-view .bobine-piece.is-fixed {
   cursor: default;
 }
-#bobine-view .bobine-piece > img {
-  width: 24px;
-  height: 18px;
-  border-radius: 4px;
-  object-fit: cover;
-}
-#bobine-view .bobine-piece > svg {
-  width: 15px;
-  height: 15px;
-  margin-left: 4px;
-  color: var(--text-3);
-}
 #bobine-view button.bobine-piece:is(:hover, :focus-visible):enabled {
+  color: var(--text-2);
+}
+#bobine-view button.bobine-piece:is(:hover, :focus-visible):enabled > .bobine-piece-box {
   border-color: rgba(238, 232, 222, 0.32);
-  color: var(--text-1);
 }
 #bobine-view .bobine-piece[aria-expanded='true'] {
-  border-color: var(--accent);
   color: var(--text-1);
 }
+#bobine-view .bobine-piece[aria-expanded='true'] > .bobine-piece-box {
+  border-color: var(--accent);
+}
 /* (Son image n’est plus dans le projet : en ambre, comme sa place sur la piste Images.) */
-#bobine-view .bobine-piece[data-missing='true'] {
+#bobine-view .bobine-piece[data-missing='true'] > .bobine-piece-box {
   border-color: rgba(214, 160, 90, 0.55);
+}
+/* (0.6.462) Une image de « Prises » au-dessus d’une pièce, ou de la carte (un sujet de plus) : là où elle irait, en accent. */
+#bobine-view .bobine-piece[data-over='true'] > .bobine-piece-box,
+#bobine-view .bobine-line[data-over='true'] {
+  border-color: var(--accent);
 }
 #bobine-view .bobine-piece-add {
   display: inline-grid;
   flex: none;
   place-items: center;
   box-sizing: border-box;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 44px;
   min-height: 0;
   padding: 0;
-  border: 1px dashed rgba(238, 232, 222, 0.24);
-  border-radius: 8px;
+  border: 1px solid rgba(238, 232, 222, 0.12);
+  border-radius: 6px;
   background: transparent;
   box-shadow: none;
   color: var(--text-3);
   cursor: pointer;
 }
 #bobine-view .bobine-piece-add > svg {
-  width: 15px;
-  height: 15px;
+  width: 13px;
+  height: 13px;
 }
-#bobine-view .bobine-piece-add:is(:hover, :focus-visible):enabled,
+#bobine-view .bobine-piece-add:is(:hover, :focus-visible):enabled:not([aria-disabled='true']),
 #bobine-view .bobine-piece-add[aria-expanded='true'] {
-  border-color: rgba(238, 232, 222, 0.4);
+  border-color: rgba(238, 232, 222, 0.32);
   color: var(--text-1);
 }
-/* (Pendant qu’une prise se fait ou s’écrit : grisés, leur raison dans leur bulle.) */
+/* (Pendant qu’une prise se fait ou s’écrit : grisés, leur raison dans leur bulle. (0.6.462) « + » sans rien à ajouter aussi.) */
 #bobine-view .bobine-piece:disabled,
-#bobine-view .bobine-piece-add:disabled {
+#bobine-view .bobine-piece-add:disabled,
+#bobine-view .bobine-piece-add[aria-disabled='true'] {
   opacity: 0.45;
   cursor: default;
 }
 /* (0.6.461, Bobine Pro, B04) Une image que le modèle de la prise ne prend pas : grisée, gardée, pas envoyée ; on peut la
-   changer ou la retirer, sa raison dans sa bulle. */
+   changer ou la retirer, sa raison dans sa bulle. (0.6.462) Un sujet de trop aussi. */
 #bobine-view .bobine-piece[data-left='true']:enabled {
   opacity: 0.45;
+}
+/* (0.6.462) Dans une fenêtre basse, la carte doit tenir dans « À créer » (1280 × 720) : des pièces de 40 × 30, sans leur mot,
+   que leur nom dit au lecteur d’écran et leur bulle sous le pointeur ; « + » de 28 × 30. */
+@media (max-height: 760px) {
+  #bobine-view .bobine-piece {
+    width: 40px;
+    gap: 0;
+  }
+  #bobine-view .bobine-piece-box {
+    width: 40px;
+    height: 30px;
+  }
+  #bobine-view .bobine-piece-word {
+    display: none;
+  }
+  #bobine-view .bobine-piece-add {
+    height: 30px;
+  }
 }
 /* Leur liste, une de nos listes de verre : le nom de chaque choix à gauche, ce qu’on en dit à droite
    (« déjà donnée », « avec SCAIL-2 »), comme « Ajouter » du Studio. */
@@ -18789,8 +18840,31 @@ body[data-view='bobine'] .chat-panel {
   max-width: calc(100% - 144px);
 }
 #bobine-view .montage-frame[data-end='true'][data-tall='true'] > .montage-frame-words {
-  bottom: 82px;
+  bottom: 145px;
   max-width: calc(100% - 28px);
+}
+/* (0.6.462, Bobine Pro, B05) L’image de fin d’une prise à créer, sur l’écran : 96 px de large à la forme du film (96 de haut
+   pour un film en hauteur), en bas à droite ; « FIN · 1:04.72 » sous elle, contre son bord droit, sur une plaque sombre, à
+   12 px du bas de l’image. Sur un petit écran (1280 × 720 : une image de 248 px), 28 % de sa largeur au plus : à 96 px,
+   elle en couvrait près de la moitié. */
+#bobine-view .montage-frame-end {
+  right: 12px;
+  bottom: 37px;
+  width: min(96px, 28%, calc(96px * var(--ratio, 1.7778)));
+  height: auto;
+  aspect-ratio: var(--ratio, 1.7778);
+}
+#bobine-view .montage-frame-end-label {
+  left: auto;
+  right: -1px;
+  top: calc(100% + 8px);
+  box-sizing: border-box;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 4px;
+  background: rgba(10, 10, 12, 0.78);
+  line-height: 18px;
+  white-space: nowrap;
 }
 /* Demander à Moodix AI (0.6.162, maquette A1 à A10 de claude_design/arrangeur, son choix du 20/11) : ce
    qui vient d'être posé se dit juste au-dessus du champ, sur une plaque de verre. (0.6.456, Bobine Pro,
@@ -19526,6 +19600,35 @@ body[data-view='bobine'] .chat-panel {
 }
 @container (max-width: 88px) {
   #bobine-view .montage-piece-model {
+    display: none;
+  }
+}
+/* (0.6.462, Bobine Pro, B05) Les sujets d’une prise à créer, en bas à gauche de sa prise : 18 × 18, à 3 px l’un de l’autre,
+   à 8 px de ses bords ; ils ne vont pas sur la piste Images. Un sujet que son modèle ne prend pas est estompé. */
+#bobine-view .montage-piece-subjects {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  display: flex;
+  gap: 3px;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  pointer-events: none;
+}
+#bobine-view .montage-piece-subject {
+  flex: none;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(238, 232, 222, 0.3);
+  border-radius: 3px;
+  background: rgba(238, 232, 222, 0.06) center / cover no-repeat;
+}
+#bobine-view .montage-piece-subject[data-left='true'] {
+  opacity: 0.45;
+}
+@container (max-width: 50px) {
+  #bobine-view .montage-piece-subjects {
     display: none;
   }
 }
