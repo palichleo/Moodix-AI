@@ -4889,6 +4889,7 @@ export function setupStudio({
     const box = selector => document.querySelector?.(`#studio-view ${selector}`)?.getBoundingClientRect?.(),
       settings = box('.studio-block.is-settings'),
       screen = box('.studio-block.is-preview'),
+      output = box('.studio-block.is-output'),
       tall = document.documentElement?.clientHeight ?? 0;
     if (!settings?.width || !screen?.width || !tall || settings.left < screen.right) return null;
     return {
@@ -4897,6 +4898,10 @@ export function setupStudio({
       bottom: Math.round(tall - screen.bottom),
       room: Math.floor(screen.bottom - settings.bottom - 16),
       over: Math.floor(screen.bottom - settings.top),
+      // (0.6.501) Where the settings end and where the Sortie begins, from the foot of the page: its pill keeps off
+      // both when it has less room under the settings than its height (work-miniature.mjs).
+      under: Math.floor(tall - settings.bottom),
+      ...(output?.width ? { floor: Math.ceil(tall - output.top) } : {}),
     };
   }
   /**
@@ -8846,9 +8851,10 @@ export function setupStudio({
     // (0.6.466) Then what waits in the queue of this conversation, paused, and why (waitLine).
     // (Merged with 0.6.480) Not while « Télécharger » stands in the place of « Reprendre »: the window says why they
     // wait, « Reprendre » at its foot, and this line what the model lacks (absent.line); « Génération arrêtée. » was
-    // said in both.
+    // said in both. (0.6.501) Nor once they are gone (« Vider la file », the crosses of the window): the stop of a take
+    // is no failure of the model in hand, and this line said what « Télécharger » is for before they went.
     const failed =
-      absent && waits.length
+      absent && (waits.length || failure === 'Génération arrêtée.')
         ? ''
         : [heldGpu ? heldCause(gpuError()) : heldCause(failure) || failure, waitLine(waits, heldGpu)]
             .filter(Boolean)

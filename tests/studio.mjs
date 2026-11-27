@@ -13768,3 +13768,311 @@ test('(0.6.480, queue) the engine that starts: « Reprendre » of the window gre
     page.restore();
   }
 });
+
+// (0.6.501) A model not on this computer in hand, the take of the queue stopped, then « Vider la file » or the cross
+// of each line: the line above the buttons keeps saying what the model lacks. « Génération arrêtée. » came back there
+// alone once nothing waited, over « Télécharger », though nothing of this page had stopped (a video of the queue).
+test('(0.6.501, queue) emptied under « Télécharger »: what the model lacks is said, not the stop', async () => {
+  const lacks = [['studio-absent-line', 'MiniMax H3 Omni n’est pas sur cet ordinateur.']];
+  for (const emptied of ['Vider la file', 'les croix']) {
+    const tools = lookModels();
+    tools.create_image = [absentModel('h3', 'MiniMax H3 Omni')];
+    const page = await queueStudio({ tools });
+    const { body, takes } = page,
+      under = () => body.find('studio-under')[0].children.map(line => [line.className, line.textContent]),
+      get = () => labelOf(body.find('studio-get')[0]);
+    try {
+      page.mode(1);
+      page.type('A');
+      page.press();
+      await until(() => takes.length === 1);
+      for (const prompt of ['B', 'C']) {
+        page.type(prompt);
+        page.press();
+      }
+      page.mode(0);
+      body.find('studio-stop')[0].onclick();
+      await until(() => !page.studio.holds());
+      await settle();
+      assert.deepEqual([get(), under(), page.tiles().length], ['Télécharger · 17,7 Go', lacks, 2]);
+      if (emptied === 'Vider la file') page.studio.queueClear('c1');
+      else for (const line of page.rows()) page.studio.queueRemove(line.id);
+      assert.deepEqual([page.tiles(), get(), under()], [[], 'Télécharger · 17,7 Go', lacks], emptied);
+    } finally {
+      page.restore();
+    }
+  }
+  // Krea 2 there: the stop is said as before once the queue is emptied (only « Télécharger » leaves it out).
+  const page = await queueStudio();
+  const { body, takes } = page,
+    under = () => body.find('studio-under')[0].children.map(line => [line.className, line.textContent]);
+  try {
+    page.type('A');
+    page.press();
+    await until(() => takes.length === 1);
+    page.type('B');
+    page.press();
+    body.find('studio-stop')[0].onclick();
+    await until(() => !page.studio.holds());
+    await settle();
+    page.studio.queueClear('c1');
+    assert.deepEqual([page.tiles(), page.label(), under()], [[], 'Générer', [['studio-error', 'Génération arrêtée.']]]);
+  } finally {
+    page.restore();
+  }
+});
+
+// (0.6.501, queue) Where the window at the bottom right lies in the Studio (queueDock), with where the settings end
+// and where the Sortie begins, from the foot of the page: its pill keeps off both (work-miniature.mjs). Measured at
+// 1280 × 720, a model not on this computer in hand: 22 px under the settings, and the pill covered 6 px of them.
+test('(0.6.501, queue) the window in the Studio: where its settings end and where its Sortie begins', async () => {
+  const rects = {
+      '.studio-block.is-settings': { left: 988, top: 120, width: 268, height: 369.5, bottom: 489.5 },
+      '.studio-block.is-preview': { left: 342, top: 120, width: 628, height: 407.5, right: 970, bottom: 527.5 },
+      '.studio-block.is-output': { left: 24, top: 541.5, width: 1232, height: 160.5, bottom: 702 },
+    },
+    querySelector = selector => {
+      const rect = rects[selector.replace('#studio-view ', '')];
+      return rect ? { getBoundingClientRect: () => rect } : null;
+    };
+  const page = await studioPage(lookModels(), {}, { querySelector });
+  try {
+    globalThis.document.documentElement = { clientHeight: 720 };
+    const dock = { left: 988, width: 268, bottom: 193, room: 22, over: 407, under: 230 };
+    assert.deepEqual(page.studio.queueDock(), { ...dock, floor: 179 });
+    // Its Sortie not drawn: where the settings end, alone.
+    delete rects['.studio-block.is-output'];
+    assert.deepEqual(page.studio.queueDock(), dock);
+  } finally {
+    page.restore();
+  }
+});
+
+/**
+ * (0.6.501) A Studio of MOSS Image (it reads boxes) and Krea 2 (it does not), Clip and Bruitages (lookModels), opened
+ * on a take of MOSS Image made with two boxes: its caption in the prompt, its boxes on their piece. `made(prompt)`: the
+ * layout MOSS Image reads for that prompt and those boxes, at 1024 × 1024. `absent`: MOSS Image not on this computer.
+ */
+function boxesStudio(layoutPrompt, { absent = false } = {}) {
+  const tools = lookModels(),
+    [krea] = tools.create_image,
+    own = { family: 'moss', layout: true, roles: {}, inputs: {}, settings: [] },
+    moss = absent ? absentModel('m', 'MOSS Image', own) : { ...krea, ...own, id: 'm', name: 'MOSS Image' },
+    size = { width: 1024, height: 1024 },
+    boxes = [
+      { x: 0.25, y: 0.0625, w: 0.5, h: 0.125, label: 'text', caption: 'Large dark-blue title.', text: 'EXPLORE' },
+      { x: 0.3125, y: 0.3125, w: 0.375, h: 0.5, label: 'object', caption: 'A flat blue mountain illustration.' },
+    ],
+    made = prompt => layoutPrompt(prompt, boxes, size);
+  tools.create_image = [moss, krea];
+  const record = {
+    id: 'poster',
+    conversationId: 'c1',
+    workflowId: 'm',
+    mediaType: 'image',
+    prompt: made('A minimalist travel poster.'),
+    parameters: { seed: 418920355, ...size },
+    outputs: [{ originalUrl: '/poster.png', take: 6, ...size }],
+  };
+  return { tools, record, made };
+}
+/** (0.6.501) What MOSS Image reads of a prompt: one JSON object (never a JSON of JSON), its caption, its boxes. */
+const layoutRead = prompt => {
+  const layout = JSON.parse(prompt);
+  return [typeof layout, layout.summary?.caption, layout.items?.length];
+};
+
+// (0.6.501, queue × boxes) The queue of the Studio and the boxes of MOSS Image (0.6.477) met in 0.6.499: a request
+// asked with boxes keeps them until it goes, its prompt their layout, once, Krea 2 in hand by then; its line, its
+// bubble and the name of its conversation say their caption; one that failed comes back with them on their piece,
+// their caption in the prompt (never the JSON), and goes again the same. Seen right on 27/11: kept as they are.
+test('(0.6.501, queue) a request with boxes: kept until it goes, sent once as their layout, given back', async () => {
+  const { layoutPrompt } = await import('../public/layout-boxes.mjs');
+  const { conversationTitle } = await import('../public/transcript.mjs');
+  const { tools, record, made } = boxesStudio(layoutPrompt),
+    worked = [],
+    page = await queueStudio({ tools, runs: [record], extra: { onWork: (id, prompt) => id && worked.push(prompt) } });
+  const { body, takes } = page,
+    count = () => body.find('studio-boxes-count')[0]?.textContent,
+    off = () => /is-off/.test(body.find('studio-boxes')[0]?.className ?? ''),
+    model = id => {
+      const chosen = body.find('studio-model-pick')[0];
+      chosen.value = id;
+      chosen.onchange();
+    };
+  try {
+    // Opened on the take made with boxes: its caption in the prompt, its two boxes on their piece.
+    assert.deepEqual([page.prompt().value, count(), off()], ['A minimalist travel poster.', '2', false]);
+    page.press();
+    await until(() => takes.length === 1);
+    assert.deepEqual([takes[0].args.workflow, takes[0].args.prompt], ['m', record.prompt]);
+    // The name its conversation is given (app.js, conversationTitle): the caption, never the JSON.
+    assert.deepEqual(worked.map(prompt => conversationTitle(prompt)), ['A minimalist travel poster.']);
+    // While it is made: B with the same boxes (« Générer ensuite »), then C with Krea 2 in hand, which reads none.
+    page.type('A travel poster at dusk.');
+    page.press();
+    model('k');
+    page.type('un phare');
+    page.press();
+    const [b, c] = page.rows();
+    assert.deepEqual(
+      [b.prompt, b.what.split(' · ')[0], b.tip, c.prompt, c.what.split(' · ')[0]],
+      ['A travel poster at dusk.', 'MOSS Image', `Image · ${b.what}\nA travel poster at dusk.`, 'un phare', 'Krea 2'],
+    );
+    // A made: B goes with MOSS Image and its layout, Krea 2 in hand meanwhile; then C, its prompt alone.
+    page.finish();
+    await until(() => takes.length === 2);
+    assert.deepEqual([takes[1].args.workflow, takes[1].args.prompt], ['m', made('A travel poster at dusk.')]);
+    assert.deepEqual(layoutRead(takes[1].args.prompt), ['object', 'A travel poster at dusk.', 2]);
+    page.finish();
+    await until(() => takes.length === 3);
+    assert.deepEqual([takes[2].args.workflow, takes[2].args.prompt], ['k', 'un phare']);
+    // D, MOSS Image chosen again, its boxes with it: made after C, it fails, its line says why.
+    model('m');
+    page.type('A poster in the rain.');
+    page.press();
+    page.finish();
+    await until(() => takes.length === 4);
+    page.finish({ error: 'Mémoire vidéo insuffisante.' });
+    await until(() => !page.studio.holds());
+    await settle();
+    const [d] = page.rows();
+    assert.deepEqual([page.tiles(), d.prompt], [[['Échec', 'Mémoire vidéo insuffisante.']], 'A poster in the rain.']);
+    // Given back by a click, Krea 2 and another prompt in hand meanwhile: MOSS Image, its caption in the prompt, its
+    // two boxes on their piece; « Générer » sends their layout again.
+    model('k');
+    page.type('autre chose');
+    page.studio.queueTakeBack(d.id);
+    assert.deepEqual(
+      [body.find('studio-model-pick')[0].value, page.prompt().value, count(), off(), page.tiles()],
+      ['m', 'A poster in the rain.', '2', false, []],
+    );
+    page.press();
+    await until(() => takes.length === 5);
+    assert.deepEqual([takes[4].args.workflow, takes[4].args.prompt], ['m', made('A poster in the rain.')]);
+  } finally {
+    page.restore();
+  }
+});
+
+// (0.6.501, queue × boxes) « × 3 » with boxes: each try their layout, a seed of its own. The page reloaded meanwhile:
+// what its tab kept (their layout once, their caption on the line) comes back paused, named by their caption, and
+// « Reprendre » sends their layout as it was asked. Seen right on 27/11.
+test('(0.6.501, queue) « × 3 » with boxes, and requests with boxes kept in the tab through a reload', async () => {
+  const { layoutPrompt } = await import('../public/layout-boxes.mjs');
+  const { tools, record, made } = boxesStudio(layoutPrompt),
+    kept = { queueStorage: tabStore(), tab: 'onglet-1' },
+    poster = record.prompt,
+    dusk = made('A travel poster at dusk.'),
+    first = await queueStudio({ tools, runs: [record], extra: kept });
+  let seeds;
+  try {
+    const { body, takes } = first;
+    body.find('studio-tries')[0].onclick();
+    body.find('studio-tries-menu')[0].children[2].onclick();
+    body.find('studio-more-pill')[0].onclick();
+    const seed = body.find('studio-seed')[0].children[1];
+    seed.value = '42';
+    seed.oninput();
+    first.press();
+    await until(() => takes.length === 1);
+    first.type('A travel poster at dusk.');
+    first.press();
+    first.finish();
+    await until(() => takes.length === 2);
+    seeds = takes.map(take => take.args.seed);
+    assert.deepEqual([takes.map(take => take.args.prompt), seeds[0], seeds[1] !== 42], [[poster, poster], 42, true]);
+    const saved = JSON.parse(kept.queueStorage.getItem('moodix.file')).entries;
+    assert.deepEqual(
+      saved.map(entry => [entry.state, entry.label.prompt, entry.wanted.args.prompt, entry.look.draft.boxes.length]),
+      [
+        ['running', 'A minimalist travel poster.', poster, 2],
+        ['waiting', 'A travel poster at dusk.', dusk, 2],
+      ],
+    );
+  } finally {
+    first.restore();
+  }
+  // Reloaded during the second try: the third one and B (« × 3 » too) paused, named by their caption.
+  const again = await queueStudio({ tools, runs: [record], extra: kept });
+  try {
+    const { takes } = again;
+    assert.deepEqual(
+      [again.rows().map(line => [line.prompt, line.tries]), again.label()],
+      [
+        [
+          ['A minimalist travel poster.', 1],
+          ['A travel poster at dusk.', 3],
+        ],
+        'Reprendre · 2',
+      ],
+    );
+    // « Reprendre »: the third try of A, its layout and a seed of its own; then the three of B, their layout each.
+    again.press();
+    await until(() => takes.length === 1);
+    assert.deepEqual([takes[0].args.prompt, seeds.includes(takes[0].args.seed)], [poster, false]);
+    for (let at = 2; at <= 4; at++) {
+      again.finish();
+      await until(() => takes.length === at);
+    }
+    assert.deepEqual(takes.slice(1).map(take => take.args.prompt), [dusk, dusk, dusk]);
+    assert.equal(new Set(takes.slice(1).map(take => take.args.seed)).size, 3);
+    assert.deepEqual(layoutRead(takes[3].args.prompt), ['object', 'A travel poster at dusk.', 2]);
+  } finally {
+    again.restore();
+  }
+});
+
+// (0.6.501, queue × boxes × a model not on this computer) MOSS Image not on this computer, its boxes on their piece,
+// a queue paused: « Télécharger » in the place of « Reprendre », what it lacks above it, « Reprendre · 1 » at the
+// foot of the window; the boxes kept as they are (their piece, their caption in the prompt); its keys neither resume
+// the queue nor download the model.
+test('(0.6.501, queue) MOSS Image absent, its boxes posed, a queue paused: nothing lost, nothing sent', async () => {
+  const { layoutPrompt } = await import('../public/layout-boxes.mjs');
+  const { tools, record } = boxesStudio(layoutPrompt, { absent: true }),
+    page = await queueStudio({ tools, runs: [record] });
+  const { body, takes, said } = page,
+    under = () => body.find('studio-under')[0].children.map(line => [line.className, line.textContent]),
+    why = 'MOSS Image n’est pas sur cet ordinateur : téléchargez-le d’abord.';
+  try {
+    page.mode(1);
+    page.type('A');
+    page.press();
+    await until(() => takes.length === 1);
+    page.type('B');
+    page.press();
+    body.find('studio-stop')[0].onclick();
+    await until(() => !page.studio.holds());
+    await settle();
+    page.mode(0);
+    const chosen = body.find('studio-model-pick')[0];
+    chosen.value = 'm';
+    chosen.onchange();
+    assert.deepEqual(
+      [
+        labelOf(body.find('studio-get')[0]),
+        under(),
+        page.prompt().value,
+        body.find('studio-boxes-count')[0]?.textContent,
+        body.find('studio-clear').length,
+      ],
+      [
+        'Télécharger · 17,7 Go',
+        [['studio-absent-line', 'MOSS Image n’est pas sur cet ordinateur.']],
+        'A minimalist travel poster.',
+        '2',
+        0,
+      ],
+    );
+    const [lying] = page.studio.queueView({ docked: true });
+    assert.deepEqual([lying.foot?.label, lying.foot?.held], ['Reprendre · 1', false]);
+    page.keys();
+    await settle();
+    assert.deepEqual(
+      [said.at(-1), page.asked.filter(([route]) => route === 'downloads/start').length, takes.length, page.tiles()],
+      [why, 0, 1, [['En pause 1', 'B']]],
+    );
+  } finally {
+    page.restore();
+  }
+});

@@ -29,6 +29,9 @@ import { generationTime, takeTime } from './generation-time.mjs';
 export const FOLDED_KEY = 'moodix.miniature';
 /** (0.6.478) The room a list needs under the settings of the Studio: its title, a line, the air around them. */
 const ROOM = 30 + 46 + 26;
+/** (0.6.501) The height of its pill (moodix.css), and how far it lies from the settings above it and the Sortie. */
+const PILL = 44,
+  APART = 4;
 const KINDS = { image: 'Image', video: 'Vidéo', audio: 'Son' };
 // What « waiting » says when nothing else is said (waitFor).
 const WAITING = 'En attente de votre accord';
@@ -165,6 +168,22 @@ export function setupMiniature({
   const tight = () => Boolean(docked) && docked.room < ROOM;
   const foldedNow = () =>
     pillHere || tight() ? !openedHere : docked ? closedHere : folded;
+  /**
+   * (0.6.501) Where its foot lies in the Studio, from that of the page: on the foot of the screen; as its line, with
+   * less room under the settings than its height, lower, APART under them, never nearer the Sortie than APART. At
+   * 1280 × 720 the settings of a model not on this computer are 45 px taller: it covered 6 px of them.
+   */
+  function dockBottom() {
+    if (!tight() || !Number.isFinite(docked.under)) return docked.bottom;
+    const lowered = Math.min(docked.bottom, docked.under - APART - PILL);
+    return Number.isFinite(docked.floor) ? Math.max(docked.floor + APART, lowered) : lowered;
+  }
+  /**
+   * (0.6.501) Its line in the Studio says « Reprendre · 3 » when the button of the Studio does not (a model not on this
+   * computer: « Télécharger »; a take followed after a reload): it was behind the chevron, at 1280 × 720 and 1168 ×
+   * 788. For the queue of the conversation shown only, the first one: the line has no room for the name of another.
+   */
+  const pillFoot = () => tight() && foldedNow() && Boolean(parts[0]?.foot) && parts[0].conversation === home;
 
   /** The Flux of the take in progress, in the frame, from the picture so far (as the card's). */
   function startFlux(asked) {
@@ -222,7 +241,19 @@ export function setupMiniature({
     root.classList.toggle('is-docked', Boolean(docked));
     root.classList.toggle('is-over', tight() && openedHere);
     root.classList.toggle('is-raised', raised > 0);
-    const spots = docked ? { ...docked, room: Math.max(44, docked.room) } : raised ? { raise: raised } : {};
+    root.classList.toggle('has-pill-foot', pillFoot());
+    // (0.6.501) What lies in the Studio is given to its style by name (`under`, `floor`: dockBottom only).
+    const spots = docked
+      ? {
+          left: docked.left,
+          width: docked.width,
+          bottom: dockBottom(),
+          room: Math.max(PILL, docked.room),
+          over: docked.over,
+        }
+      : raised
+        ? { raise: raised }
+        : {};
     for (const [name, value] of Object.entries(spots)) root.style?.setProperty?.(`--work-mini-${name}`, `${value}px`);
     drawList(now);
     bar.hidden = !(phase === 'making' || phase === 'done');

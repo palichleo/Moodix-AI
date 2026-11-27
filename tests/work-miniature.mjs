@@ -730,6 +730,53 @@ test('(0.6.478) in its Studio the list lies under the settings; no room: its tit
   assert.deepEqual([mini.element.classList.contains('is-raised'), mini.folded, kept.size], [false, false, 0]);
 });
 
+// (0.6.501) Its line in the Studio, when the button of the Studio does not say « Reprendre » (a model not on this
+// computer: « Télécharger »): « Reprendre · 2 » in it, not behind its chevron (1280 × 720, 1168 × 788). With less room
+// under the settings than its height (1280 × 720, the settings of a model not on this computer 45 px taller), it lies
+// lower, 4 px under them, never nearer the Sortie than 4 px: it covered 6 px of them.
+test('(0.6.501) its line in the Studio: « Reprendre » in it, never over the settings nor on the Sortie', async () => {
+  const { mini, part } = miniature(),
+    has = name => mini.element.classList.contains(name),
+    bottom = () => mini.element.style.values['--work-mini-bottom'],
+    groups = [{ word: 'En pause', state: 'paused', rows: [row('q1', 'un bateau')] }],
+    paused = queuePart({ groups, foot: RESUME }),
+    // 1280 × 720, a model not on this computer: the foot of the settings 230 px from that of the page, the screen's
+    // 193, the top of the Sortie 179 (studio.mjs, queueDock): 22 px under the settings.
+    dock = { left: 988, width: 268, bottom: 193, room: 22, over: 407, under: 230, floor: 179 };
+  mini.queue([paused]);
+  mini.place('corner', { alone: true, home: WORK.conversationId, dock });
+  assert.deepEqual([mini.folded, has('has-pill-foot'), bottom()], [true, true, '183px']);
+  assert.equal(textOf(part('work-mini-resume')), 'Reprendre · 2');
+  // Shown there by its style: its title without the count its button says, « Vider la file » once opened.
+  const css = await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8'),
+    rule = selector => css.match(new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' \\{([^}]*)\\}'))?.[1],
+    pill = '.work-mini.is-docked.has-pill-foot ';
+  assert.match(rule(pill + '.work-mini-queue:first-child > .work-mini-foot'), /display: flex;/);
+  for (const hidden of ['.work-mini-queue:first-child .work-mini-queue-count', '.work-mini-foot > .work-mini-clear'])
+    assert.match(rule(pill + hidden), /display: none;/);
+  // Opened by its chevron: over the settings, its foot at its bottom; the same foot of the window, nothing jumps.
+  part('work-mini-fold').onclick();
+  assert.deepEqual([has('is-over'), has('has-pill-foot'), bottom()], [true, false, '183px']);
+  part('work-mini-fold').onclick();
+  // 1168 × 788: room enough for its line, on the foot of the screen; « Reprendre » in it too.
+  mini.place('corner', { alone: true, home: WORK.conversationId, dock: { ...dock, room: 90, under: 299 } });
+  assert.deepEqual([mini.folded, has('has-pill-foot'), bottom()], [true, true, '193px']);
+  // Its list (1440 × 900): on the foot of the screen, as it was.
+  mini.place('corner', { alone: true, home: WORK.conversationId, dock: { ...dock, room: 200, under: 409 } });
+  assert.deepEqual([mini.folded, has('has-pill-foot'), bottom()], [false, false, '193px']);
+  // The button of the Studio says « Reprendre » (no foot), or the queue is another conversation's: its title alone.
+  const elsewhere = { ...paused, conversation: 'b2222222-2222-4222-8222-222222222222' };
+  for (const given of [{ ...paused, foot: null }, elsewhere]) {
+    mini.queue([given]);
+    mini.place('corner', { alone: true, home: WORK.conversationId, dock });
+    assert.deepEqual([mini.folded, has('has-pill-foot')], [true, false]);
+  }
+  // A dock measured without the settings nor the Sortie (as before): on the foot of the screen.
+  const unmeasured = { ...dock, under: undefined, floor: undefined };
+  mini.place('corner', { alone: true, home: WORK.conversationId, dock: unmeasured });
+  assert.equal(bottom(), '193px');
+});
+
 test('(0.6.478) the page puts the queue under the settings of its Studio, over the input of a narrow Chat', () => {
   const docked = { left: 1148, width: 268, bottom: 200, room: 240, over: 380 },
     form = { getBoundingClientRect: () => ({ width: 760, right: 964, top: 575 }) },

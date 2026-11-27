@@ -22950,6 +22950,35 @@ body:has(dialog[open]) :is(.camera-ball, .camera-menu-option) :is(.camera-ball-l
     inset 0 0 0 1px rgba(238, 232, 222, 0.1),
     0 18px 48px rgba(0, 0, 0, 0.55);
 }
+/* (0.6.501) Its line there with « Reprendre · 3 », when the button of the Studio says something else (a model not on
+   this computer: « Télécharger »): after « EN PAUSE », the count said by the button, before the chevron; « Vider la
+   file » once the list is opened. It was behind the chevron at 1280 × 720 and 1168 × 788. */
+.work-mini.is-docked.has-pill-foot .work-mini-queue:first-child {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 38px 4px 6px;
+}
+.work-mini.is-docked.has-pill-foot .work-mini-queue:first-child > .work-mini-queue-head {
+  flex: none;
+  margin-right: 0;
+}
+.work-mini.is-docked.has-pill-foot .work-mini-queue:first-child .work-mini-queue-count {
+  display: none;
+}
+.work-mini.is-docked.has-pill-foot .work-mini-queue:first-child > .work-mini-foot {
+  position: static;
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.work-mini.is-docked.has-pill-foot .work-mini-foot > .work-mini-clear {
+  display: none;
+}
 /* In a Chat of 1168 px, its pill over the input, 12 px above it: in its corner, it covered the end of the input and
    its send button. The messages leave it room at their foot. */
 .work-mini.is-raised {

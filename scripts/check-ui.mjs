@@ -81,6 +81,30 @@ const shippedStudio = {
   presets: {},
 };
 /**
+ * (0.6.474) The tools of the Studio as the server gives them when no model of Image is on this computer (`missing`, a
+ * free licence: nothing to read first). (0.6.501) Out of stillInPlace: the queue of the Studio under such a model too
+ * (studioQueue).
+ */
+function absentStudio() {
+  const given = structuredClone(shippedStudio);
+  for (const model of given.tools.create_image ?? []) {
+    const bytes = 19e9,
+      license = { name: 'Apache-2.0', url: '', limits: '', restricted: false };
+    Object.assign(model, {
+      unavailable: `Fichier introuvable pour « Modèle » : ${model.id}.safetensors.`,
+      missing: {
+        workflowId: model.id,
+        files: [{ role: 'model', file: model.id + '.safetensors', size: bytes, license }],
+        bytes,
+        left: bytes,
+        needsToken: false,
+        page: '',
+      },
+    });
+  }
+  return given;
+}
+/**
  * The Studio gone through in the page (0.6.98): each mode and each of its models, as it opens and
  * with all it may show; what goes over the Sortie, what the pointer cannot reach, a page that scrolls,
  * in the user's words. The Studio draws each change at once (render): read as soon as it is done.
@@ -1104,7 +1128,7 @@ try {
    * « Reprendre · 2 » at its foot. Emptied after, by the × of the Studio and the cross of the line that failed.
    */
   async function studioQueue() {
-    const look = (said, label) => `(() => {
+    const look = (said, label, resumed = '') => `(() => {
       const found = [],
         desk = document.querySelector('#studio-view .studio-desk'),
         block = name => desk?.querySelector('.studio-block.' + name),
@@ -1150,7 +1174,23 @@ try {
       } else if (!first || first.top < room.top - 0.5 || first.bottom > Math.min(room.bottom, own.bottom) + 0.5)
         found.push('la première ligne de la file n’est pas entière');
       // Never two « Reprendre » on one screen: the button of the Studio says it for the queue of its conversation.
-      if (win.querySelector('.work-mini-resume')) found.push('« Reprendre » dans la file posée sous les Réglages');
+      // (0.6.501) Unless that button says something else (resumed: « Télécharger », a model not on this computer):
+      // the window says it then, seen and whole, never under its chevron (in its pill, where it has no room).
+      const resume = win.querySelector('.work-mini-resume'),
+        resumed = ${JSON.stringify(resumed)};
+      if (!resumed) {
+        if (resume) found.push('« Reprendre » dans la file posée sous les Réglages');
+      } else if (!resume || !seen(resume) || resume.textContent !== resumed)
+        found.push('« ' + resumed + ' » ne se voit pas dans la file');
+      else {
+        const spot = resume.getBoundingClientRect(),
+          chevron = win.querySelector('.work-mini-fold'),
+          out = spot.left < own.left - 0.5 || spot.right > own.right + 0.5 || spot.top < own.top - 0.5;
+        if (out || spot.bottom > own.bottom + 0.5) found.push('« ' + resumed + ' » sort de la file');
+        if (chevron && seen(chevron) && crosses(spot, chevron.getBoundingClientRect()))
+          found.push('« ' + resumed + ' » sous le chevron de la file');
+        if (resume.scrollWidth > resume.clientWidth + 1) found.push('« ' + resumed + ' » coupé');
+      }
       for (const part of [...win.querySelectorAll('.work-mini-file *')].filter(seen)) {
         if (![...part.childNodes].some(child => child.nodeType === 3 && child.textContent.trim())) continue;
         const capitals = part.closest('.work-mini-queue-title'),
@@ -1175,7 +1215,7 @@ try {
     })()`;
     const sized = (width, height) =>
       send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
-    const over = async (said, label) => {
+    const over = async (said, label, resumed = '') => {
       const seen = [];
       for (const [width, height] of [
         [1280, 720],
@@ -1185,7 +1225,7 @@ try {
       ]) {
         await sized(width, height);
         await wait(300);
-        for (const what of await js(look(said, label))) seen.push(`${what} (${width} × ${height})`);
+        for (const what of await js(look(said, label, resumed))) seen.push(`${what} (${width} × ${height})`);
       }
       for (const what of seen) problems.push([step, 'état', what]);
       return seen.length === 0;
@@ -1354,6 +1394,28 @@ try {
       },
       () => over(['En pause · 1', start(three[2]), 'Échec · ' + start(first)], 'Reprendre · 1'),
     );
+    // (0.6.501) The same queue under a model not on this computer: « Télécharger » where « Reprendre · 1 » was. The
+    // window says « Reprendre · 1 » then, seen in its pill where it has no room (it was behind its chevron at
+    // 1280 × 720 and 1168 × 788), over nothing of the Studio (its pill covered 6 px of the Réglages at 1280 × 720).
+    // The tools read again as when a model is taken away in Paramètres: closed, the Studio reads them once it comes
+    // on screen again (no reload: the conversation of a simulated take is not kept by the server, and a page reloaded
+    // showed another one). Looked at only: nothing pressed, nothing downloaded; then the shipped tools given back.
+    const given = async (tools, ready) => {
+      studioGiven = tools;
+      if (!(await click('#settings-open')) || (await until(dialog('settings'), 2000)) === false) return false;
+      await key('Escape', 'Escape', 27);
+      if ((await until(noDialog, 2000)) === false || !(await click('#chat-open'))) return false;
+      await wait(400);
+      await click('#studio-open');
+      return until(() => js(`Boolean(document.querySelector('#studio-view ${ready}'))`), 5000);
+    };
+    await run(
+      'Studio : un modèle absent, la file en pause, son « Reprendre · 1 » dans la fenêtre, sur rien du Studio',
+      () => given(absentStudio(), '.studio-go.studio-get'),
+      () =>
+        over(['En pause · 1', start(three[2]), 'Échec · ' + start(first)], 'Télécharger · 17,7 Go', 'Reprendre · 1'),
+    );
+    await given(null, '.studio-go:not(.studio-get)');
     await run(
       'Studio : « Vider la file », puis l’échec retiré par sa croix',
       async () => {
@@ -1494,26 +1556,8 @@ try {
     // (0.6.474) The tools of the Studio as the server gives them when no model of Image is on this computer (`missing`,
     // a free licence: nothing to read first), then while the engine starts (`engine`, every model said not ready).
     // Looked at only: nothing is pressed, nothing downloaded. The page opened again on the Studio in Image each time.
-    const absentStudio = () => {
-        const given = structuredClone(shippedStudio);
-        for (const model of given.tools.create_image ?? []) {
-          const bytes = 19e9,
-            license = { name: 'Apache-2.0', url: '', limits: '', restricted: false };
-          Object.assign(model, {
-            unavailable: `Fichier introuvable pour « Modèle » : ${model.id}.safetensors.`,
-            missing: {
-              workflowId: model.id,
-              files: [{ role: 'model', file: model.id + '.safetensors', size: bytes, license }],
-              bytes,
-              left: bytes,
-              needsToken: false,
-              page: '',
-            },
-          });
-        }
-        return given;
-      },
-      startingStudio = () => {
+    // (0.6.501: absentStudio, at the top of this file.)
+    const startingStudio = () => {
         const given = structuredClone(shippedStudio);
         for (const list of Object.values(given.tools))
           for (const model of list) model.unavailable = 'Le moteur de génération démarre…';
