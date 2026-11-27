@@ -12,10 +12,12 @@ import {
   callNote,
   conversationTitle,
   lastExchange,
+  refusedLine,
   settledNotes,
   spokenText,
   withoutStudioNote,
 } from '../public/transcript.mjs';
+import { citedMessage } from '../lib/cited-resources.mjs';
 import * as chatVideos from '../public/chat-videos.mjs';
 import { leavingQuestion } from '../public/detached-takes.mjs';
 
@@ -70,6 +72,38 @@ test('a generation that left no media is told in the user’s words, not the mod
     'Suite de la vidéo : génération interrompue.',
   );
   assert.equal(callNote(call('old_verb'), result({ status: 'error' })), 'Génération : génération non aboutie.');
+});
+
+test('a call sent back to the model before anything ran: a sentence of the user’s, not the model’s (0.6.460)', () => {
+  // « Appel d’outil refusé : L’utilisateur cite #ref9 ({"ref": 9}), … Refais l’appel… », read word for word.
+  const ref9 = { id: '3c037171-3a50-48bc-9705-9bcbfb223f6a', label: '#ref9', reference: 9 },
+    ref2 = { id: 'a34fed7a-57f5-49cc-a0bd-7955eb05d5d2', label: '#ref2', reference: 2 };
+  const left = 'Moodix AI a revu sa demande : #ref9 n’y était pas.';
+  assert.equal(refusedLine(citedMessage([ref9], null, { byNumber: true })), left);
+  assert.equal(
+    refusedLine(citedMessage([ref2, ref9], ['reference'], { verb: 'create_video' })),
+    'Moodix AI a revu sa demande : #ref2 et #ref9 n’y étaient pas.',
+  );
+  // The telling of before 0.6.460 (« transmise »), in a conversation read back.
+  const before = citedMessage([ref9]).replace('n’est pas transmis à', 'n’est pas transmise à');
+  assert.equal(refusedLine(before), left);
+  // Any other reason is the model's to read: no identifier, no English, no order given to it.
+  for (const message of ['Identifiant de sortie invalide.', 'Aucun workflow… fefb88eb: no free slot', undefined])
+    assert.equal(refusedLine(message), 'Moodix AI a revu sa demande.');
+  // Read back from the history (app.js, `invalid`): the same line, under the call.
+  const refused = {
+    status: 'error',
+    message: citedMessage([ref9], null, { verb: 'create_image' }),
+    note:
+      'Appel refusé avant toute génération. Corrige les arguments sans inventer d’identifiant, ' +
+      'ou réponds sans outil.',
+  };
+  assert.equal(callNote(call('create_image'), result(refused)), left);
+  // A failure of the generation itself keeps its words.
+  assert.equal(
+    callNote(call('create_video'), result({ status: 'error', message: 'Génération arrêtée.' })),
+    'Vidéo : génération non aboutie (Génération arrêtée).',
+  );
 });
 
 test('nothing is said of a call whose result is shown or explained right after', () => {

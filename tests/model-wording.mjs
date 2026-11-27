@@ -45,7 +45,8 @@ import {
  * the `color_correction` of `upscale` are gone, settings of SeedVR2: a setting of a model is the
  * user's alone, never the model's to choose, lib/native-workflows.mjs, ownSettings; 0.6.134: Wan 2.2,
  * a third workflow of `create_video`, listed after the two others, with `stage` said « Only for »
- * those two since it has one size).
+ * those two since it has one size; 0.6.460: `cited`, « ce qu’il cite n’est pas transmis », and for a video
+ * how to keep the image out, « Si l’utilisateur ne veut pas de cette image dans la vidéo, refais le même appel »).
  * Written again, it loses `brief` and `briefExtend`, which the
  * first test leaves aside: they were put back, so that the fixture changed by that argument alone.
  */
@@ -106,7 +107,7 @@ async function railsWording(definitionsOf = (catalog, available) => catalog.defi
     thin: THIN_NOTE,
     suite: SUITE_NOTE,
     seen: SEEN_NOTE,
-    cited: citedMessage([{ label: '#ref1', id: R1 }], ['start_image', 'reference']),
+    cited: citedMessage([{ label: '#ref1', id: R1 }], ['start_image', 'reference'], { verb: 'create_video' }),
     failed: [FAILED_NOTE, FAILED_SETTLED, UNANSWERED],
   };
 }

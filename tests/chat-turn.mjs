@@ -828,6 +828,20 @@ test('a character replacement that fails keeps what failed as the result of its 
   assert.equal(done.saves.at(-1).incomplete, false);
 });
 
+test('a call sent back before anything ran: a sentence for the user, the refusal for the model (0.6.460)', async () => {
+  const refusal =
+    'L’utilisateur cite #ref9 ({"ref": 9}) : ce qu’il cite n’est pas transmis à l’outil. Décrire une image dans le ' +
+    'prompt ne la montre pas au générateur. Refais l’appel en la passant dans le rôle qui convient à sa demande.';
+  const refused = { kind: 'invalid', call: functionCall('create_video', 'call_cite'), message: refusal },
+    shown = page({ chat: (body, n) => (n === 1 ? called(refused) : said('Voici la vidéo avec la #ref9.')) });
+  await shown.send('Anime la #ref9');
+  // Until then « Appel d’outil refusé : L’utilisateur cite #ref9 ({"ref": 9}) … Refais l’appel… », word for word.
+  assert.equal(shown.views[0].note.textContent, 'Moodix AI a revu sa demande : #ref9 n’y était pas.');
+  // The model is told as before.
+  const told = shown.requests[1].messages.find(message => message.role === 'tool');
+  assert.deepEqual([told.tool_call_id, JSON.parse(told.content).message], ['call_cite', refusal]);
+});
+
 const exchange = () => [
   { role: 'user', content: 'Un renard en pull bleu' },
   { role: 'assistant', content: 'Voici.' },

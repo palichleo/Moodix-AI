@@ -6,7 +6,7 @@ import { join, dirname } from 'node:path';
 import { Readable } from 'node:stream';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Resources, resourceCatalogPrompt, shownCatalog } from '../lib/resources.mjs';
 import { citedNumbers } from '../lib/cited-resources.mjs';
 import { createApplication } from '../server.mjs';
@@ -555,6 +555,25 @@ test('the same file twice in a project is one reference; in another project, its
   assert.equal((await store.list('inbox')).length, 1);
   // Another file: another reference.
   assert.equal((await image(store, 'neige.png')).label, '#ref2');
+});
+
+test('the references kept from the images joined to a message, found by their digest (0.6.460)', async t => {
+  const root = await directory(t),
+    store = new Resources(join(root, 'resources')),
+    project = randomUUID(),
+    rain = await image(store, 'pluie.png'),
+    snow = await image(store, 'neige.png'),
+    elsewhere = await image(store, 'pluie.png', project),
+    digest = name => createHash('sha256').update(fileOf(name)).digest('hex');
+  assert.deepEqual(await store.joined('inbox', [digest('pluie.png')]), [rain.id]);
+  const both = await store.joined('inbox', [digest('neige.png'), digest('pluie.png')]);
+  assert.deepEqual(both.sort(), [rain.id, snow.id].sort());
+  // Those of its project alone; not one switched off, nor a file never kept.
+  assert.deepEqual(await store.joined(project, [digest('pluie.png')]), [elsewhere.id]);
+  await store.update(snow.id, { enabled: false });
+  assert.deepEqual(await store.joined('inbox', [digest('neige.png')]), []);
+  assert.deepEqual(await store.joined('inbox', ['ab'.repeat(32)]), []);
+  assert.deepEqual(await store.joined('inbox', []), []);
 });
 
 test('a file sent again from the chat or the Studio comes back as the reference it already is', async t => {

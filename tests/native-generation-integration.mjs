@@ -447,8 +447,12 @@ test(
       const wish = 'generate a boat like ref1, whatever is said',
         told = (await chat(wish)).find(e => e.local_tool_request).local_tool_request;
       assert.equal(told.kind, 'invalid');
-      assert.match(told.message, new RegExp(`#ref1 \\(\\{"resource": "${stairs.id}"\\}\\) : ce qu’il cite n’est pas transmise à l’outil`));
-      assert.match(told.message, /image de fin, référence ou image de départ/);
+      assert.match(
+        told.message,
+        new RegExp(`#ref1 \\(\\{"resource": "${stairs.id}"\\}\\) : ce qu’il cite n’est pas transmis à l’outil\\.`),
+      );
+      // (0.6.460) The roles of an image: « image de fin, référence ou image de départ » was told for one too.
+      assert.match(told.message, /\(image à modifier : source ou référence : reference\)\.$/);
       // … and its next call stands, whatever it decides: the proposal then says to the user that
       // the image they named does not reach the generator.
       const stands = (
@@ -483,7 +487,7 @@ test(
       // the model is told then (its workflow has a place for it), and nothing is left to approve.
       const written = (await chat(`generate naming ${stairs.id} for ref1`)).find(e => e.local_tool_request).local_tool_request;
       assert.equal(written.kind, 'invalid');
-      assert.match(written.message, /n’est pas transmise à l’outil.*\(image à modifier : source\)\.$/);
+      assert.match(written.message, /n’est pas transmis à l’outil.*\(image à modifier : source\)\.$/);
       assert.equal(written.requestId, undefined);
 
       // A take written before the three folders (in the folder of the outputs itself, under a random
@@ -538,8 +542,11 @@ test(
  * model was started (`starts`), and `hold`, a promise a test sets to keep a generation running.
  * `remote` (0.6.100): a preset (« openrouter »), the same scripted model reached as that service of
  * the Internet, chosen for the chat: a large model, given the « capable » wording.
+ * (0.6.460) `source`: its workflow takes an image to modify, as Krea 2 does; `vision`: the local model
+ * sees images (its projector). `upload` keeps an image as a reference of the project, `attach` joins
+ * one to a message as the page stores it (its file in the conversation).
  */
-async function boatsApp({ fullPrompts = false, remote = null } = {}) {
+async function boatsApp({ fullPrompts = false, remote = null, source = false, vision = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'native-series-'));
   let app;
   const outputDir = join(root, 'output');
@@ -610,11 +617,14 @@ async function boatsApp({ fullPrompts = false, remote = null } = {}) {
         denoise: { policy: 'fixed', value: 1 },
       },
       loras: [],
-      references: [],
+      references: source ? [{ id: 'source', role: 'img2img', name: 'Source image', required: false }] : [],
     });
-    const modelPath = join(root, 'llm.gguf');
+    const modelPath = join(root, 'llm.gguf'),
+      projectorPath = vision ? join(root, 'vision.gguf') : '';
     await writeFile(modelPath, 'GGUF\x03\0\0\0');
-    await api('config', { enginePath: process.execPath, modelPath, projectorPath: '', contextSize: 8192, maxOutputTokens: 4096, gpuLayers: 0 });
+    if (vision) await writeFile(projectorPath, 'GGUF\x03\0\0\0');
+    const engine = { enginePath: process.execPath, modelPath, projectorPath };
+    await api('config', { ...engine, contextSize: 8192, maxOutputTokens: 4096, gpuLayers: 0 });
     await api('start', {}, 202);
     await until(async () => (await (await api('status')).json()).state === 'ready');
     if (remote) {
@@ -635,9 +645,9 @@ async function boatsApp({ fullPrompts = false, remote = null } = {}) {
     }
     const state = async () => (await (await api('status')).json()).state;
     /** What the server answers to a message of the chat: its proposal, or what it sends the model back with. */
-    const ask = async (said = 'generate series of boats') => {
+    const ask = async (said = 'generate series of boats', conversationId = randomUUID()) => {
       const streamed = await (
-        await api('chat', { messages: [{ role: 'user', content: said }], conversationId: randomUUID(), turnId: randomUUID() })
+        await api('chat', { messages: [{ role: 'user', content: said }], conversationId, turnId: randomUUID() })
       ).text();
       const request = streamed
         .split(/\r?\n\r?\n/)
@@ -657,7 +667,34 @@ async function boatsApp({ fullPrompts = false, remote = null } = {}) {
       assert.equal(job.state, 'done', job.error);
       return job.record;
     };
-    return { api, ask, made, state, seen, close };
+    const raw = (path, bytes, headers) =>
+      fetch(app.url + '/api/' + path, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + boot.token, ...headers },
+        body: bytes,
+      });
+    /** An image kept as a reference of the project, ready (its picture prepared). */
+    const upload = async (bytes, name = 'stairs.png') => {
+      const uploaded = await raw('resources/upload', bytes, {
+        'Content-Type': 'image/png',
+        'X-Resource-Name': encodeURIComponent(name),
+      });
+      assert.equal(uploaded.status, 201, await uploaded.clone().text());
+      const url = 'data:image/png;base64,' + bytes.toString('base64'),
+        patch = { prepared: { width: 1, height: 1, frames: [{ url, time: null }] } };
+      return (await api('resources/update', { id: (await uploaded.json()).id, patch })).json();
+    };
+    /** An image joined to a message: its file in the conversation, as the page sends it. */
+    const attach = async (bytes, conversationId) => {
+      const stored = await raw('attachments', bytes, {
+        'Content-Type': 'image/png',
+        'X-Conversation-Id': conversationId,
+      });
+      assert.equal(stored.status, 201, await stored.clone().text());
+      const url = 'data:image/png;base64,' + bytes.toString('base64');
+      return { type: 'image_url', image_url: { url }, file: (await stored.json()).file };
+    };
+    return { api, ask, made, state, seen, close, upload, attach };
   } catch (error) {
     await close();
     throw error;
@@ -774,3 +811,71 @@ test('five images, the first prompt in full and the four others in a sentence: p
     }
   }
 });
+
+test(
+  'an image named and left out of an image: a large model is not sent back for it, the local one is (0.6.460)',
+  { timeout: 60000 },
+  async () => {
+    for (const remote of [null, 'openrouter']) {
+      const { ask, upload, close } = await boatsApp({ remote, source: true });
+      try {
+        const stairs = await upload(png);
+        assert.equal(stairs.label, '#ref1');
+        const asked = await ask('generate a boat like ref1, whatever is said');
+        if (remote) {
+          // « Photo spatiale années 70 » (27/11), five photos joined as examples: ChatGPT, sent back for one of
+          // them, made ten images of it. Neither before the routing nor after it (its workflow has a place for
+          // the image): proposed at once, its card says what is left out, its picture greyed.
+          assert.equal(asked.kind, undefined, asked.message);
+          assert.ok(asked.requestId, 'a proposal the user can approve');
+          assert.deepEqual(asked.notes, [
+            '#ref1 n’est pas transmise. Le générateur ne la verra pas, seul le prompt peut la décrire.',
+          ]);
+          assert.deepEqual([asked.cited.left.map(item => item.label), asked.cited.roles], [['#ref1'], ['source']]);
+          continue;
+        }
+        // The local model, as before: told before the routing, and after it (its id written in the prompt).
+        assert.equal(asked.kind, 'invalid');
+        assert.match(asked.message, /^L’utilisateur cite #ref1 .* ce qu’il cite n’est pas transmis à l’outil\./);
+        const written = await ask(`generate naming ${stairs.id} for ref1`);
+        assert.equal(written.kind, 'invalid');
+        assert.match(written.message, /\(image à modifier : source\)\.$/);
+      } finally {
+        await close();
+      }
+    }
+  },
+);
+
+test(
+  'an image joined to the message is under the eyes of a large model: not shown to it again before its call (0.6.460)',
+  { timeout: 60000 },
+  async () => {
+    for (const remote of [null, 'openrouter']) {
+      const { ask, upload, attach, close } = await boatsApp({ remote, source: true, vision: true });
+      try {
+        // As the page does it: the image kept as a reference of the project, its file in the conversation.
+        const stairs = await upload(png),
+          conversationId = randomUUID(),
+          said = { type: 'text', text: 'generate with ' + stairs.id };
+        const joined = await ask([said, await attach(png, conversationId)], conversationId);
+        if (remote) {
+          // « You had not looked at these images yet », said of five images joined to « fais-en dans ce genre ».
+          assert.equal(joined.kind, undefined, joined.message ?? joined.note);
+          assert.ok(joined.requestId, 'proposed at once');
+          assert.equal(joined.referenceCount, 1);
+        } else {
+          // The local model keeps its second look at them, a step of its own, as before.
+          assert.equal(joined.kind, 'resource');
+          assert.deepEqual(joined.resourceIds, [stairs.id]);
+        }
+        // The same reference passed and never shown, the message without it: shown to the model first.
+        const passed = await ask([said], randomUUID());
+        assert.equal(passed.kind, 'resource');
+        assert.deepEqual(passed.resourceIds, [stairs.id]);
+      } finally {
+        await close();
+      }
+    }
+  },
+);

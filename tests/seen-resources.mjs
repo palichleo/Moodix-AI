@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SEEN_NOTE, unseenResources } from '../lib/seen-resources.mjs';
+import { SEEN_NOTE, joinedDigests, unseenResources } from '../lib/seen-resources.mjs';
 
 const A = '3c037171-3a50-48bc-9705-9bcbfb223f6a',
   B = 'a34fed7a-57f5-49cc-a0bd-7955eb05d5d2';
@@ -53,4 +53,23 @@ test('nothing to show for a call without images, another tool, or no conversatio
     unseenResources(asked, catalog, call('create_image', { prompt: 'x', source: { resource: 'v' } })),
     [],
   );
+});
+
+test('an image joined to the user’s last message is under the eyes of the model: not shown again (0.6.460)', () => {
+  // Five photos joined to « fais-en dans ce genre » (27/11): « you had not looked at these images yet ».
+  const digest = 'ab'.repeat(32),
+    image = file => ({ type: 'image_url', image_url: { url: 'data:image/png;base64,' }, file }),
+    words = { type: 'text', text: 'une vidéo dans ce genre' },
+    asked = [{ role: 'user', content: [words, image(`original-${digest}.png`)] }];
+  assert.deepEqual(joinedDigests(asked), [digest]);
+  // The references kept from them (Resources.joined, by that digest): seen with the message.
+  assert.deepEqual(unseenResources(asked, catalog, video, { joined: [A] }).map(item => item.id), [B]);
+  assert.deepEqual(unseenResources(asked, catalog, video, { joined: [A, B] }), []);
+  // The digests of the last message the user wrote alone, each once; none from a name that is not an original.
+  const again = { role: 'user', content: [image(`original-${digest}.jpg`), image(`original-${digest}.png`)] };
+  assert.deepEqual(joinedDigests([...asked, { role: 'assistant', content: 'voilà' }, again]), [digest]);
+  assert.deepEqual(joinedDigests([...asked, { role: 'user', content: 'une autre' }]), []);
+  assert.deepEqual(joinedDigests([...asked, { role: 'user', internal: true, content: [image('x')] }]), [digest]);
+  assert.deepEqual(joinedDigests([{ role: 'user', content: [image('copie.png'), image(undefined)] }]), []);
+  assert.deepEqual(joinedDigests(undefined), []);
 });

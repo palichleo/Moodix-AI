@@ -111,6 +111,9 @@ const server = http.createServer(async (req, res) => {
             : text.startsWith('generate naming ')
               ? // The identifier of an image written in the prompt, the image itself left out.
                 { prompt: 'A red boat like ' + text.slice(16, 52) }
+              : text.startsWith('generate with ')
+                ? // (0.6.460) A reference of the project passed as the image to modify, by its id.
+                  { prompt: 'A red boat', source: { resource: text.slice(14, 50) } }
               : text.startsWith('generate from take ')
                 ? // A take named by its number, as the user says it (« la prise 12 »).
                   { prompt: 'A red boat', source: { take: Number(text.slice(19)) } }

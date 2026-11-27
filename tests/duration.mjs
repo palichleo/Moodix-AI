@@ -63,14 +63,17 @@ test('the model asks for seconds; the router picks frames and says when it round
   assert.match(definitions.extend_video.parameters.properties.duration.description, /new footage/);
   const created = await tools.route('create_video', { prompt: 'x', intention: 'y', duration: 10 }, media);
   assert.equal(created.args.frames, 243);
-  assert.match(created.notes.join(), /10 s → 10\.13 s/);
+  // (0.6.460) With the comma of a French sentence (« 14.38 s » was read under a proposal).
+  assert.match(created.notes.join(), /10 s → 10,13 s/);
+  const decimal = await tools.route('create_video', { prompt: 'x', intention: 'y', duration: 2.5 }, media);
+  assert.match(decimal.notes.join(), /^Durée : 2,5 s → 5,17 s, la plus proche que /);
   const extended = await tools.route(
     'extend_video',
     { prompt: 'x', intention: 'y', duration: 3, source: { output: '22222222-2222-4222-8222-222222222222' } },
     media,
   );
   assert.equal(extended.args.frames, 124);
-  assert.match(extended.notes.join(), /ajoutée : 3 s → 4\.25 s/);
+  assert.match(extended.notes.join(), /ajoutée : 3 s → 4,25 s/);
   await assert.rejects(tools.route('create_video', { prompt: 'x', intention: 'y', duration: -1 }, media), /duration/);
 });
 

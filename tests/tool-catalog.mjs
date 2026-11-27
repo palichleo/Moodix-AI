@@ -374,6 +374,40 @@ test('the shipped music workflow gives create_audio its lyrics, length and langu
   );
 });
 
+test('an image to reuse and none to modify: said in words, with what to do (0.6.460)', async () => {
+  const shipped = id => ({
+    ...JSON.parse(readFileSync(new URL(`../runner/workflows/${id}.json`, import.meta.url), 'utf8')),
+    ready: true,
+  });
+  const krea = shipped('fefb88eb-8311-4409-b636-6efbb42e952c'),
+    moss = shipped('3d6f1a8c-2b7e-4f59-9c41-8e0a5d2b7c36'),
+    qwen = shipped('a7601a5d-e43b-4f4e-8871-2d9dc7138bd9'),
+    catalog = catalogOf([krea, moss, qwen]);
+  const refused = await catalog
+    .route('create_image', { prompt: 'A boat in this style', reference: [{ resource: 'r1' }] }, media)
+    .then(() => assert.fail('routed'), error => error);
+  assert.equal(refused.status, 400);
+  // Until then: « Aucun workflow ne correspond à ces entrées pour create_image. fefb88eb-…: no free image slot… ».
+  assert.equal(
+    refused.message,
+    'Aucun modèle d’image ne prend une référence seule : il faut la donner comme image à modifier (source) ' +
+      'pour partir d’elle, ou décrire dans le prompt ce qu’il faut en garder.',
+  );
+  // With the image to modify, Qwen-Image-Edit takes both.
+  const both = await catalog.route(
+    'create_image',
+    { prompt: 'x', source: { resource: 'r2' }, reference: [{ resource: 'r1' }] },
+    media,
+  );
+  assert.equal(both.workflow.id, qwen.id);
+  // A model that takes a reference alone, given more than it has places for: not that, the reasons as before.
+  const others = { ...qwen, id: 'others', references: qwen.references.filter(item => item.role === 'reference_image') },
+    three = { prompt: 'x', reference: [{ resource: 'r1' }, { resource: 'r2' }, { resource: 'r3' }] };
+  await assert.rejects(catalogOf([krea, others]).route('create_image', three, media), /^Error: Aucun workflow ne/);
+  const one = { ...three, reference: [{ resource: 'r1' }] };
+  assert.equal((await catalogOf([krea, others]).route('create_image', one, media)).workflow.id, 'others');
+});
+
 test('music and sound effects: the model names the workflow, and each keeps its own limits', async () => {
   const { readFile } = await import('node:fs/promises');
   const shipped = async id => ({
@@ -405,6 +439,43 @@ test('music and sound effects: the model names the workflow, and each keeps its 
   const song = await catalog.route('create_audio', { workflow: music.id, prompt: 'synth-pop', seconds: 200 }, media);
   assert.equal(song.args.seconds, 200);
   assert.deepEqual(song.notes, []);
+});
+
+test('(0.6.460) music asked for with the music model not downloaded: it is offered to download, never the sound-effect model in its place', async () => {
+  // (27/11, a real request to his chat model: « Fais-moi une musique douce au piano » was proposed with
+  // « Bruitages (MOSS-SoundEffect v2) », the only audio workflow ready there: the model was told of no other.)
+  const { readFile } = await import('node:fs/promises');
+  const shipped = async (id, more) => ({
+    ...JSON.parse(await readFile(new URL(`../runner/workflows/${id}.json`, import.meta.url), 'utf8')),
+    ...more,
+  });
+  const lacks = { ready: false, builtin: true, unavailableKind: 'files', unavailableReason: 'Il manque un fichier.' };
+  const music = await shipped('8a2e5baf-0c02-4077-b36c-482b4e54bb13', lacks),
+    effects = await shipped('84390db5-e4b9-413c-9352-bbac225fe79c', { ready: true });
+  for (const wording of [undefined, CAPABLE]) {
+    const catalog = catalogOf([music, effects]);
+    const tool = (await catalog.definitions(undefined, wording ? { wording } : {})).find(item => item.function.name === 'create_audio').function;
+    // Both are told, each with what it is the one for, and the model must name one.
+    assert.ok(tool.parameters.required.includes('workflow'), String(wording));
+    assert.equal(tool.parameters.properties.workflow.enum.length, 2);
+    assert.match(tool.parameters.properties.workflow.description, /music/);
+    assert.match(tool.parameters.properties.workflow.description, /sound effects/);
+    // Named, the music workflow is the one routed, though it lacks a file: its download is offered (53).
+    const named = tool.parameters.properties.workflow.enum.find(value => value === music.id || value === music.name);
+    const song = await catalog.route('create_audio', { workflow: named, prompt: 'Solo piano, gentle' }, media);
+    assert.deepEqual([song.workflow.id, song.workflow.ready], [music.id, false]);
+    // Unnamed (a model that leaves it out): the ready one, never a download for what a ready workflow makes.
+    const noise = await catalog.route('create_audio', { prompt: 'A door slams' }, media);
+    assert.deepEqual([noise.workflow.id, noise.workflow.ready], [effects.id, true]);
+  }
+  // A workflow that makes anything answers alone: MOSS Image not downloaded is not offered beside Krea 2.
+  const poster = { ...image('moss', []), pipeline: 'moss', ...lacks },
+    plain = { ...image('krea', []), pipeline: 'krea2', ready: true };
+  const pictures = (await catalogOf([plain, poster]).definitions()).find(item => item.function.name === 'create_image').function;
+  assert.equal(pictures.parameters.properties.workflow, undefined);
+  // By hand (the Studio), only what can be made here: nothing that lacks a file is routed.
+  const byHand = await catalogOf([music, effects]).route('create_audio', { prompt: 'A door slams' }, { ...media, byHand: true });
+  assert.equal(byHand.workflow.id, effects.id);
 });
 
 test('a character is replaced in a video by a verb of its own: the video, the image, who is who', async () => {

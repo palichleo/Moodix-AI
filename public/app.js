@@ -25,7 +25,7 @@ import { takeContent } from './generation-runtime.mjs';
 import { setupAssets } from './assets-ui.mjs';
 import { clipPlayer } from './take-player.mjs';
 import { setupCopy } from './copy.mjs';
-import { BOBINE_NOTE, STUDIO_LINE, STUDIO_NOTE, callNote, closedCalls, conversationTitle, lastExchange, settledNotes, spokenText } from './transcript.mjs';
+import { BOBINE_NOTE, STUDIO_LINE, STUDIO_NOTE, callNote, closedCalls, conversationTitle, lastExchange, refusedLine, settledNotes, spokenText } from './transcript.mjs';
 import { setupSettingsGuard } from './settings-guard.mjs';
 import { setupContextMeter } from './context-meter.mjs';
 import { installFromButton, compactSession } from './update-ui.mjs';
@@ -4002,7 +4002,8 @@ async function sendMessage(event) {
           allowTools = false;
           resourceReads = 8;
         }
-        view.note.textContent = 'Appel d’outil refusé : ' + request.message;
+        // (0.6.460) In the user's words (transcript.mjs, refusedLine): the refusal is the model's to read.
+        view.note.textContent = refusedLine(request.message);
         talk().archiveSnapshot = { messages: [...archiveMessages(history)], incomplete: true };
         await persistConversation(talkId);
         view = assistantMessage(view);

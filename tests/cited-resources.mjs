@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { citedImages, citedMessage, citedNote, citedSaid, citedUnused } from '../lib/cited-resources.mjs';
+import { citedAsked, citedImages, citedMessage, citedNote, citedSaid, citedUnused } from '../lib/cited-resources.mjs';
+import { CAPABLE, RAILS } from '../lib/model-wording.mjs';
 
 const girl = { id: '3c037171-3a50-48bc-9705-9bcbfb223f6a', type: 'image', reference: 5, label: 'Ref 5' },
   stairs = { id: 'a34fed7a-57f5-49cc-a0bd-7955eb05d5d2', type: 'image', reference: 6, label: 'Ref 6' },
@@ -35,9 +36,9 @@ test('only the last request counts, only images, only generations, and only once
     assert.deepEqual(citedUnused([user(text)], catalog, startOnly), [], text);
   assert.deepEqual(citedUnused([user('upscale la ref6')], catalog, call({ source: { output: 'x' } }, 'upscale')), []);
 
-  const message = citedMessage([stairs]);
+  const message = citedMessage([stairs], null, { verb: 'create_video' });
   assert.match(message, /Ref 6 \(\{"resource": "a34fed7a-57f5-49cc-a0bd-7955eb05d5d2"\}\)/);
-  assert.match(message, /image de fin, référence ou image de départ/);
+  assert.match(message, /\(image de départ : start_image, image de fin : end_image ou référence : reference\)\./);
   // The refusal is in the conversation as the tool's answer: the model's next call stands.
   const told = [
     user('avec la ref6'),
@@ -148,4 +149,75 @@ test('several references named after one word are all cited: « les refs 5 et 6 
   assert.deepEqual(citedUnused([user('anime les refs 5 et 6')], catalog, startOnly), [stairs]);
   assert.deepEqual(citedUnused([user('les refs 5 et 6')], catalog, call({ prompt: 'x' })), [girl, stairs]);
   assert.deepEqual(citedImages([user('avec les références 5, 6 et 7')], catalog), [girl, stairs]);
+});
+
+test('left out of an image: a capable model is not sent back, the local one is; a video by both (0.6.460)', () => {
+  // « Photo spatiale années 70 » (27/11): five photos joined as examples, ChatGPT sent back for one of them.
+  const asked = [user('une photo dans ce genre, comme la ref6')],
+    image = call({ prompt: 'A seventies space photo' }, 'create_image');
+  assert.deepEqual(citedUnused(asked, catalog, image, { wording: CAPABLE }), []);
+  assert.equal(citedAsked('create_image', CAPABLE), false);
+  // The local model, as before (its wording is the one said when none is).
+  assert.deepEqual(citedUnused(asked, catalog, image, { wording: RAILS }), [stairs]);
+  assert.deepEqual(citedUnused(asked, catalog, image), [stairs]);
+  assert.equal(citedAsked('create_image', RAILS), true);
+  // A video, whoever made the call.
+  for (const name of ['create_video', 'replace_character', 'extend_video'])
+    assert.equal(citedAsked(name, CAPABLE), true, name);
+  for (const name of ['create_video', 'replace_character'])
+    assert.deepEqual(citedUnused(asked, catalog, call({ prompt: 'x' }, name), { wording: CAPABLE }), [stairs], name);
+});
+
+test('the refusal names the roles of the verb called, and for a video how to keep the image out (0.6.460)', () => {
+  // An image has neither a start nor an end: « image de fin, référence ou image de départ » was told for one too.
+  assert.match(
+    citedMessage([stairs], null, { verb: 'create_image' }),
+    /convient à sa demande \(image à modifier : source ou référence : reference\)\.$/,
+  );
+  assert.match(citedMessage([stairs], null, { verb: 'replace_character' }), /demande \(référence : reference\)\. Si /);
+  // The roles its workflow has a place left in, when they are known, before those of the verb.
+  assert.match(
+    citedMessage([stairs], ['end_image'], { verb: 'create_video' }),
+    /demande \(image de fin : end_image\)\. Si /,
+  );
+  // The way out, in the telling itself: a capable model never reads the note of a result.
+  for (const verb of ['create_video', 'extend_video', 'replace_character'])
+    assert.match(
+      citedMessage([stairs], null, { verb }),
+      /\. Si l’utilisateur ne veut pas de cette image dans la vidéo, refais le même appel\.$/,
+      verb,
+    );
+  assert.match(
+    citedMessage([girl, stairs], ['reference'], { verb: 'create_video', byNumber: true }),
+    /^L’utilisateur cite Ref 5 \(\{"ref": 5\}\), Ref 6 .* pas de ces images dans la vidéo, refais le même appel\.$/,
+  );
+  assert.doesNotMatch(citedMessage([stairs], ['source'], { verb: 'create_image' }), /Si l’utilisateur/);
+});
+
+test('« ce qu’il cite n’est pas transmis », and the telling of before is still read as said (0.6.460)', () => {
+  const message = citedMessage([stairs], null, { verb: 'create_video' });
+  assert.match(message, /: ce qu’il cite n’est pas transmis à l’outil\. /);
+  // In a conversation written before: « transmise », said once all the same.
+  const before = message.replace('n’est pas transmis à l’outil', 'n’est pas transmise à l’outil'),
+    told = [
+      user('avec la ref6'),
+      { role: 'assistant', content: '', tool_calls: [startOnly] },
+      { role: 'tool', tool_call_id: 'c1', content: JSON.stringify({ status: 'error', message: before }) },
+    ];
+  assert.notEqual(before, message);
+  assert.equal(citedSaid(told), true);
+  assert.deepEqual(citedUnused(told, catalog, startOnly), []);
+});
+
+test('an image passed by its position among those joined may well be the one named: not sent back (0.6.460)', () => {
+  // « Anime-la », a photo joined and named: passed as {"image": 0}, the model was told it had left it out.
+  const joined = { type: 'image_url', image_url: { url: 'data:image/png;base64,' } },
+    asked = [user([{ type: 'text', text: 'anime la ref6' }, joined])];
+  for (const args of [{ prompt: 'x', start_image: { image: 0 } }, { prompt: 'x', reference: [{ image: 0 }] }])
+    assert.deepEqual(citedUnused(asked, catalog, call(args)), [], JSON.stringify(args));
+  assert.deepEqual(citedUnused(asked, catalog, call({ prompt: 'x', source: { image: 1 } }, 'create_image')), []);
+  // Another image, or arguments that are not JSON: looked at as before.
+  assert.deepEqual(citedUnused(asked, catalog, call({ prompt: 'x', start_image: { output: 'o1' } })), [stairs]);
+  const unfinished = { id: 'c1', function: { name: 'create_video', arguments: '{"start_image": {"image": 0' } };
+  assert.deepEqual(citedUnused(asked, catalog, unfinished), [stairs]);
 });

@@ -64,6 +64,24 @@ export function settledNotes(messages) {
   );
 }
 
+// How the result of a call sent back before anything ran begins its note (app.js, `invalid`).
+const REFUSED = 'Appel refusé avant toute génération.';
+/**
+ * (0.6.460) What the user reads under a call the application sent back to the model before anything ran (app.js,
+ * `invalid`; callNote, read back): that Moodix AI went over its request again, and for the images they named and
+ * it left out, which ones. What the model is told is for the model, its arguments and an order: « Appel d’outil
+ * refusé : L’utilisateur cite #ref9 ({"ref": 9}), … Refais l’appel… » was read by the user, word for word.
+ * « A revu », not « a refait »: sent back a second time, the model answers without a tool (app.js).
+ */
+export function refusedLine(message) {
+  // The images left out (lib/cited-resources.mjs, citedMessage; « transmise » before 0.6.460): their labels.
+  const cited = /^L’utilisateur cite (.+?) : ce qu’il cite n’est pas transmise? à l’outil/.exec(String(message ?? '')),
+    labels = cited?.[1].match(/#ref\d+/g) ?? [];
+  if (!labels.length) return 'Moodix AI a revu sa demande.';
+  const list = labels.length > 1 ? labels.slice(0, -1).join(', ') + ' et ' + labels.at(-1) : labels[0];
+  return `Moodix AI a revu sa demande : ${list} n’y ${labels.length > 1 ? 'étaient' : 'était'} pas.`;
+}
+
 /** What a call left without its result is given in its place: nothing was made of it. */
 export const UNANSWERED =
   'Cette demande n’a pas abouti : rien n’a été produit. Si l’utilisateur la redemande, refais le même appel d’outil.';
@@ -122,6 +140,8 @@ export function callNote(call, result) {
   // Left without a result (closedCalls): nothing was stopped midway, nothing was made.
   if (data.status === 'cancelled' && data.unanswered) return `${made} : demande restée sans suite.`;
   if (data.status === 'cancelled') return `${made} : génération arrêtée avant la fin.`;
+  // (0.6.460) Sent back to the model before anything ran (app.js, `invalid`): the line the user read then.
+  if (data.status === 'error' && String(data.note ?? '').startsWith(REFUSED)) return refusedLine(data.message);
   if (data.status === 'error')
     return `${made} : génération non aboutie` + (data.message ? ` (${String(data.message).replace(/\.$/, '')}).` : '.');
   // A file lacked (its card « Il manque un fichier » gone with the page, 0.6.339): read back, the bubble was empty.

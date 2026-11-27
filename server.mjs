@@ -10,13 +10,13 @@ import {
   resourceTool,
   resourceReadIds,
 } from './lib/resources.mjs';
-import { citedImages, citedMessage, citedSaid, citedUnused, citedNumbers } from './lib/cited-resources.mjs';
+import { citedAsked, citedImages, citedMessage, citedSaid, citedUnused, citedNumbers } from './lib/cited-resources.mjs';
 import { briefMissing, cardBrief, seenBefore, studioBrief } from './lib/video-brief.mjs';
 import { shortTitle, titleRequest } from './lib/conversation-title.mjs';
 import { CAPABLE, CAPABLE_CARD, CAPABLE_STUDIO, capableMessages, screenOf, takesContext, wordingOf } from './lib/model-wording.mjs';
 import { listedSources } from './lib/listed-takes.mjs';
 import { stampRecord } from './lib/media-info.mjs';
-import { SEEN_NOTE, unseenResources } from './lib/seen-resources.mjs';
+import { SEEN_NOTE, joinedDigests, unseenResources } from './lib/seen-resources.mjs';
 import { askedSince, characterOf, characterPrompt, lastReplacement, withScenePrompt } from './lib/scene-prompt.mjs';
 import { planPrompt } from './lib/plan-prompt.mjs';
 import { arrangePlan } from './lib/arrange.mjs';
@@ -3031,10 +3031,17 @@ export async function createApplication({
             }
             const call = nativeFields({ role: 'assistant', tool_calls: calls }).tool_calls[0];
             let request;
-            // Images passed to the generator and never looked at: the model sees them first.
+            // Images passed to the generator and never looked at: the model sees them first. (0.6.460) Those
+            // the user joined to their message are under the eyes of a capable model already (`joined`,
+            // lib/seen-resources.mjs); the local one keeps its second look at them, a step of its own.
             const unseen =
               chat.vision && body.resources !== false && /^[0-9a-f-]{36}$/.test(body.turnId || '')
-                ? unseenResources(body.messages, await resources.catalog(projectOf(body.project)), call)
+                ? unseenResources(body.messages, await resources.catalog(projectOf(body.project)), call, {
+                    joined:
+                      wordingOf(chat.connection) === CAPABLE
+                        ? await resources.joined(projectOf(body.project), joinedDigests(body.messages))
+                        : [],
+                  })
                 : [];
             // (0.6.100) The other prompts of a series are looked at for a large model only: the local
             // one, sent back for them, wrote them in its answer and made no call (lib/thin-prompt.mjs).
@@ -3079,10 +3086,14 @@ export async function createApplication({
             } else
               try {
                 if (takeError) throw takeError;
-                // An image the user named by its label and the model left out: said once.
-                const active = await resources.catalog(projectOf(body.project)),
-                  unused = citedUnused(body.messages, active, call);
-                if (unused.length) throw problem(citedMessage(unused, null, { byNumber: wordingOf(chat.connection) === CAPABLE }), 400);
+                // An image the user named by its label and the model left out: said once. (0.6.460) As the
+                // wording of the model that answers allows (citedAsked: not an image to a capable model), with
+                // the roles of its verb and, for a video, how to keep the image out (`told`).
+                const wording = wordingOf(chat.connection),
+                  active = await resources.catalog(projectOf(body.project)),
+                  unused = citedUnused(body.messages, active, call, { wording }),
+                  told = { byNumber: wording === CAPABLE, verb: call.function.name };
+                if (unused.length) throw problem(citedMessage(unused, null, told), 400);
                 // A character put in a video: its prompt is written here from the frames of the
                 // video and the character, which the model no longer has under its eyes.
                 const replacing = call.function.name === 'replace_character';
@@ -3177,9 +3188,14 @@ export async function createApplication({
                   // Left out though the workflow that serves has a place for it, and the model not
                   // told yet (a continuation is not asked before its routing: the workflow that
                   // continues the clip decides whether an image can go with it): told once.
-                  if (made?.cited?.roles?.length && !citedSaid(body.messages)) {
+                  // (0.6.460) Not an image to a capable model either (citedAsked): its card says what is left out.
+                  if (
+                    made?.cited?.roles?.length &&
+                    citedAsked(call.function.name, wording) &&
+                    !citedSaid(body.messages)
+                  ) {
                     runtime.cancel({ requestId: made.requestId });
-                    throw problem(citedMessage(made.cited.left, made.cited.roles, { byNumber: wordingOf(chat.connection) === CAPABLE }), 400);
+                    throw problem(citedMessage(made.cited.left, made.cited.roles, told), 400);
                   }
                   request = made;
                   // A video the user has not had under their eyes yet (lib/video-brief.mjs): proposed
