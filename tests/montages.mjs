@@ -68,6 +68,18 @@ test('a montage is kept as it is said, plans end to end: nothing else is carried
   assert.deepEqual(validateMontage(film({ plans: [...film().plans, todo] })).plans[3], todo);
   assert.equal('suite' in validateMontage(film({ plans: [...film().plans, { ...todo, todo: { prompt: '', suite: false } }] })).plans[3].todo, false);
   assert.throws(() => validateMontage(film({ plans: [{ ...todo, todo: { prompt: '', suite: 'oui' } }] })), /Prise 1 : suite invalide/);
+  // (0.6.461, Bobine Pro, B04) And the model chosen in its card, the family of its workflow; nothing else.
+  const chosen = { ...todo, todo: { prompt: 'Il se lève.', suite: true, model: 'minimax_h3' } };
+  assert.deepEqual(validateMontage(film({ plans: [...film().plans, chosen] })).plans[3], chosen);
+  for (const model of ['', 'MiniMax', 'a/b', 3, 'x'.repeat(41)])
+    assert.throws(() => validateMontage(film({ plans: [{ ...todo, todo: { prompt: '', model } }] })), /Prise 1 : modèle de la prise à créer invalide/);
+  // (0.6.462, Bobine Pro, B05) Its subjects, images of the project: nine at most, each a creation; an empty list is not kept.
+  const subjects = { ...todo, todo: { prompt: 'Il se lève.', model: 'minimax_h3', subjects: [take(5), take(6)] } };
+  assert.deepEqual(validateMontage(film({ plans: [subjects] })).plans[0].todo, subjects.todo);
+  assert.deepEqual(validateMontage(film({ plans: [{ ...todo, todo: { prompt: '', subjects: [] } }] })).plans[0].todo, { prompt: '' });
+  for (const wrong of [take(5), Array.from({ length: 10 }, (_, at) => take(20 + at))])
+    assert.throws(() => validateMontage(film({ plans: [{ ...todo, todo: { prompt: '', subjects: wrong } }] })), /Prise 1 : sujets de la prise à créer invalides \(9 au plus\)/);
+  assert.throws(() => validateMontage(film({ plans: [{ ...todo, todo: { prompt: '', subjects: [{ runId: 'x' }] } }] })), /Prise 1, sujet/);
   // What the page computes by dragging is rounded to the millisecond: no 0.30000000000000004.
   const dragged = validateMontage(film({ plans: [{ id: id(1), source: take(1), kind: 'video', from: 0.1 + 0.2, to: 1.3004 }] }));
   assert.deepEqual([dragged.plans[0].from, dragged.plans[0].to, montageSeconds(dragged)], [0.3, 1.3, 1]);

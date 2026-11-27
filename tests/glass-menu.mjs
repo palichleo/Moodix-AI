@@ -222,6 +222,27 @@ test('what the page says of a choice (« proposé ») is shown beside its name i
   assert.equal(face.children[0].textContent, '3:2');
 });
 
+test('(0.6.463) what the button shows of the one chosen, shorter (`data-face`), and what follows it (`data-face-more`) in a span of its own that a narrow row can leave out', () => {
+  const root = new Element('div'),
+    select = new Select([['16:9', '16:9 · Paysage'], ['1:1', '1:1 · Carré'], ['auto', 'Auto']], '16:9');
+  Object.assign(select.options[0].dataset, { face: '16:9', faceMore: '1344 × 768' });
+  Object.assign(select.options[1].dataset, { face: '1:1', faceMore: '1024 × 1024' });
+  select.setAttribute('aria-label', 'Format de la bobine');
+  root.append(select);
+  setupGlassSelects(root);
+  const [, face] = root.children,
+    text = face.children[0];
+  assert.equal(text.textContent, '16:9');
+  assert.deepEqual([text.children.at(-1).tagName, text.children.at(-1).className, text.children.at(-1).textContent], ['SPAN', 'glass-select-more', ' 1344 × 768']);
+  // Its name says it whole.
+  assert.equal(face.attributes['aria-label'], 'Format de la bobine : 16:9 1344 × 768');
+  select.value = '1:1';
+  assert.deepEqual([text.textContent, text.children.at(-1).textContent, face.attributes['aria-label']], ['1:1', ' 1024 × 1024', 'Format de la bobine : 1:1 1024 × 1024']);
+  // A choice that says nothing more: its words alone.
+  select.value = 'auto';
+  assert.equal(face.attributes['aria-label'], 'Format de la bobine : Auto');
+});
+
 test('the focus goes from the unseen list to its button, and after a choice stays where `change` put it', () => {
   const root = new Element('div'),
     select = new Select([['krea', 'Image · Krea 2'], ['ltx', 'Vidéo · LTX']], 'krea'),
