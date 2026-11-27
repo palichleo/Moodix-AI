@@ -4011,11 +4011,25 @@ export function setupMontage({
               piece.append(faces);
             }
             // (0.6.152, capture 74) Made in parts: where each part after the first begins, a suite.
-            const { count } = partsOf(item, limits(item));
+            const { count, seconds: each } = partsOf(item, limits(item));
             for (let part = 1; part < count; part++) {
               const cut = node('span', 'bobine-part', '↳ Suite');
               cut.style.left = (100 * part) / count + '%';
               piece.append(cut);
+            }
+            // (0.6.465, check 5 of PROMPT.md) And each part its length at its top right, as a take to create says its own,
+            // when the part is wide enough (moodix.css, .bobine-part-time). The length of the whole take went there, against
+            // the « ↳ SUITE » of its last part (« ↳ SUITE24.50 S »), and read as that of the last part; its card says the
+            // whole (« 3 × 08.17 s »).
+            if (count > 1) {
+              piece.dataset.parts = String(count);
+              for (let part = 0; part < count; part++) {
+                const time = node('span', 'bobine-part-time');
+                time.style.left = (100 * part) / count + '%';
+                time.style.width = 100 / count + '%';
+                time.append(node('span', 'bobine-part-length', mono(each) + ' s'));
+                piece.append(time);
+              }
             }
           }
           if (made) {

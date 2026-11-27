@@ -19704,6 +19704,35 @@ body[data-view='bobine'] .chat-panel {
   border-left-color: color-mix(in srgb, var(--accent) 50%, transparent);
   color: var(--accent);
 }
+/* (0.6.465, vérification 5 de la maquette) Faite en plusieurs fois, chaque partie dit sa durée en haut à droite, comme une
+   prise à créer, si elle fait 150 px ou plus (148 sans ses bords, ce que mesure la requête) : la durée de toute la prise
+   allait contre le « ↳ SUITE » de sa dernière partie (« ↳ SUITE24.50 S ») et s'y lisait comme la sienne. Sa carte dit le
+   tout (« 3 × 08.17 s »). */
+#bobine-view .montage-piece[data-parts] > .montage-piece-length {
+  display: none;
+}
+#bobine-view .bobine-part-time {
+  position: absolute;
+  top: 0;
+  height: 24px;
+  container-type: inline-size;
+  pointer-events: none;
+}
+#bobine-view .bobine-part-length {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  font: 400 10.5px/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--text-3);
+}
+@container (max-width: 147.98px) {
+  #bobine-view .bobine-part-length {
+    display: none;
+  }
+}
 /* (Ce qui se dessine sur la piste Prises, ou s'y pose, a la taille d'une prise.) */
 #bobine-view .montage-track[data-track='plans'] :is(.bobine-ghost, .bobine-drop, .bobine-edge-hint) {
   top: 3px;
