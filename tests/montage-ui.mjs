@@ -936,6 +936,8 @@ test('in the void, a ghost of 5 s follows the pointer; a click lays it (0.6.169)
   g.pointer.up();
   assert.deepEqual(g.ui.state().montage.plans.map(plan => [plan.at, plan.to]), [[0, 30]]);
   assert.deepEqual([g.lines()[0][0], g.said('bobine-line-parts')], ['00.00 → 30.00', ['2 × 15.00 s']]);
+  // (0.6.460, Bobine Pro, B01) Beside its instants, under what it is.
+  assert.deepEqual(g.get('bobine-line-sub')[0].children.map(part => part.className), ['bobine-line-when', 'bobine-line-parts']);
   assert.deepEqual(find(g.plans()[0], 'bobine-part').map(cut => [cut.textContent, cut.style.left]), [['↳ Suite', '50%']]);
 });
 
@@ -2965,17 +2967,27 @@ test('the styles of the request: above « Créer », what is laid is said above 
     return css.slice(at, css.indexOf('}', at));
   };
   // (0.6.456, Bobine Pro, B01) In the flow of « À créer », 10 px above the button; its field 44 px high, growing
-  // upwards over the list, which narrows.
-  assert.match(rule('.bobine-ask'), /flex: none;[\s\S]*margin: 0 0 10px;/);
+  // upwards over the list, which narrows. (0.6.460, B06) The 10 px are the button's: they were 22 (both margins).
+  assert.match(rule('.bobine-ask'), /flex: none;[\s\S]*margin: 10px 0 0;/);
+  assert.match(css, /\n#bobine-view \.bobine-create \.bobine-foot \{\n  margin-top: 10px;\n\}/);
+  // (0.6.460) 8 px in a low window (1280 × 720), where a card holds whole above them, its text on one line at first
+  // (the model missing, what is said above the button leaves 140 px to the list: two lines made it 156).
+  assert.match(css, /@media \(max-height: 760px\) \{\n  #bobine-view \.bobine-panel-head \{\n    height: 40px;\n  \}[\s\S]*?#bobine-view \.bobine-create \.bobine-ask,\n  #bobine-view \.bobine-create \.bobine-foot \{\n    margin-top: 8px;/);
+  assert.match(css, /@media \(max-height: 760px\) \{[\s\S]*?#bobine-view \.bobine-desk textarea\.bobine-line-words \{\n    min-height: calc\(1lh \+ 18px\);\n  \}/);
   assert.doesNotMatch(rule('.bobine-ask'), /position|height: 40px/);
   assert.match(rule('.bobine-ask-stack'), /display: flex;\n  flex-direction: column;\n  align-items: stretch;\n  gap: 8px;/);
   assert.doesNotMatch(rule('.bobine-ask-stack'), /position: absolute/);
-  assert.match(rule('.bobine-ask-field'), /min-height: 44px;\n  padding: 5px 5px 5px 12px;/);
+  assert.match(rule('.bobine-ask-field'), /box-sizing: border-box;\n  min-height: 44px;\n  padding: 6px 7px 6px 12px;/);
+  assert.match(rule('.bobine-ask-send'), /width: 30px;\n  height: 30px;/);
+  // (0.6.460, B06) What was laid, on the panel itself, 4 px in from the edges of the field: its plate only once unfolded.
+  const done = css.match(/\n\.bobine-ask-done \{[^}]*\}/)?.[0] ?? '';
+  assert.match(done, /padding: 0 4px;/);
+  assert.doesNotMatch(done, /background|border:/);
   // (Seen in the real page: what is said above the field went out of its plate; at 1280 wide, the invitation of the
   // field took two lines.)
   assert.match(rule('.bobine-ask-stack'), /white-space: normal;/);
   assert.match(rule('#bobine-view .bobine-desk textarea.bobine-ask-words::placeholder'), /white-space: nowrap;\n  text-overflow: ellipsis;/);
-  assert.match(css, /#bobine-view \.bobine-desk textarea\.bobine-ask-words \{\n  flex: 1 1 auto;\n  field-sizing: content;[\s\S]*?max-height: calc\(5lh \+ 14px\);/);
+  assert.match(css, /#bobine-view \.bobine-desk textarea\.bobine-ask-words \{\n  flex: 1 1 auto;\n  field-sizing: content;[\s\S]*?max-height: calc\(5lh \+ 10px\);/);
   assert.doesNotMatch(rule('.bobine-ask-answer'), /max-content/);
   assert.match(rule('.bobine-ask-said'), /max-height: 260px;\n  overflow-y: auto;/);
   assert.match(css, /\n\[hidden\] \{\n  display: none !important;\n\}/);
@@ -3651,13 +3663,14 @@ test('(0.6.200) why a take to create failed is said before its field, two lines 
   await settle();
   await settle();
   const [failed, next] = f.get('bobine-line');
-  assert.deepEqual(failed.children.map(part => part.className), ['bobine-line-top', 'bobine-line-middle', 'bobine-line-reason', 'bobine-line-field']);
-  assert.deepEqual(next.children.map(part => part.className), ['bobine-line-top', 'bobine-line-middle', 'bobine-line-field']);
+  assert.deepEqual(failed.children.map(part => part.className), ['bobine-line-top', 'bobine-line-reason', 'bobine-line-field', 'bobine-line-middle']);
+  assert.deepEqual(next.children.map(part => part.className), ['bobine-line-top', 'bobine-line-field', 'bobine-line-middle']);
   const { readFile } = await import('node:fs/promises');
   const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
   const rule = selector => css.slice(css.lastIndexOf(selector + ' {'), css.indexOf('}', css.lastIndexOf(selector + ' {')));
-  // (0.6.210) Two whole lines: its margins (18 px) and its frame (2 px) beside them.
-  assert.match(rule('#bobine-view .bobine-desk .bobine-line:has(.bobine-line-reason) textarea.bobine-line-words'), /max-height: calc\(2lh \+ 20px\);/);
+  // (0.6.210) Two whole lines: its margins and its frame beside them. (0.6.460, Bobine Pro) 16 px and 2 px; two lines, no
+  // more and no less (the card's field is 66 px at least otherwise).
+  assert.match(rule('#bobine-view .bobine-desk .bobine-line:has(.bobine-line-reason) textarea.bobine-line-words'), /min-height: calc\(2lh \+ 18px\);\s+max-height: calc\(2lh \+ 18px\);/);
 });
 
 test('a part laid by the page that asked for it is never laid again on what is left of its take (0.6.181)', async () => {
@@ -4181,7 +4194,7 @@ test('(0.6.210) while a take is made, the pieces of every line and their « + »
   assert.equal(f.notices.at(-1), why);
 });
 
-test('(0.6.210) the styles of the pieces of a line: 26 px high, 12 px words; 6 px above the first line and under the last; three lines of text while a take is made', async () => {
+test('(0.6.210) the styles of the pieces of a line: 26 px high, 12 px words; (0.6.460) each line a card; three lines of text while a take is made', async () => {
   const { readFile } = await import('node:fs/promises');
   // (`nth`: the rule of that name written again further down the sheet, where it is.)
   const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n'),
@@ -4197,19 +4210,21 @@ test('(0.6.210) the styles of the pieces of a line: 26 px high, 12 px words; 6 p
   assert.match(rule('#bobine-view .bobine-piece-add'), /width: 26px;\s+height: 26px;/);
   assert.match(rule('#bobine-view .bobine-piece:disabled,\n#bobine-view .bobine-piece-add:disabled'), /opacity: 0\.45;/);
   assert.match(rule("#bobine-view .bobine-piece[data-missing='true']"), /border-color: rgba\(214, 160, 90, 0\.55\);/);
-  // (Captures 103 and 103b) To hold at 1280 × 720.
-  assert.match(rule('#bobine-view .bobine-lines > .bobine-line:first-child'), /padding-top: 6px;/);
-  assert.match(rule('#bobine-view .bobine-lines > .bobine-line:last-child'), /padding-bottom: 6px;/);
-  assert.match(rule("#bobine-view .bobine-desk .bobine-line[data-state='making'] textarea.bobine-line-words"), /max-height: calc\(3lh \+ 20px\);/);
+  // (Captures 103 and 103b) To hold at 1280 × 720. (0.6.460, Bobine Pro, B01) Each line a card: no margins to take
+  // off above the first and under the last any more.
+  assert.doesNotMatch(css, /\.bobine-lines > \.bobine-line:(first|last)-child/);
+  assert.match(rule('.bobine-line'), /gap: 11px;\n  padding: 11px;\n  border: 1px solid rgba\(238, 232, 222, 0\.07\);\n  border-radius: 10px;\n  background: rgba\(238, 232, 222, 0\.035\);/);
+  assert.match(rule("#bobine-view .bobine-desk .bobine-line[data-state='making'] textarea.bobine-line-words"), /max-height: calc\(3lh \+ 18px\);/);
   // Never a line cut in two at the foot of the field (it showed in capture 103): a whole number of lines (its
-  // margins, 18 px, and its frame, 2 px, beside them: the frame was taken from the last one), and its bottom
+  // margins, 16 px, and its frame, 2 px, beside them: the frame was taken from the last one), and its bottom
   // margin, where the top of the next line showed, covered by the ground of the field; a block, which left 6 px
-  // empty under it.
+  // empty under it. (0.6.460, B01) 66 px at least: two lines and 8 px more, as on the mockup.
   const field = rule('#bobine-view .bobine-desk textarea.bobine-line-words', 1);
   assert.match(field, /display: block;/);
-  assert.match(field, /min-height: calc\(2lh \+ 20px\);\s+max-height: calc\(4lh \+ 20px\);/);
+  assert.match(field, /min-height: calc\(2lh \+ 26px\);\s+max-height: calc\(4lh \+ 18px\);/);
+  assert.match(rule('#bobine-view .bobine-desk textarea.bobine-line-words'), /padding: 8px 10px;[\s\S]*line-height: 20px;/);
   const cover = rule('#bobine-view .bobine-line-field::after');
-  assert.match(cover, /bottom: 1px;\s+left: 1px;\s+height: 9px;/);
+  assert.match(cover, /bottom: 1px;\s+left: 1px;\s+height: 8px;/);
   assert.match(cover, /background: var\(--field\);/);
   assert.match(cover, /right: 12px;/);
   assert.match(cover, /pointer-events: none;/);
@@ -5129,4 +5144,54 @@ test('(0.6.459, Bobine Pro, B01) a take to create says its model at its bottom r
   assert.deepEqual([f.ui.state().head, f.plans()[1].dataset.under, f.plans()[0].dataset.under], [6, 'true', undefined]);
   f.press(f.get('montage-ruler')[0], 450);
   assert.equal(f.plans()[1].dataset.under, 'false');
+});
+
+test('(0.6.460, Bobine Pro, B01) « À créer »: a card by take to create, what it is above its instants, its model at the right, its text, then its pieces; the head on its take lights its edge', async () => {
+  const stored = {
+    schemaVersion: 1,
+    id: id(970),
+    name: 'La mer',
+    format: '16:9',
+    width: 1344,
+    height: 768,
+    fps: 24,
+    sounds: [],
+    plans: [
+      { id: id(971), at: 0, kind: 'video', source: { conversationId: C, runId: id(1), output: 0 }, from: 0, to: 5, frame: 'fit', volume: 1 },
+      { id: id(972), at: 5, kind: 'video', todo: { prompt: '', suite: true }, from: 0, to: 4, frame: 'fit', volume: 1 },
+    ],
+  };
+  const f = await setup({ stored: [stored], estimate: async () => ({ workflowName: 'LTX 2.5' }) }).open();
+  await settle();
+  const card = () => f.get('bobine-line')[0],
+    [top, field, pieces] = card().children;
+  assert.deepEqual(card().children.map(part => part.className), ['bobine-line-top', 'bobine-line-field', 'bobine-line-middle']);
+  // What it is in words, its images being its pieces: the name of the row of its pieces says it whole.
+  const [heading, right] = top.children,
+    [title, times] = heading.children;
+  assert.deepEqual(
+    [heading.className, title.className, title.textContent, times.className, find(times, 'bobine-line-when')[0].textContent, right.className, right.textContent],
+    ['bobine-line-head', 'bobine-line-title', pieces.attributes['aria-label'], 'bobine-line-sub', '05.00 → 09.00', 'bobine-line-right', 'LTX 2.5'],
+  );
+  assert.match(title.textContent, /^Suite de la prise \d+$/);
+  assert.deepEqual([find(field, 'bobine-line-words')[0].placeholder, f.pieces()], ['Ce qui se passe dans cette prise', [['À prolonger', '+']]]);
+  // The head at the start of the bobine, then on its take (said without drawing « À créer » again), then past it.
+  assert.equal(card().dataset.under, 'false');
+  const drawn = card();
+  f.press(f.get('montage-ruler')[0], 300);
+  assert.deepEqual([f.ui.state().head, card().dataset.under], [6, 'true']);
+  assert.equal(card(), drawn);
+  f.press(f.get('montage-ruler')[0], 450);
+  assert.equal(card().dataset.under, 'false');
+  // Its edge, the accent at 34 %; lighter under the pointer; amber once failed (moodix.css).
+  const { readFile } = await import('node:fs/promises');
+  const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n'),
+    rule = selector => css.slice(css.lastIndexOf('\n' + selector + ' {'), css.indexOf('}', css.lastIndexOf('\n' + selector + ' {')));
+  assert.match(rule(".bobine-line[data-under='true']"), /border-color: color-mix\(in srgb, var\(--accent\) 34%, transparent\);/);
+  assert.match(rule(".bobine-line[data-linked='true']"), /border-color: rgba\(238, 232, 222, 0\.22\);/);
+  assert.match(css, /\n\.bobine-line\[data-state='failed'\],\n\.bobine-line\[data-state='failed'\]\[data-linked='true'\] \{\n  border-color: rgba\(214, 160, 90, 0\.42\);/);
+  assert.match(rule('.bobine-line-title'), /font: 500 13\.5px\/1\.3 var\(--font-ui\);/);
+  // (The edge of its field without the id of the page: the amber of a failure, and the tint under the wand, go over it.)
+  assert.match(rule('.bobine-line textarea.bobine-line-words'), /border-color: rgba\(238, 232, 222, 0\.06\);/);
+  assert.doesNotMatch(css.match(/\n#bobine-view \.bobine-desk textarea\.bobine-line-words \{[^}]*\}/)[0], /border-color|background/);
 });

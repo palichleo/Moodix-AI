@@ -1389,7 +1389,8 @@ try {
         const box = document.querySelector('#bobine-view .bobine-ask-field'), parts = box ? [...box.children] : [], at = parts.findIndex(part => part.matches('.dictation-mic.in-bobine'));
         if (document.body.dataset.view !== 'bobine' || at < 1 || !parts[at - 1].matches('.bobine-ask-words') || !parts[at + 1]?.matches('.bobine-ask-send')) return false;
         const a = parts[at].getBoundingClientRect(), b = parts[at + 1].getBoundingClientRect();
-        return Math.round(a.width) === 32 && Math.round(a.height) === 32 && ${beside('a', 'b')} && parts[at].getAttribute('aria-disabled') === 'true';
+        // (0.6.460, Bobine Pro, B06) 30 px, as its arrow.
+        return Math.round(a.width) === 30 && Math.round(a.height) === 30 && ${beside('a', 'b')} && parts[at].getAttribute('aria-disabled') === 'true';
       })()`), { within: 2500 });
     // Without its model, a click says why.
     await run('Dictée : sans son modèle, elle dit pourquoi', () => click(bobineMic), () =>
@@ -1590,8 +1591,11 @@ try {
           const field = document.querySelector('#studio-view .studio-prompt-field.is-dictating'), strip = field?.querySelector(':scope > .dictation-strip.in-studio'), corner = field?.querySelector(':scope > .studio-enrich'),
             wand = corner?.querySelector('.studio-enrich-go'), mic = corner?.querySelector('.dictation-mic'), go = document.querySelector('#studio-view .studio-go');
           if (!strip?.getClientRects().length || !wand || !mic || !go) return false;
-          const a = strip.getBoundingClientRect(), b = corner.getBoundingClientRect(), box = field.getBoundingClientRect();
-          return strip.querySelectorAll('.dictation-bars > i').length === 16 && ${beside('a', 'b')} && a.left > box.left && wand.disabled && (wand.dataset.tip || wand.title) === ${said(DICTATING)} &&
+          // (0.6.460) A sound heard first, as in the chat: the browser's microphone beeps from time to time, and stopped
+          // before its first beep (a busy computer), the page rightly says « Le micro n’a rien entendu », a notice that
+          // then covered the steps after it.
+          const a = strip.getBoundingClientRect(), b = corner.getBoundingClientRect(), box = field.getBoundingClientRect(), bars = [...strip.querySelectorAll('.dictation-bars > i')];
+          return bars.length === 16 && bars.some(bar => parseFloat(bar.style.height) > 4) && ${beside('a', 'b')} && a.left > box.left && wand.disabled && (wand.dataset.tip || wand.title) === ${said(DICTATING)} &&
             go.disabled && (go.dataset.tip || go.title) === ${said(DICTATING)} && mic.classList.contains('is-listening') && document.getElementById('studio-prompt').placeholder === ${said(LISTEN_PLACEHOLDER)};
         })()`),
       { within: 4000 },

@@ -1266,8 +1266,13 @@ export function setupMontage({
     if (live.clock && live.clock.textContent !== time) live.clock.textContent = time;
     if (live.whole && live.whole.textContent !== whole) live.whole.textContent = whole;
     if (live.head && live.head.style.left !== left) live.head.style.left = left;
-    // (0.6.459, Bobine Pro, B01) The take to create under the head: its dashes lit (moodix.css).
-    for (const { piece, from, to } of live.under ?? []) {
+    // (0.6.459, Bobine Pro, B01) The take to create under the head: its dashes lit (moodix.css). (0.6.460) And the
+    // edge of its card in « À créer ».
+    lightUnder(live.under);
+    lightUnder(live.underCards);
+  }
+  function lightUnder(list = []) {
+    for (const { piece, from, to } of list) {
       const under = String(head >= from - 1e-6 && head < to - 1e-6);
       if (piece.dataset.under !== under) piece.dataset.under = under;
     }
@@ -2045,6 +2050,8 @@ export function setupMontage({
   /**
    * (0.6.148) « À créer », always there (capture 70): one line by take to create, in the order of the
    * bobine, its instants, what it is, its model, and its text, written in place. Then the button.
+   * (0.6.460, Bobine Pro, B01) Each line a card: what it is (« Suite de la prise 86 ») and its instants under it, its
+   * model at the right; its text; then its pieces. The head of the timeline on its take: its edge lit (lightUnder).
    */
   function createPanel() {
     const { section, body } = block('is-settings', 'bobine-create'),
@@ -2059,6 +2066,7 @@ export function setupMontage({
     live.models = new Map();
     live.states = new Map();
     live.lines = new Map();
+    live.underCards = [];
     live.wand = live.agent = null;
     // (0.6.153, capture 89) The model a take needs and this computer lacks: said once, above the button.
     let absent = null;
@@ -2089,7 +2097,18 @@ export function setupMontage({
       // (0.6.153, captures 84 et 85) What has a text can be enriched; just enriched, it lights up a moment.
       line.dataset.enrichable = String(Boolean(enrich) && Boolean(item.prompt));
       if (lit === item.id) line.dataset.lit = 'true';
-      top.append(node('span', 'bobine-line-when', `${mono(starts[index])} → ${mono(starts[index] + plan.to - plan.from)}`), right);
+      // (0.6.460, Bobine Pro, B01) What it is, in words (« Suite de la prise 86 », « Nouvelle prise »: its images are its
+      // pieces), its instants under it, in mono; made in parts, how many, of how long each, beside them (capture 74).
+      const from = starts[index],
+        to = from + plan.to - plan.from,
+        heading = node('div', 'bobine-line-head'),
+        times = node('span', 'bobine-line-sub');
+      times.append(node('span', 'bobine-line-when', `${mono(from)} → ${mono(to)}`));
+      if (item.parts > 1) times.append(node('span', 'bobine-line-parts', `${item.parts} × ${mono(item.part)} s`));
+      heading.append(node('span', 'bobine-line-title', whatOf(plan).split(' · ')[0]), times);
+      top.append(heading, right);
+      line.dataset.under = String(head >= from - 1e-6 && head < to - 1e-6);
+      live.underCards.push({ piece: line, from, to });
       Object.assign(field, { value: plan.todo.prompt, rows: 2, maxLength: 4000, disabled: busy() || enrichingId === item.id });
       // (0.6.194, audit of 21/11, A4) Empty, it says what it is for; not while Moodix AI writes in it.
       if (!written) field.placeholder = 'Ce qui se passe dans cette prise';
@@ -2113,21 +2132,19 @@ export function setupMontage({
       line.onpointerenter = () => linked(item.id, true);
       line.onpointerleave = () => linked(item.id, false);
       if (hovered === item.id) line.dataset.linked = 'true';
-      // (0.6.152, capture 74) Made in parts: how many, of how long each, at the right of what it is.
       // (0.6.210, captures 103 and 104) Its pieces where what it is was written (« Nouvelle prise · image de
-      // fin »): those words stay the name of that row, for a screen reader.
+      // fin »): those words stay the name of that row, for a screen reader. (0.6.460, B01) Under its text.
       const middle = node('div', 'bobine-line-middle'),
         box = node('div', 'bobine-line-field');
       middle.setAttribute('role', 'group');
       middle.setAttribute('aria-label', whatOf(plan));
       middle.append(piecesOf(plan, model));
-      if (item.parts > 1) middle.append(node('span', 'bobine-line-parts', `${item.parts} × ${mono(item.part)} s`));
       box.append(field);
       if (written) box.append(node('span', 'bobine-line-writing', 'Moodix AI écrit'));
       if (enrichingId === item.id) box.append(node('span', 'bobine-line-writing', 'Moodix AI enrichit'));
       // (0.6.200) Why it failed before its field, read without scrolling at 1280 × 720 (its field two lines high
       // then, moodix.css): after it, the reason was under the fade of the list.
-      line.append(top, middle, ...(reason ? [node('p', 'bobine-line-reason', reason)] : []), box);
+      line.append(top, ...(reason ? [node('p', 'bobine-line-reason', reason)] : []), box, middle);
       live.models.set(item.id, right);
       live.states.set(item.id, right);
       live.lines.set(item.id, line);

@@ -17407,41 +17407,88 @@ body[data-view='bobine'] .chat-panel {
   text-transform: uppercase;
   color: var(--ink);
 }
-/* « À créer », toujours là (capture 70). (0.6.456, Bobine Pro, B01) Sa tête est celle de « Prises » : plus de titre en Gloock. */
+/* « À créer », toujours là (capture 70). (0.6.456, Bobine Pro, B01) Sa tête est celle de « Prises » : plus de titre en Gloock.
+   (0.6.460) 11 px entre son bord et ce qu'il contient, mesurés sur B01 et B06. */
 #bobine-view .studio-block.bobine-create {
-  --block-pad: 0 12px 12px;
+  --block-pad: 0 11px 11px;
 }
 #bobine-view .bobine-create > .studio-block-body {
   gap: 0;
 }
+/* (0.6.460, Bobine Pro, B01) Une carte par prise à créer, 8 px entre deux ; la première à 2 px sous la tête, comme sur la
+   maquette. */
 .bobine-lines {
   flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   min-height: 0;
+  padding-top: 1px;
   overflow-y: auto;
   scrollbar-width: thin;
 }
+/* La carte : un fond à 3,5 %, un liseré à 7 %, des coins de 10, 11 px autour de ce qu'elle dit, 11 px entre ses parties
+   (ce qu'elle est, son texte, ses pièces). */
 .bobine-line {
+  flex: none;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 12px 0;
-  border-top: 1px solid rgba(238, 232, 222, 0.06);
+  gap: 11px;
+  padding: 11px;
+  border: 1px solid rgba(238, 232, 222, 0.07);
+  border-radius: 10px;
+  background: rgba(238, 232, 222, 0.035);
   cursor: pointer;
+  transition: border-color 0.15s ease;
 }
-.bobine-line:first-child {
-  border-top: 0;
-}
+/* En haut, ce qu'elle est (« Suite de la prise 86 », Jost 13,5 px) et dessous ses instants, en mono ; son modèle à droite,
+   dans une case de 26 px. */
 .bobine-line-top {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 10px;
 }
-.bobine-line-when,
-.bobine-line-right {
-  font: 400 12px/1.2 var(--font-mono);
+.bobine-line-head {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.bobine-line-title {
+  overflow: hidden;
+  font: 500 13.5px/1.3 var(--font-ui);
+  color: var(--text-1);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.bobine-line-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.bobine-line-when {
+  font: 400 10.5px/1.3 var(--font-mono);
   letter-spacing: 0.04em;
-  color: var(--muted);
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.bobine-line-right {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  font: 400 10.5px/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
   white-space: nowrap;
 }
 .bobine-line[aria-pressed='true'] .bobine-line-when {
@@ -17455,12 +17502,22 @@ body[data-view='bobine'] .chat-panel {
 .bobine-line[data-state='failed'] .bobine-line-right {
   color: var(--warning);
 }
+/* (0.6.460, Bobine Pro, B01 et B06) Son texte dans un puits plus sombre que la carte (le fond des champs du bureau), aux
+   coins de 8 : une ligne tous les 20 px, à 8 px de son haut et 10 px de son bord. (Son liseré sans l'identifiant de la
+   page : l'ambre d'un échec, plus bas, passe devant.) */
 #bobine-view .bobine-desk textarea.bobine-line-words {
-  padding: 9px 11px;
-  border-radius: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
   font-size: 13px;
-  line-height: 1.45;
+  font-weight: 400;
+  line-height: 20px;
   resize: none;
+}
+.bobine-line textarea.bobine-line-words {
+  border-color: rgba(238, 232, 222, 0.06);
+}
+#bobine-view .bobine-desk textarea.bobine-line-words::placeholder {
+  color: var(--text-4);
 }
 .bobine-line[data-state='failed'] textarea.bobine-line-words {
   border-color: rgba(214, 160, 90, 0.55);
@@ -17884,12 +17941,14 @@ body[data-view='bobine'] .chat-panel {
   align-items: baseline;
   gap: 10px;
 }
+/* (0.6.460, Bobine Pro, B01) À côté de ses instants, en mono comme eux. */
 .bobine-line-parts {
   flex: none;
-  font: 400 12px/1.2 var(--font-mono);
+  font: 400 10.5px/1.3 var(--font-mono);
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--text-3);
+  white-space: nowrap;
 }
 .bobine-part {
   position: absolute;
@@ -17996,8 +18055,8 @@ body[data-view='bobine'] .chat-panel {
 }
 .bobine-line-writing {
   position: absolute;
-  top: 11px;
-  left: 12px;
+  top: 13px;
+  left: 11px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -18055,10 +18114,21 @@ body[data-view='bobine'] .chat-panel {
 .montage-piece[data-enriching='true'] {
   filter: brightness(1.15);
 }
-/* La liste et la piste se répondent (capture 78) : la ligne sous le pointeur et sa prise, avec ses photos. */
+/* La liste et la piste se répondent (capture 78) : la ligne sous le pointeur et sa prise, avec ses photos.
+   (0.6.460, Bobine Pro, B01) Le liseré de sa carte s'éclaire ; la tête de lecture sur sa prise, il passe à l'accent (34 %),
+   plus vif sous le pointeur ; l'ambre d'un échec reste. */
 .bobine-line[data-linked='true'] {
-  box-shadow: 0 0 0 1px rgba(238, 232, 222, 0.32);
-  border-radius: 10px;
+  border-color: rgba(238, 232, 222, 0.22);
+}
+.bobine-line[data-under='true'] {
+  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+}
+.bobine-line[data-under='true'][data-linked='true'] {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.bobine-line[data-state='failed'],
+.bobine-line[data-state='failed'][data-linked='true'] {
+  border-color: rgba(214, 160, 90, 0.42);
 }
 .bobine-desk:not([data-wand='true']) .montage-piece[data-linked='true'] {
   outline: 1px solid rgba(238, 232, 222, 0.7);
@@ -18323,19 +18393,21 @@ body[data-view='bobine'] .chat-panel {
   max-width: calc(100% - 74px);
 }
 /* (Le texte d’une prise à créer, entier jusqu’à quatre lignes : il grandit avec lui, jamais une ligne coupée en deux.)
-   (0.6.210) Ses marges (18 px) et son cadre (2 px) en plus de ses lignes : le cadre était pris sur la dernière
-   (3,87 lignes vues pour 4). Un bloc : il laissait 6 px vides sous lui, comme un mot dans une ligne. */
+   (0.6.210) Ses marges et son cadre en plus de ses lignes : le cadre était pris sur la dernière (3,87 lignes vues
+   pour 4). Un bloc : il laissait 6 px vides sous lui, comme un mot dans une ligne. (0.6.460, Bobine Pro, B01) Ses
+   marges font 16 px : 66 px au moins, comme sur la maquette (deux lignes et 8 px de plus), quatre lignes au plus. */
 #bobine-view .bobine-desk textarea.bobine-line-words {
   display: block;
   field-sizing: content;
   height: auto;
-  min-height: calc(2lh + 20px);
-  max-height: calc(4lh + 20px);
+  min-height: calc(2lh + 26px);
+  max-height: calc(4lh + 18px);
 }
 /* (0.6.200) A take whose creation failed: why, before its field, and its field two lines high (it scrolls in
    it), so that the reason is read without scrolling « À créer » at 1280 × 720. */
 #bobine-view .bobine-desk .bobine-line:has(.bobine-line-reason) textarea.bobine-line-words {
-  max-height: calc(2lh + 20px);
+  min-height: calc(2lh + 18px);
+  max-height: calc(2lh + 18px);
 }
 /* (Ce que montre l’aperçu, « PRISE 4 », « À CRÉER · SUITE DE LA PRISE 5 » : sur la plaque sombre des étiquettes, captures 70 et 83.) */
 /* (0.6.457, Bobine Pro, B01) Seulement sur une prise à créer (ou introuvable), à 12 px du coin. En mono de 10,5 px
@@ -18355,21 +18427,8 @@ body[data-view='bobine'] .chat-panel {
   display: none;
 }
 
-/* ------------------------------------------------------------------ La Bobine, relecture de ses captures (0.6.157) */
-/* La ligne survolée d’« À créer » (capture 78) : un cadre arrondi à dix pixels de ce qu’elle dit ; la liste
-   lui laisse cette place sur les côtés, sans que son texte bouge. */
-#bobine-view .bobine-lines {
-  margin-inline: -10px;
-  padding-inline: 10px;
-}
-#bobine-view .bobine-line {
-  margin-inline: -10px;
-  padding-inline: 10px;
-  border-radius: 10px;
-}
-#bobine-view .bobine-line[data-linked='true'] {
-  box-shadow: inset 0 0 0 1px rgba(238, 232, 222, 0.32);
-}
+/* (0.6.157) La ligne survolée d’« À créer » (capture 78) avait un cadre à dix pixels de ce qu’elle dit, pris sur les bords
+   de la liste : (0.6.460) c’est une carte, son liseré s’éclaire (plus haut). */
 
 /* ------------------------------------------------------------------ La Bobine, les pièces d’une ligne (0.6.210) */
 /* (Captures 103, 103b et 104 ; LOTS.md, lot 13) Les pièces d’une prise à créer dans sa ligne, là où « Nouvelle
@@ -18534,31 +18593,24 @@ body[data-view='bobine'] .chat-panel {
 .glass-menu .bobine-pick-item[aria-pressed='true'] {
   border-color: var(--accent);
 }
-/* Pour tenir en 1280 × 720 avec les pièces (captures 103 et 103b) : 6 px au lieu de 12 au-dessus de la
-   première ligne et sous la dernière (12 entre deux lignes, comme avant) ; pendant qu’une prise se fait, son
-   texte sur trois lignes au plus (il ne peut pas changer alors), quatre au repos ; au-delà, il défile dans
-   son champ. */
-#bobine-view .bobine-lines > .bobine-line:first-child {
-  padding-top: 6px;
-}
-#bobine-view .bobine-lines > .bobine-line:last-child {
-  padding-bottom: 6px;
-}
+/* Pour tenir en 1280 × 720 avec les pièces (captures 103 et 103b) : pendant qu’une prise se fait, son texte sur
+   trois lignes au plus (il ne peut pas changer alors), quatre au repos ; au-delà, il défile dans son champ.
+   (0.6.460) Chaque ligne est une carte : plus de marges à retirer au-dessus de la première et sous la dernière. */
 #bobine-view .bobine-desk .bobine-line[data-state='making'] textarea.bobine-line-words {
-  max-height: calc(3lh + 20px);
+  max-height: calc(3lh + 18px);
 }
 /* (0.6.210) « Jamais une ligne coupée en deux » au pied du champ, pour de bon (on la voyait dans la capture
    103) : un texte plus long que le champ montrait le haut de la ligne suivante dans sa marge du bas. Le champ
    fait un nombre entier de lignes (plus haut), et sa marge du bas ne montre plus de texte : elle est couverte
-   par le fond du champ, sauf sa barre de défilement. */
+   par le fond du champ, sauf sa barre de défilement. (0.6.460) 8 px, sa marge, sous des coins de 8. */
 #bobine-view .bobine-line-field::after {
   content: '';
   position: absolute;
   right: 12px;
   bottom: 1px;
   left: 1px;
-  height: 9px;
-  border-radius: 0 0 0 9px;
+  height: 8px;
+  border-radius: 0 0 0 7px;
   background: var(--field);
   pointer-events: none;
 }
@@ -18661,7 +18713,12 @@ body[data-view='bobine'] .chat-panel {
 .bobine-ask {
   flex: none;
   min-width: 0;
-  margin: 0 0 10px;
+  margin: 10px 0 0;
+}
+/* (0.6.460, Bobine Pro, B06) 10 px entre le champ et le bouton (22 avant : la marge du champ et celle du bouton), comme
+   entre ce qui est dit au-dessus du bouton et lui. */
+#bobine-view .bobine-create .bobine-foot {
+  margin-top: 10px;
 }
 .bobine-ask-stack {
   display: flex;
@@ -18670,12 +18727,14 @@ body[data-view='bobine'] .chat-panel {
   gap: 8px;
   white-space: normal;
 }
+/* (0.6.460, Bobine Pro, B06) 44 px : la flèche de 30 px à 6 px du haut et 7 px du bord. */
 .bobine-ask-field {
   display: flex;
   align-items: flex-end;
   gap: 6px;
+  box-sizing: border-box;
   min-height: 44px;
-  padding: 5px 5px 5px 12px;
+  padding: 6px 7px 6px 12px;
   border: 1px solid rgba(238, 232, 222, 0.1);
   border-radius: 10px;
   background: rgba(12, 11, 15, 0.62);
@@ -18690,21 +18749,22 @@ body[data-view='bobine'] .chat-panel {
   min-width: 0;
   height: auto;
   min-height: 0;
-  max-height: calc(5lh + 14px);
-  padding: 7px 0;
+  max-height: calc(5lh + 10px);
+  padding: 5px 0;
   border: 0;
   border-radius: 0;
   background: none;
   box-shadow: none;
-  font: 400 13px/1.45 var(--font-ui);
+  font: 400 13px/20px var(--font-ui);
   color: var(--ink);
   resize: none;
   outline: none;
 }
-/* (À 1280 de large le champ est étroit : son invitation reste sur une ligne, lui aussi.) */
+/* (À 1280 de large le champ est étroit : son invitation reste sur une ligne, lui aussi.) (0.6.460, B06) En TX4, comme
+   celle du texte d'une prise. */
 #bobine-view .bobine-desk textarea.bobine-ask-words::placeholder {
   overflow: hidden;
-  color: var(--muted);
+  color: var(--text-4);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -18715,11 +18775,11 @@ body[data-view='bobine'] .chat-panel {
   flex: none;
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: 0;
-  border-radius: 9px;
+  border-radius: 8px;
   background: var(--ink);
   color: #141318;
   cursor: pointer;
@@ -18732,6 +18792,27 @@ body[data-view='bobine'] .chat-panel {
   background: rgba(238, 232, 222, 0.08);
   color: var(--muted);
   cursor: default;
+}
+/* (0.6.460, Bobine Pro) Une fenêtre basse (1280 × 720 : 326 px pour « À créer ») : une carte tient entière sans que la
+   liste défile, même quand le modèle manque et que « LTX 2.5 n’est pas sur cet ordinateur. » est dit au-dessus du
+   bouton (140 px pour elle, 136 pour la carte). Les têtes des deux panneaux à 40 px, la carte à 9 px de ses bords et
+   8 px entre ses parties, son texte sur une ligne d'abord (il grandit avec ce qui est écrit, jusqu'à quatre), 8 px
+   au-dessus du champ de la demande et du bouton. */
+@media (max-height: 760px) {
+  #bobine-view .bobine-panel-head {
+    height: 40px;
+  }
+  #bobine-view .bobine-line {
+    gap: 8px;
+    padding: 9px;
+  }
+  #bobine-view .bobine-desk textarea.bobine-line-words {
+    min-height: calc(1lh + 18px);
+  }
+  #bobine-view .bobine-create .bobine-ask,
+  #bobine-view .bobine-create .bobine-foot {
+    margin-top: 8px;
+  }
 }
 /* Moodix AI arrange : sa demande reste lisible, « Arrêter » à portée. */
 .bobine-ask-field[data-state='working'] {
@@ -18750,8 +18831,7 @@ body[data-view='bobine'] .chat-panel {
   height: 28px;
   margin: 0;
 }
-.bobine-ask-label,
-.bobine-ask-facts {
+.bobine-ask-label {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -18759,6 +18839,15 @@ body[data-view='bobine'] .chat-panel {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--ink);
+  white-space: nowrap;
+}
+/* (0.6.460, Bobine Pro, B06) Ce qui a été posé, en mots : « ✓ 1 texte écrit », la coche en ivoire. */
+.bobine-ask-facts {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 400 12.5px/1 var(--font-ui);
+  color: var(--text-2);
   white-space: nowrap;
 }
 .bobine-ask-label::before {
@@ -18772,6 +18861,7 @@ body[data-view='bobine'] .chat-panel {
 .bobine-ask-facts svg {
   width: 11px;
   height: 11px;
+  color: var(--text-1);
 }
 .bobine-ask-asked {
   display: -webkit-box;
@@ -18788,7 +18878,8 @@ body[data-view='bobine'] .chat-panel {
   box-sizing: border-box;
   min-width: 0;
 }
-.bobine-ask-done,
+/* (0.6.460, Bobine Pro, B06) Repliée, la ligne est posée sur le panneau, sans plaque, à 4 px des bords du champ ;
+   dépliée, ce qu'il a dit est sur sa plaque de verre. */
 .bobine-ask-said {
   box-sizing: border-box;
   padding: 10px 12px;
@@ -18801,7 +18892,9 @@ body[data-view='bobine'] .chat-panel {
   display: flex;
   align-items: center;
   gap: 12px;
+  box-sizing: border-box;
   min-height: 20px;
+  padding: 0 4px;
 }
 .bobine-ask-said {
   display: flex;
@@ -18828,8 +18921,8 @@ body[data-view='bobine'] .chat-panel {
   padding: 0;
   border: 0;
   background: none;
-  font: 500 12.5px/1 var(--font-ui);
-  color: var(--ink);
+  font: 400 12.5px/1 var(--font-ui);
+  color: var(--text-2);
   white-space: nowrap;
   cursor: pointer;
 }
@@ -18841,15 +18934,22 @@ body[data-view='bobine'] .chat-panel {
   color: var(--warning);
 }
 .bobine-ask-link.is-faint {
-  color: var(--muted);
+  color: var(--text-3);
+}
+.bobine-ask-link:not(.is-quiet):is(:hover, :focus-visible) {
+  color: var(--text-1);
 }
 .bobine-ask-link.is-quiet svg,
 .bobine-ask-link.is-faint svg {
   width: 9px;
   height: 9px;
 }
+/* (0.6.460, Bobine Pro, B06) « Détail ⌄ » : la pointe vers le bas, vers le haut une fois déplié. */
+.bobine-ask-link[aria-expanded] svg {
+  transform: rotate(90deg);
+}
 .bobine-ask-link[aria-expanded='true'] svg {
-  transform: rotate(180deg);
+  transform: rotate(-90deg);
 }
 .bobine-ask-say {
   margin: 0;
@@ -20786,10 +20886,11 @@ body:has(dialog[open]) :is(.camera-ball, .camera-menu-option) :is(.camera-ball-l
 #studio-view .dictation-mic.in-studio:hover:not([aria-disabled='true'], .is-listening, .is-busy) {
   background: #1c1f26;
 }
+/* (0.6.460, Bobine Pro, B06) De la taille de la flèche, 30 px. */
 .dictation-mic.in-bobine {
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
 }
 .dictation-mic.in-bobine svg {
   width: 15px;
