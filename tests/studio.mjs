@@ -3376,8 +3376,22 @@ test('« Générer » is not greyed for an input a proposal of Moodix AI puts it
   }
 
   // The card held by the last creation (54): « Libérer le GPU » takes the place of « Générer », and what is typed
-  // does not touch it (goable found it under the name of « Générer »).
-  page = await studioPage({ create_video: [wanStudio()] }, {}, { querySelector: laidOutGo, extra: { gpuBlocked: () => true } });
+  // does not touch it (goable found it under the name of « Générer »). (0.6.455) Nor a dictation in the prompt, which
+  // greys « Générer » (goable, at its start and its end, without drawing the Studio again).
+  let speaking = false,
+    followed = null;
+  const dictation = {
+    mic: () => null,
+    busy: where => speaking && where === 'studio',
+    watch: follow => {
+      followed = follow;
+    },
+  };
+  page = await studioPage(
+    { create_video: [wanStudio()] },
+    {},
+    { querySelector: laidOutGo, extra: { gpuBlocked: () => true, dictation } },
+  );
   try {
     page.mode(1);
     const free = () => page.body.find('studio-go')[0],
@@ -3389,6 +3403,12 @@ test('« Générer » is not greyed for an input a proposal of Moodix AI puts it
     assert.deepEqual([free().disabled, free().title], [undefined, held]);
     page.prompt().value = '';
     page.prompt().oninput();
+    assert.deepEqual([free().disabled, free().title], [undefined, held]);
+    speaking = true;
+    followed();
+    assert.deepEqual([free().disabled, free().title], [undefined, held]);
+    speaking = false;
+    followed();
     assert.deepEqual([free().disabled, free().title], [undefined, held]);
   } finally {
     page.restore();
@@ -4279,6 +4299,57 @@ test('(0.6.260) « Libérer le GPU » is in the glass of « Générer », as bef
     assert.deepEqual([group.children.length, glass.className, glass.children.map(child => child.className)], [1, 'studio-go-glass', ['studio-go studio-recover']]);
   } finally {
     page.restore();
+  }
+});
+
+test('(0.6.456) the card held after a take that failed: the Studio says why under its screen, held and once free', async () => {
+  const image = {
+    id: 'w',
+    name: 'Image',
+    roles: {},
+    limits: sizes,
+    direct: true,
+    size: { width: 1024, height: 1024 },
+    settings: [],
+    seeded: true,
+  };
+  const cause = 'La carte graphique n’a pas assez de mémoire pour cette image (1024 × 1024).';
+  // As the server says it (lib/tool-runtime.mjs, #handBackGpu), and its status while the card is held (app.js).
+  const error = `${cause} Libération du moteur de génération non confirmée : GPU cleanup incomplete`;
+  let held = false;
+  const page = await studioPage(
+    { create_image: [image] },
+    {
+      'tools/action': () => ({ requestId: 'q', plan: { parameters: {} } }),
+      'tools/execute': () => ({ id: 'j', state: 'error', error }),
+    },
+    { extra: { gpuBlocked: () => held, gpuError: () => (held ? error : '') } },
+  );
+  const { body, restore } = page;
+  const veil = () => body.find('studio-held-text')[0]?.children.map(line => line.textContent) ?? null,
+    lines = () => body.find('studio-error').map(line => line.textContent);
+  try {
+    page.prompt().value = 'un phare';
+    page.prompt().oninput();
+    await body.find('studio-go')[0].onclick();
+    await settle();
+    // The engine did not say it let the card go: « ÉCHEC » and what holds the card on the screen (54), and under it
+    // why the take failed, as for any failure, without what the server added for the card held. (A screen of 9:16 is
+    // 150 px wide at 1280 × 720: the reason went out of it.)
+    held = true;
+    page.studio.render();
+    assert.equal(body.find('studio-failed-chip')[0]?.textContent, 'Échec');
+    assert.deepEqual(veil(), [
+      'La carte graphique est restée prise par la dernière génération.',
+      ' Rien n’a été enregistré.',
+    ]);
+    assert.deepEqual(lines(), [cause]);
+    // « Libérer le GPU » did: the same reason, alone.
+    held = false;
+    page.studio.render();
+    assert.deepEqual([veil(), lines()], [null, [cause]]);
+  } finally {
+    restore();
   }
 });
 

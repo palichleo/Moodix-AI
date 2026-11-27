@@ -297,3 +297,12 @@ test('(0.6.443) the controlnet and audio_encoders folders of before are never ta
   const { detected, errors } = await library.scan();
   assert.deepEqual([detected.map(item => item.name), errors], [['Chat'], []]);
 });
+
+test('(0.6.454) the model of the dictation and its projector are never offered as a chat model', async t => {
+  const { models, library } = await fixture(t);
+  await gguf(join(models, 'dictation'), 'Qwen3-ASR-1.7B-Q8_0.gguf');
+  await gguf(join(models, 'dictation'), 'mmproj-Qwen3-ASR-1.7B-BF16.gguf');
+  await gguf(join(models, 'LLMs', 'Chat'), 'main.gguf');
+  const { detected, errors } = await library.scan();
+  assert.deepEqual([detected.map(item => item.name), errors], [['Chat'], []]);
+});

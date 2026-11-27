@@ -2690,6 +2690,9 @@ function turnActions() {
 async function takeBack(resend) {
   if (state.generating || state.preparing || state.loadingHistory || state.status.toolJob)
     return notice('Attendez la fin de la réponse ou de la génération en cours.');
+  // (0.6.455) Nor while the dictation listens or writes in the box: its words went after the message taken back, and
+  // « Régénérer » could let the conversation set aside go for a message that did not leave.
+  if (state.dictation?.busy('chat')) return notice(DICTATING);
   const index = lastExchange(state.messages);
   if (index < 0) return;
   const draft = savedUser(state.messages[index]),
@@ -5126,7 +5129,9 @@ function showInStudio(record) {
 // (0.6.452) The dictation (public/dictation.mjs): its microphone at the left of « Envoyer », and in the Studio and
 // the Bobine, which it is handed to. While it listens or writes, nothing is sent (updateControls).
 state.dictation = setupDictation({ api, icon, notice });
-state.dictation.adopt($('dictate'), 'chat');
+// (0.6.455) Its box holds the draft of the conversation shown: another one opened during « Transcription… », the words
+// are said rather than written in its draft.
+state.dictation.adopt($('dictate'), 'chat', { scope: () => state.conversationId ?? '' });
 state.dictation.watch(() => updateControls());
 // Paramètres › Moodix AI › Dictée: its model at once, its settings with « Enregistrer » (public/dictation-settings.mjs).
 const dictationUI = setupDictationSettings({
@@ -5152,6 +5157,8 @@ const studioUI = setupStudio({
   waitForModel: (...args) => waitForModel(...args),
   // A chat answer in progress keeps the model: the Studio waits for it.
   gpuBlocked: () => Boolean(state.status.toolJob?.blocked),
+  // (0.6.456) Why the generation that held it failed: said under the screen of the Studio.
+  gpuError: () => (state.status.toolJob?.blocked ? state.status.toolJob.error || '' : ''),
   mark: () => moodixMark()[0],
   recoverGPU: () => recoverGPU(),
   blocked: () =>

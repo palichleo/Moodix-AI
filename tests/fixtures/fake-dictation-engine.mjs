@@ -69,4 +69,5 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ type: 'transcript.text.done', text: ' language French<asr_text>Un chat roux  sur un toit. ' }));
   }, Number(process.env.FAKE_DELAY || 0));
 });
-server.listen(Number(arg('--port')), '127.0.0.1');
+// A model that takes its time to load (FAKE_LOAD): /health answers only once it is loaded.
+setTimeout(() => server.listen(Number(arg('--port')), '127.0.0.1'), Number(process.env.FAKE_LOAD || 0));

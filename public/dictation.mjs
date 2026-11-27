@@ -28,6 +28,9 @@ const SILENT = 'Le micro n’a rien entendu. Vérifiez qu’il n’est pas coup�
 const NOTHING = 'La dictée n’a reconnu aucun mot.';
 const CLOSED = 'La case de la dictée n’est plus ouverte. Ce qui a été dit : « ';
 const FULL = 'La case est pleine : la fin de la dictée n’y tient pas.';
+// (0.6.455) A box closed for a moment (the chat while its history is read, the Studio while Moodix AI sets it).
+const SHUT = 'Cette case est fermée pour le moment : la dictée ne peut pas y écrire.';
+const ENDED = 'Le micro s’est arrêté : ce qui a été dit jusque-là est écrit.';
 const RATE = 16000;
 // Shorter than this, nothing was said (a click and its second click): nothing is asked.
 const SHORTEST = 0.3;
@@ -282,10 +285,11 @@ export function setupDictation({ api, icon, notice = () => {}, page = globalThis
   /**
    * The button of a place: made (`mic`), or one of the page (`adopt`, the chat's). `held()` says why it is greyed
    * for a reason of its place (its box closed for a moment), '' otherwise. A place drawn again during a dictation
-   * gets its strip back (`place`).
+   * gets its strip back (`place`). (0.6.455) `scope()` says whose text its box holds (the conversation, the mode of
+   * the Studio): another one there when the words come, they are not written in it.
    */
-  function adopt(button, where, { held = null } = {}) {
-    const record = { button, where, held };
+  function adopt(button, where, { held = null, scope = null } = {}) {
+    const record = { button, where, held, scope };
     mics.set(where, record);
     button.setAttribute('aria-keyshortcuts', 'Control+M');
     button.onclick = event => {
@@ -341,7 +345,8 @@ export function setupDictation({ api, icon, notice = () => {}, page = globalThis
   }
   async function start(where) {
     const field = fieldOf(where);
-    if (!field || field.disabled || field.readOnly) return;
+    // (0.6.455) Said: a click there did nothing, without a word.
+    if (!field || field.disabled || field.readOnly || field.closest?.('[inert]')) return notice(SHUT);
     let context;
     try {
       // Made at the click itself: its sound is allowed by it. At 16 kHz: what the worklet hears is what is posted.
@@ -374,6 +379,8 @@ export function setupDictation({ api, icon, notice = () => {}, page = globalThis
         start: field.selectionStart ?? field.value.length,
         end: field.selectionEnd ?? field.value.length,
       },
+      // Whose text the box holds at the click (adopt).
+      scope: mics.get(where)?.scope?.() ?? null,
     });
     changed();
     // The engine of the dictation starts while one speaks (lib/dictation.mjs, warm).
@@ -392,6 +399,14 @@ export function setupDictation({ api, icon, notice = () => {}, page = globalThis
       return;
     }
     mine.stream = stream;
+    // (0.6.455) A microphone that stops while it listens (unplugged): what was said until then is written. The strip
+    // stood there before, its time stopped, until a click.
+    for (const track of stream.getAudioTracks?.() ?? [])
+      track.addEventListener?.('ended', () => {
+        if (session !== mine || mine.phase !== 'listening') return;
+        notice(ENDED);
+        void finish();
+      });
     try {
       let source;
       try {
@@ -530,8 +545,12 @@ export function setupDictation({ api, icon, notice = () => {}, page = globalThis
 
   /** The words in the box, at its cursor; typed as by the keys when it can have the focus (Ctrl+Z takes them away). */
   function write(mine, words) {
-    const field = fieldOf(mine.where) ?? (mine.field?.isConnected ? mine.field : null);
-    if (!field || field.disabled || field.readOnly) return notice(CLOSED + words + ' »');
+    const field = fieldOf(mine.where) ?? (mine.field?.isConnected ? mine.field : null),
+      scope = mics.get(mine.where)?.scope;
+    // (0.6.455) Nor in the text of another conversation or of another mode, shown since in the same box: they went at
+    // its end (« Vidéo » clicked during « Transcription… »). Said instead, as when the box has gone.
+    if (!field || field.disabled || field.readOnly || (scope && scope() !== mine.scope))
+      return notice(CLOSED + words + ' »');
     const { value, start, end: stop } = mine.saved,
       at = field.value === value ? [start, stop] : [field.value.length, field.value.length],
       made = insertion(field.value, at[0], at[1], words);
@@ -543,9 +562,19 @@ export function setupDictation({ api, icon, notice = () => {}, page = globalThis
       notice(FULL);
     }
     if (!piece) return;
-    field.focus?.({ preventScroll: true });
-    field.setSelectionRange?.(made.from, made.to);
-    const typed = document.activeElement === field && document.execCommand?.('insertText', false, piece);
+    // (0.6.455) Typed as by the keys only where the focus still is (the box, a microphone, nothing): taken back from
+    // another box clicked during « Transcription… », the next keys went into this one.
+    const active = document.activeElement,
+      free =
+        !active ||
+        active === document.body ||
+        active === field ||
+        Boolean(active.classList?.contains?.('dictation-mic'));
+    if (free) {
+      field.focus?.({ preventScroll: true });
+      field.setSelectionRange?.(made.from, made.to);
+    }
+    const typed = free && document.activeElement === field && document.execCommand?.('insertText', false, piece);
     if (!typed) {
       field.setRangeText(piece, made.from, made.to, 'end');
       field.dispatchEvent(new Event('input', { bubbles: true }));
@@ -631,20 +660,34 @@ export function setupDictation({ api, icon, notice = () => {}, page = globalThis
   // ------------------------------------------------------------------ the keys
   /** The place Ctrl+M dictates in: the box that has the focus, else the one on screen (not under a dialog). */
   function placeOfKeys(target) {
-    for (const where of ORDER) if (target && fieldOf(where) === target) return where;
+    // (0.6.455) The chat open over the Studio, which is only blurred behind it: the chat first. The prompt of the
+    // Studio took the words.
+    const order =
+      document?.body?.dataset?.chat === 'open' ? ['chat', ...ORDER.filter(where => where !== 'chat')] : ORDER;
+    for (const where of order) if (target && fieldOf(where) === target) return where;
     const open = document?.querySelector?.('dialog[open]');
-    for (const where of ORDER) {
+    for (const where of order) {
       const field = fieldOf(where);
-      if (!field || field.disabled || !field.getClientRects?.().length) continue;
+      // (0.6.455) Nor a box made inert (the Studio while Moodix AI sets it).
+      if (!field || field.disabled || field.closest?.('[inert]') || !field.getClientRects?.().length) continue;
       if (open && !open.contains(field)) continue;
       return where;
     }
     return null;
   }
+  /**
+   * (0.6.455) Whether Échap is the dictation's: its strip on screen (or its microphone being opened), no dialog over
+   * it. Its place gone during « Transcription… », Échap took the words away, and the menu it was pressed for stayed.
+   */
+  function escapable(mine) {
+    const open = document?.querySelector?.('dialog[open]');
+    if (open && !open.contains(mine.strip ?? mine.field)) return false;
+    return mine.phase === 'starting' || Boolean(mine.strip?.isConnected && mine.strip.getClientRects?.().length);
+  }
   page?.addEventListener?.(
     'keydown',
     event => {
-      if (session && event.key === 'Escape' && !event.isComposing) {
+      if (session && event.key === 'Escape' && !event.isComposing && escapable(session)) {
         event.preventDefault();
         event.stopPropagation();
         return cancel();
