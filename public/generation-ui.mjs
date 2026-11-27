@@ -111,6 +111,8 @@ const ARTICLES = {
 };
 // The card held by the last generation (54): the same words in the chat and in the Studio.
 export const HELD_WORDS = 'La carte graphique est restée prise par la dernière génération.';
+// (0.6.474) The bubble of « Libérer le GPU », in the box of the Chat as on the button of the Studio (studio.mjs).
+export const HELD_TIP = 'La carte graphique est restée prise par la dernière génération : la libérer';
 // (0.6.456) What the server adds to the reason of a take that failed when the card stays held after it
 // (lib/tool-runtime.mjs, #handBackGpu).
 export const UNRELEASED = 'Libération du moteur de génération non confirmée';

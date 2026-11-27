@@ -441,7 +441,7 @@ try {
             requestId: message.params.requestId,
             responseCode: 200,
             responseHeaders: [{ name: 'Content-Type', value: 'application/json; charset=utf-8' }],
-            body: Buffer.from(JSON.stringify(message.params.request.url.includes('/api/tools/actions') ? { upscale: ['image', 'video'] } : shippedStudio)).toString('base64'),
+            body: Buffer.from(JSON.stringify(message.params.request.url.includes('/api/tools/actions') ? { upscale: ['image', 'video'] } : (studioGiven ?? shippedStudio))).toString('base64'),
           },
         }),
       );
@@ -464,6 +464,9 @@ try {
   let simulated = null;
   // Whether the steps that lay the Studio out with the shipped workflows are under way.
   let laidOut = false;
+  // (0.6.474) The tools of the Studio a step gives in their place meanwhile (stillInPlace: a model not on this computer,
+  // the engine that starts); none: the shipped ones.
+  let studioGiven = null;
   // (0.6.452) While the steps of the dictation simulate its model (dictationSteps): the words it writes, and the type
   // of each sound the page posted (its WAV is read in the page: a body of a Blob is not shown to Fetch).
   let dictationSaid = null;
@@ -1015,6 +1018,244 @@ try {
     );
     await rail();
     await run('Chat (image agrandie)', () => click('#chat-open'), view('chat'));
+  }
+  /**
+   * (0.6.474, étude du 27/11) « Générer » stays under the pointer (défaut 2): the Sortie as tall in a project full as
+   * in an empty one, the line above the buttons kept, empty or not (a failure said under them put « Générer » 50 px
+   * higher at 1280 × 720, 31 px at 1912 × 948). The head of the Archives stays at the top as its sheet scrolls (défaut
+   * 8). A prompt written in a conversation not begun stays when its project changes (défaut 3). After the loupe: the
+   * Studio with the tools given, its project full (the takes of the clips and of the loupe). (0.6.474, with 0.6.480)
+   * « Télécharger » where « Générer » is, and the glass of the engine that starts: what a model not on this computer
+   * lacks was said under the buttons (they stood 39.5 px higher than « Générer »), and, without that line, the screen
+   * of « Le moteur démarre… » was 23 px taller than once the engine was ready.
+   */
+  async function stillInPlace() {
+    const viewport = (width, height) =>
+      send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+    const place = async () =>
+      JSON.parse(
+        await js(`(() => {
+          const box = selector => document.querySelector(selector)?.getBoundingClientRect(),
+            tenth = value => (value === undefined ? null : Math.round(value * 10) / 10),
+            line = box('#studio-view .studio-under'),
+            screen = box('#studio-view .studio-block.is-preview'),
+            go = box('#studio-view .studio-go-group');
+          return JSON.stringify({
+            go: tenth(go?.top),
+            sortie: tenth(box('#studio-view .studio-block.is-output')?.height),
+            under: tenth(line?.height),
+            above: line?.bottom <= go?.top,
+            // As wide as the block, its words cut there: as wide as they were, centred, a long failure went past both
+            // edges of the block (seen while making 0.6.474).
+            inside: line?.left >= screen?.left && line?.right <= screen?.right && line?.width >= 0.8 * screen?.width,
+            empty: Boolean(document.querySelector('#studio-view .studio-block.is-output .studio-empty-strip')),
+            error: document.querySelector('#studio-view .studio-under > .studio-error')?.textContent ?? '',
+            scrolls: document.documentElement.scrollHeight > innerHeight + 1,
+          });
+        })()`),
+      );
+    let full = null;
+    /** What differs from the Sortie full and its « Générer », said; true when nothing does. */
+    const kept = (seen, where) => {
+      const wanted = [];
+      if (!full?.go || !seen.go || !seen.sortie) wanted.push(where + ' : « Générer » ou la Sortie manque');
+      else {
+        const moved = Math.round((seen.go - full.go) * 10) / 10;
+        if (Math.abs(moved) > 0.5) wanted.push(`${where} : « Générer » a bougé de ${moved} px`);
+        if (Math.abs(seen.sortie - full.sortie) > 0.5)
+          wanted.push(`${where} : la Sortie fait ${seen.sortie} px au lieu de ${full.sortie}`);
+      }
+      if (seen.under !== 19) wanted.push(`${where} : la ligne au-dessus des boutons fait ${seen.under} px, pas 19`);
+      if (!seen.above) wanted.push(where + ' : la ligne n’est plus au-dessus de « Générer »');
+      if (!seen.inside) wanted.push(where + ' : la ligne au-dessus des boutons n’a pas la largeur du bloc de l’écran');
+      if (seen.scrolls) wanted.push(where + ' : la page défile');
+      for (const what of wanted) problems.push([step, 'état', what]);
+      return wanted.length === 0;
+    };
+    const write = words =>
+        js(`(() => {
+          const box = document.getElementById('studio-prompt');
+          if (!box) return false;
+          box.value = ${JSON.stringify(words)};
+          box.dispatchEvent(new Event('input', { bubbles: true }));
+          return true;
+        })()`),
+      // The seed, in the window of « Plus de réglages », opened then closed again.
+      seed = async value => {
+        await click('#studio-view .studio-more-pill');
+        await wait(200);
+        const set = await js(`(() => {
+          const seed = document.querySelector('#studio-view .studio-seed input');
+          if (!seed) return false;
+          seed.value = ${JSON.stringify(value)};
+          seed.dispatchEvent(new Event('input', { bubbles: true }));
+          return true;
+        })()`);
+        await click('#studio-view .studio-more-pill');
+        return set;
+      },
+      // A project made from the fil, as the user makes one: the conversation goes into it.
+      project = async name => {
+        if (!(await fromMenu('#thread-project', '.thread-action'))) return false;
+        await until(dialog('project-dialog'), 2000);
+        return js(`(() => {
+          const name = document.getElementById('project-name');
+          name.value = ${JSON.stringify(name)};
+          name.dispatchEvent(new Event('input', { bubbles: true }));
+          document.getElementById('project-form').requestSubmit();
+          return true;
+        })()`);
+      };
+    await run(
+      'Studio : « Générer » et la Sortie d’un projet plein (1280 × 720)',
+      async () => {
+        await viewport(1280, 720);
+        await click('#studio-open');
+        await wait(900);
+        return click('#studio-kinds .kind-tab[aria-label="Image"]');
+      },
+      async () => {
+        full = await place();
+        if (full.go && full.sortie && !full.empty) return kept(full, 'Sortie pleine');
+        problems.push([step, 'état', 'la Sortie pleine manque : ' + JSON.stringify(full)]);
+        return false;
+      },
+    );
+    await run(
+      'Studio : un échec dit au-dessus des boutons, « Générer » ne bouge pas',
+      async () => {
+        const set = await seed('-3');
+        await write('Un phare dans la tempête, la nuit');
+        await click('#studio-view .studio-go');
+        await until(() => js(`Boolean(document.querySelector('#studio-view .studio-under > .studio-error'))`), 3000);
+        return set;
+      },
+      async () => {
+        const seen = await place();
+        if (seen.error) return kept(seen, 'après un échec');
+        problems.push([step, 'état', 'aucun échec dit au-dessus des boutons']);
+        return false;
+      },
+    );
+    // (0.6.474) The tools of the Studio as the server gives them when no model of Image is on this computer (`missing`,
+    // a free licence: nothing to read first), then while the engine starts (`engine`, every model said not ready).
+    // Looked at only: nothing is pressed, nothing downloaded. The page opened again on the Studio in Image each time.
+    const absentStudio = () => {
+        const given = structuredClone(shippedStudio);
+        for (const model of given.tools.create_image ?? []) {
+          const bytes = 19e9,
+            license = { name: 'Apache-2.0', url: '', limits: '', restricted: false };
+          Object.assign(model, {
+            unavailable: `Fichier introuvable pour « Modèle » : ${model.id}.safetensors.`,
+            missing: {
+              workflowId: model.id,
+              files: [{ role: 'model', file: model.id + '.safetensors', size: bytes, license }],
+              bytes,
+              left: bytes,
+              needsToken: false,
+              page: '',
+            },
+          });
+        }
+        return given;
+      },
+      startingStudio = () => {
+        const given = structuredClone(shippedStudio);
+        for (const list of Object.values(given.tools))
+          for (const model of list) model.unavailable = 'Le moteur de génération démarre…';
+        return { ...given, engine: { state: 'starting' } };
+      },
+      reopen = async () => {
+        await send('Page.reload');
+        await wait(2000);
+        await viewport(1280, 720);
+        await click('#studio-open');
+        await wait(900);
+        return click('#studio-kinds .kind-tab[aria-label="Image"]');
+      };
+    await run(
+      'Studio : « Télécharger » à la place de « Générer », ce qui manque au-dessus (1280 × 720)',
+      async () => {
+        studioGiven = absentStudio();
+        await reopen();
+        return until(() => js(`Boolean(document.querySelector('#studio-view .studio-go.studio-get'))`), 5000);
+      },
+      async () => {
+        const seen = await place(),
+          said = await js(`document.querySelector('#studio-view .studio-under > .studio-absent-line')?.textContent ?? ''`);
+        if (!said) problems.push([step, 'état', 'ce qui manque n’est pas dans la ligne au-dessus des boutons']);
+        return kept(seen, 'modèle absent') && Boolean(said);
+      },
+    );
+    await run(
+      'Studio : le moteur qui démarre, son verre à la place de « Générer » (1280 × 720)',
+      async () => {
+        studioGiven = startingStudio();
+        await reopen();
+        return until(() => js(`Boolean(document.querySelector('#studio-view .studio-engine-go'))`), 5000);
+      },
+      async () => kept(await place(), 'moteur qui démarre'),
+    );
+    // The Studio of the shipped tools again, for what follows.
+    studioGiven = null;
+    await reopen();
+    await until(() => js(`Boolean(document.querySelector('#studio-view .studio-go:not(.studio-get)'))`), 5000);
+    await run(
+      'Archives : la tête reste en haut quand la planche défile (1280 × 380)',
+      async () => {
+        await seed('');
+        await viewport(1280, 380);
+        await click('#library-open');
+        return until(() => js(`document.querySelectorAll('#library-view .library-tile').length > 0`), 3000);
+      },
+      async () => {
+        const seen = JSON.parse(
+          await js(`(async () => {
+            const view = document.getElementById('library-view'),
+              sheet = view.querySelector(':scope > .library-creations'),
+              head = () => Math.round(view.querySelector(':scope > .library-head').getBoundingClientRect().top),
+              before = head();
+            sheet.scrollTop = sheet.scrollHeight;
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            const kinds = document.getElementById('library-kinds').getBoundingClientRect(),
+              hit = document.elementFromPoint(kinds.left + kinds.width / 2, kinds.top + kinds.height / 2),
+              reached = Boolean(hit?.closest('#library-kinds')),
+              seen = { before, after: head(), sheet: sheet.scrollTop, page: view.scrollTop, kinds: reached };
+            sheet.scrollTop = 0;
+            return JSON.stringify(seen);
+          })()`),
+        );
+        const wanted = [];
+        if (!(seen.sheet > 0)) wanted.push('la planche ne défile pas : rien à mesurer');
+        if (seen.after !== seen.before) wanted.push(`la tête des Archives a bougé de ${seen.after - seen.before} px`);
+        if (seen.page !== 0) wanted.push('la page des Archives défile, pas sa planche');
+        if (!seen.kinds) wanted.push('Tout · Images · Vidéos · Sons hors de portée, la planche descendue');
+        for (const what of wanted) problems.push([step, 'état', what]);
+        return wanted.length === 0;
+      },
+    );
+    await run(
+      'Studio : la Sortie d’un projet vide aussi haute, « Générer » à la même place (1280 × 720)',
+      async () => {
+        await viewport(1280, 720);
+        await click('#studio-open');
+        await wait(900);
+        if (!(await project('Vérification vide'))) return false;
+        const empty = `Boolean(document.querySelector('#studio-view .studio-block.is-output .studio-empty-strip'))`;
+        return until(() => js(empty), 4000);
+      },
+      async () => kept(await place(), 'Sortie vide'),
+    );
+    await run(
+      'Studio : le prompt d’une conversation pas commencée reste quand son projet change',
+      async () => {
+        await write('Un phare dans la tempête, la nuit');
+        if (!(await project('Vérification autre'))) return false;
+        const moved = `document.getElementById('thread-project-name')?.textContent === 'Vérification autre'`;
+        return until(() => js(moved), 4000);
+      },
+      () => js(`document.getElementById('studio-prompt')?.value === 'Un phare dans la tempête, la nuit'`),
+    );
   }
   /**
    * (0.6.262) The menu of the camera at the keys, at 1440 × 900 under LTX 2.5: Entrée on its ball opens it, the focus
@@ -1966,6 +2207,18 @@ try {
       };`
         : ''),
   });
+  // (0.6.480) Never a model downloaded by the check: « Télécharger » stands in the place of « Générer » for the models
+  // this empty copy lacks, and pressed, it fetches gigabytes. Refused in the page, and said: a step that asks it fails.
+  await send('Page.addScriptToEvaluateOnNewDocument', {
+    source: `{
+      const reach = window.fetch.bind(window);
+      window.fetch = (address, options) => {
+        if (!/\\/api\\/downloads\\/start(\\?|$)/.test(String(address?.url ?? address))) return reach(address, options);
+        console.error('Vérification : un téléchargement de modèle a été demandé, et refusé.');
+        return Promise.reject(new TypeError('Aucun téléchargement pendant la vérification.'));
+      };
+    }`,
+  });
   if (PERF) await send('Performance.enable');
   await size(1280);
   await send('Page.navigate', { url: app.url + '/' });
@@ -2071,6 +2324,68 @@ try {
   );
   await run('Studio : Image, Vidéo, Son', () => click('#studio-open'), () =>
     js(`document.body.dataset.view === 'studio' && [...document.querySelectorAll('#studio-kinds .kind-tab')].map(tab => tab.dataset.mode).join() === 'image,video,audio' && document.querySelector('#studio-kinds .kind-tab[aria-selected="true"]')?.dataset.mode === 'image' && !document.querySelector('#studio-view .bobine-desk')`), { within: 1500 });
+  // (0.6.480, maquette-studio-sans-modele) A first launch: nothing on this computer (this empty copy, its tools as the
+  // server gives them). The Studio whole, never one grey sentence; « Télécharger · 17,7 Go » in the glass of
+  // « Générer », Moodix AI 8 px away; what it lacks in amber above them, in 12 px at least, (0.6.474) in the line kept
+  // there, whole in its height; the page not scrolling. Looked at only: nothing is pressed, nothing downloaded.
+  await run(
+    'Studio sans modèle : « Télécharger » à la place de « Générer »',
+    () => until(() => js(`Boolean(document.querySelector('#studio-view .studio-go.studio-get'))`), 5000),
+    async () => {
+      const read = JSON.parse(
+        await js(`(() => {
+          const view = document.getElementById('studio-view'), box = element => element?.getBoundingClientRect(),
+            colour = element => (element ? getComputedStyle(element).color : ''),
+            line = view.querySelector('.studio-absent-line'), size = view.querySelector('.studio-absent-size'),
+            under = box(line?.closest('.studio-under')), said = box(line),
+            glass = box(view.querySelector('.studio-go-glass')),
+            agent = box(view.querySelector('.studio-go-group > .studio-agent')),
+            hex = getComputedStyle(document.documentElement).getPropertyValue('--warning').trim(),
+            page = document.documentElement;
+          return JSON.stringify({
+            blocks: view.querySelectorAll('.studio-block').length,
+            grey: Boolean(view.querySelector('.asset-empty')),
+            label: view.querySelector('.studio-go.studio-get .studio-go-label')?.textContent ?? '',
+            line: line && {
+              text: line.textContent,
+              font: parseFloat(getComputedStyle(line).fontSize),
+              colour: colour(line),
+              // (0.6.474) In the line above the buttons, inside its 19 px (cut there, it would show half its words).
+              kept: Boolean(under && glass && said.top >= under.top - 0.5 && said.bottom <= under.bottom + 0.5 &&
+                under.bottom <= glass.top),
+            },
+            size: size && { text: size.textContent, colour: colour(size) },
+            // (The colour of its token, as the browser says a colour.)
+            amber: /^#[0-9a-f]{6}$/i.test(hex)
+              ? 'rgb(' + [1, 3, 5].map(at => parseInt(hex.slice(at, at + 2), 16)).join(', ') + ')'
+              : hex,
+            gap: glass && agent ? Math.round(agent.left - glass.right) : null,
+            high: glass ? Math.round(glass.height) : null,
+            scrolls: view.scrollHeight > view.clientHeight + 1 || page.scrollHeight > innerHeight + 1,
+          });
+        })()`),
+      );
+      const wanted = [];
+      if (read.blocks !== 4 || read.grey)
+        wanted.push(`le Studio entier, sans phrase grise (lu : ${read.blocks} blocs)`);
+      if (!/^Télécharger · [\d,]+ [MG]o$/.test(read.label))
+        wanted.push(`« Télécharger · … Go » à la place de « Générer » (lu : ${read.label || 'rien'})`);
+      if (!read.size || !/^Pas sur cet ordinateur · /.test(read.size.text) || read.size.colour !== read.amber)
+        wanted.push(
+          `« Pas sur cet ordinateur · … » en ambre sous le modèle (lu : ${read.size?.text ?? 'rien'}, ` +
+            `${read.size?.colour ?? ''})`,
+        );
+      if (!read.line?.text) wanted.push('ce qui manque, au-dessus des boutons');
+      else if (!read.line.kept) wanted.push('ce qui manque, entier dans la ligne gardée au-dessus des boutons');
+      else if (read.line.font < 12 || read.line.colour !== read.amber)
+        wanted.push(`ce qui manque en ambre, en 12 px au moins (lu : ${read.line.font} px, ${read.line.colour})`);
+      if (read.gap !== 8 || read.high !== 46)
+        wanted.push(`Moodix AI à 8 px du verre de 46 px (lu : ${read.gap} px, ${read.high} px)`);
+      if (read.scrolls) wanted.push('la page qui défile');
+      for (const what of wanted) problems.push([step, 'état', what]);
+      return wanted.length === 0;
+    },
+  );
   await dictationSteps();
   await run('Agent', () => click('#studio-view .studio-agent'), () => js(`document.body.dataset.chat === 'open'`));
   await run('Échap (Agent)', () => key('Escape', 'Escape', 27), () => js(`document.body.dataset.chat !== 'open'`));
@@ -2337,25 +2652,85 @@ try {
   // (0.6.223) Twelve lines since Wan 2.2 Caméra is shipped; (0.6.242) thirteen with « Changer la caméra »;
   // (0.6.269) fourteen with Qwen-Image-Edit (0.6.264), added under runner/ alone (see .githooks/pre-commit);
   // (0.6.423) fifteen with pi H3.
+  // (0.6.481) Thirteen: pi H3 is a model of the section MiniMax H3, Wan 2.2 Caméra one of Wan 2.2 (27/11); those
+  // two lines and that of Real-ESRGAN have no switch of their own, their models have theirs (unfolded).
   const lines =`[...document.querySelectorAll('#workflow-list .model-line')]`,
-    ltx = `document.querySelector('#workflow-list .model-line[data-model="LTX 2.5"]')`;
+    ltx = `document.querySelector('#workflow-list .model-line[data-model="LTX 2.5"]')`,
+    minimax = `document.querySelector('#workflow-list .model-line[data-model="MiniMax H3"]')`;
   // (0.6.131) « Dossiers à part » : a folder a line of 46 px (its name, the folder, « Parcourir »,
   // « Détecter », « ? »), nothing folded, nothing that scrolls sideways.
   await run('onglet Génération : un dossier par ligne', () => click('#settings-tab-generation'), () =>
     js(`(() => { const rows = [...document.querySelectorAll('#settings-panel-generation .set-folder')], panel = document.getElementById('settings-panel-generation'); return rows.length === 7 && rows.every(row => Math.round(row.getBoundingClientRect().height) === 46 && row.querySelectorAll('button.set-act').length === 2 && row.querySelector('.help-tip').dataset.help) && !panel.querySelector('details') && panel.scrollWidth <= panel.clientWidth + 1; })()`), { within: 2500 });
   await run('onglet Modèles', () => click('#settings-tab-workflows'), () =>
-    js(`${lines}.length === 15 && document.querySelectorAll('#workflow-list .model-group').length === 4 && document.querySelector('#settings-tab-workflows .settings-tab-label').textContent === 'Modèles' && document.querySelectorAll('#workflow-list .model-row > .model-ai input').length === 15 && document.querySelectorAll('#workflow-list .model-ai-head').length === 1`), { within: 2500 });
+    js(`${lines}.length === 13 && document.querySelectorAll('#workflow-list .model-group').length === 4 &&
+      document.querySelector('#settings-tab-workflows .settings-tab-label').textContent === 'Modèles' &&
+      document.querySelectorAll('#workflow-list .model-row > .model-ai input').length === 10 &&
+      document.querySelectorAll('#workflow-list .model-ai-head').length === 1 &&
+      [...document.querySelectorAll('#workflow-list .model-section')].map(line => line.dataset.model).join('|') ===
+        'MiniMax H3|Wan 2.2|Real-ESRGAN'`), { within: 2500 });
   // Every line is 46 px tall, « Télécharger » in the place of the version as any other (capture 65);
   // nothing scrolls sideways, nothing of before is shown (no button to import or create, no dot).
+  // (0.6.481) Each box stands apart from the next one (his capture 2 of 27/11: they ran into each other).
   await run('Modèles : lignes de 46 px', async () => {}, () =>
-    js(`(() => { const rows = [...document.querySelectorAll('#workflow-list .model-row')], panel = document.getElementById('settings-panel-workflows'), gone = id => !document.getElementById(id); return rows.length === 15 && rows.every(row => Math.round(row.getBoundingClientRect().height) === 46) && panel.scrollWidth <= panel.clientWidth + 1 && gone('workflow-add') && gone('native-workflow-import') && !document.querySelector('#workflow-list .workflow-state') && document.querySelectorAll('#workflow-list .model-download').length >= 5; })()`), { within: 700 });
+    js(`(() => {
+      const rows = [...document.querySelectorAll('#workflow-list .model-row')],
+        panel = document.getElementById('settings-panel-workflows'),
+        gone = id => !document.getElementById(id),
+        apart = [...document.querySelectorAll('#workflow-list .model-line + .model-line')].every(line =>
+          line.getBoundingClientRect().top - line.previousElementSibling.getBoundingClientRect().bottom >= 4);
+      return rows.length === 13 && rows.every(row => Math.round(row.getBoundingClientRect().height) === 46) && apart &&
+        panel.scrollWidth <= panel.clientWidth + 1 && gone('workflow-add') && gone('native-workflow-import') &&
+        !document.querySelector('#workflow-list .workflow-state') &&
+        document.querySelectorAll('#workflow-list .model-download').length >= 5;
+    })()`), { within: 700 });
+  // (0.6.481) A model made of several opens at a click anywhere in its box (here on its description, at its middle,
+  // as a person clicks): under it a row of 40 px for each of its models, each with its own « Télécharger »,
+  // « Proposé à Moodix AI » and « Réglages » (27/11: « ca doit etre 1 par modele »); its line has none of them.
+  await run('Modèles : une section s’ouvre d’un clic dans sa boîte', async () => {
+    await until(() => js(`${minimax}?.querySelector('.model-chevron')?.disabled === false`), 5000);
+    await js(`${minimax}.scrollIntoView({ block: 'center' })`);
+    return tap('#workflow-list .model-line[data-model="MiniMax H3"] .model-does');
+  }, () =>
+    js(`(() => {
+      const line = ${minimax},
+        parts = [...(line?.querySelectorAll('.model-parts > .model-part') ?? [])],
+        head = line?.querySelector('.model-row'),
+        names = parts.map(part => part.querySelector('.model-part-name').textContent),
+        labels = new Set(parts.map(part => part.querySelector('.model-ai input')?.getAttribute('aria-label')));
+      return line?.dataset.open === 'true' &&
+        line.querySelector('.model-chevron').getAttribute('aria-expanded') === 'true' &&
+        names.join('|') === 'Omni|De base|pi H3' && labels.size === 3 &&
+        parts.every(part => Math.round(part.getBoundingClientRect().height) === 40 &&
+          part.querySelector('.model-ai input') && part.querySelector('.model-settings') &&
+          part.querySelector('.model-download')) &&
+        !head.querySelector('.model-ai, .model-settings, .model-download') &&
+        Math.round(head.getBoundingClientRect().height) === 46;
+    })()`), { within: 1500 });
+  // At the keys too: its chevron is a button, Entrée folds it and Espace opens it again, the focus staying on it.
+  await run('Modèles : Entrée replie la section', async () => {
+    await js(`${minimax}.querySelector('.model-chevron').focus()`);
+    await press('Enter', 'Enter', 13, '\r');
+  }, () =>
+    js(`(() => {
+      const line = ${minimax}, chevron = line?.querySelector('.model-chevron');
+      return line && !line.dataset.open && !line.querySelector('.model-parts') &&
+        chevron.getAttribute('aria-expanded') === 'false' && document.activeElement === chevron;
+    })()`), { within: 1500 });
+  await run('Modèles : Espace la rouvre', () => press(' ', 'Space', 32, ' '), () =>
+    js(`(() => {
+      const line = ${minimax}, chevron = line?.querySelector('.model-chevron');
+      return line?.dataset.open === 'true' && line.querySelectorAll('.model-parts > .model-part').length === 3 &&
+        chevron.getAttribute('aria-expanded') === 'true' && document.activeElement === chevron;
+    })()`), { within: 1500 });
   // The chevron unfolds the versions under the line, which stays as tall; « Réglages » is then in sight.
   // (0.6.290) Clicked once it is free: the tab reads its list again as it opens, its buttons greyed meanwhile
   // (setBusy), and a click that came then did nothing. Some fifty milliseconds too early on a busy machine
   // (a game running): this step and « quitter l'éditeur » failed ten times in eleven, on the code of before too.
+  // (0.6.481) A model alone on its line opens at a click anywhere on it too: here on its name, as a person clicks.
   await run('Modèles : versions dépliées', async () => {
     await until(() => js(`${ltx}?.querySelector('.model-chevron')?.disabled === false`), 5000);
-    return click('#workflow-list .model-line[data-model="LTX 2.5"] .model-chevron');
+    await js(`${ltx}.scrollIntoView({ block: 'center' })`);
+    return tap('#workflow-list .model-line[data-model="LTX 2.5"] .model-name');
   }, () =>
     js(`(() => { const line = ${ltx}; return line?.dataset.open === 'true' && Boolean(line.querySelector('.model-versions')) && Math.round(line.querySelector('.model-row').getBoundingClientRect().height) === 46 && line.querySelector('.model-chevron').getAttribute('aria-expanded') === 'true' && getComputedStyle(line.querySelector('.model-settings')).opacity === '1'; })()`), { within: 700 });
   // The page of a model, behind « Réglages », named after it (0.6.128: « Proposé à Moodix AI » at its
@@ -2383,6 +2758,20 @@ try {
   // « Retour » : nothing was changed, the page « Modèles » is there again, its line still unfolded.
   await run('quitter l’éditeur', () => click('#native-workflow-back'), () =>
     js(`document.getElementById('workflow-editor').hidden && !document.getElementById('settings-form').hidden && ${ltx}?.dataset.open === 'true'`), { within: 700 });
+  // (0.6.481) A model of a section has its own settings: those of pi H3, from its row (a click of a person, once
+  // the list read again lets it be), named after it. Back, its section is still open.
+  const piSettings =
+    '#workflow-list .model-line[data-model="MiniMax H3"] .model-settings[aria-label="Réglages de pi H3"]';
+  await run('Modèles : réglages d’un modèle de section', async () => {
+    await until(() => js(`document.querySelector('${piSettings}')?.disabled === false`), 5000);
+    await js(`document.querySelector('${piSettings}').scrollIntoView({ block: 'center' })`);
+    return tap(piSettings);
+  }, () =>
+    js(`!document.getElementById('workflow-editor').hidden &&
+      document.getElementById('native-workflow-title').textContent === 'Réglages de pi H3'`), { within: 1500 });
+  await run('Modèles : retour, la section ouverte', () => click('#native-workflow-back'), () =>
+    js(`document.getElementById('workflow-editor').hidden && ${minimax}?.dataset.open === 'true' &&
+      ${minimax}.querySelectorAll('.model-parts > .model-part').length === 3`), { within: 700 });
   await size(1280);
   await run('Échap (Configuration)', () => key('Escape', 'Escape', 27), noDialog);
   await run('nouveau projet', () => fromMenu('#thread-project', '.thread-action'), dialog('project-dialog'));
@@ -2435,6 +2824,9 @@ try {
   await boxes();
   // (0.6.258) With the tools of the Studio still given: the loupe of an image made larger, in its own conversation.
   await loupe();
+  // (0.6.474) « Générer » and the Sortie in place, full, after a failure and empty; the head of the Archives; a prompt
+  // kept when the project of its conversation changes.
+  await stillInPlace();
   await send('Fetch.disable');
   laidOut = false;
   console.log(`Vérification de l’interface (${browser.split(/[\\/]/).pop()}) : ${results.filter(([, ok]) => ok).length}/${results.length} étapes.`);

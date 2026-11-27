@@ -6,6 +6,7 @@ import {
   LAYOUT_HINT,
   LAYOUT_PROPOSED,
   boxWindowPlace,
+  keptInSight,
   setupLayoutEditor,
 } from '../public/layout-editor.mjs';
 import { LAYOUT_LIMITS, LAYOUT_SAYS, layoutBoxes, layoutPrompt, pixelBox } from '../public/layout-boxes.mjs';
@@ -214,6 +215,38 @@ test('the window of a box goes beside it, never on it nor on « Générer » whe
     top: 436,
     covers: 248 * 164,
   });
+});
+
+test('what is said above the buttons stays in sight as « Générer » does: a model not here, a failure', () => {
+  // As the page measured it at 1280 × 720 (MOSS Image not on this computer, box 2 chosen): « Télécharger » and Moodix
+  // AI (`group`), the line above them as wide as the screen (`line`), « MOSS Image n’est pas sur cet ordinateur. »
+  // centred in it (`words`).
+  const group = { left: 478.47, top: 464.5, right: 833.53, bottom: 510.5 },
+    line = { left: 359, top: 437.5, right: 953, bottom: 456.5, width: 594 },
+    words = { left: 546.55, top: 437.5, right: 765.44, bottom: 455.5, width: 218.89 },
+    page = {
+      target: { left: 588, top: 263, right: 724, bottom: 399 },
+      size: { width: 248, height: 219.97 },
+      bounds: { left: 328, top: 120, right: 984, bottom: 712 },
+    };
+  // Nothing said: « Générer » alone, as before.
+  assert.equal(keptInSight({ go: group }), group);
+  assert.equal(keptInSight({ go: group, line: { ...line, width: 0 }, words }), group);
+  // Its words only, and « Générer » with them.
+  const kept = keptInSight({ go: group, line, words });
+  assert.deepEqual(kept, { left: 478.47, top: 437.5, right: 833.53, bottom: 510.5 });
+  // « Générer » alone kept free, the window beside box 2 went over the end of the words (437.5 to 455.5)…
+  assert.deepEqual(boxWindowPlace({ ...page, go: group }), { left: 736, top: 237, covers: 0 });
+  // … with them, it rises 8 px above them, still beside the box.
+  assert.deepEqual(boxWindowPlace({ ...page, go: kept }), { left: 736, top: 210, covers: 0 });
+  // Words cut at the end of their line are no wider than it; unmeasured, the line is kept whole.
+  assert.deepEqual(keptInSight({ line, words: { ...words, left: 300, right: 1000 } }), {
+    left: 359,
+    top: 437.5,
+    right: 953,
+    bottom: 455.5,
+  });
+  assert.equal(keptInSight({ line }), line);
 });
 
 test('(B20) « Boîtes » put on the plateau from « Ajouter », its window open, the empty frame ready', () => {

@@ -51,6 +51,16 @@ const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 const overlap = (r, s) =>
   Math.max(0, Math.min(r.right, s.right) - Math.max(r.left, s.left)) *
   Math.max(0, Math.min(r.bottom, s.bottom) - Math.max(r.top, s.top));
+/** (0.6.477) The smallest rectangle that holds both, either of them missing. */
+const union = (r, s) =>
+  r && s
+    ? {
+        left: Math.min(r.left, s.left),
+        top: Math.min(r.top, s.top),
+        right: Math.max(r.right, s.right),
+        bottom: Math.max(r.bottom, s.bottom),
+      }
+    : (r ?? s ?? null);
 /** Where a point of the screen is in the picture, as fractions of it, held inside it. */
 const fractionOf = (at, rect) => ({
   x: clamp((at.x - rect.left) / rect.width, 0, 1),
@@ -111,6 +121,24 @@ export function boxWindowPlace({ target, size, bounds, go = null, gap = 12 }) {
   });
   const best = places.find(place => place.cost === 0) ?? places.reduce((a, b) => (b.cost < a.cost ? b : a));
   return { left: Math.round(best.left), top: Math.round(best.top), covers: Math.round(best.covers) };
+}
+/**
+ * (0.6.477) What the window of a box keeps in sight with « Générer » (`go`, its group): what is said in the line above
+ * the buttons (`line`, .studio-under of studio.mjs, its `words` centred in it), when something is said there: a
+ * failure, the model not on this computer. Beside box 2 at 1280 × 720, the window hid the end of « MOSS Image n’est
+ * pas sur cet ordinateur. ». The line is as wide as the screen: its words only, never wider than it.
+ */
+export function keptInSight({ go = null, line = null, words = null }) {
+  if (!line?.width) return go;
+  const said = words?.width
+    ? {
+        left: Math.max(line.left, words.left),
+        top: words.top,
+        right: Math.min(line.right, words.right),
+        bottom: words.bottom,
+      }
+    : line;
+  return union(go, said);
 }
 
 /** (Under a proposal of Moodix AI, as its images: AI_INPUTS of studio.mjs.) */
@@ -865,7 +893,13 @@ export function setupLayoutEditor({
       };
     // (A Studio in one column has no room between its blocks: the whole width of the window, then.)
     if (bounds.right - bounds.left < size.width) Object.assign(bounds, { left: 8, right: width - 8 });
-    const at = boxWindowPlace({ target: rect, size, bounds, go: edge('.studio-go-group') });
+    // (0.6.477) What is said above the buttons stays in sight as « Générer » does (keptInSight), its words measured.
+    const said = page.querySelector?.('#studio-view .studio-under > *'),
+      line = said?.textContent?.trim() ? said.getBoundingClientRect?.() : null,
+      range = line ? page.createRange?.() : null;
+    range?.selectNodeContents?.(said);
+    const go = keptInSight({ go: edge('.studio-go-group'), line, words: range?.getBoundingClientRect?.() }),
+      at = boxWindowPlace({ target: rect, size, bounds, go });
     pane.style.left = at.left + 'px';
     pane.style.top = at.top + 'px';
     const wanted = chosenFocus,

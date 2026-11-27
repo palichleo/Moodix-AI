@@ -20,6 +20,14 @@ class Element {
       },
     };
   }
+  // (0.6.476) Its words replace what it held, as in the page: a title drawn again holds its new model alone.
+  get textContent() {
+    return this.text;
+  }
+  set textContent(value) {
+    this.text = value;
+    this.children = [];
+  }
   append(...items) {
     for (const item of items) {
       if (typeof item !== 'object') continue;
@@ -307,4 +315,290 @@ test('« Paramètres avancés » and « Prompt » unfold softly where the page c
   assert.deepEqual(moves[1].frames.map(frame => frame.height), ['148px', '0px']);
   moves[1].onfinish();
   assert.equal(panel.hidden, true);
+});
+
+// (0.6.476) The models of a video of Moodix AI, as the server lists them (ToolCatalog.choices).
+const roles = (start, end, subjects) => ({
+  start_image: { count: start },
+  end_image: { count: end },
+  reference: { count: subjects },
+});
+const MODELS = [
+  {
+    family: 'ltx25',
+    name: 'LTX 2.5',
+    sound: true,
+    create_video: { roles: roles(1, 1, 2) },
+    workflowId: 'ltx',
+    all: true,
+  },
+  {
+    family: 'minimax_h3',
+    name: 'MiniMax H3 Omni',
+    sound: true,
+    create_video: { roles: roles(0, 0, 3) },
+    workflowId: 'mm',
+    missing: true,
+    all: false,
+  },
+  {
+    family: 'pi_h3',
+    name: 'pi H3',
+    sound: true,
+    create_video: { roles: roles(1, 1, 0) },
+    workflowId: 'pi',
+    all: false,
+  },
+  {
+    family: 'wan22',
+    name: 'Wan 2.2',
+    sound: false,
+    create_video: { roles: roles(1, 0, 0) },
+    workflowId: 'wan',
+    off: 'Wan 2.2 : il lui faut une carte NVIDIA.',
+    all: false,
+  },
+];
+const chosenOf = (family, name, extra = {}) => ({
+  ...video(),
+  workflowName: name,
+  family,
+  models: MODELS,
+  inputRoles: ['start_image', 'end_image', 'reference', 'reference'],
+  plan: {
+    intention: 'Un plan fixe.',
+    prompt: 'Un phare sous la pluie.',
+    references: [{ role: 'start_image', preview: '/d.png', label: 'debut.png' }],
+    editable: { prompt: true },
+  },
+  ...extra,
+});
+const menuOf = card => card.children.find(child => String(child.className).includes('bobine-model-menu'));
+
+test('(0.6.476) the model of a video of Moodix AI is chosen in its title, in a list of glass as in the Bobine', async () => {
+  const PI = {
+    ...chosenOf('pi_h3', 'pi H3'),
+    requestId: 'r2',
+    approvalToken: 't2',
+    held: [{ as: 'reference', label: 'sujet.png', why: 'pi H3 ne prend pas de sujet.' }],
+    warning: 'Le sujet 1 n’est pas envoyé à pi H3 : retirez-le, ou choisissez LTX 2.5.',
+  };
+  const answers = [PI, { ...chosenOf('ltx25', 'LTX 2.5'), requestId: 'r3', approvalToken: 't3' }],
+    told = 'Durée : 30 s → 10,04 s, la plus proche que LTX 2.5 permet.';
+  const card = setup(chosenOf('ltx25', 'LTX 2.5', { notes: [told] }), {
+    delay: 0,
+    answer: route => (route === 'tools/revise' ? answers.shift() : {}),
+  });
+  // « PROPOSITION · VIDÉO · » then its model, a button: « LTX 2.5 ⌄ ».
+  assert.equal(card.title.textContent, 'Proposition · Vidéo');
+  const [chooser] = card.title.children;
+  assert.equal(chooser.className, 'proposal-model');
+  assert.deepEqual(
+    chooser.children.map(child => [child.tag, child.className, child.textContent]),
+    [
+      ['span', 'proposal-model-name', 'LTX 2.5'],
+      ['svg', '', ''],
+    ],
+  );
+  assert.equal(chooser.children[1].children[0].attributes.href, '#i-chevron');
+  assert.deepEqual(
+    [chooser.attributes['aria-haspopup'], chooser.attributes['aria-expanded'], chooser.attributes['aria-label']],
+    ['menu', 'false', 'Modèle de la vidéo : LTX 2.5'],
+  );
+  assert.equal(chooser.dataset.tip, 'Choisir le modèle de cette vidéo');
+  assert.equal(chooser.dataset.missing, undefined);
+  // Its list: the classes of the list of the Bobine, what each takes under its name, its own checked.
+  chooser.onclick({ stopPropagation() {} });
+  let menu = menuOf(card.card);
+  assert.equal(menu.className, 'glass-menu bobine-piece-menu bobine-model-menu');
+  assert.deepEqual(
+    [menu.attributes.role, menu.attributes['aria-label'], menu.hidden],
+    ['menu', 'Modèle de la vidéo', false],
+  );
+  assert.equal(chooser.attributes['aria-expanded'], 'true');
+  const said = item => {
+    const [text, check] = item.children;
+    return [
+      item.className,
+      item.attributes['aria-checked'],
+      text.children.map(child => child.textContent).join(' · '),
+      Boolean(check),
+      item.dataset.missing ?? '',
+      item.dataset.tip ?? '',
+    ];
+  };
+  assert.deepEqual(menu.children.map(said), [
+    ['glass-menu-item bobine-model-item', 'true', 'LTX 2.5 · Début, fin, 2 sujets, son', true, '', ''],
+    ['glass-menu-item bobine-model-item', 'false', 'MiniMax H3 Omni · 3 sujets, son', false, 'true', ''],
+    ['glass-menu-item bobine-model-item', 'false', 'pi H3 · Début, fin, son', false, '', ''],
+    [
+      'glass-menu-item bobine-model-item is-off',
+      'false',
+      'Wan 2.2 · Début seulement, sans son',
+      false,
+      '',
+      'Wan 2.2 : il lui faut une carte NVIDIA.',
+    ],
+  ]);
+  const wan = menu.children[3];
+  assert.equal(wan.attributes['aria-disabled'], 'true');
+  assert.equal(wan.dataset.tipSide, 'right', 'its bubble beside the list, not over the models under it');
+  // Greyed: chosen, nothing happens; Échap closes the list.
+  wan.onclick();
+  assert.equal(card.revised.length, 0);
+  menu.onkeydown({ key: 'Escape', preventDefault() {}, stopPropagation() {} });
+  assert.equal(menuOf(card.card), undefined);
+  assert.equal(chooser.attributes['aria-expanded'], 'false');
+  // Another one: the server makes the proposal again for it; the card is drawn again from its answer, what the one
+  // before said only when it was so gone with it.
+  chooser.onclick({ stopPropagation() {} });
+  menuOf(card.card).children[2].onclick();
+  await wait(0);
+  assert.deepEqual(card.revised.at(-1), [
+    'tools/revise',
+    { requestId: 'r', approvalToken: 't', edits: { workflow: 'pi' } },
+  ]);
+  const [again] = card.title.children;
+  assert.equal(again.children[0].textContent, 'pi H3');
+  assert.equal(menuOf(card.card), undefined);
+  const [, body] = card.card.children,
+    texts = () => under(body).map(item => item.textContent);
+  assert.ok(texts().includes(PI.warning), 'the line of what its model does not send');
+  assert.equal(texts().includes(told), false, 'no longer said');
+  // The subject it holds stays in its place, greyed, why in its bubble; its × takes it out.
+  const kept = under(body).find(item => String(item.className).includes('is-held')),
+    [frame, caption] = kept.children;
+  assert.deepEqual([caption.textContent, frame.attributes['data-tip']], ['Sujet 1', 'pi H3 ne prend pas de sujet.']);
+  const cross = under(kept).find(item => item.className === 'proposal-input-remove');
+  assert.equal(cross.attributes['aria-label'], 'Retirer le sujet 1');
+  // Back to LTX 2.5: its line and what it held go with the answer that does not say them.
+  again.onclick({ stopPropagation() {} });
+  menuOf(card.card).children[0].onclick();
+  await wait(0);
+  assert.deepEqual(card.revised.at(-1)[1].edits, { workflow: 'ltx' });
+  assert.deepEqual(card.title.children.map(child => child.children[0].textContent), ['LTX 2.5']);
+  assert.equal(texts().includes(PI.warning), false);
+  assert.equal(under(body).some(item => String(item.className).includes('is-held')), false);
+  card.cancel.onclick();
+  assert.equal(await card.answer, 'cancel');
+});
+
+test('(0.6.476) the list of the models closes at a press beside it, and leaves nothing listening', async () => {
+  const page = new Element('document');
+  globalThis.document = page;
+  try {
+    const card = setup(chosenOf('ltx25', 'LTX 2.5'), { delay: 0 });
+    const [chooser] = card.title.children;
+    chooser.onclick({ stopPropagation() {} });
+    const menu = menuOf(card.card);
+    page.fire('pointerdown', { target: menu.children[1] });
+    assert.equal(menuOf(card.card), menu, 'a press in it leaves it open');
+    page.fire('pointerdown', { target: new Element('main') });
+    assert.equal(menuOf(card.card), undefined, 'a press beside it closes it');
+    // Open when the card goes: closed with it.
+    chooser.onclick({ stopPropagation() {} });
+    card.cancel.onclick();
+    assert.equal(await card.answer, 'cancel');
+    assert.equal(page.listeners.pointerdown?.size ?? 0, 0, 'nothing left listening');
+  } finally {
+    delete globalThis.document;
+  }
+});
+
+test('(0.6.476) the × of an image of the card sends what was changed with it; a proposal without models has no list', async () => {
+  const request = chosenOf('ltx25', 'LTX 2.5');
+  const card = setup(request, {
+    delay: 0,
+    answer: route => (route === 'tools/revise' ? { ...request, requestId: 'r2' } : {}),
+  });
+  const [, body] = card.card.children;
+  const prompt = under(card.card).find(item => item.className === 'proposal-prompt');
+  prompt.value = 'Un phare sous la neige.';
+  const cross = under(body).find(item => item.className === 'proposal-input-remove');
+  assert.equal(cross.attributes['aria-label'], 'Retirer l’image de début');
+  cross.onclick({ stopPropagation() {} });
+  await wait(0);
+  assert.deepEqual(card.revised.at(-1)[1].edits, { prompt: 'Un phare sous la neige.', remove: { input: 0 } });
+  card.cancel.onclick();
+  assert.equal(await card.answer, 'cancel');
+  // A sound, a proposal by hand: its model in words, as before.
+  const sound = setup({ mediaType: 'audio', workflowName: 'MOSS-SFX', plan: { intention: 'Un orage.' } });
+  assert.deepEqual([sound.title.textContent, sound.title.children], ['Proposition · Son · MOSS-SFX', []]);
+  sound.cancel.onclick();
+  assert.equal(await sound.answer, 'cancel');
+});
+
+test('(0.6.476) a model that is not on this computer: its download offered in the card, its « Annuler » back to the proposal', async () => {
+  const offer = {
+      workflowId: 'mm',
+      workflowName: 'MiniMax H3 Omni',
+      family: 'minimax_h3',
+      files: [{ file: 'minimax_h3_omni.safetensors', size: 21 * 1024 ** 3 }],
+      bytes: 21 * 1024 ** 3,
+      left: 21 * 1024 ** 3,
+      needsToken: false,
+      page: '',
+    },
+    MINIMAX = { ...chosenOf('minimax_h3', 'MiniMax H3 Omni'), requestId: 'r4', approvalToken: 't4' };
+  let downloaded = false;
+  const card = setup(chosenOf('ltx25', 'LTX 2.5'), {
+    delay: 0,
+    answer: route => {
+      if (route === 'tools/revise')
+        return downloaded
+          ? MINIMAX
+          : { ...chosenOf('ltx25', 'LTX 2.5'), requestId: 'r' + card.revised.length, approvalToken: 't', offer };
+      if (route === 'downloads/start') return { received: 0, total: offer.bytes };
+      if (route === 'downloads') return { job: downloaded ? { state: 'done', workflowId: 'mm' } : { state: 'idle' } };
+      return {};
+    },
+  });
+  const [, body, foot, panels, offered] = card.card.children,
+    revisions = () => card.revised.filter(([route]) => route === 'tools/revise'),
+    choose = async name => {
+      card.title.children[0].onclick({ stopPropagation() {} });
+      menuOf(card.card).children.find(item => item.children[0].children[0].textContent === name).onclick();
+      await wait(0);
+    };
+  await choose('MiniMax H3 Omni');
+  assert.deepEqual(revisions().at(-1)[1].edits, { workflow: 'mm' });
+  // In place of its settings, of « Annuler » and of « Générer »: the card « Il manque un fichier », its name in amber.
+  assert.deepEqual([body.hidden, foot.hidden, panels.hidden, offered.hidden], [true, true, true, false]);
+  const [missing] = offered.children;
+  assert.equal(missing.className, 'missing-card');
+  assert.equal(missing.children[0].textContent, 'Il manque un fichier · Vidéo · MiniMax H3 Omni');
+  const [chooser] = card.title.children;
+  assert.deepEqual([chooser.children[0].textContent, chooser.dataset.missing], ['MiniMax H3 Omni', 'true']);
+  // In its list, the one checked is the one offered.
+  chooser.onclick({ stopPropagation() {} });
+  assert.deepEqual(
+    menuOf(card.card).children.map(item => item.attributes['aria-checked']),
+    ['false', 'true', 'false', 'false'],
+  );
+  menuOf(card.card).onkeydown({ key: 'Escape', preventDefault() {}, stopPropagation() {} });
+  // Its « Annuler »: the proposal again, as it was; nothing cancelled.
+  const buttons = under(missing).filter(item => item.tag === 'button');
+  assert.deepEqual(buttons.map(item => item.children.at(-1).textContent), ['Annuler', 'Télécharger · 21,0 Go']);
+  buttons[0].onclick();
+  assert.deepEqual([body.hidden, foot.hidden, offered.hidden, offered.children.length], [false, false, true, 0]);
+  const [back] = card.title.children;
+  assert.deepEqual([back.children[0].textContent, back.dataset.missing], ['LTX 2.5', undefined]);
+  assert.equal(card.host.children.some(child => child.className === 'proposal-cancelled'), false);
+  assert.equal(card.card.parent, card.host);
+  // Chosen again, then the model of the proposal chosen in the list: the offer goes too, nothing asked of the server.
+  await choose('MiniMax H3 Omni');
+  assert.equal(offered.hidden, false);
+  const sent = revisions().length;
+  await choose('LTX 2.5');
+  assert.deepEqual([offered.hidden, body.hidden, revisions().length], [true, false, sent]);
+  // Downloaded: the proposal is made for it, and the card shows it.
+  await choose('MiniMax H3 Omni');
+  downloaded = true;
+  under(offered).filter(item => item.tag === 'button')[1].onclick();
+  await wait(10);
+  assert.deepEqual(revisions().at(-1)[1].edits, { workflow: 'mm' });
+  const shown = [offered.hidden, body.hidden, foot.hidden, card.title.children[0].children[0].textContent];
+  assert.deepEqual(shown, [true, false, false, 'MiniMax H3 Omni']);
+  card.go.onclick();
+  assert.equal(await card.answer, 'once');
 });
