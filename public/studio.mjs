@@ -3835,7 +3835,12 @@ export function setupStudio({
       project: project(),
       queued,
       label: {
-        prompt: String(wanted.args?.prompt ?? '').trim() || finish?.go || (refilming() ? 'Changer la caméra' : ''),
+        // (0.6.500) A demand made with boxes (MOSS Image) is named by its description, never by the JSON the model
+        // reads (layoutCaption): the line of the queue showed that JSON once the two works met.
+        prompt:
+          layoutCaption(String(wanted.args?.prompt ?? '')).trim() ||
+          finish?.go ||
+          (refilming() ? 'Changer la caméra' : ''),
         kind: mode,
         // Its model without what its name says in brackets (« Bruitages », of « Bruitages (MOSS-SoundEffect v2) »):
         // whole, it was cut on its tile.
