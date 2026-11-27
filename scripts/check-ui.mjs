@@ -1089,65 +1089,100 @@ try {
   }
   /**
    * (0.6.466) The queue of the Studio (claude_design/maquette-file-studio): a take of the Studio under way (simulated:
-   * `creation`), three requests put after it by « Générer ensuite »; that take refused, its tile says why and the next
-   * request goes; that one stopped, what waits is paused (« Reprendre · 2 »). Each time at 1280 × 720, 1440 × 900 and
-   * 1912 × 948: the tiles whole in the Sortie and in their order, none of their words under 12 px but their small
-   * capitals of 10.5 px, none cut; the group of « Générer » in its block; the page not scrolling. Emptied after.
+   * `creation`), three requests put after it by « Générer ensuite »; that take refused, its line says why and the next
+   * request goes; that one stopped, what waits is paused (« Reprendre · 2 »). (0.6.478, variante A of
+   * claude_design/maquette-file-bas-droite) What waits is in the window at the bottom right, never in the Sortie:
+   * in the Studio, the list alone, lying under the Réglages at their width. Each time at 1280 × 720, 1168 × 788,
+   * 1440 × 900 and 1912 × 948: its lines in their order; the window in the page, over no block of the Studio nor the
+   * group of « Générer » (at 1280 × 720, its title alone, which its chevron opens over the Réglages); none of its
+   * words under 12 px but its small capitals of 10.5 px, nothing cut but the prompts and the models of its lines
+   * (whole in their bubble); the line of the screen beside the tabs (at 1168 × 788 it was drawn over « Son »); the
+   * page not scrolling. In the Chat at 1168 × 788, its pill over the input (it covered its end); in the Archives,
+   * « Reprendre · 2 » at its foot. Emptied after, by the × of the Studio and the cross of the line that failed.
    */
   async function studioQueue() {
-    const look = (tiles, label) => `(() => {
+    const look = (said, label) => `(() => {
       const found = [],
         desk = document.querySelector('#studio-view .studio-desk'),
-        out = desk?.querySelector('.studio-block.is-output'),
-        strip = out?.querySelector('.studio-strip');
-      if (!out || !strip) return ['pas de Sortie'];
-      const inside = (box, room) =>
-          box.left >= room.left - 0.5 && box.right <= room.right + 0.5 &&
-          box.top >= room.top - 0.5 && box.bottom <= room.bottom + 0.5,
-        size = element => parseFloat(getComputedStyle(element).fontSize),
-        words = tile => [...tile.querySelector('.studio-queued-head').children].map(part => part.textContent)
-          .filter(Boolean).join(' '),
-        tiles = [...out.querySelectorAll('.studio-item.is-queued')];
-      if (tiles.map(words).join(' | ') !== ${JSON.stringify(tiles.join(' | '))})
-        found.push('vignettes « ' + tiles.map(words).join(' | ') + ' »');
-      for (const tile of tiles) {
-        const pick = tile.querySelector('.studio-queued-pick'),
-          box = pick.getBoundingClientRect();
-        if (!inside(box, out.getBoundingClientRect()) || !inside(box, strip.getBoundingClientRect()))
-          found.push(words(tile) + ' : hors de la Sortie');
-        for (const part of pick.querySelectorAll('.studio-queued-head, .studio-queued-text, .studio-queued-foot')) {
-          const capitals = part.matches('.studio-queued-head'),
-            small = capitals
-              ? Math.abs(size(part) - 10.5) > 0.05 || getComputedStyle(part).textTransform !== 'uppercase'
-              : size(part) < 12;
-          if (small) found.push(words(tile) + ' : ' + part.className + ' à ' + size(part) + ' px');
-          if (part.scrollWidth > part.clientWidth + 1 || part.getBoundingClientRect().bottom > box.bottom + 0.5)
-            found.push(words(tile) + ' : ' + part.className + ' coupé');
-        }
+        block = name => desk?.querySelector('.studio-block.' + name),
+        win = document.querySelector('.work-mini');
+      if (!block('is-output') || !block('is-settings')) return ['pas de Studio'];
+      const crosses = (one, other) =>
+          Math.min(one.right, other.right) - Math.max(one.left, other.left) > 1 &&
+          Math.min(one.bottom, other.bottom) - Math.max(one.top, other.top) > 1,
+        seen = element => element.getClientRects().length > 0,
+        size = element => parseFloat(getComputedStyle(element).fontSize);
+      if (block('is-output').querySelector('.studio-item.is-queued'))
+        found.push('une vignette de la file dans la Sortie');
+      if (!win || win.hidden || !win.classList.contains('is-docked'))
+        return [...found, 'la file n’est pas sous les Réglages'];
+      // What it says, in its order: the title of each group, then its lines (one that failed: « Échec · », its prompt).
+      const lines = [...win.querySelectorAll('.work-mini-queue-head, .work-mini-row')].map(part =>
+          !part.matches('.work-mini-row')
+            ? part.textContent
+            : (part.classList.contains('is-failed') ? 'Échec · ' : '') +
+              part.querySelector('.work-mini-row-text').textContent,
+        ),
+        wanted = ${JSON.stringify(said)};
+      if (lines.length !== wanted.length || lines.some((line, at) => !line.startsWith(wanted[at])))
+        found.push('la file dit « ' + lines.join(' | ') + ' »');
+      const own = win.getBoundingClientRect(),
+        over = win.classList.contains('is-over');
+      if (own.left < -0.5 || own.top < -0.5 || own.right > innerWidth + 0.5 || own.bottom > innerHeight + 0.5)
+        found.push('la file sort de la page');
+      // Over nothing of the Studio (opened over the Réglages where it has no room, the time to look at it).
+      for (const [part, name] of [
+        [block('is-input'), 'l’Entrée'],
+        [block('is-preview'), 'l’écran'],
+        [block('is-output'), 'la Sortie'],
+        [over ? null : block('is-settings'), 'les Réglages'],
+        [desk.querySelector('.studio-go-group'), 'le groupe de « Générer »'],
+      ])
+        if (part && seen(part) && crosses(own, part.getBoundingClientRect())) found.push('la file passe sur ' + name);
+      const rows = [...win.querySelectorAll('.work-mini-rows')].filter(seen),
+        first = rows[0]?.querySelector('.work-mini-row')?.getBoundingClientRect(),
+        room = rows[0]?.getBoundingClientRect();
+      if (win.classList.contains('is-folded')) {
+        if (rows.length) found.push('repliée, la file montre ses lignes');
+      } else if (!first || first.top < room.top - 0.5 || first.bottom > Math.min(room.bottom, own.bottom) + 0.5)
+        found.push('la première ligne de la file n’est pas entière');
+      // Never two « Reprendre » on one screen: the button of the Studio says it for the queue of its conversation.
+      if (win.querySelector('.work-mini-resume')) found.push('« Reprendre » dans la file posée sous les Réglages');
+      for (const part of [...win.querySelectorAll('.work-mini-file *')].filter(seen)) {
+        if (![...part.childNodes].some(child => child.nodeType === 3 && child.textContent.trim())) continue;
+        const capitals = part.closest('.work-mini-queue-title'),
+          small = capitals
+            ? Math.abs(size(part) - 10.5) > 0.05 || getComputedStyle(capitals).textTransform !== 'uppercase'
+            : size(part) < 12;
+        if (small) found.push('« ' + part.textContent.trim() + ' » à ' + size(part) + ' px');
       }
-      const group = desk.querySelector('.studio-go-group'),
-        block = group?.closest('.studio-block'),
-        word = group?.querySelector('.studio-go-label')?.textContent;
-      if (!group || !block || !inside(group.getBoundingClientRect(), block.getBoundingClientRect()))
-        found.push('le groupe de « Générer » sort de son bloc');
-      const wanted = ${JSON.stringify(label)};
-      if (word !== wanted) found.push('« ' + word + ' » au lieu de « ' + wanted + ' »');
+      for (const part of win.querySelectorAll('.work-mini-queue-title, .work-mini-queue-why, .work-mini-row-tries'))
+        if (seen(part) && part.scrollWidth > part.clientWidth + 1)
+          found.push('« ' + part.textContent.trim() + ' » coupé');
+      const step = desk.querySelector('.studio-progress');
+      for (const tab of document.querySelectorAll('#studio-kinds .kind-tab'))
+        if (step && seen(step) && seen(tab) && crosses(step.getBoundingClientRect(), tab.getBoundingClientRect()))
+          found.push('la ligne de l’écran passe sur l’onglet ' + tab.getAttribute('aria-label'));
+      const word = desk.querySelector('.studio-go-group .studio-go-label')?.textContent,
+        named = ${JSON.stringify(label)};
+      if (word !== named) found.push('« ' + word + ' » au lieu de « ' + named + ' »');
       const page = document.documentElement;
       if (page.scrollHeight > innerHeight + 1 || page.scrollWidth > innerWidth + 1) found.push('la page défile');
       return found;
     })()`;
     const sized = (width, height) =>
       send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
-    const over = async (tiles, label) => {
+    const over = async (said, label) => {
       const seen = [];
       for (const [width, height] of [
         [1280, 720],
+        [1168, 788],
         [1440, 900],
         [1912, 948],
       ]) {
         await sized(width, height);
         await wait(300);
-        for (const what of await js(look(tiles, label))) seen.push(`${what} (${width} × ${height})`);
+        for (const what of await js(look(said, label))) seen.push(`${what} (${width} × ${height})`);
       }
       for (const what of seen) problems.push([step, 'état', what]);
       return seen.length === 0;
@@ -1172,6 +1207,13 @@ try {
         { urlPattern: '*/api/status*', requestStage: 'Response' },
       ],
     });
+    const first = 'Un vieux pêcheur répare son filet sur le ponton, lumière dorée du matin',
+      three = [
+        'La même scène à la tombée de la nuit, une lanterne posée sur le filet',
+        'Le pêcheur lance son filet, la caméra recule lentement vers le large, des mouettes passent au-dessus de lui',
+        'Clapotis de l’eau contre le ponton',
+      ],
+      start = text => text.slice(0, 24);
     await run(
       'Studio : une prise en cours, « Générer ensuite » à la place de « Générer »',
       async () => {
@@ -1179,7 +1221,7 @@ try {
         await click('#studio-open');
         await wait(800);
         await click('#studio-kinds .kind-tab[aria-label="Image"]');
-        if (!(await write('Un vieux pêcheur répare son filet sur le ponton, lumière dorée du matin'))) return false;
+        if (!(await write(first))) return false;
         await wait(100);
         return click('#studio-view .studio-go');
       },
@@ -1192,51 +1234,134 @@ try {
       { within: 5000 },
     );
     await run(
-      'Studio : trois demandes en file, entières dans la Sortie',
+      'Studio : trois demandes en file, sous les Réglages, dans la fenêtre du bas à droite',
       async () => {
-        for (const text of [
-          'La même scène à la tombée de la nuit, une lanterne posée sur le filet',
-          'Le pêcheur lance son filet, la caméra recule lentement vers le large, des mouettes passent au-dessus de lui',
-          'Clapotis de l’eau contre le ponton',
-        ]) {
+        for (const text of three) {
           if (!(await write(text))) return false;
           await wait(100);
           if (!(await click('#studio-view .studio-go.is-next'))) return false;
           await wait(150);
         }
       },
-      () => over(['En attente 3', 'En attente 2', 'En attente 1'], 'Générer ensuite'),
+      () => over(['En attente · 3', ...three.map(start)], 'Générer ensuite'),
     );
-    const failed = `document.querySelectorAll('#studio-view .studio-item.is-queued.is-failed').length === 1`,
+    // (0.6.478) At 1280 × 720 the list is its title alone: its chevron opens it over the Réglages, Échap folds it.
+    const docked = `(() => {
+      const win = document.querySelector('.work-mini');
+      if (!win || win.hidden) return '';
+      return [...win.classList].filter(name => /^is-(docked|folded|over)$/.test(name)).sort().join(' ');
+    })()`;
+    await run(
+      'Studio à 1280 × 720 : la file en une ligne, que son chevron ouvre par-dessus les Réglages',
+      async () => {
+        await sized(1280, 720);
+        if ((await until(async () => (await js(docked)) === 'is-docked is-folded', 2000)) === false) return false;
+        return tap('.work-mini-fold');
+      },
+      async () => {
+        if ((await until(async () => (await js(docked)) === 'is-docked is-over', 2000)) === false) return false;
+        const found = await js(look(['En attente · 3', ...three.map(start)], 'Générer ensuite'));
+        for (const what of found) problems.push([step, 'état', what + ' (1280 × 720, ouverte)']);
+        return found.length === 0;
+      },
+    );
+    await run(
+      'Studio à 1280 × 720 : Échap replie la file',
+      () => key('Escape', 'Escape', 27),
+      async () => (await js(docked)) === 'is-docked is-folded',
+      { within: 1500 },
+    );
+    // (0.6.478) In the Chat at 1168 × 788 its window covered the end of the input and its button: its pill over it.
+    await run(
+      'Chat à 1168 × 788 : la file en pastille au-dessus de la saisie',
+      async () => {
+        await sized(1168, 788);
+        return click('#chat-open');
+      },
+      () =>
+        js(`(() => {
+          const win = document.querySelector('.work-mini'), form = document.getElementById('chat-form');
+          if (!win || win.hidden || !form || document.body.dataset.view !== 'chat') return false;
+          const own = win.getBoundingClientRect(), box = form.getBoundingClientRect(),
+            crosses = Math.min(own.right, box.right) - Math.max(own.left, box.left) > 1 &&
+              Math.min(own.bottom, box.bottom) - Math.max(own.top, box.top) > 1;
+          return win.classList.contains('is-raised') && win.classList.contains('is-folded') && !crosses &&
+            own.bottom <= innerHeight && win.querySelector('.work-mini-queue-title')?.textContent === 'En attente · 3';
+        })()`),
+      { within: 3000 },
+    );
+    await run('Studio (retour à sa file)', () => click('#studio-open'), view('studio'), { within: 3000 });
+    const failed = `document.querySelectorAll('.work-mini .work-mini-row.is-failed').length === 1`,
       next = () => creation.asked.length === 2 && creation.job?.state === 'generating';
     await run(
-      'Studio : la prise refusée, sa vignette « Échec », la demande suivante partie',
+      'Studio : la prise refusée, sa ligne « Échec » et sa raison, la demande suivante partie',
       async () => {
         creation.fail = 'Le modèle n’a pas pu être chargé.';
         await until(async () => next() && js(failed), 6000);
       },
-      () => over(['En attente 2', 'En attente 1', 'Échec'], 'Générer ensuite'),
+      async () =>
+        (await js(`document.querySelector('.work-mini .is-failed .work-mini-row-why')?.textContent`)) ===
+          'Échec · Le modèle n’a pas pu être chargé.' &&
+        over(['En attente · 2', ...three.slice(1).map(start), 'Échec · ' + start(first)], 'Générer ensuite'),
     );
-    const paused = `document.querySelectorAll('#studio-view .studio-item.is-queued.is-paused').length === 2`;
+    const paused = count =>
+      `document.querySelectorAll('.work-mini .work-mini-rows.is-paused .work-mini-row').length === ${count}`;
     await run(
       'Studio : « Arrêter », ce qui attend en pause, « Reprendre · 2 »',
       async () => {
         if (!(await click('#studio-view .studio-stop'))) return false;
-        await until(() => js(paused), 6000);
+        await until(() => js(paused(2)), 6000);
       },
-      () => over(['En pause 2', 'En pause 1', 'Échec'], 'Reprendre · 2'),
+      async () =>
+        // (Lying under the settings, the window leaves why to the line under the screen: never said twice.)
+        (await js(`(() => {
+          const said = document.querySelector('#studio-view .studio-error')?.textContent ?? '';
+          return !document.querySelector('.work-mini .work-mini-queue-why') && said.startsWith('Génération arrêtée.');
+        })()`)) && over(['En pause · 2', ...three.slice(1).map(start), 'Échec · ' + start(first)], 'Reprendre · 2'),
+    );
+    // (0.6.478) Elsewhere the window resumes the queue: « Reprendre · 2 » at its foot, and the next request goes.
+    await run(
+      'Archives : la file en pause dans la fenêtre, son « Reprendre · 2 », la demande suivante partie',
+      async () => {
+        await sized(1440, 900);
+        if (!(await click('#library-open'))) return false;
+        const shown = `document.querySelector('.work-mini:not([hidden]) .work-mini-resume')?.textContent`;
+        if ((await until(async () => (await js(shown)) === 'Reprendre · 2', 3000)) === false) return false;
+        return tap('.work-mini .work-mini-resume');
+      },
+      async () =>
+        creation.asked.length === 3 &&
+        creation.job?.state === 'generating' &&
+        js(`(() => {
+          const win = document.querySelector('.work-mini'), own = win?.getBoundingClientRect();
+          if (!win || win.hidden || !win.classList.contains('has-now')) return false;
+          return !win.querySelector('.work-mini-resume') &&
+            win.querySelector('.work-mini-queue-head')?.textContent === 'En attente · 1' &&
+            own.top >= 0 && own.bottom <= innerHeight && own.right <= innerWidth;
+        })()`),
+      { within: 5000 },
+    );
+    await run(
+      'Studio : « Arrêter » de nouveau, la dernière demande en pause',
+      async () => {
+        if (!(await click('#studio-open'))) return false;
+        await wait(600);
+        if (!(await click('#studio-view .studio-stop'))) return false;
+        await until(() => js(paused(1)), 6000);
+      },
+      () => over(['En pause · 1', start(three[2]), 'Échec · ' + start(first)], 'Reprendre · 1'),
     );
     await run(
       'Studio : « Vider la file », puis l’échec retiré par sa croix',
       async () => {
         if (!(await click('#studio-view .studio-clear'))) return false;
         await wait(100);
-        return click('#studio-view .studio-item.is-queued.is-failed .studio-item-del');
+        return tap('.work-mini .work-mini-row.is-failed .work-mini-row-del');
       },
       () =>
-        js(`!document.querySelector('#studio-view .studio-item.is-queued') &&
+        js(`(document.querySelector('.work-mini')?.hidden ?? true) &&
           document.querySelector('#studio-view .studio-go-label')?.textContent === 'Générer'`).then(
-          empty => empty && creation.asked.length === 2,
+          empty => empty && creation.asked.length === 3,
         ),
       { within: 1500 },
     );

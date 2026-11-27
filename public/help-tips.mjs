@@ -92,9 +92,10 @@ export function setupHelpTips(root, { id = 'help-bubble', host = root, delay = 1
     // choice of one of our lists is measured on the list, 8 px from it, and takes the other side when
     // its own has no room: over the list, its bubble lay under it (a list is above the page).
     // (0.6.198) The menu of a take of the Studio likewise: above its line, the bubble covered the line before.
+    // (0.6.478) And a line of the queue in the window at the bottom right: at the left of the window, not on its edge.
     const side = target.dataset.tipSide;
     if (side === 'left' || side === 'right') {
-      const list = target.closest?.('.glass-menu, .studio-item-menu'),
+      const list = target.closest?.('.glass-menu, .studio-item-menu, .work-mini'),
         edge = list ? list.getBoundingClientRect() : box,
         at = { left: edge.left - size.width - 8, right: edge.right + 8 },
         fits = { left: at.left >= margin, right: at.right + size.width <= width - margin },

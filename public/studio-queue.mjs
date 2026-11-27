@@ -15,6 +15,42 @@ export const QUEUE_KEY = 'moodix.file';
 
 const WAITS = new Set(['waiting', 'paused']);
 
+/** (0.6.478) The kind of a request as the Studio names it, and the icon of its mode. */
+const KINDS = { image: ['Image', 'image'], video: ['Vidéo', 'video'], audio: ['Son', 'wave'] };
+/**
+ * (0.6.478) The queue as the window at the bottom right draws it (work-miniature.mjs, `queue`): one part per
+ * conversation that has requests, in the order they were asked, with the words its tiles of the Sortie said: the start
+ * of its prompt, its model and its format, its tries; its kind and its whole prompt in its bubble. One that failed says
+ * why, and that a click gives its settings back to the Studio. The one being made is the take of the window, no line.
+ */
+export function queueParts(entries) {
+  const parts = new Map();
+  for (const entry of entries) {
+    if (!['waiting', 'paused', 'failed'].includes(entry?.state)) continue;
+    const label = entry.label ?? {},
+      [kind, icon] = KINDS[entry.mode] ?? KINDS.image,
+      prompt = String(label.prompt ?? ''),
+      what = [label.model, label.format].filter(Boolean).join(' · '),
+      failed = entry.state === 'failed',
+      tries = failed ? 1 : Math.max(1, Number(entry.tries) || 1);
+    if (!parts.has(entry.conversation))
+      parts.set(entry.conversation, { conversation: entry.conversation, waiting: [], paused: [], failed: [] });
+    parts.get(entry.conversation)[entry.state].push({
+      id: entry.id,
+      kind: entry.mode in KINDS ? entry.mode : 'image',
+      icon,
+      prompt,
+      what,
+      tries,
+      reason: failed ? entry.reason || 'La génération a échoué.' : entry.reason || '',
+      tip: failed
+        ? `${prompt}\nUn clic remet ses réglages dans le Studio.`
+        : `${[kind, what, tries > 1 ? `× ${tries}` : ''].filter(Boolean).join(' · ')}\n${prompt}`,
+    });
+  }
+  return [...parts.values()];
+}
+
 export function createQueue({ storage = null, tab = '' } = {}) {
   let entries = [],
     made = 0,

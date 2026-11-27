@@ -15319,9 +15319,10 @@ button.glass-select::after {
 .work-mini.is-foot :is(.work-mini-fold, .work-mini-close) {
   display: none;
 }
-/* The Pellicule scrolls under it: its last row can come out from under it. */
+/* The Pellicule scrolls under it: its last row can come out from under it. (0.6.478) However tall it is with its
+   list (work-miniature.mjs says its height), and 56 px more, as before (224 + 56). */
 body:has(> .work-mini:not([hidden]):not(.is-foot)) .library-view {
-  padding-bottom: 280px;
+  padding-bottom: calc(var(--work-mini-height, 224px) + 56px);
 }
 /* The pointer of Moodix AI belongs to the Studio on screen: never over another page (0.6.81, a
    proposal waiting on « Générer » while the user looks elsewhere); back there, it is there again. */
@@ -21518,96 +21519,432 @@ body:has(dialog[open]) :is(.camera-ball, .camera-menu-option) :is(.camera-ball-l
   width: 14px;
   height: 14px;
 }
-/* A request in the Sortie: a sound of the Sortie, narrower (196 × 96), with no picture. « EN ATTENTE · 1 » in the
-   small capitals of the Sortie (10.5 px), two lines of its prompt (13 px), its model and its format (12 px). */
-#studio-view .studio-item.is-queued .studio-item-pick.studio-queued-pick {
-  position: relative;
-  display: grid;
-  grid-template-rows: auto auto 1fr;
-  align-content: start;
-  gap: 8px;
-  box-sizing: border-box;
-  width: 196px;
-  min-width: 196px;
-  height: var(--strip-h);
-  padding: 12px 13px 11px;
-  border-radius: 8px;
-  background: rgba(var(--room-glass), 0.5);
-  outline: 1px solid rgba(238, 232, 222, 0.12);
-  outline-offset: -1px;
-  color: var(--text-2);
-  text-align: left;
-  cursor: default;
-}
-#studio-view .studio-item.is-queued .studio-item-pick.studio-queued-pick:hover {
-  outline: 1px solid rgba(238, 232, 222, 0.24);
-}
-#studio-view .studio-item.is-queued .studio-item-pick.studio-queued-pick:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: -2px;
-}
-.studio-queued-head {
+/* ------------------------------------------------------------------ the queue in the window at the bottom right */
+/* (0.6.478, variante A of claude_design/maquette-file-bas-droite) The miniature is the place of the queue: under the
+   take in progress, what waits, in its order, a line per request (work-miniature.mjs); the Sortie keeps the take
+   under way and the takes made. The window never taller than the page (under the top bar, 16 px from its foot): the
+   list scrolls in it, never the page. Nothing in it moves but the Flux and the line of the take. */
+.work-mini {
   display: flex;
-  justify-content: space-between;
-  gap: 10px;
+  flex-direction: column;
+  max-height: calc(100vh - 88px);
+}
+.work-mini-back {
+  flex: none;
+}
+.work-mini.has-now.has-queue:not(.is-folded, .is-foot) .work-mini-back {
+  border-radius: 14px 14px 0 0;
+}
+/* Where the window has no more room (the page too low, the Studio at 1168 × 788), the list scrolls as one, never each
+   of its groups cut to a sliver. */
+.work-mini-file {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.work-mini.has-now:not(.is-folded, .is-foot) .work-mini-file,
+.work-mini-queue + .work-mini-queue {
+  border-top: 1px solid rgba(238, 232, 222, 0.08);
+}
+.work-mini-queue {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  padding: 8px 6px 6px;
+}
+/* The list alone: its first line leaves the chevron its place. */
+.work-mini:not(.has-now) .work-mini-queue:first-child > :first-child {
+  margin-right: 28px;
+}
+/* The name of its conversation, when the take above is another one (or there is none): the Éclipse and the name, a
+   button back to its Studio, as the head of the take. */
+.work-mini-queue-back {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0 0 4px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-1);
+  font: 400 13px/1.2 var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+.work-mini-queue-back:hover {
+  background: rgba(238, 232, 222, 0.04);
+}
+.work-mini-queue-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* « EN ATTENTE · 3 », « EN PAUSE · 3 » (amber), « ÉCHEC · 1 » (red), in the small capitals of the Sortie. */
+.work-mini-queue-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  min-width: 0;
+  min-height: 22px;
+  padding: 0 6px;
+}
+.work-mini-queue-title {
   color: var(--text-3);
-  font: 400 var(--size-label)/1 var(--font-mono);
+  font: 400 var(--size-label) / 1 var(--font-mono);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   white-space: nowrap;
 }
-.studio-queued-head > :first-child {
+.work-mini-queue-title > b {
   color: var(--text-2);
+  font-weight: 400;
 }
-.studio-queued-text {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  color: var(--text-2);
-  font: 400 13px/1.25 var(--font-ui);
-  overflow-wrap: anywhere;
+.work-mini-queue-head.is-paused .work-mini-queue-title > b {
+  color: var(--warning);
 }
-.studio-queued-foot {
+.work-mini-queue-head.is-failed .work-mini-queue-title > b {
+  color: var(--danger);
+}
+.work-mini-rows + .work-mini-queue-head {
+  margin-top: 6px;
+}
+/* What paused it (« Génération arrêtée. », the card held, the page reloaded), above its title. */
+.work-mini-queue-why {
   display: flex;
-  align-items: flex-end;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 6px;
+  padding: 0 6px;
+  color: var(--text-2);
+  font: 400 13px/1.3 var(--font-ui);
+}
+.work-mini-queue-why::before {
+  content: '';
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+.work-mini-queue-why.is-card::before {
+  background: var(--warning);
+}
+/* The lines, as those of a list of glass (glass-menu-item), two lines of words each. Four and a half are seen at most
+   (three and a half on a low page): the half says the list goes on, and it scrolls in the window, never the page. */
+.work-mini-rows {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 2px;
+  max-height: calc(4.5 * 46px + 4 * 2px);
+  margin: 4px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+@media (max-height: 800px) {
+  .work-mini-rows {
+    max-height: calc(3.5 * 46px + 3 * 2px);
+  }
+}
+.work-mini-rows + .work-mini-rows {
+  margin-top: 6px;
+}
+.work-mini-row {
+  display: grid;
+  flex: none;
+  grid-template-columns: 16px minmax(0, 1fr) 26px;
+  align-items: center;
+  column-gap: 8px;
+  box-sizing: border-box;
+  min-height: 46px;
+  padding: 0 4px 0 8px;
+  border-radius: 8px;
+  color: var(--text-2);
+}
+.work-mini-row:hover {
+  background: rgba(238, 232, 222, 0.08);
+  color: var(--text-1);
+}
+.work-mini-row > svg {
+  width: 14px;
+  height: 14px;
+  color: var(--text-3);
+  fill: none;
+  stroke: currentColor;
+}
+.work-mini-row-words {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.work-mini-row-text {
+  overflow: hidden;
+  color: inherit;
+  font: 400 13px/1.25 var(--font-ui);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.work-mini-row-what {
+  display: flex;
   gap: 6px;
   min-width: 0;
   color: var(--text-3);
-  font: 400 12px/1 var(--font-ui);
+  font: 400 12px/1.2 var(--font-ui);
   white-space: nowrap;
 }
-.studio-queued-what {
+.work-mini-row-model {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.studio-queued-tries {
+/* Its tries just after its format (« Krea 2 · 16:9 · × 3 »): at the right, against the cross, « × 3 » read as it. */
+.work-mini-row-tries {
   flex: none;
-  margin-left: auto;
+  color: var(--text-2);
+  font: 400 12px/1.2 var(--font-mono);
+}
+.work-mini-row-tries::before {
+  content: '· ';
+  color: var(--text-3);
+  font-family: var(--font-ui);
+}
+/* Its cross, always there but quiet; light under the pointer. */
+.work-mini-row-del {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-4);
+  cursor: pointer;
+}
+.work-mini-row:hover .work-mini-row-del {
   color: var(--text-2);
 }
-.studio-queued-foot svg {
+.work-mini-row-del:is(:hover, :focus-visible) {
+  outline: none;
+  background: rgba(238, 232, 222, 0.1);
+  color: var(--text-1);
+}
+.work-mini-row-del svg {
+  width: 12px;
+  height: 12px;
+}
+/* A request that failed: why, in the colour of the errors (two lines at most), in place of its model; a click on it
+   gives its settings back to the Studio. */
+.work-mini-row.is-failed {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.work-mini-row.is-failed > svg,
+.work-mini-row.is-failed .work-mini-row-what {
+  color: var(--danger);
+}
+.work-mini-row.is-failed .work-mini-row-words {
+  cursor: pointer;
+}
+.work-mini-row.is-failed .work-mini-row-what {
+  white-space: normal;
+}
+.work-mini-row-why {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.3;
+}
+.work-mini :is(.work-mini-queue-back, .work-mini-row-words, .work-mini-resume, .work-mini-clear):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+/* The queue full, said under the list; why « Reprendre » is greyed, above it. */
+.work-mini-queue-note,
+.work-mini-held {
+  flex: none;
+  margin: 6px 0 0;
+  padding: 0 6px;
+  color: var(--text-3);
+  font: 400 12px/1.35 var(--font-ui);
+}
+.work-mini-held {
+  margin-top: 8px;
+}
+/* Paused: « ▸ Reprendre · 3 » (« Libérer le GPU » while the card is held) and « Vider la file » at its foot. */
+.work-mini-foot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0 0;
+}
+.work-mini-resume {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  height: 36px;
+  min-height: 0;
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(238, 232, 222, 0.09);
+  box-shadow: inset 0 0 0 1px rgba(238, 232, 222, 0.22);
+  color: var(--text-1);
+  font: 500 14px/1 var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.work-mini-resume:hover:not([aria-disabled='true']) {
+  background: rgba(238, 232, 222, 0.14);
+}
+.work-mini-resume svg {
   flex: none;
   width: 12px;
   height: 12px;
 }
-/* Paused: its word in the colour of a warning. Failed: its word and its reason in that of the errors, a click takes
-   its settings back. */
-#studio-view .studio-item.is-queued.is-paused .studio-queued-head > :first-child {
-  color: var(--warning);
+.work-mini-resume[aria-disabled='true'] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(238, 232, 222, 0.1);
+  color: var(--text-3);
+  cursor: default;
 }
-#studio-view .studio-item.is-queued.is-failed .studio-item-pick.studio-queued-pick {
-  outline-color: color-mix(in srgb, var(--danger) 30%, transparent);
+.work-mini-clear {
+  flex: none;
+  height: 36px;
+  min-height: 0;
+  margin: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-3);
+  font: 400 13px/1 var(--font-ui);
+  white-space: nowrap;
   cursor: pointer;
 }
-#studio-view .studio-item.is-queued.is-failed :is(.studio-queued-head > :first-child, .studio-queued-text) {
-  color: var(--danger);
+.work-mini-clear:hover {
+  background: rgba(238, 232, 222, 0.06);
+  color: var(--text-1);
 }
-/* Its cross at its top right (its rank under it while the pointer is there); shown at once, never faded in. */
-#studio-view .studio-item.is-queued .studio-item-del {
-  top: 6px;
-  right: 6px;
-  left: auto;
-  transition: none;
+/* Folded (and in the foot of the Paramètres), the pill: what waits beside the percentage (« 3 en attente »), or
+   under the words of Moodix (« 3 en pause »); the list alone, its first title alone (44 px, as the pill). */
+.work-mini .work-mini-kind.is-count {
+  color: var(--text-2);
+  font: 400 12px/1.2 var(--font-ui);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.work-mini .work-mini-kind.is-count.is-paused {
+  color: var(--warning);
+}
+.work-mini:is(.is-folded, .is-foot).has-count:not(.has-take) .work-mini-line {
+  display: flex;
+  grid-area: bar;
+}
+.work-mini:is(.is-folded, .is-foot).has-now .work-mini-file {
+  display: none;
+}
+.work-mini:is(.is-folded, .is-foot):not(.has-now) .work-mini-queue {
+  padding: 9px 6px;
+}
+.work-mini:is(.is-folded, .is-foot):not(.has-now) .work-mini-queue-head {
+  min-height: 26px;
+}
+.work-mini:is(.is-folded, .is-foot):not(.has-now) .work-mini-queue:not(:first-child),
+.work-mini:is(.is-folded, .is-foot):not(.has-now) .work-mini-queue > :not(.work-mini-queue-head),
+.work-mini:is(.is-folded, .is-foot):not(.has-now) .work-mini-queue-head ~ .work-mini-queue-head {
+  display: none;
+}
+/* In the Studio (variante A): the list alone lies under the settings, at their width, its foot on that of the screen
+   (studio.mjs, queueDock): it covers neither « Générer », nor the Sortie, nor the settings. With no room for a line
+   (1280 × 720), its title alone, which its chevron opens over the settings while it is looked at. */
+.work-mini.is-docked {
+  right: auto;
+  bottom: var(--work-mini-bottom);
+  left: var(--work-mini-left);
+  width: var(--work-mini-width);
+  max-height: var(--work-mini-room);
+}
+/* Lying there, its lines scroll with its words (.work-mini-file). */
+.work-mini.is-docked .work-mini-rows {
+  max-height: none;
+  overflow: visible;
+}
+.work-mini.is-docked:not(.is-folded) .work-mini-queue {
+  padding-top: 10px;
+  padding-bottom: 8px;
+}
+/* Its foot there (« Reprendre · 3 » while the button of the Studio follows a take after a reload) stays in sight at
+   the bottom of the window, its lines scrolling under it: at 1440 × 900 it was below the room, out of sight. */
+.work-mini.is-docked .work-mini-file {
+  border-radius: inherit;
+}
+.work-mini.is-docked .work-mini-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin: 0 -6px -8px;
+  padding: 8px 6px;
+  border-top: 1px solid rgba(238, 232, 222, 0.08);
+  background: var(--surface);
+}
+.work-mini.is-docked.is-over {
+  max-height: var(--work-mini-over);
+  box-shadow:
+    inset 0 0 0 1px rgba(238, 232, 222, 0.1),
+    0 18px 48px rgba(0, 0, 0, 0.55);
+}
+/* In a Chat of 1168 px, its pill over the input, 12 px above it: in its corner, it covered the end of the input and
+   its send button. The messages leave it room at their foot. */
+.work-mini.is-raised {
+  bottom: var(--work-mini-raise);
+}
+body:has(> .work-mini.is-raised:not([hidden])) .messages {
+  padding-bottom: 80px;
+}
+/* (0.6.478) The step under way in the middle of the head of the screen, never over Image · Vidéo · Son (at 1168 × 788
+   it was drawn over « Son »): the two sides share the room alike, the tabs keep theirs when they need more. */
+#studio-view .studio-screen-head:has(> .studio-progress:not([hidden])) {
+  display: grid;
+  grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr);
+}
+#studio-view .studio-screen-head:has(> .studio-progress:not([hidden])) > #studio-kinds {
+  grid-column: 1;
+  justify-self: start;
+}
+#studio-view .studio-screen-head:has(> .studio-progress:not([hidden])) > .studio-progress {
+  position: static;
+  grid-column: 2;
+  transform: none;
+}
+#studio-view .studio-screen-head:has(> .studio-progress:not([hidden])) > :not(#studio-kinds, .studio-progress) {
+  grid-column: 3;
+  justify-self: end;
 }

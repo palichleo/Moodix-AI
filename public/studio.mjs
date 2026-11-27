@@ -56,7 +56,7 @@ import { clipSeconds } from './take-length.mjs';
 import { setupMontage } from './montage.mjs';
 import { DICTATING } from './dictation.mjs';
 import { heldCause } from './generation-ui.mjs';
-import { QUEUE_MOST, createQueue } from './studio-queue.mjs';
+import { QUEUE_MOST, createQueue, queueParts } from './studio-queue.mjs';
 
 /**
  * The Studio: the creation tools of the conversation, beside the chat. Four blocks that never
@@ -529,6 +529,9 @@ export function setupStudio({
   // tab: found again by that same tab reloaded only (studio-queue.mjs). Without them, it lives in the page.
   queueStorage = null,
   tab = '',
+  // (0.6.478) The Studio was drawn (its queue may have changed, its settings moved): the window at the bottom right
+  // says the queue again, and lies under the settings (app.js, syncMiniature).
+  onQueue = () => {},
 }) {
   const $ = id => document.getElementById(id);
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms * pace));
@@ -593,7 +596,9 @@ export function setupStudio({
   const queue = createQueue({ storage: queueStorage, tab });
   // (`cardWait`: what stops the wait between two of them, freeAgain.)
   let chaining = false,
-    cardWait = null;
+    cardWait = null,
+    // (0.6.478) The window at the bottom right is to be told the queue once this drawing is over (render).
+    queueTold = false;
   /** Whether the Studio holds a work: a take being made, a proposal waiting, a character checked. */
   // (`settling`: a creation just over, until its take is on the screen of its own conversation, 0.6.87.)
   // (Not a take of the Chat it follows, `working.chat`: that one is its conversation's, 0.6.96.)
@@ -4624,9 +4629,14 @@ export function setupStudio({
   /**
    * « Reprendre »: the requests paused in this conversation go again, in their order, the first at once. One that
    * cannot be read again is a tile in failure and the next one goes; one refused (its reason said): all stay paused.
+   * (0.6.478) Of the conversation `here` (the window at the bottom right resumes from any page). During a take
+   * followed again after a reload (Q3 of the maquette): they go after it, in their order (goOn).
    */
-  function resumeQueue() {
-    const here = conversation();
+  function resumeQueue(here = conversation()) {
+    if (working?.external && !working.chat && !working.place) {
+      queue.resume(here);
+      return render();
+    }
     for (let next = queue.paused(here)[0]; next; next = queue.paused(here)[0]) {
       const going = generate({ entry: next });
       if (working) {
@@ -4639,9 +4649,126 @@ export function setupStudio({
     render();
   }
   /** Its ×, « Vider la file »: what waits in this conversation goes; the failures stay, each with its cross. */
-  function clearQueue() {
-    queue.clear(conversation());
+  function clearQueue(here = conversation()) {
+    queue.clear(here);
     render();
+  }
+  // (0.6.478) What greys « Reprendre » of the window at the bottom right, beyond what greys « Générer ».
+  const BOBINE_HELD = 'Attendez la fin de la prise de la Bobine.',
+    AI_HELD = 'Moodix AI attend votre réponse dans le Studio : répondez-lui d’abord.';
+  /** (0.6.478) Why « Reprendre » of the window is greyed now; '' when it can go (at once, or after the take, Q3). */
+  function resumeHeld() {
+    if (working?.montage || working?.place) return BOBINE_HELD;
+    if (working?.external && !working.chat) return '';
+    if (working || chaining || settling) return RAIL_HELD;
+    if (proposal || checking || ai) return AI_HELD;
+    return blocked() || elsewhere() || '';
+  }
+  /**
+   * (0.6.478, variante A) The queue for the window at the bottom right (work-miniature.mjs), per conversation that has
+   * requests: its name, what waits, what is paused and why, what failed, the queue full, and its foot (« Reprendre ·
+   * 3 » lit or greyed with why, « Libérer le GPU » while the card is held, « Vider la file »). `docked`: it lies under
+   * the settings of the Studio on screen, whose button says « Reprendre · 3 » or « Libérer le GPU » already for the
+   * queue of its conversation: no foot then (never two « Reprendre » on one screen).
+   */
+  function queueView({ docked = false } = {}) {
+    const card = gpuBlocked(),
+      held = card ? '' : resumeHeld(),
+      later = Boolean(working?.external && !working.chat && !working.place),
+      shown = away() ? null : conversation();
+    return queueParts(queue.entries()).map(({ conversation: id, waiting, paused, failed }) => {
+      const count = paused.length,
+        them = theRequests(count),
+        said = docked && id === shown && (card ? !working : resumable().length > 0),
+        reloaded = paused.some(row => row.reason === 'reload'),
+        stopped = !card && !reloaded && paused.some(row => row.reason === 'stopped'),
+        inOrder = count > 1 ? ', dans l’ordre' : '',
+        // (Q3) After the take followed again: « les 3 demandes partiront après la prise en cours, dans l’ordre ».
+        goes = later ? `${them} ${count > 1 ? 'partiront' : 'partira'} après la prise en cours` : `${them} en attente`,
+        clear = `Vider la file : retirer ${them} en attente`;
+      return {
+        conversation: id,
+        title: nameOf(id) || 'Nouvelle conversation',
+        groups: [
+          waiting.length ? { word: 'En attente', state: 'waiting', rows: waiting } : null,
+          count ? { word: 'En pause', state: 'paused', rows: paused } : null,
+          failed.length ? { word: waiting.length || count ? '' : 'Échec', state: 'failed', rows: failed } : null,
+        ].filter(Boolean),
+        // (Under the settings of the Studio whose button resumes it, its line under the screen says why already.)
+        why: !count || said
+          ? ''
+          : card
+            ? 'La carte graphique est restée prise.'
+            : reloaded
+              ? `Page rechargée : ${count > 1 ? `les ${count} demandes attendent` : 'la demande attend'} « Reprendre ».`
+              : stopped
+                ? 'Génération arrêtée.'
+                : '',
+        card: Boolean(count) && card,
+        stopped,
+        note: (waiting.length || count) && queue.full() ? QUEUE_FULL : '',
+        held: count && !said && !card ? held : '',
+        foot:
+          !count || said
+            ? null
+            : card
+              ? {
+                  label: 'Libérer le GPU',
+                  icon: 'chip',
+                  recover: true,
+                  tip:
+                    'La carte graphique est restée prise par la dernière génération : la libérer.' +
+                    ' La file attendra « Reprendre ».',
+                  clear,
+                }
+              : {
+                  label: `Reprendre · ${count}`,
+                  icon: 'go',
+                  held: Boolean(held),
+                  tip:
+                    held === BOBINE_HELD
+                      ? 'La Bobine fait une prise : attendez sa fin, puis reprenez la file.'
+                      : held || `Reprendre la file : ${goes}${inOrder}`,
+                  clear,
+                },
+      };
+    });
+  }
+  /**
+   * (0.6.478, Q3) Requests resumed while a take followed again after a reload was made (the window's « Reprendre »):
+   * they go once it is over, in their order, as those that follow a take of the Studio; the work of the page is theirs
+   * from then. Stopped meanwhile: paused again (D3: nothing goes again by itself).
+   */
+  function goOn(stopped = false) {
+    const next = working || chaining || settling ? null : queue.next();
+    if (!next) return;
+    if (stopped) {
+      queue.pause('stopped');
+      return render();
+    }
+    chaining = true;
+    onWork(next.conversation, next.label?.prompt ?? '');
+    void proceed({ entry: next, follows: true });
+  }
+  /**
+   * (0.6.478, variante A) Where the window at the bottom right lies in the Studio: under the settings, at their width,
+   * its foot on the foot of the screen; `room`, the height left there; `over`, the height from the top of the settings
+   * (opened over them where there is no room). null while the Studio is not on screen, or its blocks are not side by
+   * side (a narrow window: it stays in its corner).
+   */
+  function queueDock() {
+    const box = selector => document.querySelector?.(`#studio-view ${selector}`)?.getBoundingClientRect?.(),
+      settings = box('.studio-block.is-settings'),
+      screen = box('.studio-block.is-preview'),
+      tall = document.documentElement?.clientHeight ?? 0;
+    if (!settings?.width || !screen?.width || !tall || settings.left < screen.right) return null;
+    return {
+      left: Math.round(settings.left),
+      width: Math.round(settings.width),
+      bottom: Math.round(tall - screen.bottom),
+      room: Math.floor(screen.bottom - settings.bottom - 16),
+      over: Math.floor(screen.bottom - settings.top),
+    };
   }
   /**
    * What the line under the screen says of the requests paused here, after what stopped them: « Arrêter » (its
@@ -6744,6 +6871,8 @@ export function setupStudio({
     scrollStrip();
     // Left meanwhile (0.6.81): the Studio goes to the conversation shown.
     letGo();
+    // (0.6.478, Q3) Requests resumed while it was made (the window's « Reprendre » after a reload): theirs now.
+    if (external) goOn(result?.error === 'Génération arrêtée.');
   }
 
   // ------------------------------------------------------------------ results
@@ -7389,55 +7518,6 @@ export function setupStudio({
   const pictures = new Map();
   let used = new Set();
   /**
-   * (0.6.466) A request of the queue in the Sortie, drawn as a sound of the Sortie, narrower (196 × 96), with no
-   * picture and nothing that moves: « EN ATTENTE · 1 » (« EN PAUSE », « ÉCHEC »), the start of its prompt (why it
-   * failed), its kind, its model, its format, its tries; its kind and its whole prompt in its bubble. Its cross takes
-   * it out of the queue; a click on one that failed gives its settings back to the Studio (takeBack, D5).
-   */
-  function queuedTile(entry, rank) {
-    const failed = entry.state === 'failed',
-      paused = entry.state === 'paused',
-      label = entry.label ?? {},
-      kind = modeOf(entry.mode) ?? MODES[0],
-      prompt = label.prompt ?? '',
-      what = [label.model, label.format].filter(Boolean).join(' · '),
-      word = failed ? 'Échec' : paused ? 'En pause' : 'En attente',
-      tile = node('div', 'studio-item is-queued' + (failed ? ' is-failed' : paused ? ' is-paused' : '')),
-      pick = node('button', 'studio-item-pick studio-queued-pick'),
-      head = node('span', 'studio-queued-head'),
-      foot = node('span', 'studio-queued-foot');
-    tile.dataset.media = kind.id;
-    tile.dataset.queued = entry.id;
-    pick.type = 'button';
-    head.append(node('span', '', word), node('span', '', failed ? '' : String(rank)));
-    foot.append(icon(kind.icon), node('span', 'studio-queued-what', what));
-    if (entry.tries > 1) foot.append(node('span', 'studio-queued-tries', `× ${entry.tries}`));
-    const why = entry.reason || 'La génération a échoué.';
-    pick.append(head, node('span', 'studio-queued-text', failed ? why : prompt), foot);
-    pick.title = failed
-      ? `${prompt}\nUn clic remet ses réglages dans le Studio.`
-      : `${[kind.label, what].filter(Boolean).join(' · ')}\n${prompt}`;
-    pick.setAttribute(
-      'aria-label',
-      failed ? `Échec · ${why} · ${prompt} · un clic remet ses réglages dans le Studio` : `${word} ${rank} · ${prompt}`,
-    );
-    if (failed) pick.onclick = () => takeBack(entry);
-    const cross = button(
-        'studio-item-del',
-        '',
-        () => {
-          queue.remove(entry.id);
-          render();
-        },
-        'close',
-      ),
-      words = failed ? 'Retirer cette demande' : 'Retirer de la file';
-    cross.title = words;
-    cross.setAttribute('aria-label', words);
-    tile.append(pick, cross);
-    return tile;
-  }
-  /**
    * The Sortie: the creations of the project, of all its conversations, images, clips and sounds
    * together (16/11), the newest at the left (a new one pushes the others to the right); its button
    * at the right, released, keeps those of the kind of the mode (the images in Image, the clips in
@@ -7452,16 +7532,14 @@ export function setupStudio({
       // Of the whole project, whatever the conversation open (a new one too): they are shared in it.
       shown = sortieAll ? runs : runs.filter(record => mediaOf(record) === mode);
     section.setAttribute('aria-label', 'Sortie');
-    // (0.6.466) The requests of the queue of this conversation: those that wait at the left of « EN COURS », the next
-    // one glued to it ([3] [2] [1] [EN COURS]); those that failed at its right, the newest first. With the take under
-    // way, drawn whatever the Sortie holds (B2: with no take yet, or none of the kind shown, it said it was empty
-    // while the screen made one). A take followed again after a reload: « EN COURS » too, when a queue waits.
+    // (0.6.478, variante A) The requests of the queue are in the window at the bottom right alone, under the settings
+    // (work-miniature.mjs): the Sortie keeps the take under way and the takes made. The take under way is drawn
+    // whatever the Sortie holds (0.6.466, B2: with no take yet, or none of the kind shown, it said it was empty while
+    // the screen made one). A take followed again after a reload: « EN COURS » too, when a queue waits.
     const here = conversation(),
-      queued = queue.entries().filter(entry => entry.conversation === here),
-      waiting = queued.filter(entry => entry.state === 'waiting' || entry.state === 'paused'),
-      failed = queued.filter(entry => entry.state === 'failed').reverse(),
-      making = working && (!working.external || queued.length) ? node('div', 'studio-item is-making') : null,
-      ahead = Boolean(making || waiting.length || failed.length);
+      queued = queue.entries().some(entry => entry.conversation === here),
+      making = working && (!working.external || queued) ? node('div', 'studio-item is-making') : null,
+      ahead = Boolean(making);
     if (!runs.length && !ahead) {
       const empty = node('div', 'studio-empty-strip');
       empty.append(node('span', '', own.none));
@@ -7479,7 +7557,6 @@ export function setupStudio({
     }
     const strip = node('div', 'studio-strip studio-timeline');
     strip.setAttribute('aria-label', sort.id === 'all' ? 'Créations du projet' : sort.label + ' du projet');
-    strip.append(...waiting.map((entry, at) => queuedTile(entry, at + 1)).reverse());
     // The creation under way, at the far left (studio-maquette.md): dark, « EN COURS » and how far.
     // (0.6.256, captures A05 and B09) A take being made larger or smoother: « ↳ AGRANDIE », glued to its take.
     const larger = making ? working.finish : null,
@@ -7493,7 +7570,6 @@ export function setupStudio({
       if (finishFrom) making.className += ' is-suite';
       else strip.append(making);
     }
-    strip.append(...failed.map(entry => queuedTile(entry, 0)));
     // A continuation made just after its clip sits glued to it (« une suite reste collée à sa prise »).
     shown.forEach((record, at) => {
       if (record.id === finishFrom) strip.append(making);
@@ -8179,7 +8255,8 @@ export function setupStudio({
       halt.title = words;
       glass.append(go, rule, halt);
     } else if (paused) {
-      const clear = button('studio-clear', '', clearQueue, 'close'),
+      // (0.6.478) Of the conversation shown: the click is not a conversation (clearQueue takes one from the window).
+      const clear = button('studio-clear', '', () => clearQueue(), 'close'),
         words = `Vider la file : retirer ${theRequests(waits.length)} en attente`;
       clear.setAttribute('aria-label', words);
       clear.title = words;
@@ -8320,6 +8397,14 @@ export function setupStudio({
   }
   function render() {
     kinds();
+    // (0.6.478) Once drawn, whatever it drew: the window at the bottom right says the queue, under the settings.
+    if (!queueTold) {
+      queueTold = true;
+      queueMicrotask(() => {
+        queueTold = false;
+        onQueue();
+      });
+    }
     const body = $('studio-body');
     if (!body) return;
     // The drafts are named after their conversation: at the first drawing, and when a new one gets
@@ -9359,6 +9444,19 @@ export function setupStudio({
     stopQueue: () => stop(),
     /** (0.6.470) The page goes away, or is shown again as it was left: the queue kept in the tab stays as it was. */
     leaving: on => queue.leaving(on),
+    // (0.6.478, variante A) The queue in the window at the bottom right (work-miniature.mjs, app.js syncMiniature):
+    // what it says, where it lies in the Studio, and its gestures, from any page.
+    queueView,
+    queueDock,
+    queueRemove: id => {
+      if (queue.remove(id)) render();
+    },
+    queueResume: id => resumeQueue(id),
+    queueClear: id => clearQueue(id),
+    queueTakeBack: id => {
+      const entry = queue.get(id);
+      if (entry?.state === 'failed') takeBack(entry);
+    },
     /**
      * The take on the screen (« PRISE n » at its top left), for what Moodix AI is told of it:
      * { take, media }, or null when the screen shows none (nothing made, a file of the disk, a

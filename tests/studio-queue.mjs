@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { runInNewContext } from 'node:vm';
-import { QUEUE_KEY, QUEUE_MOST, createQueue } from '../public/studio-queue.mjs';
+import { QUEUE_KEY, QUEUE_MOST, createQueue, queueParts } from '../public/studio-queue.mjs';
 
 /** A sessionStorage of the page: what it holds, and whether it refuses. */
 function tabStorage(held = {}) {
@@ -399,4 +399,53 @@ test('(0.6.470) a page that goes away keeps its queue as it was: what its failin
   const page = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
   assert.match(page, /state\.leaving = true;\s+\/\/[^\n]*\n\s+state\.studio\?\.leaving\?\.\(true\);/);
   assert.match(page, /state\.leaving = false;\s+state\.studio\?\.leaving\?\.\(false\);/);
+});
+
+// (0.6.478) What the window at the bottom right draws (work-miniature.mjs): a part per conversation, in the order the
+// requests were asked; the one being made is the take of the window, without a line.
+test('(0.6.478) queueParts: a part per conversation, each line with its words and its bubble', () => {
+  const queue = createQueue();
+  const labelled = (prompt, conversation, more = {}) => ({
+    ...asked(prompt, conversation),
+    ...more,
+    label: { prompt, model: more.model ?? 'Krea 2', format: more.format ?? '16:9' },
+  });
+  const STATES = ['waiting', 'paused', 'failed'],
+    said = parts => parts.map(part => [part.conversation, ...STATES.map(state => part[state].map(row => row.prompt))]);
+  queue.begin(labelled('A', 'c1'));
+  const b = queue.add(labelled('B', 'c1', { mode: 'video', model: 'LTX 2.5', format: '16:9 · 05.04 S' })),
+    d = queue.add(labelled('D', 'c2', { tries: 3 })),
+    c = queue.add(labelled('C', 'c1', { mode: 'audio', model: 'Bruitages', format: '' }));
+  queue.fail(c.id, '');
+  const parts = queueParts(queue.entries());
+  assert.deepEqual(said(parts), [
+    ['c1', ['B'], [], ['C']],
+    ['c2', ['D'], [], []],
+  ]);
+  assert.deepEqual(parts[0].waiting, [
+    {
+      id: b.id,
+      kind: 'video',
+      icon: 'video',
+      prompt: 'B',
+      what: 'LTX 2.5 · 16:9 · 05.04 S',
+      tries: 1,
+      reason: '',
+      tip: 'Vidéo · LTX 2.5 · 16:9 · 05.04 S\nB',
+    },
+  ]);
+  // Its tries in its bubble; one that failed says why (the server gave nothing here), and what a click does.
+  const [next] = parts[1].waiting,
+    [failed] = parts[0].failed;
+  assert.deepEqual([next.id, next.tries, next.tip], [d.id, 3, 'Image · Krea 2 · 16:9 · × 3\nD']);
+  assert.deepEqual(
+    [failed.kind, failed.icon, failed.tries, failed.reason, failed.tip],
+    ['audio', 'wave', 1, 'La génération a échoué.', 'C\nUn clic remet ses réglages dans le Studio.'],
+  );
+  // Paused, each stays at its place in its part; the failure stays under them.
+  queue.pause('stopped');
+  assert.deepEqual(said(queueParts(queue.entries())), [
+    ['c1', [], ['B'], ['C']],
+    ['c2', [], ['D'], []],
+  ]);
 });

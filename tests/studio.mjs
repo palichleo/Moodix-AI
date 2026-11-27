@@ -11810,18 +11810,25 @@ async function queueStudio(options = {}, routes = () => undefined) {
         .map(name => body.find(name)[0]?.textContent)
         .filter(Boolean)
         .join(' '),
-    /** The tiles of the queue in the Sortie, from the left: their head, their text. */
-    tiles: () =>
-      body
-        .find('is-queued')
-        .map(tile => [
-          tile
-            .find('studio-queued-head')[0]
-            .children.map(part => part.textContent)
-            .filter(Boolean)
-            .join(' '),
-          tile.find('studio-queued-text')[0].textContent,
-        ]),
+    /**
+     * The requests of the queue as its tiles of the Sortie said them (0.6.466), from the left: their word and their
+     * rank (the next one at the right), their text; then those that failed, the newest first. (0.6.478, variante A:
+     * read on the lines of the window at the bottom right, studio.mjs queueView; the Sortie has no tile any more.)
+     */
+    tiles: () => {
+      assert.equal(body.find('is-queued').length, 0);
+      const groups = page.studio.queueView().flatMap(part => part.groups),
+        rows = state => groups.filter(group => group.state === state).flatMap(group => group.rows),
+        waits = [...rows('waiting').map(row => ['En attente', row]), ...rows('paused').map(row => ['En pause', row])];
+      return [
+        ...waits.map(([word, row], at) => [`${word} ${at + 1}`, row.prompt]).reverse(),
+        ...rows('failed')
+          .reverse()
+          .map(row => ['Échec', row.reason]),
+      ];
+    },
+    /** (0.6.478) The lines of the window at the bottom right, of every conversation: { id, prompt, what, tip, … }. */
+    rows: () => page.studio.queueView().flatMap(part => part.groups.flatMap(group => group.rows)),
     /** The line under the screen. */
     line: () => body.find('studio-error')[0]?.textContent ?? '',
     format: text =>
@@ -11877,14 +11884,15 @@ test('(0.6.466) a take of the Studio being made: the form free, « Générer ens
     page.press();
     await settle();
     assert.deepEqual([said.at(-1), page.tiles().length], ['Décrivez d’abord votre image.', 2]);
-    // Its cross takes one out of the queue.
-    body.find('is-queued')[0].find('studio-item-del')[0].onclick();
+    // Its cross takes one out of the queue (0.6.478: the cross of its line in the window at the bottom right).
+    page.studio.queueRemove(page.rows()[1].id);
     assert.deepEqual(page.tiles(), [['En attente 1', 'un bateau']]);
-    // 20 waiting at most: the 21st is greyed, and says why.
+    // 20 waiting at most: the 21st is greyed, and says why (under the list of the window too).
     page.type('encore');
     for (let at = 1; at < 20; at++) page.press();
     const full = 'La file est pleine : 20 demandes attendent.';
     assert.deepEqual([page.tiles().length, page.go().disabled, page.go().title], [20, true, full]);
+    assert.equal(page.studio.queueView()[0].note, full);
     page.press();
     await settle();
     assert.deepEqual([said.at(-1), page.tiles().length], [full, 20]);
@@ -11933,8 +11941,16 @@ test('(0.6.466) three requests made in their order, each with its page, its mode
     page.format('1:1');
     assert.deepEqual([readout(), page.tiles()], [still, [['En attente 2', 'des vagues'], ['En attente 1', 'la mer']]]);
     // Their foot: the model without what its name says in brackets, the format and the length as the screen said them.
-    const feet = body.find('is-queued').map(tile => tile.find('studio-queued-what')[0].textContent);
-    assert.deepEqual(feet, ['Bruitages · ' + sound, 'Clip · ' + film.replace(' - ', ' · ')]);
+    // (0.6.478: the lines of the window at the bottom right, in their order; their kind with them in their bubble.)
+    const feet = page.rows().map(row => row.what);
+    assert.deepEqual(feet, ['Clip · ' + film.replace(' - ', ' · '), 'Bruitages · ' + sound]);
+    assert.deepEqual(
+      page.rows().map(row => [row.kind, row.icon, row.tip.split('\n')[0]]),
+      [
+        ['video', 'video', 'Vidéo · Clip · ' + film.replace(' - ', ' · ')],
+        ['audio', 'wave', 'Son · Bruitages · ' + sound],
+      ],
+    );
     assert.match(film, /^9:16 - \d\d\.\d\d S$/);
     page.finish();
     await until(() => takes.length === 2);
@@ -11995,22 +12011,15 @@ test('(0.6.466) a request that fails: its tile says « Échec » and why, the ne
     page.finish({ error: 'Mémoire vidéo insuffisante.' });
     await until(() => takes.length === 4);
     assert.deepEqual([page.asks(), page.tiles()], [['A', 'A', 'B', 'C'], [['Échec', 'Mémoire vidéo insuffisante.']]]);
-    const [tile] = body.find('is-queued');
+    // (0.6.478) Its line in the window at the bottom right: « Échec · » and why in place of its model and its tries,
+    // under the title « ÉCHEC · 1 » while nothing else waits; in its bubble, its prompt and what a click does.
+    const [{ groups }] = page.studio.queueView(),
+      said = row => [row.prompt, row.reason, row.tip, row.tries];
     assert.deepEqual(
-      [
-        tile.className,
-        tile.find('studio-queued-pick')[0].title,
-        tile.find('studio-queued-tries')[0].textContent,
-        tile.find('studio-item-del')[0].title,
-      ],
-      [
-        'studio-item is-queued is-failed',
-        'B\nUn clic remet ses réglages dans le Studio.',
-        '× 2',
-        'Retirer cette demande',
-      ],
+      groups.map(({ word, state, rows }) => [word, state, rows.map(said)]),
+      [['Échec', 'failed', [['B', 'Mémoire vidéo insuffisante.', 'B\nUn clic remet ses réglages dans le Studio.', 1]]]],
     );
-    // Said on its tile, not under the screen of the take being made.
+    // Said on its line, not under the screen of the take being made.
     assert.equal(page.line(), '');
     page.finish();
     await until(() => takes.length === 5);
@@ -12021,8 +12030,8 @@ test('(0.6.466) a request that fails: its tile says « Échec » and why, the ne
       [page.asks(), page.tiles(), page.prompt().value],
       [['A', 'A', 'B', 'C', 'C'], [['Échec', 'Mémoire vidéo insuffisante.']], 'mon brouillon'],
     );
-    // A click on it: its prompt and its tries in the Studio, why under the screen; its tile goes.
-    body.find('is-queued')[0].find('studio-queued-pick')[0].onclick();
+    // A click on it: its prompt and its tries in the Studio, why under the screen; its line goes.
+    page.studio.queueTakeBack(page.rows()[0].id);
     assert.deepEqual(
       [page.prompt().value, body.find('studio-tries')[0].attributes['aria-label'], page.line(), page.tiles()],
       ['B', 'Essais : 2', 'Mémoire vidéo insuffisante.', []],
@@ -12132,8 +12141,27 @@ test('(0.6.466) « Arrêter »: what waits is paused, « Reprendre · n » makes
       ],
       [0, false, '', 2, 1],
     );
-    // « Reprendre »: B goes, C waits for its turn.
-    page.press();
+    // (0.6.478) The window at the bottom right says it too: why, « EN PAUSE · 2 », and at its foot « ▸ Reprendre · 2 »
+    // and « Vider la file » (no shortcut: it is the Studio's); under the settings of this Studio, no foot (its button),
+    // and no why (said under its screen, as the maquette's 4a-pause-studio).
+    const [part] = page.studio.queueView();
+    assert.deepEqual(
+      [part.title, part.why, part.stopped, part.groups.map(group => group.word), part.foot.label, part.foot.icon],
+      ['Nouvelle conversation', 'Génération arrêtée.', true, ['En pause'], 'Reprendre · 2', 'go'],
+    );
+    const [lying] = page.studio.queueView({ docked: true });
+    assert.deepEqual(
+      [part.foot.tip, part.foot.clear, lying.foot, lying.why, lying.groups.map(group => group.word)],
+      [
+        'Reprendre la file : les 2 demandes en attente, dans l’ordre',
+        'Vider la file : retirer les 2 demandes en attente',
+        null,
+        '',
+        ['En pause'],
+      ],
+    );
+    // « Reprendre » (0.6.478: that of the window, from any page): B goes, C waits for its turn.
+    page.studio.queueResume(part.conversation);
     await until(() => takes.length === 2);
     assert.deepEqual(
       [page.asks(), page.tiles(), page.label()],
@@ -12146,14 +12174,86 @@ test('(0.6.466) « Arrêter »: what waits is paused, « Reprendre · n » makes
       [page.label(), page.tiles(), page.line()],
       ['Reprendre · 1', [['En pause 1', 'C']], 'Génération arrêtée. La demande de la file attend « Reprendre ».'],
     );
-    // Its ×: emptied, « Générer » again.
-    body.find('studio-clear')[0].onclick();
+    // Its ×: emptied, « Générer » again. (0.6.478) Told its click, as the browser tells it: it emptied nothing once
+    // « Vider la file » took the conversation of the window (seen in the page, not here).
+    body.find('studio-clear')[0].onclick({ type: 'click' });
     assert.deepEqual(
       [page.label(), page.tiles(), page.line(), page.studio.queueWaits(), takes.length],
       ['Générer', [], 'Génération arrêtée.', 0, 2],
     );
   } finally {
     restore();
+  }
+});
+
+// (0.6.478) Its answer first: the window's « Reprendre » greyed, saying why, and lit again once Moodix AI is answered.
+test('(0.6.478) « Reprendre » of the window greyed while Moodix AI waits in the Studio', async () => {
+  const page = await queueStudio();
+  const { body, takes, restore } = page;
+  const AI_HELD = 'Moodix AI attend votre réponse dans le Studio : répondez-lui d’abord.';
+  try {
+    page.type('A');
+    page.press();
+    await until(() => takes.length === 1);
+    page.type('B');
+    page.press();
+    body.find('studio-stop')[0].onclick();
+    await until(() => !page.studio.holds());
+    await settle();
+    // A proposal of Moodix AI set in the Studio meanwhile: its answer first, said above the foot and in its bubble.
+    const answer = page.studio.propose(proposalOf().request, new AbortController().signal);
+    await settle();
+    const [part] = page.studio.queueView();
+    assert.deepEqual(
+      [part.foot.label, part.foot.held, part.foot.tip, part.held],
+      ['Reprendre · 1', true, AI_HELD, AI_HELD],
+    );
+    page.studio.decline();
+    assert.equal(await answer, 'deny');
+    await settle();
+    const [again] = page.studio.queueView();
+    assert.deepEqual(
+      [again.foot.held, again.held, again.foot.tip],
+      [false, '', 'Reprendre la file : la demande en attente'],
+    );
+  } finally {
+    restore();
+  }
+});
+
+// (0.6.478, the maquette's 7a) The queue paused, then the page reloaded during a take of the Bobine: « Reprendre » of
+// the window greyed until that take is over, saying why (the requests never go before a take of the Bobine).
+test('(0.6.478) « Reprendre » of the window greyed while the Bobine makes a take', async () => {
+  const kept = { queueStorage: tabStore(), tab: 'onglet-1' },
+    first = await queueStudio({ extra: kept });
+  try {
+    first.type('A');
+    first.press();
+    await until(() => first.takes.length === 1);
+    first.type('B');
+    first.press();
+    first.body.find('studio-stop')[0].onclick();
+    await until(() => !first.studio.holds());
+    await settle();
+  } finally {
+    first.restore();
+  }
+  const page = await queueStudio({ extra: kept });
+  try {
+    const { request } = proposalOf();
+    assert.equal(page.studio.followAgain({ ...request, bobine: { id: 'm1', plan: 'a', from: 0 } }), true);
+    const [part] = page.studio.queueView();
+    assert.deepEqual(
+      [part.foot.label, part.foot.held, part.foot.tip, part.held],
+      [
+        'Reprendre · 1',
+        true,
+        'La Bobine fait une prise : attendez sa fin, puis reprenez la file.',
+        'Attendez la fin de la prise de la Bobine.',
+      ],
+    );
+  } finally {
+    page.restore();
   }
 });
 
@@ -12184,6 +12284,14 @@ test('(0.6.466, D4) the card held by the take that failed: what waits is paused,
         [['En pause 1', 'B'], ['Échec', 'Mémoire vidéo insuffisante.']],
       ],
     );
+    // (0.6.478) The window at the bottom right: why, « Libérer le GPU » at its foot (neither under the settings of this
+    // Studio, whose button and line say them), the request that failed in red under the one paused, untitled.
+    const [part] = page.studio.queueView();
+    assert.deepEqual(
+      [part.why, part.card, part.foot.label, part.foot.recover, part.groups.map(group => [group.word, group.state])],
+      ['La carte graphique est restée prise.', true, 'Libérer le GPU', true, [['En pause', 'paused'], ['', 'failed']]],
+    );
+    assert.deepEqual(['foot', 'why'].map(key => page.studio.queueView({ docked: true })[0][key]), [null, '']);
     // Freed (what its button asks the server, recoverGPU; its drawing again 4 s later is left out here).
     held = false;
     page.studio.render();
@@ -12302,6 +12410,85 @@ test('(0.6.466, D3, B1) the page reloaded: what its tab kept comes back paused, 
     assert.deepEqual([copy.tiles(), copy.label()], [[], 'Générer']);
   } finally {
     copy.restore();
+  }
+});
+
+// (0.6.478, Q3 of claude_design/maquette-file-bas-droite) The window at the bottom right offers « Reprendre » at once:
+// the requests go after the take followed again, in their order; that take stopped, they are paused again.
+test('(0.6.478) the page reloaded during a take: « Reprendre » of the window, they go after it', async () => {
+  /** A tab that made A and queued `queued`, reloaded while A is made: the page that follows A again. */
+  async function reloaded(queued) {
+    const kept = { queueStorage: tabStore(), tab: 'onglet-1' },
+      first = await queueStudio({ extra: kept });
+    try {
+      first.type('A');
+      first.press();
+      await until(() => first.takes.length === 1);
+      for (const prompt of queued) {
+        first.type(prompt);
+        first.press();
+      }
+    } finally {
+      first.restore();
+    }
+    const again = await queueStudio({ extra: kept });
+    again.studio.followAgain();
+    return again;
+  }
+  const record = { id: 'r9', conversationId: 'c1', prompt: 'A', outputs: [{ take: 9, originalUrl: '/r9' }] };
+  const page = await reloaded(['B', 'C']);
+  try {
+    const { takes } = page;
+    // Why, and « Reprendre · 2 » lit, under the settings too: the button of the Studio says « En cours » meanwhile.
+    const [part] = page.studio.queueView();
+    assert.deepEqual(
+      [part.conversation, part.why, part.foot.label, part.foot.held, part.foot.tip, part.held],
+      [
+        'c1',
+        'Page rechargée : les 2 demandes attendent « Reprendre ».',
+        'Reprendre · 2',
+        false,
+        'Reprendre la file : les 2 demandes partiront après la prise en cours, dans l’ordre',
+        '',
+      ],
+    );
+    // Under the settings, its foot and why: the line under the screen says the take meanwhile.
+    const [lying] = page.studio.queueView({ docked: true });
+    assert.deepEqual([lying.foot.label, lying.why], ['Reprendre · 2', part.why]);
+    // Pressed: they wait for their turn, nothing goes before the end of the take; the Chat waits for them.
+    page.studio.queueResume('c1');
+    assert.deepEqual(
+      [page.tiles(), takes.length, page.studio.queued(), page.studio.queueHolds(), page.studio.queueView()[0].foot],
+      [[['En attente 2', 'C'], ['En attente 1', 'B']], 0, 2, true, null],
+    );
+    page.runs.unshift(record);
+    await page.studio.settled({ record });
+    await until(() => takes.length === 1);
+    assert.deepEqual([page.asks(), page.tiles(), page.label()], [['B'], [['En attente 1', 'C']], 'Générer ensuite']);
+    page.finish();
+    await until(() => takes.length === 2);
+    page.finish();
+    await until(() => !page.studio.holds());
+    assert.deepEqual([page.asks(), page.tiles()], [['B', 'C'], []]);
+  } finally {
+    page.restore();
+  }
+  // The take stopped meanwhile (« Arrêter »): paused again, nothing goes; « Vider la file » of the window empties it.
+  const stopped = await reloaded(['B']);
+  try {
+    stopped.studio.queueResume('c1');
+    await stopped.studio.settled({ error: 'Génération arrêtée.' });
+    await settle();
+    const [part] = stopped.studio.queueView();
+    assert.deepEqual(
+      [stopped.takes.length, stopped.tiles(), part.why, part.stopped, part.foot.label, stopped.label()],
+      [0, [['En pause 1', 'B']], 'Génération arrêtée.', true, 'Reprendre · 1', 'Reprendre · 1'],
+    );
+    assert.equal(stopped.studio.queueView({ docked: true })[0].foot, null);
+    stopped.studio.queueClear('c1');
+    assert.deepEqual([stopped.tiles(), stopped.studio.queueView(), stopped.label()], [[], [], 'Générer']);
+  } finally {
+    stopped.restore();
   }
 });
 

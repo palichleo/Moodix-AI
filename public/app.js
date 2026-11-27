@@ -1567,37 +1567,70 @@ function updateControls() {
  * in their foot); nowhere once the user is back in its conversation after its end.
  */
 function syncMiniature() {
-  const mini = state.miniature,
-    work = mini?.work;
-  if (!work) return;
+  const mini = state.miniature;
+  if (!mini) return;
   const settings = $('settings'),
-    here = shownHere(work.conversationId) && !settings?.open,
+    open = Boolean(settings?.open),
+    // (0.6.478, variante A) What waits in the queue of the Studio: in its window, under the take; in the Studio, the
+    // list alone, under its settings (studio.mjs, queueView: no « Reprendre » there, its button says it).
+    parts = state.studio?.queueView?.({ docked: state.view === 'studio' && !open }) ?? [];
+  mini.queue?.(parts);
+  const work = mini.work;
+  // (0.6.478) Whether its take is seen by the page (or there is none): the list alone, when a queue waits.
+  let seen = true;
+  if (work) {
+    const here = shownHere(work.conversationId) && !open;
     // Its Chat and its Studio are two views of one conversation (0.6.96): either shows its work, the
     // Studio a take of its Chat too (studio.mjs, watch). It showed in the Studio when the Studio did not
     // hold the take (one asked in the Chat, a card waiting there), as if it were another conversation.
     seen =
       here &&
       (state.view === 'chat' || state.view === 'studio' || (state.view === 'bobine' && Boolean(state.studio?.bobineWorking?.())));
-  // Back in its conversation once it is over: nothing more to say.
-  if (here && !mini.running && state.view !== 'library') return mini.forget();
-  if (seen) return mini.place(null);
-  // A take in hand waiting for the user in the Studio of its conversation (0.6.88): its proposal not
-  // set there yet, or set and resting on « Générer », a character to check. Said so, not
-  // « Préparation… » over a Flux that moved for nothing.
-  const held = Boolean(state.studio?.proposing?.()) && state.studio?.heldFor?.() === work.conversationId;
-  if (state.work?.waits || held) mini.waitFor?.('Moodix AI vous attend dans le Studio de cette conversation');
-  mini.answer(
-    state.work?.waits
-      ? 'Moodix AI vous attend dans le Studio de cette conversation'
-      : state.waitingForModel
-        ? 'Le modèle se charge…'
-        : 'Moodix répond…',
-  );
+    // Back in its conversation once it is over: nothing more to say.
+    if (here && !mini.running && state.view !== 'library') {
+      mini.forget();
+      seen = true;
+    } else if (!seen) {
+      // A take in hand waiting for the user in the Studio of its conversation (0.6.88): its proposal not
+      // set there yet, or set and resting on « Générer », a character to check. Said so, not
+      // « Préparation… » over a Flux that moved for nothing.
+      const held = Boolean(state.studio?.proposing?.()) && state.studio?.heldFor?.() === work.conversationId;
+      if (state.work?.waits || held) mini.waitFor?.('Moodix AI vous attend dans le Studio de cette conversation');
+      mini.answer(
+        state.work?.waits
+          ? 'Moodix AI vous attend dans le Studio de cette conversation'
+          : state.waitingForModel
+            ? 'Le modèle se charge…'
+            : 'Moodix répond…',
+      );
+    }
+  }
+  if (seen && !parts.length) return mini.place(null);
   // (0.6.200) On the page of the Bobine, as its pill (open in its corner, it covered the end of the timeline);
   // its chevron opens it there, the choice kept for the other pages left as it was.
-  mini.place(settings?.open ? (settings.querySelector?.('.settings-footer') ?? 'corner') : 'corner', {
-    pill: state.view === 'bobine' && !settings?.open,
+  if (open) return mini.place(settings.querySelector?.('.settings-footer') ?? 'corner', { alone: seen });
+  // (0.6.478) Its list alone lies under the settings of the Studio; in the Chat, where its window would cover the end
+  // of the input (1168 px), its pill rises over it. The name of the conversation on screen is not said in its list.
+  const dock = state.view === 'studio' && seen ? (state.studio?.queueDock?.() ?? null) : null,
+    raise = state.view === 'chat' ? raisedOver($('chat-form')) : 0;
+  mini.place('corner', {
+    pill: (state.view === 'bobine' && !open) || raise > 0,
+    alone: seen,
+    home: state.view === 'chat' || state.view === 'studio' ? state.conversationId : null,
+    dock,
+    raise,
   });
+}
+/**
+ * (0.6.478) How high from the foot of the page the pill of the miniature rises over the input of the chat, when its
+ * window would cover its end (1168 × 788: its send button, under it); 0 when they do not cross.
+ */
+function raisedOver(form) {
+  const box = form?.getBoundingClientRect?.(),
+    page = document.documentElement;
+  if (!box?.width || !page?.clientWidth) return 0;
+  // Its left edge: 232 px wide, 16 px from the right of the page (moodix.css, .work-mini), with 8 px of air.
+  return box.right > page.clientWidth - 16 - 232 - 8 ? Math.ceil(page.clientHeight - box.top + 12) : 0;
 }
 
 /** Whether `version` (x.y.z) is newer than the one installed: an update is offered only then. */
@@ -5241,6 +5274,8 @@ const studioUI = setupStudio({
   making: () => (state.work?.take && shownHere(state.work.conversationId) ? state.work.take : null),
   // (0.6.253) « Générer » greyed and pressed: its bubble at once.
   sayTip: element => helpTips.show(element),
+  // (0.6.478) Drawn again: the window at the bottom right says its queue, and lies under its settings.
+  onQueue: () => syncMiniature(),
   // (0.6.466) Its queue, kept in this tab with its identity (studio-queue.mjs): found again by this tab reloaded only.
   queueStorage: (() => {
     try {
@@ -5296,9 +5331,30 @@ const miniature = setupMiniature({
   onClosed: work => {
     if (!state.saveHistory && state.aside?.conversationId === work?.conversationId) dropAside();
   },
+  // (0.6.478) Its list of the queue of the Studio, from any page: a line taken out, « Reprendre », « Vider la file »,
+  // « Libérer le GPU »; the name of its conversation and a request that failed lead to the Studio of that conversation
+  // (the failed one with its settings given back there).
+  onRemove: id => state.studio?.queueRemove?.(id),
+  onResume: id => state.studio?.queueResume?.(id),
+  onClear: id => state.studio?.queueClear?.(id),
+  onRecover: () => void recoverGPU().then(() => state.studio?.render?.()),
+  onOpenQueue: id => toQueueStudio(id),
+  onTakeBack: (entry, id) => toQueueStudio(id, () => state.studio?.queueTakeBack?.(entry)),
 });
 document.body?.append?.(miniature.element);
 state.miniature = miniature;
+// (0.6.478) Its place in the Studio (under the settings) and over the input of the chat follow the size of the page.
+window.addEventListener?.('resize', () => syncMiniature());
+/** (0.6.478) The Studio of the conversation of a queue, then `then` there (a request that failed given back). */
+function toQueueStudio(id, then = () => {}) {
+  if (!id) return;
+  requestSettingsClose(async () => {
+    if (!shownHere(id)) await loadConversation(id);
+    if (!shownHere(id)) return;
+    showStudio();
+    then();
+  });
+}
 const workflowsUI = setupNativeWorkflows({
   api,
   state,
