@@ -94,6 +94,8 @@ class Loaded:
         self.allocated = 0
         # Whether what its steps copy to the GPU comes from page-locked RAM, and the bytes there.
         self.locked = True
+        # Whether all that the steps copy is kept in RAM (keep_streamed): nothing is read from the files then.
+        self.whole = False
         self.ram = 0
 
     def drop(self):
@@ -106,7 +108,7 @@ class Loaded:
             self.stack.close()
 
 
-def keep_streamed(loaded, pool):
+def keep_streamed(loaded, pool, named=None):
     """What the steps copy to the GPU goes to page-locked RAM (Store.keep): the weights of the model that do
     not stay on the card, and those of its step adapter (pi H3). Sets `loaded.locked` (whether the model may
     be left for the next video) and returns the bytes kept.
@@ -116,15 +118,58 @@ def keep_streamed(loaded, pool):
     away after its video, and the next one built it anew, 10 s (three cold starts out of five, 27/11). Asked
     first it always fits; what RAM lacks is then cut from the end of the model's part, which the steps read
     from its file as they do for a model larger than what may be locked."""
+    reserve = int(RAM_RESERVE_GIB * 1024**3)
+    ours, copied, spare = named or streamed_names(loaded, pool)
+    kept = loaded.adapter.keep(ours, reserve) if ours else 0
+    kept += loaded.store.keep(copied, reserve, spare=spare)
+    loaded.locked = (not copied or loaded.store.pinned) and (not ours or loaded.adapter.pinned)
+
+    def whole(store):
+        # (A part cut short for want of RAM holds less than was asked: Residency.partial.)
+        part = getattr(store, 'part', None)
+        return part is not None and part.size >= getattr(part, 'whole', part.size)
+
+    # (0.6.465) Whether all of it is kept: nothing is read from the files during the steps then.
+    loaded.whole = (not copied or whole(loaded.store)) and (not ours or whole(loaded.adapter))
+    return kept
+
+
+def streamed_names(loaded, pool):
+    """The weights the steps copy to the GPU, as the share of the pool stands: those of the step adapter, those
+    of the model, and those of the model to hold as well for the next videos (the margin). Asked before the
+    share is laid on the card (0.6.465): named after it, a few layers more than first foreseen were."""
     from runner.models import minimax_h3
 
-    reserve = int(RAM_RESERVE_GIB * 1024**3)
     ours = pool.streamed().get(minimax_h3.ADAPTER, ()) if loaded.adapter is not None else ()
-    kept = loaded.adapter.keep(ours, reserve) if ours else 0
     copied = pool.streamed().get('model', ())
-    kept += loaded.store.keep(copied, reserve, spare=pool.streamed(LOCK_MARGIN_GIB, onward=True).get('model', ()))
-    loaded.locked = (not copied or loaded.store.pinned) and (not ours or loaded.adapter.pinned)
-    return kept
+    return ours, copied, pool.streamed(LOCK_MARGIN_GIB, onward=True).get('model', ())
+
+
+def lay(loaded, pool, ahead=None):
+    """(0.6.465) A model just built is put where its steps read it. Returns what the read-ahead of its file did
+    when it was stopped here (None: left running, or none given).
+
+    What stays on the card is read from the file in one go, laid there, and leaves the RAM (Store.gather, as
+    Wan 2.2's since 0.6.174 and Qwen-Image-Edit's). Read through the mapping as each layer was laid, the 4.2 GiB
+    of the share took 4.3 s of a cold start of pi H3; gathered, 0.6 s to read and 0.7 s to lay (27/11: the
+    draft of 5 s, new process, 36.9 s then 33.3 s, the steps unchanged). What the steps copy is named first: both
+    lists are those of the share before anything is laid on it.
+
+    What will not stay on the GPU then goes to page-locked RAM once, for every step and the next videos
+    (keep_streamed; a layer that did not fit on the card was read through the mapping: taken from locked RAM
+    again, unhold). With all of it kept, nothing is left to read ahead through the system's cache: the read-ahead
+    is stopped, where it went on for 8 GiB beside the first step.
+
+    (Tried and left out, 27/11: the order of the layers kept for the next model built by the same process
+    (WeightPool.prime, as Wan 2.2). Its first step lost the second it waits for its copies, 5.5 to 5.0 s, and
+    its loading took that second, 6.6 to 7.8 s: each layer is taken from its store there.)"""
+    named = streamed_names(loaded, pool)
+    loaded.store.gather(pool.staying().get('model', ()), int(RAM_RESERVE_GIB * 1024**3))
+    pool.preload()
+    loaded.store.scatter()
+    loaded.ram = keep_streamed(loaded, pool, named)
+    pool.unhold()
+    return ahead.stop() if ahead and loaded.whole else None
 
 
 def too_large(parameters, card_gib):
@@ -741,6 +786,8 @@ def _generate(job, config, progress, key, holder):
 
     # A model left by the last video is read no more: its share is on the card, the rest in RAM.
     ahead = None if holder[0] is not None else read_ahead()
+    # (0.6.465) What that reading did when it was stopped before the steps (everything kept), for the timeline.
+    stopped = None
 
     # 2. Conditions through the VAE encoders (only when there are any).
     video_head = audio_head = None
@@ -831,9 +878,11 @@ def _generate(job, config, progress, key, holder):
                 # next videos took five times longer (18/11).
                 locked = loaded.ram
             else:
-                # What will not stay on the GPU goes to page-locked RAM once, for every step and
-                # the next videos; what stays is read from the file as it is loaded.
-                locked = loaded.ram = keep_streamed(loaded, pool)
+                # Its share on the card, the rest in page-locked RAM (lay).
+                stopped = lay(loaded, pool, ahead)
+                if stopped:
+                    ahead = None
+                locked = loaded.ram
             # The share is filled; one left by the last video takes back what it lent.
             pool.preload()
             if adapter is None:
@@ -861,7 +910,7 @@ def _generate(job, config, progress, key, holder):
 
             def after(_module, _args, values, output):
                 calls['step'] += 1
-                read = {'prefetch': ahead.stop()} if ahead and calls['step'] == 1 else {}
+                read = {'prefetch': stopped or ahead.stop()} if (ahead or stopped) and calls['step'] == 1 else {}
                 mode = {}
                 if sparse is not None:
                     mode['attention'] = 'sparse' if sparse.plan is not None else 'dense'

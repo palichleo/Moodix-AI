@@ -273,6 +273,78 @@ class PiH3Weights(unittest.TestCase):
         pipeline.keep_streamed(held, pool(model=()))
         self.assertTrue(held.locked)
 
+    def test_a_model_just_built_has_its_share_read_in_one_go_and_the_rest_kept_as_first_foreseen(self):
+        # (0.6.465) Read through the mapping as each layer was laid, the share of the card took 4.3 s of a cold
+        # start; and the read-ahead of the file went on beside the first step with nothing left to read.
+        calls = []
+
+        class Store:
+            pinned = True
+
+            def __init__(self, held=15):
+                # (What RAM allowed of the part asked: Residency.partial.)
+                self.part = SimpleNamespace(size=held, whole=15)
+
+            def gather(self, keys, reserve=None):
+                calls.append(('gather', sorted(keys), reserve))
+
+            def scatter(self):
+                calls.append('scatter')
+
+            def keep(self, keys, reserve=None, spare=()):
+                calls.append(('keep', sorted(keys), sorted(spare)))
+                return self.part.size
+
+        class Pool:
+            laid = False
+
+            def streamed(self, _margin=0, onward=False):
+                # Asked once the share is laid, a layer more than first foreseen is named.
+                return {'model': {'b', 'c'} | ({'late'} if self.laid else set()) | ({'spare'} if onward else set())}
+
+            def staying(self):
+                return {'model': {'a'}}
+
+            def preload(self):
+                self.laid = True
+                calls.append('preload')
+
+            def unhold(self):
+                calls.append('unhold')
+
+        class Ahead:
+            def stop(self):
+                calls.append('stop')
+                return {'read_gib': 10.44}
+
+        held = SimpleNamespace(store=Store(), adapter=None)
+        self.assertEqual(pipeline.lay(held, Pool(), Ahead()), {'read_gib': 10.44})
+        self.assertEqual(
+            calls,
+            [
+                ('gather', ['a'], pipeline.RAM_RESERVE_GIB * 1024**3),
+                'preload',
+                'scatter',
+                ('keep', ['b', 'c'], ['b', 'c', 'spare']),
+                'unhold',
+                'stop',
+            ],
+        )
+        self.assertEqual([held.ram, held.locked, held.whole], [15, True, True])
+        # RAM allowed a part of it only: the steps read the rest from the file, the read-ahead goes on.
+        calls.clear()
+        held = SimpleNamespace(store=Store(held=12), adapter=None)
+        self.assertIsNone(pipeline.lay(held, Pool(), Ahead()))
+        self.assertEqual([held.ram, held.whole, calls[-1]], [12, False, 'unhold'])
+        # No read-ahead (the file was resident): nothing to stop.
+        self.assertIsNone(pipeline.lay(SimpleNamespace(store=Store(), adapter=None), Pool()))
+        # The pipeline lays a model it has just built this way, and tells its timeline what the read-ahead did.
+        import inspect
+
+        source = inspect.getsource(pipeline._generate)
+        self.assertIn('stopped = lay(loaded, pool, ahead)', source)
+        self.assertIn("read = {'prefetch': stopped or ahead.stop()} if (ahead or stopped)", source)
+
 
 class PiH3Sampling(unittest.TestCase):
     def test_the_schedule_is_the_models_on_the_grid_of_pi_h3(self):
