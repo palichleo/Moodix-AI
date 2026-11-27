@@ -9775,6 +9775,105 @@ body:not([data-view='chat']) .resume {
   margin: 0 6px;
   background: rgba(238, 232, 222, 0.12);
 }
+/* (0.6.476) Une image que le modèle choisi ne prend pas : gardée à sa place, grisée (pas son ×), sa raison dans sa
+   bulle ; elle n'est pas envoyée. Le × d'une image la retire de la carte, la proposition refaite sans elle : un rond
+   sombre de 18 px dans son coin, sous le pointeur ou au clavier, toujours là sur une image grisée et sur un écran
+   tactile. Il paraît d'un coup, sans fondu. */
+.proposal-input.is-held .proposal-input-frame > :is(img, .proposal-input-file) {
+  opacity: 0.38;
+  filter: grayscale(1);
+}
+.proposal-input.is-held figcaption {
+  color: var(--text-4);
+}
+.proposal-input-frame:has(> .proposal-input-remove) {
+  position: relative;
+}
+.proposal-input-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid #2a2e37;
+  border-radius: 999px;
+  background: #0b0c0f;
+  color: var(--text-2);
+  opacity: 0;
+}
+.proposal-input-remove > svg {
+  width: 9px;
+  height: 9px;
+  stroke-width: 2.2;
+}
+.proposal-input:is(:hover, :focus-within, .is-held) .proposal-input-remove {
+  opacity: 1;
+}
+.proposal-input-remove:hover {
+  color: var(--text-1);
+}
+@media (hover: none) {
+  .proposal-input-remove {
+    opacity: 1;
+  }
+}
+/* (0.6.476) La ligne qui dit ce que le modèle choisi n'envoie pas, et quoi faire : en ambre, comme une raison. */
+.proposal-note.proposal-warning {
+  color: var(--warning);
+}
+/* (0.6.476) Le modèle d'une vidéo de Moodix AI, dans le titre de sa carte : un bouton à liseré, comme le modèle d'une
+   carte « À créer » de la Bobine (« LTX 2.5 ⌄ ») ; il ouvre la liste des modèles, une de nos listes de verre. En ambre
+   quand celui choisi n'est pas sur cet ordinateur : son téléchargement est proposé dans la carte, à la place de ses
+   réglages, comme le fait la carte « Il manque un fichier » (que la carte habille de son verre, sans le doubler). */
+.proposal-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: 24px;
+  min-height: 0;
+  margin: -7px 0;
+  padding: 0 8px;
+  border: 1px solid rgba(238, 232, 222, 0.16);
+  border-radius: 7px;
+  background: rgba(238, 232, 222, 0.05);
+  color: var(--text-2);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.proposal-model > svg {
+  width: 7px;
+  height: 7px;
+  opacity: 0.6;
+  transform: rotate(90deg);
+}
+.proposal-model:hover {
+  border-color: rgba(238, 232, 222, 0.32);
+  color: var(--text-1);
+}
+.proposal-model[data-missing='true'] {
+  color: var(--warning);
+}
+#messages .proposal-card .proposal-offer .missing-card {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+/* (0.6.476) Un texte sous « Paramètres avancés » (le prompt négatif de Wan 2.2) : sur toute la largeur de ses deux
+   colonnes. */
+#messages .proposal-card .proposal-panels .proposal-grid > .proposal-field.is-wide {
+  grid-column: 1 / -1;
+}
 .proposal-foot {
   display: flex;
   align-items: center;
@@ -10083,6 +10182,30 @@ body:not([data-view='chat']) .resume {
 #studio-view .studio-block.is-preview {
   --block-pad: 14px 16px 16px;
   gap: 12px;
+}
+/* (0.6.474) The line under the screen, above the buttons, keeps its place, empty or not: « Générer » never moves under
+   the pointer. One line of 19 px, 8 px from the screen and from the bar (the gap of the block, 12, less 4 on each
+   side): 23 px of the screen. What is said there (the failure of a take, any sentence put in it) longer than its line
+   is cut there, whole in its bubble (studio.mjs, wholeInBubble). Said under the buttons, a failure pushed « Générer »
+   up by 31 px on one line (1912 px wide), by 50 px on two (1280 to 1440); kept there, that room is taken from the
+   menu of the Caméra and from « Plus de réglages », which hold above « Générer » with 2 to 17 px to spare (measured on
+   27/11 at 1280 × 720 and 1912 × 948: scripts/check-ui.mjs, « rien sous la Sortie, tout à portée »). */
+#studio-view .studio-under {
+  flex: none;
+  align-self: stretch;
+  min-width: 0;
+  height: 19px;
+  margin: -4px 0;
+  overflow: hidden;
+  font-size: var(--size-2);
+  line-height: 19px;
+  text-align: center;
+}
+#studio-view .studio-under > * {
+  overflow: hidden;
+  line-height: 19px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .studio-screen-head {
   position: relative;
@@ -10601,6 +10724,16 @@ body:not([data-view='chat']) .resume {
   gap: var(--strip-gap);
   align-items: flex-start;
   padding: 2px 2px 6px;
+}
+/* (0.6.474) The Sortie as tall full as empty (his rule « Sortie fixe »): its row keeps the height of an empty Sortie
+   (125 px: its line of 117 and its margins), which the Studio is laid out for. A sound alone made it 104 px,
+   « EN COURS » coming beside it 124, more takes than its width 132: « Générer » moved by up to 28 px from one project
+   to the next, and when a creation began; full, the room above it was 7 px short (« Plus de réglages » scrolled at
+   1280 × 720, the column Entrée with the Caméra at 1440 × 900). The bar that scrolls the takes, when they are more than
+   its width, goes 7 px past the row, over the room under the Sortie (18 px). */
+#studio-view .studio-block.is-output .studio-sortie-row {
+  flex: none;
+  height: 125px;
 }
 #studio-view .studio-item {
   position: relative;
@@ -11605,6 +11738,37 @@ body[data-view='library'] .library-view {
    scrolls sideways, was crushed to nothing by a long sheet). */
 #library-view > * {
   flex-shrink: 0;
+}
+/* (0.6.474) The head of the Archives (the fil, the number of takes, Tout · Images · Vidéos · Sons) stays at the top:
+   the sheet scrolls under it, the page does not. It went up with the sheet, out of sight and of reach (610 px above
+   the window after a few rows). The sides and the foot of the page go to the head and to the sheet: its bar at the
+   right edge of the window, as the bar of the page was. */
+body[data-view='library'] #library-view {
+  overflow-y: hidden;
+  padding: 18px 0 0;
+}
+#library-view > .library-head {
+  margin: 0 36px 16px;
+}
+#library-view > .library-creations {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 36px 48px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+/* (Merged with 0.6.478) However tall the window at the bottom right is with the queue of the Studio (work-miniature.mjs
+   says its height), and 56 px more: its last row comes out from under it (280 px fixed, as 224 + 56, hid it). */
+body:has(> .work-mini:not([hidden]):not(.is-foot)) #library-view > .library-creations {
+  padding-bottom: calc(var(--work-mini-height, 224px) + 56px);
+}
+@media (max-width: 720px) {
+  #library-view > .library-head {
+    margin: 0 16px 16px;
+  }
+  #library-view > .library-creations {
+    padding: 0 16px 32px;
+  }
 }
 
 /* ------------------------------------------------------------------ the Paramètres (phase 5) */
@@ -13496,6 +13660,17 @@ body[data-setup='incomplete'] #resume-last {
   font: 400 11px/1 var(--font-mono);
   letter-spacing: 0.14em;
   text-transform: uppercase;
+}
+/* (0.6.474) « Génération en cours dans « … » », a work of another conversation: the line leads there (app.js,
+   awayWork), as the miniature of the Studio does. */
+#chat-form .compose-state.is-link {
+  cursor: pointer;
+}
+#chat-form .compose-state.is-link:hover,
+#chat-form .compose-state.is-link:focus-visible {
+  color: var(--text-1);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 #chat-form .cancel-button .cancel-word {
   display: none;
@@ -15737,6 +15912,123 @@ body:not([data-view='studio']) .ai-cursor {
   }
   #settings .model-version-row.has-settings {
     grid-template-columns: 150px minmax(0, 1fr) auto 32px;
+  }
+}
+/* (0.6.481) 27/11. A model made of several (MiniMax H3: Omni, De base, pi H3): its line opens at a click anywhere
+   on it, and each of them has its row, its own « Télécharger », « Proposé à Moodix AI » and « Réglages » in the
+   columns of those of a line. Each box stands apart from the others: a gap between all of them, a thin line round
+   the one that is open (his capture 2: a line under the pointer, under an open one, ran into it). */
+#settings .model-row {
+  cursor: pointer;
+}
+.model-line + .model-line {
+  margin-top: 4px;
+}
+.model-line + .model-line[data-open],
+.model-line[data-open] + .model-line,
+.model-line[data-open] + .model-line[data-open] {
+  margin-top: 10px;
+}
+.model-line[data-open] {
+  box-shadow: inset 0 0 0 1px rgba(238, 232, 222, 0.1);
+}
+.model-line[data-open] > .model-row:hover {
+  background: rgba(238, 232, 222, 0.035);
+}
+.model-line > .model-row:active:not(:has(:is(button, input, label):active)) {
+  background: rgba(238, 232, 222, 0.08);
+}
+.model-row:has(> .model-chevron:focus-visible) {
+  box-shadow: inset 0 0 0 1px rgba(238, 232, 222, 0.28);
+}
+#settings .model-section > .model-row > .model-chevron {
+  grid-column: 6;
+}
+/* Its models, under its description, a thin line between them and its own. */
+.model-parts {
+  display: grid;
+  gap: 2px;
+  margin: 0 4px 0 206px;
+  padding: 6px 0 10px;
+  border-top: 1px solid rgba(238, 232, 222, 0.08);
+}
+/* (Its name in 128 px: « Image vers vidéo » takes 105, and what follows it, « 4 étapes » 66, keeps its room beside
+   « Télécharger · 21,6 Go » in the 556 px of the list, as measured in the page.) */
+.model-part {
+  position: relative;
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr) auto 74px 32px 28px;
+  align-items: center;
+  column-gap: 8px;
+  height: 40px;
+  padding-left: 8px;
+  border-radius: 8px;
+}
+.model-part:hover {
+  background: rgba(238, 232, 222, 0.045);
+}
+/* (Both cut with « … » when too long, in lines as tall as their accents: at 1, `overflow` cut the É of
+   « 8 ÉTAPES ».) */
+.model-part-name {
+  overflow: hidden;
+  color: var(--text-1);
+  font: 400 14.5px/1.5 var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-part:is([data-kind='other'], [data-kind='absent']) > .model-part-name {
+  color: var(--text-2, var(--text-3));
+}
+.model-part > .model-version-data {
+  min-width: 0;
+  overflow: hidden;
+  line-height: 1.6;
+  text-overflow: ellipsis;
+}
+.model-part[data-unavailable] > :is(.model-part-name, .model-version-data) {
+  opacity: 0.5;
+}
+/* The version its model makes with: the dot of before, left of its name. */
+.model-part[data-used]::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-1);
+  transform: translateY(-50%);
+}
+#settings .model-part .model-download {
+  height: 32px;
+  padding: 0 10px;
+}
+#settings .model-use {
+  margin: 0;
+  padding: 6px 4px;
+  color: var(--text-1);
+  font: 400 14px/1 var(--font-ui);
+}
+#settings .model-use:hover:enabled {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+#settings .model-part > .model-settings {
+  opacity: 1;
+}
+#settings .model-part > .model-settings[data-unavailable='true'] {
+  opacity: 0.35;
+}
+#settings .model-parts > .model-reset {
+  margin-left: 8px;
+}
+.model-parts > .model-license {
+  padding: 2px 4px 10px 8px;
+}
+@media (max-width: 1320px) {
+  .model-parts {
+    margin-left: 182px;
   }
 }
 /* ------------------------------------------------------------- Réglages d'un modèle (0.6.128) */
@@ -19060,6 +19352,21 @@ body[data-view='bobine'] .chat-panel {
   #bobine-view .bobine-desk .bobine-line:has(.bobine-line-reason.is-note) textarea.bobine-line-words {
     min-height: calc(1lh + 18px);
   }
+  /* (0.6.475) Faite en parties, sa note dans la bulle de « 3 × 08.33 S », en ambre comme elle : sur une ligne à elle,
+     la carte d'un texte de deux lignes (184 px) ne tenait plus entière dans « À créer » (167 px à 1280 × 720). Sa
+     ligne reste pour un lecteur d'écran. */
+  #bobine-view .bobine-line-reason.is-note.is-parts {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  #bobine-view .bobine-line-parts[data-tip] {
+    color: var(--warning);
+  }
 }
 /* Moodix AI arrange : sa demande reste lisible, « Arrêter » à portée. */
 .bobine-ask-field[data-state='working'] {
@@ -19961,6 +20268,19 @@ body[data-view='bobine'] .chat-panel {
   left: auto;
   right: calc(100% + 8px);
   transform: translateY(-50%);
+}
+/* (0.6.475) Une place que le modèle de sa prise ne prend pas (MiniMax H3 : ni début ni fin ; Wan 2.2 : pas de fin) :
+   grisée comme les pièces de sa carte, sa raison dans sa bulle ; elle ne s'allume pas sous une image portée, qui y est
+   refusée avec ces mots. Une image déjà posée là, gardée mais pas envoyée, aussi. */
+#bobine-view .montage-photo[data-left='true'] {
+  opacity: 0.45;
+}
+#bobine-view .montage-photos[data-carrying='true'] .montage-photo.is-slot[data-left='true'] {
+  border-color: rgba(238, 232, 222, 0.3);
+  color: rgba(238, 232, 222, 0.42);
+}
+.montage-photos[data-carrying='true'] .montage-photo[data-left='true']:not(.is-slot) {
+  outline: none;
 }
 
 /* Une fenêtre basse (1280 × 720, 240 px de timeline) : la règle 26 px (25 dans le panneau), Images 32, Prises 92,
@@ -21216,6 +21536,130 @@ body:has(dialog[open]) :is(.camera-ball, .camera-menu-option) :is(.camera-ball-l
 }
 #studio-view .studio-rail > .output-action-compare[aria-pressed='true'] > svg {
   color: var(--accent);
+}
+
+/* ------------------------------------------------------------------ (0.6.480) A model not on this computer */
+/* (claude_design/maquette-studio-sans-modele, approved on 27/11.) Its name in amber, in its list and alone; what it is
+   for under it, then « Pas sur cet ordinateur · 17,7 Go » in amber; « Télécharger · 17,7 Go » in the glass of
+   « Générer », as wide as its words (217 px, as approved), its arrow of 16 px drawn with a line; what it lacks in
+   amber above the buttons (0.6.474: in the line kept there, .studio-under). */
+#studio-view .studio-set-model :is(.studio-model-pick, .studio-model-name).is-absent {
+  color: var(--warning);
+}
+#studio-view .studio-model-note.studio-absent-note {
+  padding: 0 12px 10px;
+  color: var(--text-3);
+  font: 400 12.5px/1.45 var(--font-ui);
+}
+#studio-view .studio-absent-note .studio-absent-size {
+  font-weight: 500;
+  color: var(--warning);
+}
+#studio-view .studio-go-glass .studio-go.studio-get svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-right: 9px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* (0.6.474) In the line above the buttons, at its height: with 10 px of margin, 9 px of its words' 17.5 were seen. */
+#studio-view .studio-absent-line {
+  margin: 0;
+  text-align: center;
+  font: 400 12.5px/19px var(--font-ui);
+  color: var(--warning);
+}
+/* A licence with conditions, read before anything is downloaded: on the screen, over it, the licence scrolled in
+   itself as in the Bobine (the page never moves), « Refuser » always under it (at 1280 × 720 it was below the edge);
+   « J’ai lu, télécharger » in the place of « Générer ». */
+#studio-view .studio-screen.has-license {
+  position: relative;
+}
+#studio-view .studio-license-pane {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 14px;
+  box-sizing: border-box;
+  padding: 20px 24px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: rgba(12, 11, 14, 0.88);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  box-shadow: inset 0 0 0 1px rgba(238, 232, 222, 0.14);
+}
+#studio-view .studio-license-pane > .license-block {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-width: 560px;
+  margin: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+#studio-view .studio-license-pane :is(.license-line, .license-limits) {
+  font-size: 13.5px;
+}
+#studio-view .studio-license-pane .license-files {
+  font-size: 12px;
+}
+#studio-view .studio-license-pane > .studio-decline {
+  flex: none;
+  height: 38px;
+  min-height: 0;
+  margin: 0;
+  padding: 0 16px;
+  border: 1px solid rgba(238, 232, 222, 0.16);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-2);
+  font: 400 14.5px/1 var(--font-ui);
+}
+#studio-view .studio-license-pane > .studio-decline:is(:hover, :focus-visible) {
+  border-color: rgba(238, 232, 222, 0.3);
+  color: var(--text-1);
+}
+/* While the generation engine starts (studio.mjs, engineWait): the glass of « Générer », its bar going and coming
+   under « Le moteur démarre… »; nothing else moves, nothing fades in. */
+#studio-view .studio-engine-go {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 206px;
+  height: 100%;
+  padding: 0 22px;
+  overflow: hidden;
+  color: var(--text-2);
+  font: 500 14.5px/1 var(--font-ui);
+}
+#studio-view .studio-engine-go .studio-go-bar {
+  width: 30%;
+  animation: studio-go-wait 1.6s ease-in-out infinite alternate;
+}
+@media (prefers-reduced-motion: reduce) {
+  #studio-view .studio-engine-go .studio-go-bar {
+    width: 100%;
+    opacity: 0.5;
+    animation: none;
+  }
+}
+.studio-desk.is-engine.is-arriving .studio-block-body > :not(.studio-screen),
+.studio-desk.is-engine.is-arriving .studio-screen > * {
+  animation: none;
+}
+/* (Empty, the frame of the Réglages was a line of 2 px at the top of its column: its settings come with the Studio.) */
+#studio-view .studio-desk.is-engine .studio-block.is-settings {
+  visibility: hidden;
 }
 
 /* ------------------------------------------------------------------ the dictation (0.6.452) */

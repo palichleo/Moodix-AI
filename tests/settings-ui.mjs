@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { setupSettingsGuard } from '../public/settings-guard.mjs';
 import { DICTATING } from '../public/dictation.mjs';
+import { HELD_TIP, HELD_WORDS } from '../public/generation-ui.mjs';
 import * as sessionCopies from '../public/session-copies.mjs';
 import * as transcript from '../public/transcript.mjs';
 
@@ -100,6 +101,9 @@ async function settingsUI({ request, refresh = async () => {}, saved = () => {},
     crypto: { randomUUID: () => '11111111-1111-4111-8111-111111111111' },
     setupProjectNavigation: () => ({ render() {}, sync() {}, refresh: async () => {}, useLibrary() {} }),
     setupGenerationUI: () => ({ clear() {}, restore() {}, held() {} }),
+    // (0.6.474) The words of the card held, and the bubble of « Libérer le GPU », in the Chat as in the Studio.
+    HELD_TIP,
+    HELD_WORDS,
     // The miniature of the chat (0.6.81): no work here, it shows nothing (unless a test gives its own).
     setupMiniature: () => miniature ?? { element: null, work: null, running: false, begin() {}, end() {}, take() {}, place() {}, forget() {} },
     // What the page finds of a creation made while no page followed it (0.6.82): nothing here.
@@ -234,6 +238,8 @@ async function settingsUI({ request, refresh = async () => {}, saved = () => {},
   context.app.tokenKnown();
   return {
     ...context.app,
+    // (0.6.474) The page itself, for a test to put its own in place of one of its functions.
+    context,
     $,
     calls,
     refreshes,
@@ -270,6 +276,61 @@ test('the button that stops says what it stops: a generation, the answer of Mood
   ui.state.waitingForModel = true;
   ui.updateControls();
   assert.equal(says(), 'Annuler le message en attente');
+});
+
+test('(0.6.474) a generation of another conversation that no work of this page follows is named as the Studio names it, and leads there', async () => {
+  // (Étude du 27/11, défaut 6.) Another tab, in the Chat of a conversation of another project: « 40 % » and a ■ that
+  // stopped that generation, without a word of where it was.
+  const SHOWN = 'a1111111-1111-4111-8111-111111111111',
+    OTHER = 'e5555555-5555-4555-8555-555555555555',
+    NAME = '« Le pêcheur à l’aube »';
+  const ui = await settingsUI(),
+    line = ui.$('compose-state'),
+    went = [];
+  ui.context.backToWork = work => went.push(work);
+  Object.assign(ui.state, { conversationId: SHOWN, historyItems: [{ id: OTHER, title: 'Le pêcheur à l’aube' }] });
+  ui.state.status = {
+    ...ui.state.status,
+    toolJob: { id: 'j', state: 'running', fraction: 0.4, conversationId: OTHER, studio: true },
+  };
+  ui.updateControls();
+  assert.equal(line.textContent, 'Génération en cours dans ' + NAME);
+  assert.equal(ui.$('cancel').hidden, true, 'nothing of it is stopped from here');
+  assert.deepEqual([ui.$('send').hidden, ui.$('send').disabled], [false, true]);
+  assert.equal(ui.$('send').dataset.tip, `Génération en cours dans ${NAME} : attendez sa fin.`);
+  // The line leads there, its Studio (the Studio makes it): by a click, or by Entrée.
+  assert.equal(line.dataset.tip, 'Aller à ' + NAME);
+  line.onclick({ preventDefault() {}, stopPropagation() {} });
+  line.onkeydown({ key: 'Enter', preventDefault() {}, stopPropagation() {} });
+  line.onkeydown({ key: 'a' });
+  assert.deepEqual(JSON.parse(JSON.stringify(went)), [
+    { conversationId: OTHER, studio: true },
+    { conversationId: OTHER, studio: true },
+  ]);
+  // In its own conversation: its progress and the button that stops it, as before; the line leads nowhere.
+  ui.state.conversationId = OTHER;
+  ui.updateControls();
+  assert.deepEqual([line.textContent, Boolean(ui.$('cancel').hidden), line.dataset.tip], ['40 %', false, undefined]);
+  line.onclick({ preventDefault() {}, stopPropagation() {} });
+  assert.equal(went.length, 2);
+});
+
+test('(0.6.474) the card held: the words of the Studio beside « Libérer le GPU », and its bubble', async () => {
+  // (Étude du 27/11, défaut 7.) The button alone in the box of the Chat: no sentence, no bubble.
+  const ui = await settingsUI(),
+    line = ui.$('compose-state');
+  assert.equal(ui.$('composer-recover').dataset.tip, HELD_TIP);
+  ui.state.status = {
+    ...ui.state.status,
+    toolJob: { id: 'j', state: 'error', blocked: true, conversationId: 'e5555555-5555-4555-8555-555555555555' },
+  };
+  ui.updateControls();
+  assert.equal(ui.$('composer-recover').hidden, false);
+  assert.deepEqual([line.textContent, line.dataset.tip], [HELD_WORDS, HELD_WORDS]);
+  // Free again: neither.
+  ui.state.status = { ...ui.state.status, toolJob: null };
+  ui.updateControls();
+  assert.deepEqual([ui.$('composer-recover').hidden, line.textContent, line.dataset.tip], [true, '', undefined]);
 });
 
 test('an older settings load cannot unlock the next dialog', async () => {

@@ -57,6 +57,9 @@ import { setupMontage } from './montage.mjs';
 import { DICTATING } from './dictation.mjs';
 import { heldCause } from './generation-ui.mjs';
 import { QUEUE_MOST, createQueue, queueParts } from './studio-queue.mjs';
+import { sizeText } from './missing-file.mjs';
+import { licenseBlock, restrictedOf } from './model-licenses.mjs';
+import { licenseSentence } from './models-page.mjs';
 
 /**
  * The Studio: the creation tools of the conversation, beside the chat. Four blocks that never
@@ -586,6 +589,21 @@ export function setupStudio({
     toolsStale = false,
     shownMedia = null, // { key, element }: what the screen shows, kept from one drawing to the next
     draftsKey = null, // the conversation whose settings are in the Studio (draftKey)
+    // (0.6.480) The model in hand downloaded from here, in the place of « Générer »: { id, name, offer, stage:
+    // 'confirm' | 'running', received, total }; why it could not be (above the buttons); the model of another download
+    // under way meanwhile (its name: « Télécharger » waits for its end); the button and its words as last drawn
+    // (sayFetch fills them, the Studio not drawn again); the next look at the download.
+    fetching = null,
+    fetchError = '',
+    fetchOther = '',
+    fetchLive = null,
+    fetchTimer = null,
+    // (0.6.480) The models not on this computer the user chose in the list (current keeps them in hand), and those
+    // whose download under way elsewhere was looked for (watchFetch), until the tools are read again.
+    pickedAbsent = new Set(),
+    fetchWatched = new Set(),
+    // (0.6.480) The next reading of the tools while the generation engine starts (waitEngine).
+    engineTimer = null,
     // 0.6.81: a work held here (a take made, a proposal of Moodix AI, a character checked) keeps the
     // Studio in the conversation it began in, { conversation, project }, while the page shows
     // another one, where it is said held; it is that conversation's again when the work ends (letGo).
@@ -734,7 +752,10 @@ export function setupStudio({
       // A model this computer cannot run (`unavailable`, its reason) is shown greyed: it is the
       // one in hand only when no other can be.
       usable = list.filter(item => !item.unavailable),
-      first = usable[0] ?? list[0] ?? null;
+      // (0.6.480) Not on this computer, downloaded from here (`missing`): in hand when no model is ready, before one
+      // this computer cannot run; and the one the user chose in the list, until it is there.
+      absent = list.filter(item => item.missing),
+      first = usable[0] ?? absent[0] ?? list[0] ?? null;
     // A continuation stays with the workflow that made the clip when it can. A clip of the disk was
     // made by none of them: the one chosen here (in the list, or by the proposal just answered).
     // (0.6.240) A clip filmed again is filmed by the model made for it, whatever made the clip.
@@ -743,7 +764,11 @@ export function setupStudio({
     if (finishOn()) return usable.find(item => item.id === finishing.workflow) ?? first;
     if (mode === 'video' && extending && !proposal)
       return usable.find(item => item.id === (extending.workflowId ?? draft.workflow)) ?? first;
-    return usable.find(item => item.id === draft.workflow) ?? first;
+    return (
+      usable.find(item => item.id === draft.workflow) ??
+      absent.find(item => item.id === draft.workflow && pickedAbsent.has(item.id)) ??
+      first
+    );
   }
   // A proposal of Moodix AI is answered from its own mode: the others still work by hand.
   const answering = () => Boolean(proposal && proposal.mode === mode && !working);
@@ -765,6 +790,9 @@ export function setupStudio({
       draft.styles = draft.shelved[to] ?? [];
     }
     draft.workflow = id;
+    // (0.6.480) One that is not on this computer, chosen by hand: it stays in hand (current), to be downloaded.
+    if (offered().find(item => item.id === id)?.missing) pickedAbsent.add(id);
+    fetchError = '';
     // Its saved settings come back with it (« Enregistrer »), those its workflow leaves free.
     const chosen = current();
     if (chosen) applyPreset(chosen);
@@ -3221,15 +3249,24 @@ export function setupStudio({
     // none of its own: its model is chosen like that of a new video.
     if (list.length > 1 && (!extending || !extending.workflowId)) {
       const model = select(
-        list.map(item => [item.id, item.unavailable ? item.name + ' · indisponible' : item.name]),
+        list.map(item => [
+          item.id,
+          item.name + (item.missing ? ' · pas sur cet ordinateur' : item.unavailable ? ' · indisponible' : ''),
+        ]),
         workflow.id,
         choose,
       );
       // Greyed, with its reason under the list (unavailableNote): never left out unexplained.
       list.forEach((item, index) => {
-        if (item.unavailable) Object.assign(model.children[index], { disabled: true, title: item.unavailable });
+        // (0.6.480) Not on this computer: chosen all the same, to be downloaded (« Télécharger » in the place of
+        // « Générer »), its size in its bubble; its name alone on the face of the list (glass-menu.mjs), in amber.
+        if (item.missing) {
+          const option = model.children[index];
+          option.title = sizeText(item.missing.left || item.missing.bytes) + ' à télécharger';
+          option.dataset.face = item.name;
+        } else if (item.unavailable) Object.assign(model.children[index], { disabled: true, title: item.unavailable });
       });
-      model.className = 'studio-model-pick';
+      model.className = 'studio-model-pick' + (workflow.missing ? ' is-absent' : '');
       model.title = workflow.description || workflow.name;
       model.disabled = answering() || locked();
       if (answering()) model.title = 'Modèle choisi par Moodix AI pour cette proposition';
@@ -3239,7 +3276,9 @@ export function setupStudio({
     } else {
       const name = node('span', 'studio-model-name', workflow.name);
       name.title = workflow.description || workflow.name;
-      if (workflow.unavailable) name.classList.add('is-unavailable');
+      // (0.6.480) Not on this computer: in amber, as in the list.
+      if (workflow.missing) name.className += ' is-absent';
+      else if (workflow.unavailable) name.classList.add('is-unavailable');
       block.append(name);
     }
     // Not for a continuation: what it would keep would never come back (a clip is continued with
@@ -3255,6 +3294,13 @@ export function setupStudio({
    */
   function unavailableNote(workflow) {
     if (!workflow?.unavailable) return null;
+    // (0.6.480) Not on this computer (maquette-studio-sans-modele, 27/11): what it is for, then in amber « Pas sur cet
+    // ordinateur · 17,7 Go ». Its reason (« Fichier introuvable… ») said nothing of what to do.
+    if (workflow.missing) {
+      const absent = node('p', 'studio-model-note studio-absent-note', workflow.does ? workflow.does + ' ' : '');
+      absent.append(node('b', 'studio-absent-size', 'Pas sur cet ordinateur · ' + missingSize(workflow)));
+      return absent;
+    }
     const note = node('p', 'studio-model-note', workflow.unavailable);
     note.setAttribute('role', 'note');
     return note;
@@ -3761,8 +3807,13 @@ export function setupStudio({
     if (typeof wanted.model !== 'string') return { ...wanted, model: undefined };
     const model = (info?.tools?.[wanted.verb] ?? []).find(item => item.id === wanted.model);
     if (!model) throw Error(`${entry.label?.model || 'Son modèle'} n’est plus proposé par le Studio.`);
+    // (Merged with 0.6.480) Listed, but not on this computer any more (its files taken away since): said on its tile,
+    // never sent (the server would offer its download, and no take). A click on the tile gives « Télécharger ».
+    if (model.missing) throw Error(notHere(model.name));
     return { ...wanted, model };
   }
+  /** (Merged with 0.6.480) Why a request is not made, its model not on this computer (any more): its tile says it. */
+  const notHere = name => `${name} n’est pas sur cet ordinateur : téléchargez-le d’abord.`;
   /**
    * (0.6.466, D5) A click on a request that failed: its settings back in the Studio as they were asked (its page, its
    * prompt, its model, its images, its tries), why it failed under the screen; its tile leaves the queue. As a take
@@ -4510,12 +4561,19 @@ export function setupStudio({
   function greyedWhy(kind = '') {
     const workflow = current(),
       draft = drafts[mode];
+    // (0.6.480) The engine starts (engineWait): nothing to make yet. Without this, its keys would ask generate(), whose
+    // failure for want of a model (« Aucun modèle prêt ») would stay under the Studio once it is whole. (Merged with
+    // the queue: nor « Reprendre », whose requests would find no model ready either.)
+    if (engineStarts() && !working) return { text: ENGINE_HELD };
     if (kind === 'again') {
       const busy = elsewhere() || blocked();
       return busy ? { text: busy } : null;
     }
     // A take made, the card held: « Générer » is the bar of the work, or « Libérer la carte »; generate() answers.
     if (!workflow || (working && kind !== 'next') || gpuBlocked()) return null;
+    // (0.6.480) Not on this computer: « Télécharger » stands in the place of « Générer », its keys never download.
+    // (Merged with the queue: nor « Générer ensuite » while a take is made, greyed with the same words.)
+    if (workflow.missing) return { text: missingWhy(workflow) };
     const held = kind === 'next' ? nextHeld() : '';
     if (held) return { text: held };
     if (workflow.unavailable) return { text: workflow.unavailable };
@@ -4594,8 +4652,12 @@ export function setupStudio({
   const resumeTip = count =>
     `Reprendre la file : ${theRequests(count)} en attente${count > 1 ? ', dans l’ordre' : ''} (${MODIFIER}+Entrée)`;
   /** The requests paused in this conversation, when « Reprendre » takes the place of « Générer » (form). */
+  // (Merged with 0.6.480) Not while the model in hand is not on this computer: « Télécharger » stands in that place,
+  // « Reprendre » at the foot of the window (queueView); nor while the engine starts, the Studio has no button then.
   const resumable = () =>
-    !working && !chaining && !answering() && !checking && !gpuBlocked() ? queue.paused(conversation()) : [];
+    !working && !chaining && !answering() && !checking && !gpuBlocked() && !current()?.missing && !engineStarts()
+      ? queue.paused(conversation())
+      : [];
   /**
    * Why « Générer ensuite » is greyed, beyond what greys « Générer »: the queue full (D6), a page that makes a take
    * of a take (Prolonger, Changer la caméra, Agrandir, Interpoler: D7, made once the take is made).
@@ -4655,13 +4717,18 @@ export function setupStudio({
   }
   // (0.6.478) What greys « Reprendre » of the window at the bottom right, beyond what greys « Générer ».
   const BOBINE_HELD = 'Attendez la fin de la prise de la Bobine.',
-    AI_HELD = 'Moodix AI attend votre réponse dans le Studio : répondez-lui d’abord.';
+    AI_HELD = 'Moodix AI attend votre réponse dans le Studio : répondez-lui d’abord.',
+    // (0.6.480, merged with the queue) The engine starts (engineWait): no model is ready yet, for « Générer » as for
+    // « Reprendre » (the Studio's, the window's) and the requests that would go (generate).
+    ENGINE_HELD = 'Le moteur de génération démarre.';
   /** (0.6.478) Why « Reprendre » of the window is greyed now; '' when it can go (at once, or after the take, Q3). */
   function resumeHeld() {
     if (working?.montage || working?.place) return BOBINE_HELD;
     if (working?.external && !working.chat) return '';
     if (working || chaining || settling) return RAIL_HELD;
     if (proposal || checking || ai) return AI_HELD;
+    // (Merged with 0.6.480) While the engine starts: its requests would find no model ready.
+    if (engineStarts()) return ENGINE_HELD;
     return blocked() || elsewhere() || '';
   }
   /**
@@ -5260,6 +5327,23 @@ export function setupStudio({
     if (id === 'upscale' || id === 'interpolate') finishTake(record, id);
   }
   /**
+   * (0.6.474) Animer or Prolonger pressed in the viewer of the Sortie or in the Archives: what the buttons of the
+   * screen do (takeAction), in the conversation shown. The Studio coming on screen (open) may still be reading the
+   * takes of that conversation: read, and their settings taken (settle, once for a conversation) before, else they
+   * came over the picture just put in « Début », the mode of the newest take with them.
+   */
+  async function actFromAfar(record, id) {
+    try {
+      if (!info) await load();
+      if (runsStale || runsFor !== where()) await refresh();
+    } catch {
+      // Its takes unread, the gesture is made all the same; its tools unread, nothing (open says why).
+    }
+    if (!info) return;
+    if (settle()) render();
+    takeAction(record, id);
+  }
+  /**
    * (0.6.256, captures A04 and B08) The page Agrandir (or Interpoler) of a take: in the page of its kind, the take on
    * the screen and in its case « À agrandir », the prompt greyed (it needs none), at the right the model and its
    * factor, « ▶ Agrandir » under the screen. Pressed again on its page, or its × pressed: left, as Prolonger is.
@@ -5363,8 +5447,11 @@ export function setupStudio({
     // have ended this one's work. (An answer to Moodix AI above is no such creation.)
     if (settling) return refuse(BUSY_HERE);
     // (0.6.466) What follows a take of the Studio is not held by that take, the work of the page (`blocked(true)`); a
-    // request of the queue says itself what its model cannot do (the server's reason, on its tile).
-    const reason = follows ? blocked(true) : blocked() || (onTake || entry ? '' : current()?.unavailable);
+    // request of the queue says itself what its model cannot do (the server's reason, on its tile). (Merged with
+    // 0.6.480) Nor while the engine starts: a request of the queue, a try of a series, wait paused, and why.
+    const reason =
+      (follows ? blocked(true) : blocked() || (onTake || entry ? '' : current()?.unavailable)) ||
+      ((entry || again) && engineStarts() ? ENGINE_HELD : '');
     if (reason) {
       refuse(reason);
       // (0.6.466) It waits at its place with those after it, for « Reprendre »: nothing goes again by itself.
@@ -5484,6 +5571,10 @@ export function setupStudio({
           ...(wanted.size ? { size: wanted.size } : {}),
         })
       ).json();
+      // (Merged with 0.6.480) Its model not on this computer any more, the tools read before had it (its files taken
+      // away since): the server offers its download (`missing`), and no plan. Said (its tile, the line under the
+      // screen, the Bobine), never sent on to be made.
+      if (proposed.missing) throw Error(notHere(proposed.workflowName || 'Son modèle'));
       working.requestId = proposed.requestId;
       cancelIfStopped(proposed.requestId);
       // The size chosen here, where the workflow sets its own.
@@ -6097,12 +6188,15 @@ export function setupStudio({
         } catch {
           // The view changed anyway, or did not: the proposal is shown where it is.
         }
-        const verb = request.tool || request.call?.function?.name;
+        const verb = request.tool || request.call?.function?.name,
+          // (0.6.480) A model said not on this computer (`missing`) is none to set it with: the tools read may predate
+          // its download. It took the place of the one proposed, and « Télécharger » came back once it was answered.
+          here = () => offered(verb).filter(item => !item.missing);
         // The tools read ahead may predate the workflow it proposes (the engine just ready, a
         // workflow switched on): read again, rather than wait for a « Générer » with nothing to set.
-        if (!info || !offered(verb).some(item => item.name === request.workflowName)) await load().catch(() => {});
+        if (!info || !here().some(item => item.name === request.workflowName)) await load().catch(() => {});
         if (!proposal || proposal.request !== request) return;
-        if (!offered(verb).length) {
+        if (!here().length) {
           // Still nothing to set it with: said to the chat, which would otherwise wait for good.
           settle();
           proposal = null;
@@ -6113,7 +6207,7 @@ export function setupStudio({
           );
           return;
         }
-        proposal.values = proposedValues(request, offered(verb));
+        proposal.values = proposedValues(request, here());
         await animate(proposal);
       })();
     });
@@ -7703,6 +7797,321 @@ export function setupStudio({
     if (strip) strip.scrollLeft = 0;
   }
 
+  // ------------------------------------------------------------------ a model not on this computer (0.6.480)
+  /** What a model not on this computer leaves to download, as its button says it (« 17,7 Go »). */
+  const missingSize = workflow => sizeText(workflow.missing.left || workflow.missing.bytes);
+  /**
+   * Why nothing is made with a model not on this computer, in the bubble of its button (and of the keys of « Générer »,
+   * greyedWhy): its download under way, another one meanwhile, the account its source asks for, or what it lacks.
+   */
+  function missingWhy(workflow) {
+    const { name, missing } = workflow,
+      mine = fetching?.stage === 'running' && fetching.id === workflow.id,
+      other = fetching?.stage === 'running' && !mine ? fetching.name : fetchOther;
+    if (mine) return `${name} se télécharge : « Générer » revient à la fin.`;
+    if (other) return `${other} se télécharge : attendez sa fin.`;
+    if (missing.needsToken)
+      return (
+        `${name} demande un compte Hugging Face : acceptez sa licence${missing.page ? ' sur ' + missing.page : ''}, ` +
+        'puis enregistrez votre jeton dans Paramètres › Modèles › Fichiers.'
+      );
+    return `${name} n’est pas sur cet ordinateur : téléchargez-le d’abord.`;
+  }
+  /**
+   * The Studio drawn again while the prompt may be in the hand (a download begins or ends): its caret and its
+   * selection stay. render gives the focus back to the controls of the keys alone, never to a field.
+   */
+  function redraw() {
+    const field = document.querySelector?.('#studio-prompt'),
+      held = field && field === document.activeElement ? [field.selectionStart, field.selectionEnd] : null;
+    render();
+    if (!held) return;
+    const again = document.querySelector?.('#studio-prompt');
+    again?.focus?.({ preventScroll: true });
+    again?.setSelectionRange?.(...held);
+  }
+  /**
+   * « Télécharger » pressed, as in the Bobine (montage.mjs, download): a licence with conditions is read first on the
+   * screen, accepted or refused, and nothing is downloaded before (the server asks for it). Then the download, its bar
+   * and its figures in the button (sayFetch), until the model is there (fetched): « Générer » then, the prompt kept.
+   */
+  async function fetchModel(workflow, { accepted = false } = {}) {
+    const offer = workflow?.missing;
+    if (!offer || offer.needsToken || fetchOther || fetching?.stage === 'running') return;
+    fetchError = '';
+    // (0.6.474) Nor what was said of a take before (the line above the buttons says one sentence: form()): the download,
+    // or its licence, is what it says now.
+    failure = '';
+    if (!accepted && restrictedOf(offer.files).length) {
+      fetching = { id: workflow.id, name: workflow.name, offer, stage: 'confirm' };
+      return redraw();
+    }
+    fetching = { id: workflow.id, name: workflow.name, offer, stage: 'running', received: 0, total: offer.bytes };
+    redraw();
+    try {
+      const asked = { id: offer.workflowId, ...(accepted ? { accepted: true } : {}) },
+        job = await (await api('downloads/start', asked)).json();
+      if (fetching?.id !== workflow.id) return;
+      Object.assign(fetching, { received: job.received ?? 0, total: job.total || offer.bytes });
+    } catch (error) {
+      if (fetching?.id === workflow.id) fetching = null;
+      fetchError = 'Téléchargement impossible : ' + error.message;
+      return redraw();
+    }
+    sayFetch();
+    followLater();
+  }
+  /** The next look at the download under way (GET /api/downloads), once a second as in the Bobine. */
+  function followLater() {
+    clearTimeout(fetchTimer);
+    fetchTimer = setTimeout(() => void followFetch().catch(() => {}), 1000);
+    fetchTimer?.unref?.();
+  }
+  /**
+   * The download made from here as it goes, until the model is there, stopped or failed. Or the one of another model
+   * (`fetchOther`: from Paramètres › Modèles, the Bobine, a card of the chat), until its end: « Télécharger » waits.
+   */
+  async function followFetch() {
+    fetchTimer = null;
+    const id = fetching?.stage === 'running' ? fetching.offer.workflowId : '';
+    if (!id && !fetchOther) return;
+    let job;
+    try {
+      ({ job } = await (await api('downloads')).json());
+    } catch {
+      return followLater();
+    }
+    // (An answer of before: the download it was asked for is not the one in hand any more.)
+    if ((fetching?.stage === 'running' ? fetching.offer.workflowId : '') !== id) return;
+    if (job?.state === 'running' && id && job.workflowId === id) {
+      Object.assign(fetching, { received: job.received ?? 0, total: job.total || fetching.total });
+      sayFetch();
+      return followLater();
+    }
+    if (job?.state === 'running') {
+      const name = job.name || 'Un autre modèle';
+      if (id || fetchOther !== name) {
+        fetching = null;
+        fetchOther = name;
+        redraw();
+      }
+      return followLater();
+    }
+    // Its end: there, stopped or failed. What is left of it is read again with the tools.
+    if (id && job?.state === 'error') fetchError = 'Téléchargement impossible : ' + job.error;
+    fetching = null;
+    fetchOther = '';
+    await fetched();
+  }
+  /** A download ended: the tools read again (the model is there now, or what is left of it to fetch), then drawn. */
+  async function fetched() {
+    invalidate({ tools: true });
+    // (A reading under way was asked before the end: one more after it.)
+    await loading?.catch(() => {});
+    await load().catch(() => {});
+    redraw();
+  }
+  /** The bar and the figures of the download in its button (« 3,4 / 17,7 Go »), the Studio not drawn again. */
+  function sayFetch() {
+    if (!fetchLive || fetching?.stage !== 'running') return;
+    const { received = 0, total = 0 } = fetching,
+      part = total ? Math.min(1, Math.max(0, received / total)) : 0,
+      // (What has come, in the unit of the whole.)
+      giga = total >= 1024 ** 3,
+      come = !received
+        ? '0'
+        : giga
+          ? (received / 1024 ** 3).toFixed(1).replace('.', ',')
+          : Math.round(received / 1024 ** 2).toLocaleString('fr-FR');
+    fetchLive.button.style.setProperty?.('--studio-progress', String(Math.round(part * 1000) / 1000));
+    fetchLive.button.setAttribute('aria-valuenow', String(Math.round(part * 100)));
+    fetchLive.label.textContent = `${come} / ${sizeText(total)}`;
+  }
+  /**
+   * A download of this model already under way (from Paramètres › Modèles, the Bobine, a card of the chat), or of
+   * another one: followed here. Asked once a model each time the tools are read (`fetchWatched`).
+   */
+  function watchFetch(workflow) {
+    const offer = workflow.missing;
+    if (!offer || fetching || fetchOther || fetchWatched.has(workflow.id)) return;
+    fetchWatched.add(workflow.id);
+    void api('downloads')
+      .then(response => response.json())
+      .then(({ job } = {}) => {
+        if (job?.state !== 'running' || fetching || fetchOther) return;
+        const { id, name } = workflow,
+          total = job.total || offer.bytes;
+        if (job.workflowId === offer.workflowId)
+          fetching = { id, name, offer, stage: 'running', received: job.received ?? 0, total };
+        else fetchOther = job.name || 'Un autre modèle';
+        redraw();
+        followLater();
+      })
+      .catch(() => {});
+  }
+  /**
+   * What stands in the place of « Générer » for a model not on this computer (maquette-studio-sans-modele, 27/11), as
+   * in the Bobine: « Télécharger · 17,7 Go » in the same glass, its licences in its bubble. One with conditions is
+   * read first on the screen (`pane`, « Refuser » under it), and the button says « J’ai lu, télécharger ». Under way,
+   * the glass is its bar, « 3,4 / 17,7 Go », « Arrêter » at its right. Greyed, and why, while its source asks for an
+   * account or another model downloads. `line`: what it lacks, in amber above the buttons (0.6.474: in the line kept
+   * there, form()), or why it could not be.
+   */
+  function absentGo(workflow) {
+    const { name, missing: offer } = workflow,
+      size = missingSize(workflow),
+      running = fetching?.stage === 'running' && fetching.id === workflow.id,
+      held = !running && Boolean(fetching?.stage === 'running' || fetchOther),
+      confirm = !running && !held && !offer.needsToken && fetching?.stage === 'confirm' && fetching.id === workflow.id,
+      glass = node('div', 'studio-go-glass' + (running ? ' is-working' : '')),
+      // Greyed, it still answers (greyable): why, in its bubble (pressGo), and nothing is downloaded.
+      press = () => (go.disabled ? pressGo(go) : void fetchModel(workflow, { accepted: confirm })),
+      go = aiTarget(greyable(button('primary studio-go studio-get', '', press, running ? '' : 'download')), 'generate'),
+      words = running ? '' : (confirm ? 'J’ai lu, télécharger · ' : 'Télécharger · ') + size,
+      label = node('span', 'studio-go-label', words),
+      fill = node('span', 'studio-go-bar');
+    fill.setAttribute('aria-hidden', 'true');
+    go.append(label, fill);
+    go.title = licenseSentence(offer.files) || `Télécharger ${name} (${size})`;
+    let line = node('p', 'studio-absent-line', `${name} n’est pas sur cet ordinateur.`),
+      pane = null;
+    if (running) {
+      // Its bar, its figures (sayFetch), « Arrêter » after a rule, as a take being made.
+      go.disabled = true;
+      go.title = missingWhy(workflow);
+      go.setAttribute('role', 'progressbar');
+      go.setAttribute('aria-valuemin', '0');
+      go.setAttribute('aria-valuemax', '100');
+      go.setAttribute('aria-label', 'Téléchargement de ' + name);
+      const cancel = () => void api('downloads/cancel', {}).catch(error => notice(error.message)),
+        rule = node('span', 'studio-go-rule'),
+        halt = button('studio-stop', '', cancel, 'stop');
+      rule.setAttribute('aria-hidden', 'true');
+      halt.setAttribute('aria-label', 'Arrêter le téléchargement');
+      halt.title = 'Arrêter le téléchargement';
+      glass.append(go, rule, halt);
+      fetchLive = { button: go, label };
+      line = node('p', 'studio-absent-line', missingWhy(workflow));
+    } else {
+      glass.append(go);
+      if (confirm) {
+        // Its licence on the screen, scrolled in itself; the line above the buttons stays (without it the screen grew,
+        // and the button went down under the pointer). Refused, nothing is downloaded.
+        pane = node('div', 'studio-license-pane');
+        const block = licenseBlock({ node, files: offer.files, confirm: true }),
+          no = button('secondary studio-decline', 'Refuser', () => ((fetching = null), redraw()));
+        no.title = `Ne pas télécharger ${name}`;
+        if (block) pane.append(block);
+        pane.append(no);
+      } else if (held || offer.needsToken) {
+        go.disabled = true;
+        go.title = missingWhy(workflow);
+        // An account: where its token goes, in a line; the whole sentence in its bubble.
+        line = node(
+          'p',
+          'studio-absent-line',
+          held ? go.title : `${name} demande un compte Hugging Face : Paramètres › Modèles › Fichiers.`,
+        );
+        line.title = go.title;
+      } else watchFetch(workflow);
+    }
+    if (fetchError) {
+      line = node('p', 'studio-error', fetchError);
+      line.setAttribute('role', 'alert');
+    }
+    return { glass, go, line, pane };
+  }
+
+  // ------------------------------------------------------------------ the engine that starts (0.6.480)
+  /** The generation engine starts, or is installed the first time: no model is ready meanwhile. */
+  const engineStarts = () => ['starting', 'installing'].includes(info?.engine?.state);
+  /**
+   * Why no model is ready when the engine is not there (stopped, or failed): in the place of « vérifiez Paramètres ›
+   * Modèles », which sent the user to models that were all there. '' while it runs, or starts.
+   */
+  function engineDown() {
+    const engine = info?.engine;
+    if (!engine || engineStarts()) return '';
+    // (Its error said in a few lines: the last words of the engine that stopped are in its settings.)
+    const error = String(engine.error ?? '').trim(),
+      said = error.length > 240 ? error.slice(0, 239).trimEnd() + '…' : error;
+    if (said) return 'Moteur de génération indisponible : ' + said;
+    return (
+      'Moteur de génération arrêté : préparez-le dans Paramètres › Mise à jour › Composants ' +
+      '(« Vérifier l’environnement »).'
+    );
+  }
+  /**
+   * The Studio while its engine starts (ten seconds at each launch, minutes the first time it is installed), in the
+   * place of « Aucun modèle prêt »: its four blocks as they will be (skeleton), and in the place of « Générer » its
+   * glass, whose bar goes and comes, « Le moteur démarre… ». Drawn whole once the engine is ready: app.js reads the
+   * tools again then (prefetch), and they are read again meanwhile (waitEngine). Moodix AI stays at hand.
+   */
+  function engineWait() {
+    const installing = info.engine.state === 'installing',
+      desk = node('div', 'studio-desk is-loading is-engine'),
+      // (What a screen reader says: the engine named whole.)
+      words = installing ? 'Installation du moteur de génération…' : 'Le moteur de génération démarre…',
+      said = node('p', 'sr-only', words),
+      // (As form() draws them: Image · Vidéo · Son in the head of the screen, the Sortie at its height. Above the
+      // Studio and a Sortie of 24 px, as in skeleton(), all moved once it came, ten seconds later.)
+      head = node('div', 'studio-screen-head'),
+      screen = node('div', 'studio-screen'),
+      preview = node('section', 'studio-block is-preview studio-center'),
+      output = node('section', 'studio-block is-output studio-results'),
+      bar = node('div', 'studio-actionbar'),
+      group = node('div', 'studio-go-group'),
+      glass = node('div', 'studio-go-glass'),
+      // (Not a « .studio-go »: what follows the prompt and the dictation would take it for « Générer », goable.)
+      wait = node('span', 'studio-engine-go'),
+      fill = node('span', 'studio-go-bar');
+    desk.setAttribute('aria-busy', 'true');
+    said.setAttribute('role', 'status');
+    fill.setAttribute('aria-hidden', 'true');
+    wait.setAttribute('aria-hidden', 'true');
+    wait.append(node('span', 'studio-go-label', installing ? 'Installation du moteur…' : 'Le moteur démarre…'), fill);
+    glass.append(wait);
+    group.append(glass, agent);
+    agent.classList?.remove('is-thinking');
+    bar.append(node('div', 'output-actions is-empty'), group);
+    screen.append(node('div', 'studio-stage'));
+    if (kindsBar()) head.append(kindsBar());
+    // (0.6.474) With the line above the buttons (moodix.css, .studio-under), empty: the screen as tall as it will be once
+    // the engine is ready, its glass where « Générer » comes.
+    preview.append(head, screen, node('div', 'studio-under'), bar);
+    // (Its room without words: what it holds comes with the Studio.)
+    output.append(node('div', 'studio-empty-strip'));
+    const blocks = [node('section', 'studio-block is-input'), preview, node('section', 'studio-block is-settings')];
+    desk.append(said, ...blocks.map(grained), grained(output));
+    waitEngine();
+    return desk;
+  }
+  /**
+   * While the Studio says its engine starts and is on screen: its tools read again now and then (every 3 s, 10 s while
+   * it is installed), drawn once they change. A safety: the reading app.js asks when the engine is ready may share one
+   * asked before (load), whose answer still says it starts (prefetch reads once more then).
+   */
+  function waitEngine() {
+    if (engineTimer || !engineStarts()) return;
+    engineTimer = setTimeout(
+      () => {
+        engineTimer = null;
+        // (Not while the Studio is out of sight: opened, it is drawn again, and this begins again.)
+        if (globalThis.document?.body?.dataset?.view !== 'studio' || !engineStarts()) return;
+        const before = JSON.stringify(info);
+        void load()
+          .then(async () => {
+            if (JSON.stringify(info) === before || ai) return waitEngine();
+            await afterMove();
+            render();
+          })
+          .catch(() => waitEngine());
+      },
+      info.engine.state === 'installing' ? 10000 : 3000,
+    );
+    engineTimer?.unref?.();
+  }
+
   // ------------------------------------------------------------------ the page
   function message(text) {
     const panel = node('section', 'studio-desk is-empty');
@@ -7724,7 +8133,8 @@ export function setupStudio({
     screen.append(node('div', 'studio-stage'));
     const waiting = node('div', 'studio-actionbar is-waiting');
     waiting.append(agent);
-    preview.append(screen, waiting);
+    // (0.6.474) With the line above the buttons (moodix.css, .studio-under): the screen as tall as it will be.
+    preview.append(screen, node('div', 'studio-under'), waiting);
     const blocks = [node('section', 'studio-block is-input'), preview, node('section', 'studio-block is-settings')];
     desk.append(said, ...blocks.map(grained), grained(node('section', 'studio-block is-output')));
     return desk;
@@ -7738,6 +8148,19 @@ export function setupStudio({
     body.append(...block.children);
     block.replaceChildren(body);
     return block;
+  }
+  /**
+   * (0.6.474) A sentence of the line above the buttons, cut at its end (.studio-under): whole in its bubble when it is
+   * cut as the pointer comes on it (help-tips.mjs looks for the bubble after this). Measured once drawn, it kept a
+   * bubble or lacked one as the window changed width.
+   */
+  function wholeInBubble(line) {
+    // (A sentence with a bubble of its own keeps it, which says more than the line: the account asked for, 0.6.480.)
+    if (line.title) return;
+    line.addEventListener('pointerover', () => {
+      if (line.scrollWidth > line.clientWidth + 1) line.dataset.tip = line.textContent;
+      else delete line.dataset.tip;
+    });
   }
   /**
    * Image / Vidéo / Son, at the top left of the Studio: three tabs, their icons, their names for
@@ -7831,14 +8254,23 @@ export function setupStudio({
   function form() {
     // (A Studio drawn without its prompt, nothing ready to make: nothing of a former one to measure.)
     measurePrompt = null;
+    // (0.6.480) The button of a download as last drawn (sayFetch fills it): drawn again below, or not at all.
+    fetchLive = null;
     const draft = drafts[mode],
       list = offered(),
       workflow = current();
     if (!info.enabled) return message('La génération locale est désactivée : activez-la dans Paramètres › Génération.');
+    // (0.6.480) The generation engine starts: no model is ready until it is (« Aucun modèle prêt » for ten seconds on a
+    // computer that has them all, 27/11). Said, the Studio as it will be; drawn whole once it is ready.
+    if (engineStarts() && !list.some(item => !item.unavailable)) return engineWait();
+    // (0.6.480) Nor while it is stopped or failed: that, and not the models, is what to look at.
+    if (!workflow && engineDown()) return message(engineDown());
+    // (0.6.480) A licence to read for another model than the one in hand now: left (« Télécharger » again).
+    if (fetching?.stage === 'confirm' && fetching.id !== workflow?.id) fetching = null;
     if (!workflow)
       return message(
         mode === 'audio'
-          ? 'Aucun modèle de son prêt : téléchargez les modèles de musique et de bruitages dans models\\audio.'
+          ? 'Aucun modèle de son prêt : téléchargez les modèles de musique et de bruitages dans Paramètres › Modèles.'
           : 'Aucun modèle prêt pour cette création : vérifiez Paramètres › Modèles.',
       );
     // The first time a mode shows its model, the settings saved for it come back (not over a
@@ -8271,6 +8703,20 @@ export function setupStudio({
     // (0.6.253) Pressed, it opens the chat, a creation under way or not: the chat can be opened meanwhile (0.6.81),
     // where the take is followed too. So it stays lit (the maquette grey it at 45 %: said in the report).
     group.append(glass, agent);
+    // (0.6.480, maquette-studio-sans-modele) The model in hand is not on this computer: « Télécharger · 17,7 Go » in
+    // the place of « Générer », in its glass (« × n » gone), Moodix AI beside it; what it lacks in amber above them.
+    // (Merged with the queue, 0.6.466) Nor between two requests of the queue (`next`): « Générer ensuite » stays,
+    // greyed with that reason (greyedWhy); « Télécharger » for a moment there came and went (« rien ne clignote »).
+    const absent =
+      workflow.missing && !working && !next && !answering() && !checking && !heldGpu ? absentGo(workflow) : null;
+    if (absent) {
+      group.replaceChildren(absent.glass, agent);
+      goButton = absent.go;
+      if (absent.pane) {
+        screen.className += ' has-license';
+        screen.append(absent.pane);
+      }
+    }
     // The character Moodix AI made, on the screen: kept, made again, or everything stopped.
     if (checking && mode === 'image' && !working) {
       // The question on a line of its own above its three answers: on one line with them, « OK »
@@ -8319,19 +8765,38 @@ export function setupStudio({
       group.classList.add('is-held');
     }
     bar.append(group);
-    preview.append(bar);
     // (0.6.456) The card held, its screen says so (54), but « Échec » alone told nothing of why the take failed: that,
     // as the server says it, under the screen as any failure, without what it added for the card held (UNRELEASED).
     // Free again, the same, as the server says it then (recover).
     // (0.6.466) Then what waits in the queue of this conversation, paused, and why (waitLine).
-    const failed = [heldGpu ? heldCause(gpuError()) : heldCause(failure) || failure, waitLine(waits, heldGpu)]
-      .filter(Boolean)
-      .join(' ');
+    // (Merged with 0.6.480) Not while « Télécharger » stands in the place of « Reprendre »: the window says why they
+    // wait, « Reprendre » at its foot, and this line what the model lacks (absent.line); « Génération arrêtée. » was
+    // said in both.
+    const failed =
+      absent && waits.length
+        ? ''
+        : [heldGpu ? heldCause(gpuError()) : heldCause(failure) || failure, waitLine(waits, heldGpu)]
+            .filter(Boolean)
+            .join(' ');
+    // (0.6.474) The line under the screen, above the buttons: its place kept, empty or not, one line high (moodix.css,
+    // .studio-under), for whatever is said there (that failure; any sentence put in it). Said under the buttons, it
+    // put « Générer » 31 to 50 px higher under the pointer as a failure came, lower again as it went. Longer than its
+    // line, cut there, whole in its bubble.
+    const under = node('div', 'studio-under');
     if (failed) {
       const alert = node('p', 'studio-error', failed);
       alert.setAttribute('role', 'alert');
-      preview.append(alert);
+      under.append(alert);
+      wholeInBubble(alert);
+    } else if (absent?.line) {
+      // (0.6.474) What the model not on this computer lacks, in amber, or why its download could not be (0.6.480): in
+      // that line too, « Télécharger » where « Générer » is. Said under the buttons, it put them 39.5 px higher than
+      // « Générer » (as much lower again once the model was there, measured on 27/11). One sentence at a time: a
+      // failure first, the newest (« Télécharger » pressed takes it away, fetchModel).
+      under.append(absent.line);
+      wholeInBubble(absent.line);
     }
+    preview.append(under, bar);
 
     desk.append(...[write, preview, settings].map(grained), grained(outputs()));
     desk.classList.toggle('is-generating', Boolean(working));
@@ -8552,6 +9017,8 @@ export function setupStudio({
         unreadable = '';
         toolsAt = Date.now();
         toolsStale = false;
+        // (0.6.480) A model said missing is looked for again among the downloads under way (watchFetch).
+        fetchWatched.clear();
         // (0.6.184) A work followed again before they were read: its settings, now (drawn by who asked).
         showLate();
       })
@@ -8613,7 +9080,13 @@ export function setupStudio({
       const before = info && JSON.stringify(info),
         // (0.6.192) A work followed again whose request waits for its model to be shown (showLate, 0.6.184).
         waiting = Boolean(working?.asked);
-      if (!info || toolsStale) await load();
+      if (!info || toolsStale) {
+        // (0.6.480) A reading under way as the engine got ready was asked before it was (load shares it): its answer
+        // still says the engine starts, and nothing drew the Studio again (« Le moteur démarre… » for good). Once more.
+        const shared = Boolean(loading);
+        await load();
+        if (shared && info?.engine) await load();
+      }
       if (runsStale || runsFor !== where() || seenConversation !== conversation()) await refresh();
       // (0.6.192) Shown now that its model is read (the engine was not ready at the first reading): drawn.
       // Nothing drew it while the take went on, and the Studio stayed in Image under « En cours ».
@@ -8712,7 +9185,7 @@ export function setupStudio({
    * creations, and its own prompt and inputs; those of the one left are kept for its return. A new
    * conversation has none: the Studio empty (etats-maquette.md, 55).
    */
-  function conversationChanged() {
+  function conversationChanged({ moved = false } = {}) {
     // A work held here goes on in its conversation (0.6.81): the Studio stays that one's, said held in
     // the one shown (render), and comes back to it as it was; it goes to the one shown at its end (letGo).
     if (heldIn && holds()) {
@@ -8734,7 +9207,10 @@ export function setupStudio({
     const next = draftKey();
     // A conversation not begun that gets its identifier while its first take is made: the same one.
     const begun = draftsKey?.startsWith('new|') && conversation() && Boolean(working);
-    if (draftsKey !== null && next !== draftsKey && !begun) {
+    // (0.6.474) One not begun put in another project in the fil (`moved`: app.js, projectUI): the same one too, its
+    // prompt and its inputs with it. Emptied as for another conversation, what was written was lost, there and back.
+    const same = moved && Boolean(draftsKey?.startsWith('new|')) && next.startsWith('new|');
+    if (draftsKey !== null && next !== draftsKey && !begun && !same) {
       if (!draftsKey.startsWith('new|')) {
         leftDrafts.set(draftsKey, { mode, drafts: structuredClone(drafts), newest: lastSeen.get(draftsKey) ?? null });
         if (leftDrafts.size > 40) leftDrafts.delete(leftDrafts.keys().next().value);
@@ -9370,6 +9846,8 @@ export function setupStudio({
     refilm: record => actionsOf(record).find(action => action.id === 'refilm')?.run(),
     // (0.6.256) The page Agrandir or Interpoler of a take, asked from the Chat or the Archives.
     finish: (record, verb) => finishTake(record, verb),
+    // (0.6.474) Animer or Prolonger of a take, asked from the viewer of the Sortie or the Archives: as on the screen.
+    act: (record, id) => actFromAfar(record, id),
     // (0.6.260) Why that page cannot open now ('' when it can): asked there before the Chat is left.
     // (0.6.466) Nor between two requests of its queue.
     finishBlocked: () =>

@@ -692,3 +692,176 @@ test('(0.6.198) a proposal names each setting as the Studio and Paramètres › 
     ['24', '8', 'A tiger runs', '7', 'Vidéo finale'],
   );
 });
+
+test('(0.6.476) in a card, the negative prompt of Wan 2.2 is under « Paramètres avancés », on its whole width; the lyrics of a song stay in view', async () => {
+  const note = 'Ce que la vidéo doit éviter. Celui de Wan, en chinois : couleurs criardes, image figée.',
+    wan = proposal();
+  wan.workflowName = 'Wan 2.2';
+  wan.plan.parameters.negative_prompt = '色调艳丽';
+  wan.plan.editable.parameters.push({ key: 'negative_prompt', value: '色调艳丽', type: 'string', maxLength: 4000, note });
+  const { settingName } = await import('../public/setting-names.mjs'),
+    label = settingName('negative_prompt');
+  // In the card: not in its body, but in its fold, under its name, its note under it.
+  const box = node('section'),
+    form = renderProposal(box, wan, { node, card: true }),
+    [advanced] = form.folds.filter(fold => fold.name === 'Paramètres avancés');
+  assert.equal(labelled(box, label), undefined, 'not above the inputs of the card');
+  const field = all(advanced.panel).find(item => item.tag === 'label' && item.children[0]?.textContent === label);
+  assert.equal(field.className, 'proposal-field is-wide');
+  assert.deepEqual(
+    field.children.map(item => [item.tag, item.textContent ?? '']),
+    [
+      ['span', label],
+      ['textarea', ''],
+      ['small', note],
+    ],
+  );
+  assert.equal(field.children[1].value, '色调艳丽');
+  field.children[1].value = 'flou';
+  assert.equal(form.edits().negative_prompt, 'flou', 'changed there, it goes with the card');
+  // In the window of a proposal, as before: under the prompt.
+  const window = node('section');
+  renderProposal(window, wan, { node });
+  assert.ok(labelled(window, label));
+  // A song keeps its lyrics in view in its card.
+  const song = {
+    mediaType: 'audio',
+    workflowName: 'ACE-Step',
+    plan: {
+      prompt: 'synth-pop',
+      parameters: { prompt: 'synth-pop', lyrics: '[Verse]', seconds: 60 },
+      references: [],
+      editable: { prompt: true, references: [], parameters: [{ key: 'lyrics', value: '[Verse]', type: 'string' }] },
+    },
+  };
+  const sung = node('section');
+  renderProposal(sung, song, { node, card: true });
+  assert.ok(labelled(sung, settingName('lyrics')) ?? labelled(sung, 'Paroles'), 'the lyrics in the body of the card');
+});
+
+test('(0.6.476) what the model chosen does not send stays in its place, greyed, why in its bubble; a × takes an image out; a line says what to do', async () => {
+  const SAID = {
+    start: 'MiniMax H3 Omni ne prend pas d’image de début : elle reste là, mais n’est pas envoyée.',
+    end: 'MiniMax H3 Omni ne prend pas d’image de fin : elle reste là, mais n’est pas envoyée.',
+    line: 'L’image de début et l’image de fin ne sont pas envoyées à MiniMax H3 Omni : retirez-les, ou choisissez LTX 2.5.',
+  };
+  const subject = {
+      input: 'subject-1',
+      role: 'reference_image',
+      roleLabel: 'Sujet',
+      label: 'sujet.png',
+      preview: '/s.png',
+    },
+    made = (references, extra = {}) => ({
+      mediaType: 'video',
+      workflowName: 'MiniMax H3 Omni',
+      inputRoles: ['reference_image', 'reference_image', 'reference_image'],
+      plan: {
+        prompt: 'x',
+        parameters: { width: 768, height: 448, frames: 345, fps: 24, seed: 7 },
+        references,
+        editable: { prompt: true, stages: [], references: references.map(() => []), parameters: [] },
+      },
+      ...extra,
+    }),
+    minimax = made([subject], {
+      held: [
+        { as: 'start_image', label: 'debut.png', why: SAID.start, preview: '/d.png' },
+        { as: 'end_image', label: 'fin.png', why: SAID.end },
+      ],
+      warning: SAID.line,
+    });
+  const draw = (request, onRemove) => {
+    const box = node('section');
+    renderProposal(box, request, { node, card: true, onRemove });
+    return { box, media: all(box).find(item => item.className === 'proposal-media') };
+  };
+  const cross = tile => all(tile).find(item => item.className === 'proposal-input-remove');
+  const taken = [],
+    { box, media } = draw(minimax, which => taken.push(which));
+  const [start, end, rule, first, more] = media.children;
+  // DÉBUT and FIN where they are, greyed, why in their bubble; the subject sent, then the case of one more.
+  assert.deepEqual(
+    [start, end, first, more].map(item => [item.className, item.children[1].textContent]),
+    [
+      ['proposal-input is-held', 'Début'],
+      ['proposal-input is-held', 'Fin'],
+      ['proposal-input is-reference', 'Sujet 1'],
+      ['proposal-input is-empty is-reference', 'Sujet 2'],
+    ],
+  );
+  assert.equal(rule.className, 'proposal-media-rule');
+  assert.deepEqual(
+    [start, end].map(item => item.children[0].attributes['data-tip']),
+    [SAID.start, SAID.end],
+  );
+  assert.deepEqual([start.children[0].children[0].tag, start.children[0].children[0].src], ['img', '/d.png']);
+  assert.deepEqual(
+    [end.children[0].children[0].className, end.children[0].children[0].textContent],
+    ['proposal-input-file', 'fin.png'],
+  );
+  // Not a case: nothing dropped there goes to it.
+  assert.equal(start.attributes['data-role'], undefined);
+  // Each image has its ×, in the words of the Bobine; an empty case has none.
+  assert.deepEqual(
+    [start, end, first].map(item => [cross(item).attributes['aria-label'], cross(item).attributes['data-tip']]),
+    [
+      ['Retirer l’image de début', 'Retirer l’image de début'],
+      ['Retirer l’image de fin', 'Retirer l’image de fin'],
+      ['Retirer le sujet 1', 'Retirer le sujet 1'],
+    ],
+  );
+  assert.equal(cross(more), undefined);
+  assert.deepEqual(cross(start).children[0].attributes, { 'aria-hidden': 'true', class: 'proposal-input-cross' });
+  assert.equal(cross(start).children[0].children[0].attributes.href, '#i-close');
+  for (const item of [start, end, first]) cross(item).onclick({ stopPropagation() {} });
+  assert.deepEqual(taken, [{ held: 0 }, { held: 1 }, { input: 0 }]);
+  // The line of the server, in amber, after the notes.
+  const line = all(box).find(item => String(item.className).includes('proposal-warning'));
+  assert.deepEqual([line.className, line.textContent], ['field-help proposal-note proposal-warning', SAID.line]);
+  // A subject held after those sent: « Sujet 2 », greyed; what its model cannot do without has no × (Wan 2.2).
+  const start2 = { input: 'start', role: 'start_image', roleLabel: 'Image de début', label: 'debut.png' },
+    wan = draw(
+      {
+        ...made([start2], {
+          held: [
+            { as: 'end_image', label: 'fin.png', why: 'w-end' },
+            { as: 'reference', label: 'sujet.png', why: 'w-subject' },
+          ],
+          fixedInputs: [0],
+        }),
+        workflowName: 'Wan 2.2',
+        inputRoles: ['start_image'],
+      },
+      () => {},
+    );
+  assert.deepEqual(
+    wan.media.children.map(item => [item.className, item.children[1]?.textContent ?? '', Boolean(cross(item))]),
+    [
+      ['proposal-input', 'Début', false],
+      ['proposal-input is-held', 'Fin', true],
+      ['proposal-media-rule', '', false],
+      ['proposal-input is-reference is-held', 'Sujet 1', true],
+    ],
+  );
+  assert.equal(wan.media.children[3].children[0].attributes['data-tip'], 'w-subject');
+  // Where nothing is taken out (the window of a proposal): greyed all the same, no ×.
+  const plain = draw(minimax);
+  assert.equal(all(plain.box).some(item => item.className === 'proposal-input-remove'), false);
+  assert.equal(plain.media.children[0].className, 'proposal-input is-held');
+  // Greyed, not faded: its picture alone (its × stays whole), its word in the grey of what is not sent.
+  const { readFile } = await import('node:fs/promises');
+  const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n'),
+    rule2 = selector => {
+      const at = css.indexOf('\n' + selector + ' {');
+      assert.ok(at >= 0, selector);
+      return css.slice(at, css.indexOf('}', at));
+    };
+  assert.match(
+    rule2('.proposal-input.is-held .proposal-input-frame > :is(img, .proposal-input-file)'),
+    /opacity: 0\.38;\s+filter: grayscale\(1\);/,
+  );
+  assert.match(rule2('.proposal-input.is-held figcaption'), /color: var\(--text-4\);/);
+  assert.match(rule2('.proposal-note.proposal-warning'), /color: var\(--warning\);/);
+  assert.doesNotMatch(rule2('.proposal-input-remove'), /transition/);
+});

@@ -125,6 +125,9 @@ const STEPS = 100,
 const SAVE_AGAIN = 5000;
 // (0.6.160) Said in the line of the take Moodix AI was writing when the page was left: its series ended there.
 const LEFT_WRITING = 'Série arrêtée : vous avez quitté la Bobine pendant que Moodix AI écrivait cette prise.';
+// (0.6.475) What the wand and the Éclipse beside « Créer » do, in their bubble while lit; greyed, why (partWhy).
+const WAND_TIP = 'Enrichir : Moodix AI détaille le texte d’une prise (cadre, lumière, mouvement) ; Échap pour finir',
+  AGENT_TIP = 'Moodix AI écrit ce qui se passe dans les prises sans texte';
 const SAID = 4000,
   POLL = 1000;
 // (0.6.157) How long the suite shown under the end of a video is, in seconds (capture 72).
@@ -841,10 +844,15 @@ export function setupMontage({
     list = [{ id: kept.id, name: kept.name, updatedAt: kept.updatedAt }, ...list.filter(item => item.id !== kept.id)];
     if (!known) fil();
   }
-  /** (0.6.154) Whether the bobine changed since « Enregistrer » put it in the Archives (its point says it). */
+  /**
+   * (0.6.154) Whether the bobine changed since « Enregistrer » put it in the Archives (its point says it).
+   * (0.6.475) Only one the Archives have: a bobine never put there said « elle a changé depuis » from its opening, its
+   * point lit before anything was done; its bubble says what the button does.
+   */
   function unsaved() {
+    if (!archivedKey) return false;
     if (keyed.of !== montage) keyed = { of: montage, key: contentKey(montage) };
-    return archivedKey ? keyed.key !== archivedKey : Boolean(montage.plans.length || montage.sounds.length);
+    return keyed.key !== archivedKey;
   }
   /**
    * (0.6.154, capture 90) « Enregistrer »: the bobine put in the Archives as it is now, « comme une bobine
@@ -2266,6 +2274,37 @@ export function setupMontage({
     return `${able.name} ne prend pas d’${side === 'start' ? 'image de début' : 'image de fin'} : elle reste là, mais n’est pas envoyée.`;
   }
   /**
+   * (0.6.461, Bobine Pro, B04) Why an image of `side` ('start', 'end') is not laid in a take to create, its model not
+   * taking it, with the models that do: « MiniMax H3 ne prend pas d’image de début : choisissez LTX 2.5, pi H3 ou
+   * Wan 2.2. » ('' when it takes it, or when its model is not known). What « + » of its card says; (0.6.475) its place
+   * on the track Images too, greyed with these words, and an image dropped there is refused with them.
+   */
+  function untaken(plan, side) {
+    const able = abilities(plan),
+      count = partsOf(plan, limits(plan)).count;
+    if (!able || takesPhoto(plan, side, able, count)) return '';
+    const role = side + '_image',
+      verb = side === 'start' || !(isSuite(plan) || count > 1) ? 'create_video' : 'extend_video',
+      takers = (videoModels() ?? []).filter(item => (item[verb]?.roles?.[role]?.count ?? 0) > 0),
+      others = orList(takers.map(item => item.name)),
+      what = side === 'start' ? 'image de début' : 'image de fin';
+    return `${able.name} ne prend pas d’${what}${others ? ' : choisissez ' + others : ''}.`;
+  }
+  /**
+   * (0.6.475) Why the image `laid` puts in a take to create already in the bobine (withPhoto: `{ montage, chosen }`)
+   * would not be sent: the model that take has now does not take it there (untaken). '' otherwise, and for a take laid
+   * with it, whose model is one that takes it (stamped). Dropped on the track beside its places, it went there anyway.
+   */
+  function unsentPhoto(laid) {
+    const before = itemOf(laid.chosen),
+      after = laid.montage.plans.find(plan => plan.id === laid.chosen);
+    if (!isTodo(before) || !isTodo(after)) return '';
+    const key = source => JSON.stringify(source ?? null),
+      changed = which => Boolean(after.photos?.[which]) && key(after.photos[which]) !== key(before.photos?.[which]),
+      side = ['start', 'end'].find(changed);
+    return side ? untaken({ ...after, todo: { ...after.todo, model: familyOf(before) } }, side) : '';
+  }
+  /**
    * (0.6.464, relecture des lots 5 et 6, n° 3) What the card of a take to create says when its model makes it longer than
    * it is (MiniMax H3 and pi H3 make 5,17 s at least, Wan 2.2 2,06 s; the server makes the take at that length, and pushes
    * what is glued after it): « MiniMax H3 fait 5,2 s au moins : la prise fera 5,2 s. Pour 2 s : LTX 2.5. », the models
@@ -2292,8 +2331,9 @@ export function setupMontage({
    * line, the whole in its bubble and for a screen reader (moodix.css), as what is missing above the button (missingLine):
    * whole, the card no longer held in « À créer » at 1280 × 720 (201 px for 167). The whole elsewhere.
    */
-  function noteLine({ said, brief }) {
-    const line = node('p', 'bobine-line-reason is-note'),
+  function noteLine({ said, brief }, { parts = false } = {}) {
+    // (0.6.475) `parts`: the note of a take made in parts, said in a low window by the bubble of its parts.
+    const line = node('p', 'bobine-line-reason is-note' + (parts ? ' is-parts' : '')),
       short = node('span', 'bobine-line-brief', brief);
     short.setAttribute('aria-hidden', 'true');
     short.dataset.tip = said;
@@ -2431,7 +2471,6 @@ export function setupMontage({
       held = refusal(),
       suite = isSuite(plan),
       able = abilities(plan),
-      count = partsOf(plan, limits(plan)).count,
       short = SHORT_MODELS.wan_scail2,
       // (0.6.466, relecture du lot 7, n° 5) Each piece by its place (« start », « end », « subject-0 »…, « add »): where the
       // keys go back once one of its lists has made its choice (backTo).
@@ -2536,12 +2575,10 @@ export function setupMontage({
       const { name, given } = PIECES[role];
       if (which === 'start' && suite) return { name, off: 'Une suite part de la fin de sa vidéo : elle n’a que son image de fin.' };
       if (plan.photos?.[which]) return { name, note: given, off: `${name} : ${given}. Cliquez sur sa pièce pour en changer.` };
-      // (0.6.461, Bobine Pro, B04) One its model does not take: which ones do.
-      if (able && !takesPhoto(plan, which, able, count)) {
-        const verb = which === 'start' || !(suite || count > 1) ? 'create_video' : 'extend_video',
-          others = orList((videoModels() ?? []).filter(item => (item[verb]?.roles?.[role]?.count ?? 0) > 0).map(item => item.name));
-        return { name, off: `${able.name} ne prend pas d’${which === 'start' ? 'image de début' : 'image de fin'}${others ? ' : choisissez ' + others : ''}.` };
-      }
+      // (0.6.461, Bobine Pro, B04) One its model does not take: which ones do. (0.6.475) Its place on the track Images
+      // says it too (untaken).
+      const off = untaken(plan, which);
+      if (off) return { name, off };
       return { name, run: () => pickImage(plan, which, add) };
     };
     // (0.6.462, Bobine Pro, B05) One more subject, while its model takes more: how many it takes, beside its name.
@@ -2654,7 +2691,8 @@ export function setupMontage({
         heading = node('div', 'bobine-line-head'),
         times = node('span', 'bobine-line-sub');
       times.append(node('span', 'bobine-line-when', `${mono(from)} → ${mono(to)}`));
-      if (item.parts > 1) times.append(node('span', 'bobine-line-parts', `${item.parts} × ${mono(item.part)} s`));
+      const parted = item.parts > 1 ? node('span', 'bobine-line-parts', `${item.parts} × ${mono(item.part)} s`) : null;
+      if (parted) times.append(parted);
       times.append(says);
       heading.append(node('span', 'bobine-line-title', whatOf(plan).split(' · ')[0]), times);
       top.append(heading, right);
@@ -2704,7 +2742,13 @@ export function setupMontage({
       // (0.6.464, relecture des lots 5 et 6, n° 3) Else, made longer by its model than it is: said there, before it is asked.
       // (0.6.466, relecture du lot 7, n° 3) Or made in parts, its subjects going to its first part alone.
       const note = reason ? null : (shortOf(plan) ?? partsSubjects(plan));
-      line.append(top, ...(reason ? [node('p', 'bobine-line-reason', reason)] : note ? [noteLine(note)] : []), box, middle);
+      // (0.6.475) Made in parts, that note is the bubble of « 3 × 08.33 s » in a low window, its line kept for a screen
+      // reader (moodix.css): on a line of its own, the card of a text of two lines (184 px) no longer held whole in
+      // « À créer » (167 px at 1280 × 720).
+      if (note && parted) parted.dataset.tip = note.said;
+      const inParts = Boolean(parted),
+        noted = reason ? node('p', 'bobine-line-reason', reason) : note && noteLine(note, { parts: inParts });
+      line.append(top, ...(noted ? [noted] : []), box, middle);
       live.models.set(item.id, right);
       live.states.set(item.id, says);
       live.lines.set(item.id, line);
@@ -2779,13 +2823,19 @@ export function setupMontage({
       } else live.pause = null;
       // (Capture 87: while takes are created, the pause and the stop take the place of the wand and the Éclipse.)
       if (enrich && !inSeries()) {
-        const magic = button('bobine-go-part bobine-go-wand', '', () => toggleWand(), 'wand', 'Enrichir : Moodix AI détaille le texte d’une prise (cadre, lumière, mouvement) ; Échap pour finir');
+        const magic = button('bobine-go-part bobine-go-wand', '', () => toggleWand(), 'wand', WAND_TIP);
         magic.setAttribute('aria-pressed', String(wand));
         foot.append(magic);
         live.wand = magic;
       }
       if (write && !inSeries()) {
-        const agent = button('bobine-go-part bobine-go-agent' + (writing ? ' is-thinking' : ''), '', () => void askAgent(), 'eclipse', 'Moodix AI écrit ce qui se passe dans les prises sans texte');
+        const agent = button(
+          'bobine-go-part bobine-go-agent' + (writing ? ' is-thinking' : ''),
+          '',
+          () => void askAgent(),
+          'eclipse',
+          AGENT_TIP,
+        );
         foot.append(agent);
         live.agent = agent;
       }
@@ -2876,6 +2926,25 @@ export function setupMontage({
     const texts = seriesOf(montage, lengthOf).map(item => Boolean(item.prompt));
     if (live.wand) live.wand.disabled = !wand && (busy() || Boolean(enrichingId) || Boolean(held) || !texts.some(Boolean));
     if (live.agent) live.agent.disabled = busy() || wand || Boolean(held) || !texts.some(has => !has);
+    // (0.6.475) Greyed, each says why under the pointer, as « Créer » does; lit, what it does (their names stay that).
+    if (live.wand) live.wand.title = (live.wand.disabled && partWhy('wand', held, texts)) || WAND_TIP;
+    if (live.agent) live.agent.title = (live.agent.disabled && partWhy('agent', held, texts)) || AGENT_TIP;
+  }
+  /**
+   * (0.6.475) Why the wand (`part` 'wand') or the Éclipse ('agent') is greyed (sayGo), in the words the page says it
+   * elsewhere: the work going on (`held`, outside the Bobine; refusal, in it), the wand in the hand, or the texts of
+   * the takes to create (`texts`: whether each has one). Greyed, they kept their usual bubble: « Moodix AI écrit ce
+   * qui se passe dans les prises sans texte » over a bobine whose takes all have one.
+   */
+  function partWhy(part, held, texts) {
+    if (held) return held;
+    if (busy()) return refusal();
+    if (part === 'wand' && enrichingId) return 'Moodix AI enrichit le texte d’une prise : attendez la fin.';
+    if (part === 'agent' && wand) return 'Le mode Enrichir est ouvert : Échap, ou la baguette, pour le fermer.';
+    if (!texts.length) return 'Aucune prise à créer dans cette bobine.';
+    return part === 'wand'
+      ? 'Un texte vide ne s’enrichit pas : écrivez d’abord ce qui se passe dans une prise.'
+      : 'Toutes les prises à créer ont déjà un texte : rien à écrire.';
   }
   /**
    * (0.6.194, audit of 21/11, A4) Why « Créer » is greyed (sayGo), in the words the page says it elsewhere:
@@ -3883,7 +3952,8 @@ export function setupMontage({
         target.ondragover = event => {
           if (!carried || trackOf(carried) !== 'image') return;
           event.preventDefault();
-          target.dataset.over = 'true';
+          // (0.6.475) A place its model does not take is not lit: the image dropped there is refused, with why.
+          if (target.dataset.left !== 'true') target.dataset.over = 'true';
         };
         target.ondragleave = () => delete target.dataset.over;
         target.ondrop = event => {
@@ -3910,18 +3980,26 @@ export function setupMontage({
             pin = button('montage-photo is-' + side + (empty ? ' is-slot' : ''), '', () => {
               chosen = plan.id;
               update();
-            });
+            }),
+            // (0.6.475) Its model does not take it (MiniMax H3: neither, Wan 2.2: no end): its place stays, greyed,
+            // why in its bubble in the words of its card (its « + » for an empty place; its piece for an image laid
+            // there, kept and not sent); an image dropped there is refused with them. Drawn as the others, it took one
+            // that was never sent.
+            off = todo ? untaken(plan, side) : '',
+            why = off && photo ? notTaken(plan, side) || off : off;
           pin.dataset.plan = plan.id;
           pin.dataset.missing = String(Boolean(photo) && !record);
+          if (off) Object.assign(pin.dataset, { left: 'true', tip: why });
           // (0.6.190) « Image de début », no longer « Photo de début »; (0.6.198) its track is IMAGES too.
-          pin.setAttribute('aria-label', `${side === 'start' ? 'Image de début' : 'Image de fin'}, ${span}${empty ? ' : glissez une image ici' : ''}`);
+          const named = `${side === 'start' ? 'Image de début' : 'Image de fin'}, ${span}`;
+          pin.setAttribute('aria-label', named + (off ? '. ' + why : empty ? ' : glissez une image ici' : ''));
           pin.setAttribute('aria-pressed', String(chosen === plan.id));
           if (picture) pin.style.backgroundImage = `url("${picture}")`;
           if (side === 'start') pin.style.left = percent(starts[index]);
           else pin.style.right = `calc(${100 - (100 * (starts[index] + plan.to - plan.from)) / whole}% + ${GAP}px)`;
           if (empty) pin.append(icon('image'));
           pin.append(node('span', 'montage-photo-side', side === 'start' ? 'Début' : 'Fin'));
-          if (todo) into(pin, dropped => withPhotoIn(montage, dropped, plan.id, side));
+          if (todo) into(pin, dropped => (off ? { reason: off } : withPhotoIn(montage, dropped, plan.id, side)));
           // (Lit with its take and its line.)
           if (hovered === plan.id) pin.dataset.linked = 'true';
           if (!live.pieces.has(plan.id)) live.pieces.set(plan.id, []);
@@ -3965,6 +4043,9 @@ export function setupMontage({
         carried = null;
         const laid = withPhoto(montage, dropped, timeAt(event, lane), { id: newId() });
         if (laid.reason) return refused(laid.reason);
+        // (0.6.475) Nor beside its places, in one its model does not take (unsentPhoto): refused, with why.
+        const off = unsentPhoto(laid);
+        if (off) return refused(off);
         change(laid.montage, { select: laid.chosen });
       };
       track.append(node('span', 'montage-track-name', 'Images'), lane);
@@ -4746,12 +4827,15 @@ export function setupMontage({
       draw();
       return root;
     },
-    /** (0.6.346) The settings were closed, or the engine got ready (studio.mjs `invalidate`): see doubt. */
+    /**
+     * (0.6.346) The settings were closed, the engine got ready, or (0.6.475) a download of a card of the Chat ended
+     * (studio.mjs `invalidate`): see doubt.
+     */
     toolsChanged() {
       doubt();
-      if (!root || !montage) return;
-      sayModels();
-      // (0.6.464) A model downloaded in Paramètres › Modèles: said there in their list too.
+      if (root && montage) sayModels();
+      // (0.6.464) A model downloaded in Paramètres › Modèles: said there in their list too. (0.6.475) Read again before
+      // the Bobine is ever drawn too: drawn after, it showed the list the Studio had read before the download.
       relisted();
     },
     /**

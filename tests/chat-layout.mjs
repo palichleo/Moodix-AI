@@ -125,6 +125,13 @@ test('the bar of the chat stays on one line: the name of the model gives way fir
   assert.match(css, /#chat-form #effort-choice \{\n {2}flex-shrink: 0;\n {2}max-width: 190px;/);
   // The sentence at the right is cut short, in the room its side has.
   assert.match(bar, /#chat-form \.compose-state \{\n {4}flex: 0 1 auto;\n {4}min-width: 0;\n {4}padding: 3px 0;\n {4}overflow: hidden;\n {4}text-overflow: ellipsis;\n {4}white-space: nowrap;\n {2}\}/);
+  // (0.6.474) Said of a work of another conversation, it leads there (app.js, awayWork): a link under the pointer.
+  assert.match(css, /#chat-form \.compose-state\.is-link \{\n {2}cursor: pointer;\n\}/);
+  assert.match(
+    css,
+    /#chat-form \.compose-state\.is-link:hover,\n#chat-form \.compose-state\.is-link:focus-visible \{\n {2}color: var\(--text-1\);/,
+  );
+  assert.match(css, /#chat-form \.compose-state\.is-link:focus-visible \{[^}]*text-decoration: underline;/);
   // What the left side keeps at the least: « Joindre », the model down to 72 px, the reflection
   // down to 96 px, 2 px between them; the same in the Studio.
   const JOIN = 34,
