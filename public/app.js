@@ -26,6 +26,9 @@ import { setupAssets } from './assets-ui.mjs';
 import { clipPlayer } from './take-player.mjs';
 import { setupCopy } from './copy.mjs';
 import { BOBINE_NOTE, STUDIO_LINE, STUDIO_NOTE, callNote, closedCalls, conversationTitle, lastExchange, refusedLine, settledNotes, spokenText } from './transcript.mjs';
+// (0.6.477, his decision N11 of 21/11) A creation made with boxes is told to the chat model by its caption and how
+// many boxes, never by the JSON MOSS Image read (public/layout-boxes.mjs).
+import { layoutCall, layoutSaid } from './layout-boxes.mjs';
 import { setupSettingsGuard } from './settings-guard.mjs';
 import { setupContextMeter } from './context-meter.mjs';
 import { installFromButton, compactSession } from './update-ui.mjs';
@@ -735,6 +738,8 @@ async function clearHistory() {
     await historyWrite;
     await api(target ? 'history/delete' : 'history/clear', { confirm: true, ...(target ? { id: target.id } : {}) });
     forgetCopies(target?.id ?? null);
+    // (0.6.466) What its queue of the Studio had to make goes with it.
+    state.studio?.forgetQueue?.(target?.id ?? null);
     state.historyItems = target ? state.historyItems.filter(item => item.id !== target.id) : [];
     // The conversation set aside goes with it (its work is over: deleting one is refused during a work).
     if (state.aside && (!target || target.id === state.aside.conversationId)) dropAside();
@@ -1419,11 +1424,16 @@ function updateControls() {
       : '';
   // A proposal waits (in the Studio, or in a card of the conversation): a new message declines it.
   const proposing = !away && Boolean(state.studio?.proposing?.() || state.proposalCard);
+  // (0.6.466) The queue of the Studio holds the chat until its end, from one of its requests to the next too (no take
+  // is made for a second between two: a message would take the card from the next one). Never queued itself.
+  const queueHolds = !away && Boolean(state.studio?.queueHolds?.()),
+    queued = state.studio?.queued?.() || 0;
   // Whether a message would not leave now, whatever it says (0.6.90): « Régénérer » asks nothing then
   // (takeBack), its question would let the conversation set aside go for a message that stays.
   state.sendHeld = Boolean(
     state.projectWorking ||
       toolBusy ||
+      queueHolds ||
       away ||
       !state.connected ||
       s.state === 'stopping' ||
@@ -1437,18 +1447,22 @@ function updateControls() {
   const dictating = state.dictation?.busy('chat') ? DICTATING : '';
   $('send').disabled =
     state.sendHeld || Boolean(dictating) || (!$('prompt').value.trim() && !state.images.length && !state.videos.length);
-  $('send').hidden = !away && ((state.generating && !proposing) || toolBusy);
+  $('send').hidden = !away && ((state.generating && !proposing) || toolBusy || queueHolds);
   if ((away || dictating) && $('send').dataset) $('send').dataset.tip = away || dictating;
   else if ($('send').dataset?.tip) delete $('send').dataset.tip;
   // Interrompre only while something runs: Moodix thinking or writing, a generation (16/11). A
   // proposal waiting for the user (a card, the Studio) runs nothing: a new message declines it.
-  $('cancel').hidden = Boolean(away) || proposing || (!state.generating && (!toolBusy || s.toolJob.blocked));
+  $('cancel').hidden =
+    Boolean(away) || proposing || (!state.generating && !queueHolds && (!toolBusy || s.toolJob.blocked));
   // (0.6.180) A generation under way: the button stops it, and says so, as the Studio's « Arrêter » does. It
   // said « Interrompre la réponse » all the same, for a take of the Bobine too.
+  // (0.6.466) With requests of the Studio after it: what it does to them (they wait for « Reprendre »).
   const cancelLabel = state.waitingForModel
     ? 'Annuler le message en attente'
-    : toolBusy && !s.toolJob.blocked
-      ? 'Arrêter la génération'
+    : (toolBusy && !s.toolJob.blocked) || queueHolds
+      ? queued
+        ? 'Arrêter la génération : la file du Studio se met en pause'
+        : 'Arrêter la génération'
       : 'Interrompre la réponse';
   // The model loading under a message sent: « EN ATTENTE » and « Annuler », in words (51).
   $('cancel').classList.toggle('is-word', Boolean(state.waitingForModel));
@@ -1486,9 +1500,12 @@ function updateControls() {
     : proposing
     ? 'Proposition dans le Studio · un message la refuse'
     : toolBusy
-    ? Number.isFinite(s.toolJob.fraction)
-      ? Math.floor(Math.min(1, Math.max(0, s.toolJob.fraction)) * 100) + '\u202f%'
-      : s.toolJob.progress || 'Génération en cours…'
+    ? (Number.isFinite(s.toolJob.fraction)
+        ? Math.floor(Math.min(1, Math.max(0, s.toolJob.fraction)) * 100) + '\u202f%'
+        : s.toolJob.progress || 'Génération en cours…') + (queued ? ` · ${queued} en attente` : '')
+    : queueHolds
+    ? // (0.6.466) Between two requests of the queue of the Studio: « Génération en cours… · 3 en attente ».
+      'Génération en cours…' + (queued ? ` · ${queued} en attente` : '')
     : state.preparing
       ? 'Préparation des images…'
       : state.waitingForModel
@@ -1573,37 +1590,70 @@ function updateControls() {
  * in their foot); nowhere once the user is back in its conversation after its end.
  */
 function syncMiniature() {
-  const mini = state.miniature,
-    work = mini?.work;
-  if (!work) return;
+  const mini = state.miniature;
+  if (!mini) return;
   const settings = $('settings'),
-    here = shownHere(work.conversationId) && !settings?.open,
+    open = Boolean(settings?.open),
+    // (0.6.478, variante A) What waits in the queue of the Studio: in its window, under the take; in the Studio, the
+    // list alone, under its settings (studio.mjs, queueView: no « Reprendre » there, its button says it).
+    parts = state.studio?.queueView?.({ docked: state.view === 'studio' && !open }) ?? [];
+  mini.queue?.(parts);
+  const work = mini.work;
+  // (0.6.478) Whether its take is seen by the page (or there is none): the list alone, when a queue waits.
+  let seen = true;
+  if (work) {
+    const here = shownHere(work.conversationId) && !open;
     // Its Chat and its Studio are two views of one conversation (0.6.96): either shows its work, the
     // Studio a take of its Chat too (studio.mjs, watch). It showed in the Studio when the Studio did not
     // hold the take (one asked in the Chat, a card waiting there), as if it were another conversation.
     seen =
       here &&
       (state.view === 'chat' || state.view === 'studio' || (state.view === 'bobine' && Boolean(state.studio?.bobineWorking?.())));
-  // Back in its conversation once it is over: nothing more to say.
-  if (here && !mini.running && state.view !== 'library') return mini.forget();
-  if (seen) return mini.place(null);
-  // A take in hand waiting for the user in the Studio of its conversation (0.6.88): its proposal not
-  // set there yet, or set and resting on « Générer », a character to check. Said so, not
-  // « Préparation… » over a Flux that moved for nothing.
-  const held = Boolean(state.studio?.proposing?.()) && state.studio?.heldFor?.() === work.conversationId;
-  if (state.work?.waits || held) mini.waitFor?.('Moodix AI vous attend dans le Studio de cette conversation');
-  mini.answer(
-    state.work?.waits
-      ? 'Moodix AI vous attend dans le Studio de cette conversation'
-      : state.waitingForModel
-        ? 'Le modèle se charge…'
-        : 'Moodix répond…',
-  );
+    // Back in its conversation once it is over: nothing more to say.
+    if (here && !mini.running && state.view !== 'library') {
+      mini.forget();
+      seen = true;
+    } else if (!seen) {
+      // A take in hand waiting for the user in the Studio of its conversation (0.6.88): its proposal not
+      // set there yet, or set and resting on « Générer », a character to check. Said so, not
+      // « Préparation… » over a Flux that moved for nothing.
+      const held = Boolean(state.studio?.proposing?.()) && state.studio?.heldFor?.() === work.conversationId;
+      if (state.work?.waits || held) mini.waitFor?.('Moodix AI vous attend dans le Studio de cette conversation');
+      mini.answer(
+        state.work?.waits
+          ? 'Moodix AI vous attend dans le Studio de cette conversation'
+          : state.waitingForModel
+            ? 'Le modèle se charge…'
+            : 'Moodix répond…',
+      );
+    }
+  }
+  if (seen && !parts.length) return mini.place(null);
   // (0.6.200) On the page of the Bobine, as its pill (open in its corner, it covered the end of the timeline);
   // its chevron opens it there, the choice kept for the other pages left as it was.
-  mini.place(settings?.open ? (settings.querySelector?.('.settings-footer') ?? 'corner') : 'corner', {
-    pill: state.view === 'bobine' && !settings?.open,
+  if (open) return mini.place(settings.querySelector?.('.settings-footer') ?? 'corner', { alone: seen });
+  // (0.6.478) Its list alone lies under the settings of the Studio; in the Chat, where its window would cover the end
+  // of the input (1168 px), its pill rises over it. The name of the conversation on screen is not said in its list.
+  const dock = state.view === 'studio' && seen ? (state.studio?.queueDock?.() ?? null) : null,
+    raise = state.view === 'chat' ? raisedOver($('chat-form')) : 0;
+  mini.place('corner', {
+    pill: (state.view === 'bobine' && !open) || raise > 0,
+    alone: seen,
+    home: state.view === 'chat' || state.view === 'studio' ? state.conversationId : null,
+    dock,
+    raise,
   });
+}
+/**
+ * (0.6.478) How high from the foot of the page the pill of the miniature rises over the input of the chat, when its
+ * window would cover its end (1168 × 788: its send button, under it); 0 when they do not cross.
+ */
+function raisedOver(form) {
+  const box = form?.getBoundingClientRect?.(),
+    page = document.documentElement;
+  if (!box?.width || !page?.clientWidth) return 0;
+  // Its left edge: 232 px wide, 16 px from the right of the page (moodix.css, .work-mini), with 8 px of air.
+  return box.right > page.clientWidth - 16 - 232 - 8 ? Math.ceil(page.clientHeight - box.top + 12) : 0;
 }
 
 /** Whether `version` (x.y.z) is newer than the one installed: an update is offered only then. */
@@ -1852,8 +1902,12 @@ async function refreshStatus() {
     workflowsUI.updateRunner?.(state.status.runner);
     // A generation has just ended: the room takes the light of the new take (room.mjs).
     if (jobBefore && state.status.toolJob?.id !== jobBefore) state.onTakeDone?.();
-    // The generation engine has just become ready: the Studio reads again what it offers.
-    if (state.status.runner?.state === 'ready' && runnerBefore !== 'ready') {
+    // The generation engine has just become ready: the Studio reads again what it offers. (0.6.503) Or it changed
+    // otherwise: installed by the « Télécharger » of a model (« Préparation du moteur »), started, stopped or failed
+    // on the way. The Studio says so, and « Reprendre » waits while it starts (studio.mjs, engineStarts): it said what
+    // it had read before, the engine stopped. (Not a worker coming back after a take stopped: nothing changes then.)
+    const runner = state.status.runner;
+    if (runner?.state !== runnerBefore && (runner?.state === 'ready' || !runner?.recovering)) {
       state.studio?.invalidate?.({ tools: true });
       void state.studio?.prefetch?.();
     }
@@ -2894,6 +2948,8 @@ function cardChoice(host, proposal, abort, delay) {
     takes: () => projectTakes(),
     importImage: file => assetsUI.importFiles([file], { project: state.projectId || 'inbox' }).then(list => list[0] ?? null),
     onChange: () => scrollToBottom(),
+    // (0.6.493) A model downloaded from the card: the Studio and the Bobine read their models again (as missingFile).
+    onFetched: () => state.studio?.invalidate?.({ tools: true }),
   });
   state.proposalCard = pending;
   updateControls();
@@ -3355,7 +3411,9 @@ function workHeld({ short = false } = {}) {
     const name = `« ${titleOf(work.conversationId) || 'Nouvelle conversation'} »`;
     if (state.proposalCard || state.studio?.proposing?.())
       return short ? 'Moodix attend votre accord ailleurs' : `Moodix attend votre accord dans ${name} : répondez-lui d’abord.`;
-    if (job && !job.blocked) return short ? 'Génération en cours ailleurs' : `Génération en cours dans ${name} : attendez sa fin.`;
+    // (0.6.466) Between two requests of the queue of the Studio too: no take on the server for a second.
+    if ((job && !job.blocked) || (work.kind === 'studio' && state.studio?.queueHolds?.()))
+      return short ? 'Génération en cours ailleurs' : `Génération en cours dans ${name} : attendez sa fin.`;
     return short ? 'Moodix répond ailleurs' : `Moodix répond dans ${name} : attendez la fin de sa réponse.`;
   }
   if (!work && job && !job.blocked && job.conversationId && !shownHere(job.conversationId)) {
@@ -3588,7 +3646,14 @@ async function sendMessage(event) {
   event.preventDefault();
   // One work at a time (0.6.81): written in another conversation, the message waits for its end.
   if (state.work && !shownHere(state.work.conversationId)) return notice(workHeld());
-  if ($('send').disabled) return;
+  if ($('send').disabled) {
+    // (0.6.466, B3) Written while a creation is made here (a take, the queue of the Studio): the message waits, and
+    // Entrée says why. It said nothing.
+    const written = $('prompt').value.trim() || state.images.length || state.videos.length,
+      making = (state.status?.toolJob && !state.status.toolJob.blocked) || state.studio?.queueHolds?.();
+    if (written && making) notice(state.studio?.queueReason?.() || 'Le chat attend la fin de la génération en cours.');
+    return;
+  }
   if (state.generating) {
     // A proposal of Moodix waits (a card, or the Studio): this message answers it instead, and
     // the card goes (Moodix answers with another).
@@ -4578,7 +4643,14 @@ async function sendMessage(event) {
       }
       // A take that failed says why on itself (52): no second line under the message.
       // (0.6.464) (Made, the card alone held after it: the take says so, madeHeld.)
-      view.note.textContent = result.failed && result.record && !madeHeld(result.error) ? result.error || 'Analyse indisponible.' : '';
+      // (0.6.493) An image of Moodix AI made at once, without a card: what its routing says under its message (an image
+      // not sent, the one it starts from), as its tool promises the model the user is told (relecture, M2).
+      const routed =
+        result.record && !result.failed && !request.mediaType && (!viaStudio || away)
+          ? (request.notes ?? []).join(' ')
+          : '';
+      view.note.textContent =
+        result.failed && result.record && !madeHeld(result.error) ? result.error || 'Analyse indisponible.' : routed;
       if (result.denied || result.failed || result.stopped || iterations >= (state.generation?.maxIterations || 10)) allowTools = false;
       // After a refusal or a failure the model explains it: it does not go on inspecting outputs.
       if (result.denied || result.failed) resourceReads = 8;
@@ -4882,6 +4954,8 @@ async function runInStudio(proposal, { signal, onProgress, conversationId = stat
     pending = previous?.incomplete ? previous.messages?.at(-1) : null,
     unsent = pending?.role === 'user' && !pending.internal && before.at(-1)?.role !== 'user' ? [pending] : [];
   if (!before.length) begun.conversationInstructions ??= state.globalInstructions || '';
+  // (0.6.477, N11) A prompt of boxes (MOSS Image) is said by its caption and how many boxes, never by their JSON.
+  const told = layoutSaid(String(proposal.plan?.prompt || proposal.args?.prompt || ''));
   begun.archiveSnapshot = {
     messages: [
       ...archiveMessages([
@@ -4890,11 +4964,11 @@ async function runInStudio(proposal, { signal, onProgress, conversationId = stat
           role: 'user',
           internal: true,
           content:
-            `${place} · ${kinds[proposal.mediaType || 'image'] ?? 'Image'} : ${String(proposal.plan?.prompt || proposal.args?.prompt || '')}`.slice(0, 4000) +
+            `${place} · ${kinds[proposal.mediaType || 'image'] ?? 'Image'} : ${told}`.slice(0, 4000) +
             '\n\n' +
             note,
         },
-        { role: 'assistant', content: '', tool_calls: [proposal.call] },
+        { role: 'assistant', content: '', tool_calls: [layoutCall(proposal.call)] },
       ]),
       ...unsent,
     ],
@@ -4952,7 +5026,7 @@ async function runInStudio(proposal, { signal, onProgress, conversationId = stat
     await takeBack();
     return result;
   }
-  const prompt = String(proposal.plan?.prompt || proposal.args?.prompt || result.record.prompt || ''),
+  const prompt = layoutSaid(String(proposal.plan?.prompt || proposal.args?.prompt || result.record.prompt || '')),
     said = `${place} · ${kinds[result.record.mediaType || 'image'] ?? 'Image'} : ${prompt}`.slice(0, 4000);
   const talk = holderOf(talkId);
   // A conversation begun in the Studio still gets the global instructions with its first message.
@@ -4964,7 +5038,7 @@ async function runInStudio(proposal, { signal, onProgress, conversationId = stat
       internal: true,
       content: said + '\n\n' + note,
     },
-    { role: 'assistant', content: '', tool_calls: [proposal.call] },
+    { role: 'assistant', content: '', tool_calls: [layoutCall(proposal.call)] },
     { role: 'tool', tool_call_id: proposal.call.id, content: result.content },
   ]);
   talk.archiveSnapshot = { messages: [...talk.messages, ...unsent], incomplete: unsent.length > 0 };
@@ -5231,8 +5305,10 @@ const studioUI = setupStudio({
   gpuMade: () => Boolean(state.status.toolJob?.blocked && state.status.toolJob.record),
   mark: () => moodixMark()[0],
   recoverGPU: () => recoverGPU(),
-  blocked: () =>
-    workHeld() ||
+  // (0.6.466) `own`: asked for what follows a take of the Studio (its next try, the next request of its queue), which
+  // the work of the page is: not held by it, wherever the page is meanwhile.
+  blocked: (own = false) =>
+    (own ? '' : workHeld()) ||
     (state.generating || state.status.busy
       ? 'Attendez la fin de la réponse en cours.'
       : state.preparing || state.loadingHistory || state.updating || state.closingApp
@@ -5277,6 +5353,17 @@ const studioUI = setupStudio({
   making: () => (state.work?.take && shownHere(state.work.conversationId) ? state.work.take : null),
   // (0.6.253) « Générer » greyed and pressed: its bubble at once.
   sayTip: element => helpTips.show(element),
+  // (0.6.478) Drawn again: the window at the bottom right says its queue, and lies under its settings.
+  onQueue: () => syncMiniature(),
+  // (0.6.466) Its queue, kept in this tab with its identity (studio-queue.mjs): found again by this tab reloaded only.
+  queueStorage: (() => {
+    try {
+      return sessionStorage;
+    } catch {
+      return null;
+    }
+  })(),
+  tab: TAB,
 });
 state.studio = studioUI;
 const generationUI = setupGenerationUI({
@@ -5323,9 +5410,30 @@ const miniature = setupMiniature({
   onClosed: work => {
     if (!state.saveHistory && state.aside?.conversationId === work?.conversationId) dropAside();
   },
+  // (0.6.478) Its list of the queue of the Studio, from any page: a line taken out, « Reprendre », « Vider la file »,
+  // « Libérer le GPU »; the name of its conversation and a request that failed lead to the Studio of that conversation
+  // (the failed one with its settings given back there).
+  onRemove: id => state.studio?.queueRemove?.(id),
+  onResume: id => state.studio?.queueResume?.(id),
+  onClear: id => state.studio?.queueClear?.(id),
+  onRecover: () => void recoverGPU().then(() => state.studio?.render?.()),
+  onOpenQueue: id => toQueueStudio(id),
+  onTakeBack: (entry, id) => toQueueStudio(id, () => state.studio?.queueTakeBack?.(entry)),
 });
 document.body?.append?.(miniature.element);
 state.miniature = miniature;
+// (0.6.478) Its place in the Studio (under the settings) and over the input of the chat follow the size of the page.
+window.addEventListener?.('resize', () => syncMiniature());
+/** (0.6.478) The Studio of the conversation of a queue, then `then` there (a request that failed given back). */
+function toQueueStudio(id, then = () => {}) {
+  if (!id) return;
+  requestSettingsClose(async () => {
+    if (!shownHere(id)) await loadConversation(id);
+    if (!shownHere(id)) return;
+    showStudio();
+    then();
+  });
+}
 const workflowsUI = setupNativeWorkflows({
   api,
   state,
@@ -5394,12 +5502,16 @@ state.recovery = setupTakeRecovery({
 });
 // (0.6.469) Shown again as it was left (the browser kept it): it is here again, its requests are its own again.
 window.addEventListener('pageshow', event => {
-  if (event.persisted) state.leaving = false;
+  if (!event.persisted) return;
+  state.leaving = false;
+  state.studio?.leaving?.(false);
 });
 window.addEventListener('pagehide', () => {
   // (0.6.469) The page goes away (reloaded, closed): from here its requests fail by themselves. What they asked for
   // goes on at the server: nothing is cancelled nor taken back for it (generation-runtime.mjs, takeBack).
   state.leaving = true;
+  // (0.6.470) The queue of the Studio kept in this tab stays as it is now (studio-queue.mjs, leaving).
+  state.studio?.leaving?.(true);
   state.recovery.rememberTab();
   // The generation this tab started: another tab may follow it at once (0.6.86); reloaded, this
   // same tab follows it again.
@@ -5646,6 +5758,8 @@ $('compose-state').onclick = followAway;
 $('compose-state').onkeydown = event => (event.key === 'Enter' || event.key === ' ' ? followAway(event) : undefined);
 $('cancel').onclick = () => {
   if (state.controller) state.controller.abort();
+  // (0.6.466) Between two requests of the queue of the Studio, no take on the server: the Studio stops it (all pause).
+  else if (!state.status.toolJob && state.studio?.queueHolds?.()) state.studio.stopQueue();
   else api('tools/cancel', { jobId: state.status.toolJob?.id }).catch(error => notice(error.message));
 };
 // The model and its reflection in the bar of the chat (17/11): the reflection of the local model,
@@ -6178,6 +6292,8 @@ window.addEventListener('beforeunload', event => {
     // (0.6.82). Moodix writing, a card waiting for the user, a series still to make would be lost.
     // Without the history, nothing is found again: asked for those too.
     (state.work && (!['studio', 'follow'].includes(state.work.kind) || !state.saveHistory)) ||
+    // (0.6.466, B1) The requests of the queue of the Studio: kept by a reload (paused), lost with the tab.
+    state.studio?.queueWaits?.() > 0 ||
     state.savingHistory ||
     state.historyDirty ||
     $('prompt').value.trim() ||

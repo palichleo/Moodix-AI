@@ -1,5 +1,6 @@
 import { closePopup, openPopup } from './glass-menu.mjs';
-import { missingFileCard } from './missing-file.mjs';
+import { layoutCaption } from './layout-boxes.mjs';
+import { lackingText, missingFileCard } from './missing-file.mjs';
 import { takesWords } from './montage-model.mjs';
 import { renderProposal, symbol } from './video-plan.mjs';
 
@@ -11,13 +12,31 @@ const SAID_WHEN_SO = [
   'cited',
   'held',
   'warning',
+  // (0.6.493) The note of what it does not send, which the card leaves to its greyed inputs; the verb of its models.
+  'heldNote',
   'models',
   'family',
+  'verb',
   'fixedInputs',
   'styles',
   'camera',
   'series',
 ];
+// (0.6.493) What the server says of a proposal it no longer has (lib/tool-runtime.mjs: EXPIRED, a token used by another
+// tab, its workflow changed): « Générer » would be refused too, so it is greyed with that reason (relecture, M3).
+export const GONE = /^(Cet appel a expiré|Cette proposition ne peut plus être modifiée|Le workflow a été modifié)/;
+// (0.6.493) Its time over before an answer of the server says it (the server says EXPIRED in these words).
+const EXPIRED_SAID = 'Cet appel a expiré. Relancez la demande.';
+/**
+ * (0.6.493) What a model takes, under its name in the list of the card: for a suite, the clip it goes on and what it
+ * takes beside it (`extend_video.roles`: « Vidéo, son » for LTX 2.5, « Vidéo, 3 sujets, son » for MiniMax H3 Omni), not
+ * what it takes for a new shot (relecture, m4).
+ */
+function takenWords(model, verb) {
+  if (verb !== 'extend_video' || !model.extend_video) return takesWords(model);
+  const words = takesWords({ ...model, create_video: model.extend_video });
+  return 'Vidéo, ' + words.charAt(0).toLowerCase() + words.slice(1);
+}
 
 /**
  * The proposal of Moodix, in its message (direction-artistique.md, « La proposition vidéo »;
@@ -51,6 +70,9 @@ export function proposalCard({
   takes = null,
   importImage = null,
   onChange = () => {},
+  // (0.6.493) The files of a model downloaded from the card are there: the page reads its models again (the Studio,
+  // the Bobine), as after the card « Il manque un fichier » (relecture, m5).
+  onFetched = () => {},
 }) {
   const card = node('section', 'proposal-card'),
     head = node('header', 'proposal-head'),
@@ -81,7 +103,35 @@ export function proposalCard({
   let form = null,
     saving = false,
     // (0.6.476) What the server answered of a model chosen whose files are to download (revise: `offer`).
-    offer = null;
+    offer = null,
+    // (0.6.493) Why the proposal can no longer be made (GONE, or its time over: `expiresIn`), said on « Générer ».
+    gone = '',
+    expiry = null;
+  /**
+   * (0.6.493) « Générer » as it can be: greyed with its reason in its bubble once the proposal is gone, never left on
+   * to be refused (relecture, M3); while the changes are sent, disabled a moment. Not `disabled` when greyed: its
+   * bubble stays under the pointer and on the focus.
+   */
+  function shut() {
+    go.disabled = saving && !gone;
+    if (!gone) return;
+    // Its count, where it has one, stops with it: nothing starts by itself.
+    stop();
+    go.setAttribute('aria-disabled', 'true');
+    go.dataset.tip = gone;
+    go.classList.remove('is-counting', 'is-held');
+    say();
+  }
+  /** (0.6.493) The time the server keeps this proposal (`expiresIn`), counted from the answer that made it. */
+  function arm() {
+    clearTimeout(expiry);
+    expiry = Number.isFinite(request.expiresIn)
+      ? setTimeout(() => {
+          gone ||= EXPIRED_SAID;
+          shut();
+        }, request.expiresIn)
+      : null;
+  }
   /**
    * « Paramètres avancés » and « Prompt » unfold and fold back softly (16/11): their height and their
    * margin go from nothing to their own in 0.22 s, the words fading in; at once with less motion
@@ -198,7 +248,7 @@ export function proposalCard({
     menu.setAttribute('aria-label', 'Modèle de la vidéo');
     for (const model of request.models) {
       const own = model.family === chosen,
-        words = takesWords(model),
+        words = takenWords(model, request.verb),
         item = node('button', 'glass-menu-item bobine-model-item' + (model.off ? ' is-off' : '')),
         text = node('span', 'bobine-model-text');
       item.type = 'button';
@@ -285,6 +335,7 @@ export function proposalCard({
     body.hidden = foot.hidden = panels.hidden = Boolean(shown);
     offered.hidden = !shown;
     offered.replaceChildren();
+    say();
     if (!shown) return;
     missingFileCard({
       // Its « Annuler » leaves the line « Proposition annulée. » where it was: here, the proposal again.
@@ -295,6 +346,7 @@ export function proposalCard({
       api,
       onReady: () => {
         if (done || offer !== shown) return false;
+        onFetched();
         void revise({ workflow: shown.workflowId });
         return true;
       },
@@ -353,8 +405,10 @@ export function proposalCard({
           pick = node('button', 'proposal-shelf-pick'),
           picture = node('img');
         pick.type = 'button';
-        const name = Number.isInteger(output.take) ? 'Prise ' + output.take : 'Image';
-        pick.setAttribute('aria-label', 'Prendre : ' + name + (record.prompt ? ' · ' + record.prompt : ''));
+        const name = Number.isInteger(output.take) ? 'Prise ' + output.take : 'Image',
+          // (0.6.477) A take made with boxes (MOSS Image) by its caption, never by their JSON.
+          said = layoutCaption(record.prompt);
+        pick.setAttribute('aria-label', 'Prendre : ' + name + (said ? ' · ' + said : ''));
         pick.title = name;
         Object.assign(picture, { src: output.thumbUrl || output.originalUrl || '', alt: '', loading: 'lazy', decoding: 'async' });
         pick.append(picture);
@@ -435,9 +489,12 @@ export function proposalCard({
       for (const key of SAID_WHEN_SO) delete request[key];
       Object.assign(request, proposal);
       offer = offering;
+      arm();
       render();
       return true;
     } catch (error) {
+      // (0.6.493) The proposal gone (its time over, the server started again): « Générer » greyed with why.
+      if (GONE.test(error.message ?? '')) gone = error.message;
       // (0.6.476) Refused while a download was offered (the files came, the proposal had expired meanwhile): the card
       // of the proposal again, the reason under it.
       if (offer) {
@@ -448,7 +505,7 @@ export function proposalCard({
       return false;
     } finally {
       saving = false;
-      go.disabled = false;
+      shut();
     }
   }
 
@@ -463,6 +520,11 @@ export function proposalCard({
   function say() {
     status.textContent =
       phase === 'waiting' ? (request.mediaType === 'video' ? 'En attente de votre accord' : '') : phase === 'paused' ? 'En pause' : `Départ dans ${Math.max(1, Math.ceil(left / 1000))} s`;
+    // (0.6.493) Gone, it no longer waits for anything. While the download of the model chosen is offered, the head of
+    // the card says it, in place of the head of the offer (« Il manque un fichier », which hid its title: m6).
+    // (0.6.503) In the words of the card of the offer: « Il manque des fichiers » for several (LTX 2.5's six, 27/11).
+    if (offer) status.textContent = lackingText(offer);
+    if (gone) status.textContent = gone.startsWith('Cet appel a expiré') ? 'Expirée' : 'Plus valable';
     card.dataset.phase = phase;
   }
   function clear() {
@@ -528,6 +590,7 @@ export function proposalCard({
     if (done) return;
     done = true;
     clear();
+    clearTimeout(expiry);
     closeModels();
     card.removeEventListener('pointerenter', enter);
     card.removeEventListener('pointerleave', leave);
@@ -546,7 +609,8 @@ export function proposalCard({
   }
   // What runs is what the card shows: its changes are sent first.
   async function confirm() {
-    if (saving || done) return;
+    // (0.6.493) Gone: refused here, its reason in the bubble of « Générer ».
+    if (saving || done || gone) return;
     stop();
     if (form) {
       let edits;
@@ -570,6 +634,7 @@ export function proposalCard({
   };
   render();
   say();
+  arm();
   cancel.onclick = () => finish('cancel', { line: true });
   go.onclick = () => void confirm();
   card.addEventListener('pointerenter', enter);

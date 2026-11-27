@@ -300,6 +300,20 @@ test('a conversation is named by its words; a creation of the Studio by its prom
   assert.equal(conversationTitle(undefined), '');
 });
 
+test('(0.6.477) a creation made with boxes names its conversation by its caption, never by its JSON', async () => {
+  const { layoutPrompt, layoutSaid } = await import('../public/layout-boxes.mjs');
+  const boxes = [
+      { x: 0, y: 0, w: 0.5, h: 0.5, caption: 'A mountain.' },
+      { x: 0.5, y: 0.5, w: 0.5, h: 0.5, caption: 'A hiker.' },
+    ],
+    prompt = layoutPrompt('Une affiche de voyage', boxes, { width: 1024, height: 1024 });
+  // The line the model reads says its caption and how many boxes (app.js, runInStudio): the name is the caption.
+  assert.equal(conversationTitle(`Studio · Image : ${layoutSaid(prompt)}\n\n${STUDIO_NOTE}`), 'Une affiche de voyage');
+  assert.equal(conversationTitle(`Studio · Image : ${prompt}\n\n${STUDIO_NOTE}`), 'Une affiche de voyage');
+  // The prompt alone, as the Studio names a conversation begun for it (onWork).
+  assert.equal(conversationTitle(prompt), 'Une affiche de voyage');
+});
+
 test('the consigne of a creation that failed is for the message it failed in, not for the next ones', () => {
   const failed = { role: 'tool', tool_call_id: 'c1', content: JSON.stringify({ status: 'error', message: 'La carte graphique n’a pas assez de mémoire.', note: FAILED_NOTE }) },
     asked = { role: 'user', content: 'prolonge cette vidéo' },

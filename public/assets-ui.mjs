@@ -7,6 +7,13 @@ import { generationTime, takeTime } from './generation-time.mjs';
 import { takeSeconds } from './take-length.mjs';
 import { cameraLabel, cameraOf, cameraSentence } from './camera.mjs';
 import { orbitLabel, orbitOf } from './camera-orbit.mjs';
+import { LAYOUT_NAMES, layoutCaption, layoutOf } from './layout-boxes.mjs';
+import { takeBoxes, takeEye } from './take-eye.mjs';
+
+const NBSP = String.fromCharCode(0xa0);
+/** (0.6.477, B33) A box of a take in « Plus de détails »: the words of a text box between « », then its description. */
+const boxLine = item =>
+  [item.label === 'text' && item.text ? `«${NBSP}${item.text}${NBSP}»` : '', item.caption].filter(Boolean).join(' · ');
 
 /**
  * The references and the large view of a creation. No panel any more (0.5.106): a reference is
@@ -35,6 +42,9 @@ export function setupAssets({
     viewVersion = 0,
     objectURL,
     comparison = null,
+    // (0.6.477) The eye of a take made with boxes (take-eye.mjs), and what follows the size of its stage.
+    eyeOver = null,
+    eyeWatch = null,
     ready = false,
     activity = Promise.resolve();
   const size = value => (value >= 1024 ** 2 ? (value / 1024 ** 2).toFixed(1) + ' Mo' : Math.ceil(value / 1024) + ' Ko');
@@ -122,6 +132,8 @@ export function setupAssets({
     }
     if (objectURL) URL.revokeObjectURL(objectURL);
     objectURL = null;
+    eyeOver?.element.remove?.();
+    eyeOver = null;
   }
   $('original-close').onclick = () => $('original-dialog').close();
   $('original-dialog').addEventListener('close', cleanViewer);
@@ -333,11 +345,14 @@ export function setupAssets({
       where?.open?.();
     };
     // The prompt whole, with Copier.
-    const expanded = parameters.expanded_prompt;
-    $('media-prompt').textContent = record.prompt || '';
+    const expanded = parameters.expanded_prompt,
+      // (0.6.477, lot 6 of claude_design/bbox) A take made with boxes (MOSS Image): its caption, never their JSON.
+      laid = media === 'image' ? layoutOf(record.prompt) : null,
+      words = layoutCaption(record.prompt);
+    $('media-prompt').textContent = words || '';
     // Another take: its prompt folded, at the room it has.
     promptOpen = false;
-    $('media-copy').hidden = !record.prompt;
+    $('media-copy').hidden = !words;
     // Its lines (capture 33): Modèle, Format, Résolution, Durée, Seed, Date, in mono.
     const width = output.width ?? parameters.width,
       height = output.height ?? parameters.height,
@@ -350,6 +365,8 @@ export function setupAssets({
     row('Modèle', record.workflowName);
     if (media !== 'audio') row('Format', width && height ? (formatOf(width, height)?.id ?? 'Autre') : null);
     const resolution = media === 'audio' ? null : row('Résolution', width && height ? `${width} × ${height}` : null);
+    // (0.6.477, his decision 2 of 21/11, B32) How many boxes it was made with; each one in « Plus de détails ».
+    if (laid?.items.length) row('Boîtes', String(laid.items.length));
     const length = media === 'image' ? null : row('Durée', seconds ? duration(seconds) : null);
     for (const [label, value] of inputsOf(parameters, list)) row(label, value);
     // (0.6.211, capture 107) The camera it was made with, after what it was made from: « Travelling avant, lent ».
@@ -372,6 +389,14 @@ export function setupAssets({
     else row('Temps de génération', took ? generationTime(took.ms) : 'Non mesuré');
     // « Plus de détails »: the workflow, the version, the prompt made better, the file…
     if (media === 'video') row('Version', parameters.stage === 'draft' ? 'Brouillon vidéo' : 'Vidéo finale', { more: true });
+    // (0.6.477, B33) Its boxes first, one a line (its type, its words, its description), then their prompt whole, as
+    // the model read it.
+    if (laid?.items.length) {
+      laid.items.forEach((item, at) =>
+        row(`Boîte ${at + 1} · ${LAYOUT_NAMES[item.label]}`, boxLine(item), { more: true }),
+      );
+      row('Prompt des boîtes (lu par le modèle)', record.prompt, { more: true });
+    }
     // What came before the engine (the checks, its sources, the chat model leaving the card), then the
     // engine itself (its models loaded, the computation, the file written).
     if (took?.whole && took.prepare !== undefined) row('Temps de préparation', generationTime(took.prepare), { more: true });
@@ -394,8 +419,26 @@ export function setupAssets({
         ([key]) => !['seed', 'prompt', 'workflow_id', 'expanded_prompt', 'expandPrompt', 'generation_time'].includes(key),
       ),
     );
+    // (0.6.477, B33) The prompt of its boxes is said above: not a second time in its settings.
+    for (const key of laid ? ['replay_args', 'user_overrides'] : []) {
+      if (other[key]?.prompt !== record.prompt) continue;
+      const { prompt: _same, ...rest } = other[key];
+      other[key] = rest;
+    }
     if (Object.keys(other).length) row('Paramètres', JSON.stringify(other, null, 2), { more: true });
     if (record.analysis?.text) row('Analyse du modèle', record.analysis.text, { more: true });
+    // (0.6.477, B32) The eye of a take made with boxes, at the top right of its picture (take-eye.mjs); its numbers
+    // put where they are read once the page is laid out, and again when the stage changes size.
+    const boxed = media === 'image' ? takeBoxes(record) : null;
+    if (boxed) {
+      eyeOver = takeEye({ node, boxes: boxed.boxes });
+      stage.append(eyeOver.element);
+      globalThis.requestAnimationFrame?.(() => eyeOver?.tidy());
+      if (!eyeWatch && globalThis.ResizeObserver) {
+        eyeWatch = new ResizeObserver(() => eyeOver?.tidy());
+        eyeWatch.observe(stage);
+      }
+    }
     // Its lines are there: the room left to the prompt is known (and once the page is laid out).
     fitPrompt();
     globalThis.requestAnimationFrame?.(fitPrompt);

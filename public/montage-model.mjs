@@ -5,6 +5,7 @@
  */
 import { FORMATS } from './formats.mjs';
 import { takeSeconds as lengthOf } from './take-length.mjs';
+import { layoutOf } from './layout-boxes.mjs';
 
 /** Frames a second of a film. LTX 2.5 and MiniMax H3 draw 24; a take at another rate is brought to it. */
 export const MONTAGE_RATES = Object.freeze([24]);
@@ -236,7 +237,10 @@ export function takeFound(record, sought) {
   if (!words.length) return true;
   const take = record?.outputs?.[0]?.take,
     numbered = Number.isInteger(take),
-    text = folded([numbered ? 'prise' : '', record?.prompt, record?.workflowName].join(' '));
+    // (0.6.477) A take made with boxes (MOSS Image): the words of its prompt and of its boxes, never their JSON.
+    laid = layoutOf(record?.prompt),
+    said = laid ? [laid.caption, ...laid.items.flatMap(item => [item.caption, item.text])].join(' ') : record?.prompt,
+    text = folded([numbered ? 'prise' : '', said, record?.workflowName].join(' '));
   return words.every(word => (/^\d+$/.test(word) ? numbered && String(take).startsWith(word) : text.includes(word)));
 }
 

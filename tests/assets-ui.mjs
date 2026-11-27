@@ -178,6 +178,98 @@ test('output details expose full prompts, workflow, seed and available parameter
   assert.equal($('original-dialog').open, false);
 });
 
+// (0.6.477, B32, B33) Its caption, « Boîtes · 3 », each of its boxes under « Plus de détails », its eye.
+test('(0.6.477) the page of a take made with boxes', async t => {
+  const { ui, $ } = await fixture(t);
+  const { layoutBoxes, layoutPrompt } = await import('../public/layout-boxes.mjs');
+  // (The elements of this page are taken away as the browser takes them: the eye of the take before goes.)
+  const remove = Element.prototype.remove;
+  Element.prototype.remove = function () {
+    this.removed = true;
+  };
+  t.after(() => {
+    if (remove) Element.prototype.remove = remove;
+    else delete Element.prototype.remove;
+  });
+  const title = { label: 'text', caption: 'Large dark-blue uppercase title.', text: 'EXPLORE' },
+    boxes = layoutBoxes([
+      { x: 0.25, y: 0.0625, w: 0.5, h: 0.125, ...title },
+      { x: 0.3125, y: 0.3125, w: 0.375, h: 0.5, caption: 'A flat blue mountain illustration.' },
+      { x: 0.0625, y: 0.625, w: 0.125, h: 0.1875, label: 'character', caption: 'A small hiker with a red backpack.' },
+    ]);
+  const prompt = layoutPrompt('A minimalist travel poster.', boxes, { width: 1024, height: 1024 }),
+    record = {
+      id: 'run',
+      conversationId: 'conversation',
+      mediaType: 'image',
+      workflowName: 'MOSS Image',
+      prompt,
+      createdAt: '2026-11-21T14:51:00Z',
+      parameters: { seed: 418920355, width: 1024, height: 1024, replay_args: { prompt, seed: 418920355 } },
+      outputs: [{ source: { filename: 'moss.png' }, analysisDataUrl: 'data:image/png;base64,AA==', take: 6 }],
+    },
+    blob = () => new Blob(['x'], { type: 'image/png' });
+  // The lines of a list of the page: [its name, its value], as they are read.
+  const pairs = id =>
+    $(id).children.reduce((all, item, at) => {
+      if (at % 2) all.at(-1).push(item.textContent);
+      else all.push([item.textContent]);
+      return all;
+    }, []);
+  await ui.viewOutput(record, 0, blob());
+  // Its prompt is its caption, and « Copier » copies it; never the JSON.
+  assert.deepEqual([$('media-prompt').textContent, $('media-copy').hidden], ['A minimalist travel poster.', false]);
+  // B32: « Boîtes : 3 », after « Résolution ».
+  const lines = pairs('media-metadata'),
+    names = ['Modèle', 'Format', 'Résolution', 'Seed', 'Date', 'Temps de génération'];
+  assert.deepEqual(lines.map(([name]) => name), [...names.slice(0, 3), 'Boîtes', ...names.slice(3)]);
+  assert.deepEqual(lines[3], ['Boîtes', '3']);
+  // B33: under « Plus de détails », first a line for each box (its type, its words, its description), then their
+  // prompt as the model read it; « Paramètres » without that JSON a second time.
+  const more = pairs('media-more-list'),
+    nbsp = String.fromCharCode(0xa0);
+  assert.deepEqual(more.slice(0, 4), [
+    ['Boîte 1 · Texte', `«${nbsp}EXPLORE${nbsp}» · Large dark-blue uppercase title.`],
+    ['Boîte 2 · Objet', 'A flat blue mountain illustration.'],
+    ['Boîte 3 · Personnage', 'A small hiker with a red backpack.'],
+    ['Prompt des boîtes (lu par le modèle)', prompt],
+  ]);
+  const [, settings] = more.find(([name]) => name === 'Paramètres');
+  assert.deepEqual(JSON.parse(settings), { width: 1024, height: 1024, replay_args: { seed: 418920355 } });
+  // Its eye at the top right of the picture, over the stage at its size: pressed, the three boxes in thin lines.
+  const eyes = () => $('media-stage').children.filter(child => child.className === 'take-eye' && !child.removed),
+    [eye] = eyes(),
+    button = eye.children.at(-1);
+  assert.equal(eyes().length, 1);
+  assert.deepEqual(
+    [button.className, button.attributes['aria-label'], button.attributes['aria-pressed'], button.title],
+    [
+      'take-eye-button',
+      'Ce que le modèle a reçu',
+      'true',
+      'Ce que le modèle a reçu : les 3 boîtes. Cliquez pour voir l’image seule.',
+    ],
+  );
+  const place = line => [line.className, ...['left', 'top', 'width', 'height'].map(side => line.style[side])];
+  assert.deepEqual(eye.children.slice(0, -1).map(place), [
+    ['take-eye-box', '25%', '6.25%', '50%', '12.5%'],
+    ['take-eye-box', '31.25%', '31.25%', '37.5%', '50%'],
+    ['take-eye-box', '6.25%', '62.5%', '12.5%', '18.75%'],
+  ]);
+  // Another take, made without boxes: the eye of this one goes, nor « Boîtes » nor lines of boxes.
+  const plain = { ...record, id: 'plain', prompt: 'a cat', parameters: { seed: 1, width: 1024, height: 1024 } };
+  await ui.viewOutput(plain, 0, blob());
+  assert.deepEqual([eye.removed, eyes().length], [true, 0]);
+  assert.deepEqual(pairs('media-metadata').map(([name]) => name), names);
+  assert.equal(pairs('media-more-list').some(([name]) => /^(Boîte|Prompt des boîtes)/.test(name)), false);
+  // A video is never read for boxes.
+  const clip = { ...record, id: 'clip', mediaType: 'video', outputs: [{ source: { filename: 'c.mp4' }, take: 7 }] };
+  await ui.viewOutput(clip, 0);
+  assert.deepEqual([eyes().length, pairs('media-metadata').some(([name]) => name === 'Boîtes')], [0, false]);
+  $('original-close').onclick();
+  assert.equal(eye.removed, true);
+});
+
 test('the arrow that had the focus gone (the first take, the last): the take itself takes it, the keys still move', async t => {
   const { ui, $ } = await fixture(t),
     record = {

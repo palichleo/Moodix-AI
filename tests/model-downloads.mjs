@@ -229,6 +229,42 @@ test('(0.6.479) a download over, its files there and registered, is told once; f
   assert.deepEqual(told, [['krea', 'model-asset tokenizer-asset']]);
 });
 
+test('(0.6.503) the engine being prepared by a download is still offered: its model never left out', async t => {
+  // The service says no engine is to prepare while one is (its environment installs, then it starts): the model just
+  // downloaded, its files all here, had no offer then, and the Studio read again meanwhile left it out.
+  const engine = engineOf(),
+    f = await fixture(t, { engine }),
+    whole = { id: 'whole', name: 'Real-ESRGAN', pipeline: 'krea2', builtin: true, ready: false, components: {} },
+    prepare = engine.prepare;
+  let busy = false;
+  engine.needed = async () => !engine.ready && !busy;
+  engine.prepare = async signal => {
+    busy = true;
+    try {
+      await prepare(signal);
+    } finally {
+      busy = false;
+    }
+  };
+  let release;
+  engine.hold = new Promise(done => (release = done));
+  await f.downloads.start(f.workflow);
+  await preparing(f.downloads);
+  assert.equal(await engine.needed(), false, 'as the service says it meanwhile');
+  const during = await f.downloads.offers([f.workflow, whole]);
+  // Its files there: the engine alone, as before the click for the other one.
+  assert.deepEqual(
+    [during.krea.files, during.krea.bytes, during.krea.left, during.krea.complete, during.krea.engine],
+    [[], 0, 0, true, { bytes: 3000 }],
+  );
+  assert.deepEqual(during.whole.engine, { bytes: 3000 });
+  // A second click meanwhile waits for it, as any download.
+  await assert.rejects(f.downloads.start(whole), /déjà en cours/);
+  release();
+  assert.equal((await f.finish()).state, 'done');
+  assert.deepEqual(await f.downloads.offers([f.workflow, whole]), {});
+});
+
 test('a shipped workflow offers what it lacks, and the files land in their folders, registered for it', async t => {
   const f = await fixture(t);
   const offers = await f.downloads.offers([f.workflow, { ...f.workflow, id: 'mine', builtin: false }]);

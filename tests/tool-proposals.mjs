@@ -239,14 +239,15 @@ test('the card of a continuation by LTX 2.5 shows and takes what the model may p
     resources: { [IMAGE]: picture('escalier.png') },
   });
   const place = { conversationId: A, turnId: turn, messages: [] };
-  // The model is refused an image beside the clip…
-  await assert.rejects(
-    runtime.request(
-      [call('extend_video', { prompt: 'x', intention: 'Suite', source: { output: CLIP }, reference: [{ resource: IMAGE }] })],
-      place,
-    ),
-    /no free image slot for reference/,
-  );
+  // (0.6.493) An image the model passes beside the clip is no longer refused to it (« no free image slot », relecture,
+  // M1): the suite is proposed with its clip alone, the image stays greyed in its card with why, and its line says to
+  // remove it. It is not sent…
+  const suite = { prompt: 'x', intention: 'Suite', source: { output: CLIP }, reference: [{ resource: IMAGE }] },
+    kept = await runtime.request([call('extend_video', suite)], place);
+  assert.deepEqual(rolesOf(kept), ['source_video']);
+  assert.deepEqual(kept.held.map(item => [item.as, item.label]), [['reference', 'escalier.png']]);
+  assert.equal(kept.held[0].why, 'LTX 2.5 ne prend pas de sujet dans une suite. Il reste là, mais n’est pas envoyé.');
+  assert.equal(kept.warning, 'Le sujet 1 n’est pas envoyé à LTX 2.5 : retirez-le.');
   // …so the card has no case for one (it had DÉBUT, FIN and RÉF., and revise took an image in each)…
   const proposal = await runtime.request(
     [call('extend_video', { prompt: 'x', intention: 'Suite', duration: 5, source: { output: CLIP } })],
@@ -268,7 +269,7 @@ test('the card of a continuation by LTX 2.5 shows and takes what the model may p
   assert.deepEqual(rolesOf(await revise(runtime, proposal, {})), ['source_video']);
 });
 
-test('inputs a family does not combine are refused on the card as they are to the model (MiniMax: references, or a first and last frame)', async () => {
+test('inputs a family does not combine are refused on the card, and held greyed when the model passes them (MiniMax: references, or a first and last frame)', async () => {
   const minimax = minimaxFull(),
     CLIP = uid(3),
     [ONE, TWO, THREE] = [uid(4), uid(5), uid(6)];
@@ -279,7 +280,19 @@ test('inputs a family does not combine are refused on the card as they are to th
   });
   const place = { conversationId: A, turnId: turn, messages: [] };
   const video = (args, id) => runtime.request([call('create_video', { prompt: 'x', intention: 'x', ...args }, id)], place);
-  await assert.rejects(video({ reference: [{ resource: ONE }], start_image: { resource: TWO } }), /do not combine/);
+  // (0.6.493) Both passed by the model: no longer refused (« do not combine », relecture, M1). The start goes, the
+  // subject stays greyed in the card with why, and its line says which of them to remove.
+  const both = await video({ reference: [{ resource: ONE }], start_image: { resource: TWO } });
+  assert.deepEqual(rolesOf(both), ['start_image']);
+  assert.deepEqual(both.held.map(item => item.as), ['reference']);
+  assert.equal(
+    both.held[0].why,
+    'MiniMax H3 prend des sujets ou un début et une fin, pas les deux : celui-ci reste là, mais n’est pas envoyé.',
+  );
+  assert.equal(
+    both.warning,
+    'MiniMax H3 prend des sujets ou un début et une fin, pas les deux : retirez l’image de début ou le sujet.',
+  );
 
   // One reference: the cases left are those of references; alone, it may still become a frame.
   const one = await video({ reference: [{ resource: ONE }] });
@@ -1661,12 +1674,13 @@ test('(0.6.211) the camera chosen in the Studio: its sentence after the prompt o
 });
 
 // (0.6.476) The card of a video of Moodix AI chooses its model: LTX 2.5, MiniMax H3 Omni, pi H3 and Wan 2.2.
-const [START, END, SUBJECT, SUBJECT_2] = [uid(4), uid(5), uid(6), uid(7)];
+const [START, END, SUBJECT, SUBJECT_2, SUBJECT_3] = [uid(4), uid(5), uid(6), uid(7), uid(8)];
 const framed = () => ({
   [START]: picture('debut.png', 1280, 720),
   [END]: picture('fin.png', 1280, 720),
   [SUBJECT]: picture('sujet.png'),
   [SUBJECT_2]: picture('sujet2.png'),
+  [SUBJECT_3]: picture('sujet3.png'),
 });
 const everything = () => ({
   start_image: { resource: START },
@@ -1983,4 +1997,198 @@ test('an image of Moodix AI whose model does not take every image given: said by
   await runtime.execute({ requestId: asked.requestId, permission: 'once', approvalToken: asked.approvalToken });
   await runtime.finished;
   assert.deepEqual(saved.at(-1).parameters.routing_notes, asked.notes);
+});
+
+// (0.6.493) The defects the review of 0.6.476 found (claude_design/chantier-27-11/relecture-chat-routage.md), each
+// with its proof that failed before (relecture-chat-routage/preuves.test.mjs: B, C, D, E, F, X, Y).
+const subjects = () => [SUBJECT, SUBJECT_2, SUBJECT_3].map(resource => ({ resource }));
+const modelId = (request, name) => request.models.find(model => model.name === name).workflowId;
+
+test('a video of Moodix AI is made by LTX 2.5, what it does not take greyed, never by MiniMax H3 Omni in its place (0.6.493)', async () => {
+  const list = shipped(),
+    [LTX_CLIP, OMNI_CLIP] = [uid(9), uid('a')],
+    { runtime } = world({
+      workflows: list,
+      resources: framed(),
+      records: {
+        [`${A}/${LTX_CLIP}`]: clip(A, LTX_CLIP, of(list, 'ltx25')),
+        [`${A}/${OMNI_CLIP}`]: clip(A, OMNI_CLIP, of(list, 'minimax_h3')),
+      },
+    });
+  const place = { conversationId: A, turnId: turn, messages: [] },
+    ask = (name, args, id) => runtime.request([call(name, { prompt: 'x', intention: 'x', ...args }, id)], place);
+  // Three subjects, LTX 2.5 named or not (relecture, B): it takes two, the third stays greyed with why, and the line
+  // says to remove it or to choose the model that takes it (« on grisera et on mettra un message d'avertissement »).
+  for (const [more, id] of [
+    [{}, 'b-1'],
+    [{ workflow: 'LTX 2.5' }, 'b-2'],
+  ]) {
+    const three = await ask('create_video', { duration: 5, reference: subjects(), ...more }, id);
+    assert.equal(three.workflowName, 'LTX 2.5', id);
+    assert.deepEqual(sentOf(three), [
+      ['msr_image', 'sujet.png'],
+      ['msr_image', 'sujet2.png'],
+    ]);
+    assert.deepEqual(heldOf(three), [
+      ['reference', 'sujet3.png', 'LTX 2.5 prend 2 sujets au plus : celui-ci reste là, mais n’est pas envoyé.'],
+    ]);
+    assert.equal(three.warning, 'Le sujet 3 n’est pas envoyé à LTX 2.5 : retirez-le, ou choisissez MiniMax H3 Omni.');
+    // Said by name in its notes too, for the Studio, which draws neither what is greyed nor the line (G1); the card
+    // leaves that note to them (`heldNote`).
+    assert.equal(three.heldNote, 'sujet3.png n’est pas envoyée à LTX 2.5.');
+    assert.ok(three.notes.includes(three.heldNote), JSON.stringify(three.notes));
+  }
+  // The suite of a clip of LTX 2.5 with a subject: LTX 2.5, its clip sent, the subject greyed.
+  const suite = await ask('extend_video', { source: { output: LTX_CLIP }, reference: [{ resource: SUBJECT }] }, 'b-3');
+  assert.equal(suite.workflowName, 'LTX 2.5');
+  assert.deepEqual(rolesOf(suite), ['source_video']);
+  assert.deepEqual(heldOf(suite), [
+    [
+      'reference',
+      'sujet.png',
+      'LTX 2.5 ne prend pas de sujet dans une suite. Pour une suite avec des sujets : MiniMax H3 Omni. ' +
+        'Il reste là, mais n’est pas envoyé.',
+    ],
+  ]);
+  // A clip of MiniMax H3 Omni brings its model, which takes the subject; named, MiniMax H3 Omni is the one.
+  const own = await ask('extend_video', { source: { output: OMNI_CLIP }, reference: [{ resource: SUBJECT }] }, 'b-4');
+  assert.deepEqual([own.workflowName, own.held, rolesOf(own)], [
+    'MiniMax H3 Omni',
+    undefined,
+    ['source_video', 'reference_image'],
+  ]);
+  const named = await ask('create_video', { duration: 5, reference: subjects(), workflow: 'MiniMax H3 Omni' }, 'b-5');
+  assert.deepEqual([named.workflowName, named.held], ['MiniMax H3 Omni', undefined]);
+});
+
+test('what no model here takes whole is proposed, not refused in the words of the router: LTX 2.5 to download, or the model that takes most (0.6.493)', async () => {
+  const files = [{ file: 'ltx-2.5.safetensors', size: 27e9 }],
+    offerOf = async () => ({ complete: true, files, bytes: 27e9, left: 27e9 }),
+    lacking = shipped().map(workflow =>
+      workflow.pipeline === 'ltx25' ? { ...workflow, ready: false, builtin: true, unavailableKind: 'files' } : workflow,
+    ),
+    { runtime } = world({ workflows: lacking, resources: framed(), offerOf });
+  const place = { conversationId: A, turnId: turn, messages: [] },
+    both = {
+      prompt: 'x',
+      intention: 'x',
+      duration: 5,
+      start_image: { resource: START },
+      reference: [{ resource: SUBJECT }],
+    };
+  // LTX 2.5 not downloaded, a start and a subject (relecture, X): LTX 2.5, which takes both, its download offered (53);
+  // never « no free image slot » sent back to the chat model (M1), nor another model taken without a word (S2).
+  const made = await runtime.request([call('create_video', both)], place);
+  assert.equal(made.workflowName, 'LTX 2.5');
+  assert.deepEqual([made.missing.workflowId, made.missing.files], [of(lacking, 'ltx25').id, files]);
+  // Without LTX 2.5 on this computer: the model that takes most, the rest greyed, the line saying to remove it.
+  const without = world({
+    workflows: shipped().filter(workflow => workflow.pipeline !== 'ltx25'),
+    resources: framed(),
+  });
+  const partial = await without.runtime.request([call('create_video', both, 'call-2')], place);
+  assert.equal(partial.workflowName, 'MiniMax H3 Omni');
+  assert.deepEqual(sentOf(partial), [['reference_image', 'sujet.png']]);
+  assert.deepEqual(heldOf(partial).map(([as, label]) => [as, label]), [['start_image', 'debut.png']]);
+  assert.equal(partial.warning, 'L’image de début n’est pas envoyée à MiniMax H3 Omni : retirez-la.');
+});
+
+test('a proposal whose card downloads a model waits for its files, then is made for it; else it expires and says so (0.6.493)', async () => {
+  const workflows = shipped().map(workflow =>
+      workflow.pipeline === 'minimax_h3'
+        ? { ...workflow, ready: false, builtin: true, unavailableKind: 'files' }
+        : workflow,
+    ),
+    files = [{ file: 'minimax_h3_omni.safetensors', size: 40.7e9 }],
+    { runtime } = world({
+      workflows,
+      resources: framed(),
+      offerOf: async () => ({ complete: true, files, bytes: 40.7e9, left: 40.7e9 }),
+    });
+  const place = { conversationId: A, turnId: turn, messages: [] },
+    QUARTER = 15 * 60 * 1000,
+    first = await runtime.request(
+      [call('create_video', { prompt: 'x', intention: 'x', duration: 5, reference: [{ resource: SUBJECT }] })],
+      place,
+    );
+  // The time the server keeps it, which its card counts to grey « Générer » (relecture, M3).
+  assert.equal(first.expiresIn, QUARTER);
+  const offered = await revise(runtime, first, { workflow: modelId(first, 'MiniMax H3 Omni') });
+  assert.equal(offered.offer.workflowId, modelId(first, 'MiniMax H3 Omni'));
+  // 40,7 Go: about 55 minutes at 100 Mbit/s (relecture, Y). The proposal waits for them, a day at most.
+  assert.equal(offered.expiresIn, 24 * 60 * 60 * 1000);
+  runtime.pending.get(offered.requestId).created -= 55 * 60 * 1000;
+  const there = workflows.find(workflow => workflow.pipeline === 'minimax_h3');
+  there.ready = true;
+  delete there.unavailableKind;
+  const made = await revise(runtime, offered, { workflow: offered.offer.workflowId });
+  assert.deepEqual([made.workflowName, made.offer, made.expiresIn], ['MiniMax H3 Omni', undefined, QUARTER]);
+  // Made for its model, it is kept the usual quarter of an hour: past it, revise and « Générer » say it is gone, in
+  // the words its card greys « Générer » with.
+  runtime.pending.get(made.requestId).created -= QUARTER + 1000;
+  const gone = { status: 409, message: 'Cet appel a expiré. Relancez la demande.' };
+  await assert.rejects(revise(runtime, made, {}), gone);
+  await assert.rejects(
+    runtime.execute({ requestId: made.requestId, permission: 'once', approvalToken: made.approvalToken }),
+    gone,
+  );
+});
+
+test('the length, the seed and the version chosen on the card stay through the changes of its model (0.6.493)', async () => {
+  const { runtime } = world({ resources: framed() });
+  const place = { conversationId: A, turnId: turn, messages: [] },
+    ask = (args, id) =>
+      runtime.request([call('create_video', { prompt: 'Un phare.', intention: 'x', duration: 5, ...args }, id)], place);
+  // The length (relecture, C): 10 s on the card, MiniMax H3 Omni, then LTX 2.5 again without touching it: 10 s.
+  const ten = (await ask({ duration: 10 }, 'c-10')).plan.parameters.frames,
+    first = await ask({}, 'c-5');
+  assert.notEqual(first.plan.parameters.frames, ten);
+  const minimax = await revise(runtime, first, { frames: ten, workflow: modelId(first, 'MiniMax H3 Omni') });
+  assert.equal(minimax.workflowName, 'MiniMax H3 Omni');
+  const back = await revise(runtime, minimax, { workflow: modelId(minimax, 'LTX 2.5') });
+  assert.equal(back.plan.parameters.frames, ten);
+  // The seed typed (D), sent with the model chosen or before it.
+  const typed = 123456789,
+    same = await revise(runtime, back, { seed: typed, workflow: modelId(back, 'pi H3') });
+  assert.equal(same.plan.parameters.seed, typed);
+  const other = await ask({}, 'd-2'),
+    seeded = await revise(runtime, other, { seed: typed }),
+    changed = await revise(runtime, seeded, { workflow: modelId(seeded, 'MiniMax H3 Omni') });
+  assert.equal(changed.plan.parameters.seed, typed);
+  assert.equal(
+    (await revise(runtime, changed, { workflow: modelId(changed, 'LTX 2.5') })).plan.parameters.seed,
+    typed,
+  );
+  // The final version (E), through Wan 2.2, which has none.
+  const framedShot = await ask({ start_image: { resource: START } }, 'e-1'),
+    final = await revise(runtime, framedShot, { stage: 'final' });
+  assert.equal(final.plan.stage, 'final');
+  const wan = await revise(runtime, final, { workflow: modelId(final, 'Wan 2.2') });
+  assert.equal(wan.workflowName, 'Wan 2.2');
+  assert.equal((await revise(runtime, wan, { workflow: modelId(wan, 'LTX 2.5') })).plan.stage, 'final');
+});
+
+test('a model greyed in the list of the card is never the one the bubble of an input says to choose (0.6.493)', async () => {
+  // MiniMax H3 Omni not offered to Moodix AI (relecture, F): greyed in the list, so not named in the bubble.
+  const workflows = shipped().map(workflow =>
+      workflow.pipeline === 'minimax_h3' ? { ...workflow, enabled: false } : workflow,
+    ),
+    { runtime } = world({ workflows, resources: framed() });
+  const first = await runtime.request(
+    [call('create_video', { prompt: 'x', intention: 'x', duration: 5, ...everything() })],
+    { conversationId: A, turnId: turn, messages: [] },
+  );
+  const pi = await revise(runtime, first, { workflow: modelId(first, 'pi H3') });
+  assert.match(pi.models.find(model => model.name === 'MiniMax H3 Omni').off, /n’est pas proposé à Moodix AI/);
+  assert.deepEqual(heldOf(pi), [
+    ['reference', 'sujet.png', 'pi H3 ne prend pas de sujet : choisissez LTX 2.5. Il reste là, mais n’est pas envoyé.'],
+  ]);
+  assert.equal(pi.warning, 'Le sujet 1 n’est pas envoyé à pi H3 : retirez-le, ou choisissez LTX 2.5.');
+  // The model changed alone: an input or a LoRA sent with it is refused in words, never left aside without one (S5).
+  for (const more of [{ remove: { held: 0 } }, { add: { role: 'reference', source: { resource: SUBJECT_2 } } }])
+    await assert.rejects(revise(runtime, pi, { ...more, workflow: modelId(pi, 'LTX 2.5') }), {
+      status: 400,
+      message: 'Le modèle se change seul : les images et les LoRA se changent ensuite, sur sa carte.',
+    });
+  assert.ok(runtime.pending.has(pi.requestId), 'a refusal changes nothing');
 });

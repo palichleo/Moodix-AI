@@ -62,12 +62,44 @@ export function engineText(offer, size = sizeText) {
 }
 /** (0.6.479) What a click on « Télécharger » fetches in all: `bytes` of files, and the engine of a new installation. */
 export const withEngine = (bytes, offer) => (Number(bytes) || 0) + (Number(offer?.engine?.bytes) || 0);
+/**
+ * (0.6.503) What a download offered lacks, as the head of its card says it: the engine of a new installation alone,
+ * several files (« des fichiers », decision of 27/11), or one. The card of a proposal says it in its own head.
+ */
+export const lackingText = missing =>
+  engineOnly(missing)
+    ? 'Il manque le moteur de génération'
+    : missing?.files?.length > 1
+      ? 'Il manque des fichiers'
+      : 'Il manque un fichier';
 /** (0.6.479) What a download says while the engine is prepared after its files, '' before and after. */
 export function engineWait(job) {
   if (job?.engine !== 'preparing') return '';
   return /^Démarrage/.test(job.current || '')
     ? 'Démarrage du moteur de génération…'
     : 'Préparation du moteur de génération : quelques minutes, une seule fois.';
+}
+
+/**
+ * (0.6.493) A card taller than the conversation (LTX 2.5's six files and two licences at 1280 × 720): its head kept in
+ * view, in a proposal card the head of that card, with the button of its model (relecture, m6). The page keeps the
+ * conversation at its end as it grows (its ResizeObserver, public/app.js, made first, so answered first); here, in the
+ * same frame, before it is painted, the conversation goes back up to that head. « Télécharger » comes after the
+ * licences, read down.
+ */
+function keepHead(card) {
+  const Watch = globalThis.ResizeObserver;
+  if (typeof Watch !== 'function') return;
+  const watch = new Watch(() => {
+    watch.disconnect();
+    const top = card.closest?.('.proposal-card') ?? card,
+      area = top.closest?.('.chat-area');
+    if (!area || !card.isConnected) return;
+    // Under the mask of the top of the conversation (14 px, moodix.css), and a little room.
+    const under = area.getBoundingClientRect().top + 22 - top.getBoundingClientRect().top;
+    if (under > 0) area.scrollBy?.({ top: -under, behavior: 'instant' });
+  });
+  watch.observe(card);
 }
 
 export function missingFileCard({
@@ -90,13 +122,9 @@ export function missingFileCard({
     // The licences with conditions of these files: read and confirmed before the download.
     restricted = restrictedOf(missing.files);
   // (0.6.479) « des fichiers » when there are several (decision of 27/11), as the sentence of the chat says it
-  // (app.js).
+  // (app.js). (0.6.503) In the words the head of a proposal says too (lackingText).
   const plural = missing.files?.length > 1,
-    lacking = alone
-      ? 'Il manque le moteur de génération'
-      : plural
-        ? 'Il manque des fichiers'
-        : 'Il manque un fichier';
+    lacking = lackingText(missing);
   card.setAttribute('aria-label', lacking);
   let state = 'idle',
     left = missing.left || missing.bytes,
@@ -327,6 +355,7 @@ export function missingFileCard({
   if (tokenNeeded) globalThis.document?.addEventListener?.('moodix:token', tokenSaved);
   render();
   host.append(card);
+  keepHead(card);
   // A download of this file already under way (stopped and started again from the settings).
   void api('downloads')
     .then(response => response.json())

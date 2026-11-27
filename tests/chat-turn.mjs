@@ -13,6 +13,8 @@ import { runSeries } from '../public/image-series.mjs';
 import { takesOf } from '../public/take-recovery.mjs';
 import * as detached from '../public/detached-takes.mjs';
 import { takeContent } from '../public/generation-runtime.mjs';
+// (0.6.477) What app.js reads of a prompt of boxes (runInStudio): its caption and how many, never their JSON.
+import * as layoutBoxes from '../public/layout-boxes.mjs';
 import { dataBlob, prepareImages } from '../public/images.mjs';
 import { History, MAX_CONVERSATION_MESSAGES } from '../lib/history.mjs';
 import { nativeFields, uniqueCallIds } from '../lib/native-messages.mjs';
@@ -219,6 +221,7 @@ function page({
     ...chatVideos,
     ...transcript,
     ...detached,
+    ...layoutBoxes,
     reflection,
     thoughtTime,
     readSSE,
@@ -1883,6 +1886,38 @@ test('a creation of the Studio made while another conversation is open is writte
   assert.equal((await store.read(ELSEWHERE)).messages.length, 2, 'not in the conversation shown');
   assert.deepEqual(roles(studio.state.messages), ['user', 'assistant']);
   assert.deepEqual(roles(studio.state.aside.messages), ['user', 'assistant', 'tool']);
+});
+
+test('(0.6.477, N11) a creation of the Studio made with boxes is told by its caption and their count', async t => {
+  const store = await historyStore(t),
+    generation = heldGeneration(),
+    studio = page({ store, requestTool: generation.requestTool, state: { conversationId: ID, view: 'studio' } });
+  const boxes = [
+      { x: 0, y: 0, w: 0.5, h: 0.5, caption: 'A mountain.' },
+      { x: 0.5, y: 0.5, w: 0.5, h: 0.5, label: 'text', caption: 'Bold.', text: 'EXPLORE' },
+      { x: 0, y: 0.5, w: 0.5, h: 0.5, label: 'character', caption: 'A hiker.' },
+    ],
+    prompt = layoutBoxes.layoutPrompt('A travel poster', boxes, { width: 1024, height: 1024 }),
+    call = functionCall('create_image', 'action1', JSON.stringify({ prompt, workflow: 'moss' })),
+    proposal = { call, workflowName: 'MOSS Image', requestId: 'r1', plan: { prompt } };
+  const made = studio.context.runInStudio(proposal, {
+    signal: new AbortController().signal,
+    onProgress() {},
+    conversationId: ID,
+  });
+  await generation.started;
+  // While it is made, then once it is: the line and the call the model reads say the caption and how many boxes.
+  for (const kept of [await store.read(ID), (generation.finish(madeImage()), await made, await store.read(ID))]) {
+    assert.match(kept.messages[0].content, /^Studio · Image : A travel poster \(3 boîtes\)\n\n/);
+    assert.deepEqual(JSON.parse(kept.messages[1].tool_calls[0].function.arguments), {
+      prompt: 'A travel poster (3 boîtes)',
+      workflow: 'moss',
+    });
+    assert.doesNotMatch(JSON.stringify(kept.messages.slice(0, 2)), /bbox/);
+  }
+  // Named by its caption; the call made is not changed.
+  assert.equal(studio.$('conversation-title').textContent, 'A travel poster');
+  assert.equal(JSON.parse(call.function.arguments).prompt, prompt);
 });
 
 test('a call of the Chat is kept before its take is made: the page reloaded meanwhile finds it (0.6.82)', async t => {

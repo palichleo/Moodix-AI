@@ -9869,6 +9869,41 @@ body:not([data-view='chat']) .resume {
   backdrop-filter: none;
   box-shadow: none;
 }
+/* (0.6.493) Dans la carte, la tête « Il manque un fichier » de l'offre n'est pas redite : le titre de la carte nomme
+   le modèle, en ambre, et son statut le dit. À 1280 × 720, elle poussait ce titre sous la barre du haut. */
+#messages .proposal-card .proposal-offer .missing-head {
+  display: none;
+}
+/* (0.6.493) Et l'offre plus serrée dans la carte (lignes des fichiers, marges des licences et du pied, 32 px de moins
+   pour MiniMax H3 Omni) : à 1280 × 720, la carte entière tient sous le fil d'Ariane, son titre et le bouton du modèle
+   hors du masque du haut de la conversation. Les licences restent toutes lues avant « Télécharger ». */
+#messages .proposal-card .proposal-offer .missing-file {
+  padding: 1px 0;
+}
+#messages .proposal-card .proposal-offer .license-block {
+  margin-top: 10px;
+}
+#messages .proposal-card .proposal-offer .license-head {
+  margin-bottom: 5px;
+}
+#messages .proposal-card .proposal-offer .license-list {
+  gap: 5px;
+}
+#messages .proposal-card .proposal-offer .missing-foot {
+  margin-top: 10px;
+}
+/* (0.6.493) « Générer » grisé quand la proposition n'est plus valable (expirée, refaite dans un autre onglet) : sa
+   raison dans sa bulle, jamais allumé pour être refusé. */
+#messages .proposal-card .proposal-go[aria-disabled='true'],
+#messages .proposal-card .proposal-go[aria-disabled='true']:hover {
+  border-color: rgba(238, 232, 222, 0.12);
+  background: rgba(238, 232, 222, 0.04);
+  color: var(--text-4);
+  cursor: default;
+}
+#messages .proposal-card .proposal-go[aria-disabled='true'] .proposal-go-play {
+  border-left-color: var(--text-4);
+}
 /* (0.6.476) Un texte sous « Paramètres avancés » (le prompt négatif de Wan 2.2) : sur toute la largeur de ses deux
    colonnes. */
 #messages .proposal-card .proposal-panels .proposal-grid > .proposal-field.is-wide {
@@ -11757,8 +11792,10 @@ body[data-view='library'] #library-view {
   overflow-y: auto;
   scrollbar-width: thin;
 }
+/* (Merged with 0.6.478) However tall the window at the bottom right is with the queue of the Studio (work-miniature.mjs
+   says its height), and 56 px more: its last row comes out from under it (280 px fixed, as 224 + 56, hid it). */
 body:has(> .work-mini:not([hidden]):not(.is-foot)) #library-view > .library-creations {
-  padding-bottom: 280px;
+  padding-bottom: calc(var(--work-mini-height, 224px) + 56px);
 }
 @media (max-width: 720px) {
   #library-view > .library-head {
@@ -14282,7 +14319,8 @@ body[data-setup='incomplete'] #resume-last {
 .license-files {
   min-width: 0;
   color: var(--text-3);
-  font: 400 11.5px/1.4 var(--font-mono);
+  /* (0.6.493) 12 px, la plus petite taille d'un texte qui n'est pas en petites capitales (11,5 px avant). */
+  font: 400 12px/1.4 var(--font-mono);
   overflow-wrap: anywhere;
 }
 .license-limits {
@@ -15496,9 +15534,10 @@ button.glass-select::after {
 .work-mini.is-foot :is(.work-mini-fold, .work-mini-close) {
   display: none;
 }
-/* The Pellicule scrolls under it: its last row can come out from under it. */
+/* The Pellicule scrolls under it: its last row can come out from under it. (0.6.478) However tall it is with its
+   list (work-miniature.mjs says its height), and 56 px more, as before (224 + 56). */
 body:has(> .work-mini:not([hidden]):not(.is-foot)) .library-view {
-  padding-bottom: 280px;
+  padding-bottom: calc(var(--work-mini-height, 224px) + 56px);
 }
 /* The pointer of Moodix AI belongs to the Studio on screen: never over another page (0.6.81, a
    proposal waiting on « Générer » while the user looks elsewhere); back there, it is there again. */
@@ -21538,6 +21577,555 @@ body:has(dialog[open]) :is(.camera-ball, .camera-menu-option) :is(.camera-ball-l
 #studio-view .studio-rail > .output-action-compare[aria-pressed='true'] > svg {
   color: var(--accent);
 }
+/* ------------------------------------------------------------------ (0.6.477) The boxes of MOSS Image */
+/* claude_design/bbox/maquettes (captures B20 to B33, outil/piece-boites.css; LOTS.md): the piece « Boîtes » of the
+   plateau, its count in its corner; its small window, the list of its boxes; the boxes over the frame of the preview,
+   drawn there, chosen, moved, made larger by their handles; the small window of a box, hung beside it; after the
+   take, its eye, here and on the page of the take (take-eye.mjs). Nothing under 12 px, nothing fades in, no grain on
+   the picture. */
+#studio-view .studio-boxes .studio-slot.is-filled .studio-slot-pick {
+  border: 1px solid rgba(238, 232, 222, 0.24);
+  background: rgba(238, 232, 222, 0.04);
+  color: var(--text-2);
+}
+#studio-view .studio-boxes .studio-slot-pick > svg {
+  width: 20px;
+  height: 20px;
+}
+/* Its count at the bottom right of its case; at twelve, in amber, as the line under the plateau (B25, B26). */
+#studio-view .studio-boxes-count {
+  position: absolute;
+  right: 4px;
+  bottom: 3px;
+  color: var(--text-2);
+  font: 600 12px/1 var(--font-mono);
+}
+#studio-view .studio-boxes-count.is-full,
+#studio-view .studio-plateau-note.is-alert,
+#studio-view .studio-plateau-note.is-alert > svg,
+.studio-boxes-of.is-full {
+  color: var(--alert, var(--warning));
+}
+/* Its window (B20, B26, B28b): that of the pieces, a head with the count and « Expérimental »; a list taller than
+   the room under the case scrolls in itself (his decision N10: seven lines at 1280 × 720), never the page. */
+.glass-menu.studio-piece-window:is(.studio-boxes-window, .studio-box-window) {
+  max-height: none;
+  overflow: visible;
+}
+.studio-boxes-head {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+  white-space: nowrap;
+}
+.studio-boxes-of {
+  color: var(--text-2);
+  font: 400 12px/1 var(--font-mono);
+  letter-spacing: 0.04em;
+}
+.studio-boxes-tag {
+  padding: 3px 6px 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  color: var(--text-2);
+  font: 500 12px/1 var(--font-ui);
+}
+:is(.studio-boxes-head, .studio-box-foot) > .help-tip {
+  position: static;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  background: transparent;
+}
+.studio-boxes-said {
+  margin: 0;
+  color: var(--text-2);
+  font: 400 13px/1.45 var(--font-ui);
+}
+.studio-boxes-said.is-alert {
+  color: var(--alert, var(--warning));
+}
+.studio-boxes-window.is-greyed .studio-window-title {
+  color: var(--text-3);
+}
+.studio-boxes-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: -4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+/* (No fading at its foot: its thin bar says there is more.) */
+.studio-boxes-lines.is-scrolled {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(238, 232, 222, 0.24) transparent;
+}
+.studio-boxes-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 4px;
+  border-radius: 8px;
+}
+/* The whole line opens its box: its window in the frame, this one closes. */
+#studio-view .studio-boxes-pick {
+  display: grid;
+  grid-template-columns: 22px auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  margin: 0;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-1);
+  font: 400 13px/1.3 var(--font-ui);
+  text-align: left;
+  box-shadow: none;
+  cursor: pointer;
+}
+#studio-view :is(.studio-boxes-pick, .studio-boxes-remove):is(:hover, :focus-visible) {
+  background: rgba(238, 232, 222, 0.08);
+  color: var(--text-1);
+}
+.studio-boxes-num {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  color: var(--text-1);
+  font: 500 12px/1 var(--font-mono);
+}
+.studio-boxes-num.is-chosen {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.studio-boxes-type {
+  color: var(--text-2);
+}
+.studio-boxes-excerpt {
+  overflow: hidden;
+  color: var(--text-3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.studio-boxes-line.is-missing :is(.studio-boxes-excerpt, .studio-boxes-num) {
+  color: var(--alert, var(--warning));
+}
+.studio-boxes-line.is-missing .studio-boxes-num {
+  border-color: color-mix(in srgb, var(--alert, var(--warning)) 60%, transparent);
+}
+#studio-view .studio-boxes-remove {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-3);
+  box-shadow: none;
+}
+#studio-view .studio-boxes-remove svg {
+  width: 14px;
+  height: 14px;
+}
+/* The window of a box (B22 to B24), hung beside it between the Entrée and the Réglages: narrower than those of the
+   pieces, of the same glass, titles and foot. It is in the layer over the frame, which lets the pointer through. */
+.glass-menu.studio-piece-window.studio-box-window {
+  width: 248px;
+  color: var(--text-1);
+  font: 400 13px/1.3 var(--font-ui);
+  pointer-events: auto;
+}
+.studio-box-kinds {
+  display: flex;
+  gap: 2px;
+}
+#studio-view .studio-box-kind {
+  height: 30px;
+  min-height: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-3);
+  font: 400 13px/1 var(--font-ui);
+  box-shadow: none;
+}
+#studio-view .studio-box-kind:is(:hover, :focus-visible) {
+  color: var(--text-1);
+}
+#studio-view .studio-box-kind[aria-checked='true'] {
+  background: rgba(238, 232, 222, 0.1);
+  color: var(--text-1);
+}
+.studio-box-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* Its name at the left of a field of one line (« Texte à écrire »), as a line of a window (« Finit sur »). */
+.studio-box-field.is-inline {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+.studio-box-field > .studio-label {
+  color: var(--text-2);
+  font: 400 13px/1.2 var(--font-ui);
+}
+#studio-view .studio-box-field textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 0;
+  padding: 6px 10px;
+  border: 1px solid rgba(238, 232, 222, 0.1);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--text-1);
+  font: 400 13px/1.4 var(--font-ui);
+  resize: none;
+  box-shadow: none;
+}
+#studio-view .studio-box-field textarea::placeholder {
+  color: var(--text-3);
+}
+#studio-view .studio-box-field textarea:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+#studio-view .studio-box-field.is-missing textarea {
+  border-color: color-mix(in srgb, var(--alert, var(--warning)) 55%, transparent);
+}
+#studio-view .studio-box-field.is-missing textarea::placeholder {
+  color: color-mix(in srgb, var(--alert, var(--warning)) 75%, transparent);
+}
+.studio-window-foot.studio-box-foot {
+  justify-content: flex-start;
+  gap: 7px;
+}
+.studio-box-foot > .studio-window-button {
+  margin-left: auto;
+}
+/* The boxes over the frame (studio-frame-over, at its size): over the picture as it will be made, at its ratio, in
+   the middle of the frame less 8 px all around as a take is; the empty frame whole. */
+#studio-view .studio-layout {
+  --layout-room: 16px;
+  position: absolute;
+  inset: 0;
+  container-type: size;
+  pointer-events: none;
+}
+#studio-view .studio-layout.is-blank {
+  --layout-room: 0px;
+}
+#studio-view .studio-layout-canvas {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(100cqw - var(--layout-room), (100cqh - var(--layout-room)) * var(--layout-ratio, 1));
+  aspect-ratio: var(--layout-ratio, 1);
+  transform: translate(-50%, -50%);
+}
+#studio-view .studio-layout.is-drawing > .studio-layout-canvas {
+  pointer-events: auto;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+/* The empty frame drawn in: a dashed line of the accent around it (B20). */
+#studio-view .studio-frame:has(+ .studio-frame-over > .studio-layout.is-drawing.is-blank) {
+  outline: 1px dashed color-mix(in srgb, var(--accent) 38%, transparent);
+  outline-offset: -1px;
+}
+#studio-view .studio-blank-title {
+  margin: 0;
+  color: var(--text-1);
+  font: 400 21px/1.2 var(--font-display);
+}
+#studio-view .studio-blank-text {
+  margin: 0;
+  color: var(--text-2);
+  font: 400 13px/1.45 var(--font-ui);
+}
+/* (A dark line around the light one: drawn over a light take, the window of the piece open, a box is seen too.) */
+#studio-view .studio-layout-box {
+  position: absolute;
+  box-sizing: border-box;
+  container: layout-box / size;
+  border: 1.5px solid rgba(238, 232, 222, 0.72);
+  border-radius: 3px;
+  background: rgba(238, 232, 222, 0.05);
+  box-shadow: 0 0 0 1px rgba(10, 9, 12, 0.5);
+}
+/* (A box of 2 % read from a file is 5 px wide at 1280 × 720: taken by 6 px around it all the same.) */
+#studio-view .studio-layout.is-drawing .studio-layout-box:not(.is-drawn)::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+#studio-view .studio-layout.is-drawing .studio-layout-box:not(.is-drawn) {
+  cursor: move;
+}
+#studio-view .studio-layout-box:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+#studio-view .studio-layout-box.is-chosen {
+  z-index: 2;
+  border: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+#studio-view .studio-layout-box.is-missing {
+  border-color: color-mix(in srgb, var(--alert, var(--warning)) 80%, transparent);
+}
+#studio-view .studio-layout-box.is-drawn {
+  z-index: 3;
+  border: 1.5px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+/* A gesture under 12 px on the screen: not a box yet, in amber (B30). */
+#studio-view .studio-layout-box.is-drawn.is-small {
+  border-color: var(--alert, var(--warning));
+  background: transparent;
+}
+#studio-view .studio-layout-box.is-greyed {
+  border: 1.5px dashed rgba(238, 232, 222, 0.32);
+  background: transparent;
+}
+/* Its number and its type in its corner (the type where the box has the room); above it or under it where it has
+   not, or where « PRISE n » is (layout-editor.mjs, tidy). */
+#studio-view .studio-layout-chip,
+.take-eye-chip {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: calc(100% - 6px);
+  padding: 2px 6px 3px;
+  border-radius: 6px;
+  background: rgba(12, 11, 14, 0.8);
+  color: var(--text-1);
+  font: 500 12px/1.2 var(--font-ui);
+  white-space: nowrap;
+  pointer-events: none;
+}
+#studio-view .studio-layout-chip > b,
+.take-eye-chip > b {
+  font: 500 12px/1.2 var(--font-mono);
+}
+#studio-view .studio-layout-chip.is-outside,
+.take-eye-chip.is-outside {
+  top: auto;
+  bottom: calc(100% + 2px);
+  left: -1px;
+  max-width: none;
+}
+#studio-view .studio-layout-chip.is-below,
+.take-eye-chip.is-below {
+  top: calc(100% + 2px);
+  left: -1px;
+  max-width: none;
+}
+@container layout-box (max-width: 77px) {
+  #studio-view .studio-layout-type {
+    display: none;
+  }
+}
+@container take-box (max-width: 77px) {
+  .take-eye-type {
+    display: none;
+  }
+}
+#studio-view .studio-layout-box.is-chosen .studio-layout-chip {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+#studio-view .studio-layout-box.is-greyed .studio-layout-chip {
+  background: rgba(12, 11, 14, 0.7);
+  color: var(--text-3);
+}
+#studio-view .studio-layout-box.is-missing .studio-layout-chip {
+  color: var(--alert, var(--warning));
+}
+/* What it holds, where it has the room: a description in its middle, the words of a text on its line. */
+#studio-view .studio-layout-words {
+  position: absolute;
+  inset: 22px 6px 4px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--text-2);
+  font: 400 12px/1.3 var(--font-ui);
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(10, 9, 12, 0.9);
+  pointer-events: none;
+}
+#studio-view .studio-layout-words > span {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+#studio-view .studio-layout-words.is-text {
+  inset: 2px 6px 2px 64px;
+  justify-content: flex-start;
+  color: var(--text-1);
+  font: 500 12px/1.2 var(--font-ui);
+  letter-spacing: 0.08em;
+}
+@container layout-box (min-width: 96px) and (min-height: 64px) {
+  #studio-view .studio-layout-words {
+    display: flex;
+  }
+}
+@container layout-box (min-width: 120px) and (min-height: 22px) {
+  #studio-view .studio-layout-words.is-text {
+    display: flex;
+  }
+}
+#studio-view .studio-layout-box.is-greyed .studio-layout-words {
+  color: var(--text-4);
+}
+/* The four handles of the box chosen, taken by 22 px around them. */
+#studio-view .studio-layout-handle {
+  position: absolute;
+  z-index: 2;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--room-bg);
+  border-radius: 50%;
+  background: var(--text-1);
+}
+#studio-view .studio-layout-handle::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+#studio-view .studio-layout-handle.is-tl {
+  top: -6px;
+  left: -6px;
+  cursor: nwse-resize;
+}
+#studio-view .studio-layout-handle.is-tr {
+  top: -6px;
+  right: -6px;
+  cursor: nesw-resize;
+}
+#studio-view .studio-layout-handle.is-bl {
+  bottom: -6px;
+  left: -6px;
+  cursor: nesw-resize;
+}
+#studio-view .studio-layout-handle.is-br {
+  right: -6px;
+  bottom: -6px;
+  cursor: nwse-resize;
+}
+/* The size of the box being drawn, in pixels of the picture (pixelBox), in its corner; under it when it is small. */
+#studio-view .studio-layout-readout {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 2px 6px 3px;
+  border-radius: 6px;
+  background: rgba(12, 11, 14, 0.86);
+  color: var(--text-1);
+  font: 400 12px/1.2 var(--font-mono);
+  white-space: nowrap;
+  pointer-events: none;
+}
+#studio-view .studio-layout-readout.is-outside {
+  top: calc(100% + 6px);
+  right: auto;
+  bottom: auto;
+  left: -1px;
+}
+/* What a gesture could not do, at the hand, in amber (B25, B30), until the next one. */
+#studio-view .studio-layout-said {
+  position: absolute;
+  z-index: 5;
+  padding: 4px 8px 5px;
+  border: 1px solid color-mix(in srgb, var(--alert, var(--warning)) 45%, transparent);
+  border-radius: 6px;
+  background: rgba(12, 11, 14, 0.86);
+  color: var(--alert, var(--warning));
+  font: 400 12px/1.3 var(--font-ui);
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* The eye (B31 to B33), in the Studio and on the page of a take: an icon alone at the top right of the picture;
+   pressed, the boxes the model received in thin lines, read on a light picture as on a dark one, their numbers
+   outside them (take-eye.mjs). */
+.take-eye {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+.take-eye-box {
+  position: absolute;
+  box-sizing: border-box;
+  container: take-box / size;
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  border-radius: 3px;
+  box-shadow:
+    0 0 0 1px rgba(10, 9, 12, 0.55),
+    inset 0 0 0 1px rgba(10, 9, 12, 0.35);
+}
+.take-eye-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid rgba(238, 232, 222, 0.18);
+  border-radius: 8px;
+  background: rgba(12, 11, 14, 0.74);
+  color: var(--text-1);
+  box-shadow: none;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+.take-eye-button > svg {
+  width: 18px;
+  height: 18px;
+}
+.take-eye-button:is(:hover, :focus-visible) {
+  border-color: rgba(238, 232, 222, 0.4);
+}
+.take-eye-button[aria-pressed='true'] {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--accent);
+}
 
 /* ------------------------------------------------------------------ (0.6.480) A model not on this computer */
 /* (claude_design/maquette-studio-sans-modele, approved on 27/11.) Its name in amber, in its list and alone; what it is
@@ -21903,4 +22491,493 @@ body:has(dialog[open]) :is(.camera-ball, .camera-menu-option) :is(.camera-ball-l
   margin-top: 6px;
   font-size: 13px;
   color: var(--text-2);
+}
+
+/* ------------------------------------------------------------------ (0.6.466) The queue of the Studio */
+/* claude_design/maquette-file-studio (its file.css, under the names of the product). « ▸ Générer ensuite · 46 % | ■ »
+   in the glass of « Générer » while a take of the Studio is made (266 px, 206 before; in a series, as wide as « 1/3 ·
+   46 % » needs); « ▸ Reprendre · 3 | × » once the queue is paused. Nothing fades, nothing blinks: the states change at
+   once, as the Sortie; only the bar of a wait moves between two requests, as when a take begins. */
+#studio-view .studio-go-glass.is-working.is-next {
+  width: auto;
+  min-width: 266px;
+}
+#studio-view .studio-go-group:not(.is-checking) .studio-go-glass.is-working .studio-go.is-next {
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 0 16px 0 18px;
+  cursor: pointer;
+}
+#studio-view .studio-go-group:not(.is-checking) .studio-go-glass.is-working .studio-go.is-next[aria-disabled='true'] {
+  cursor: default;
+}
+#studio-view .studio-go-glass.is-working .studio-go.is-next:not([aria-disabled='true']):is(:hover, :focus-visible) {
+  background: rgba(238, 232, 222, 0.08);
+}
+#studio-view .studio-go-percent {
+  position: relative;
+  z-index: 1;
+  margin-left: auto;
+  color: var(--text-2);
+  font: 500 12.5px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+#studio-view .studio-go-group:not(.is-checking) .studio-go-glass.is-paused .studio-go {
+  min-width: 168px;
+}
+/* Its ×, « Vider la file », in the place of « Arrêter » and of its size. */
+#studio-view .studio-go-group:not(.is-checking) .studio-go-glass .studio-clear {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-1);
+}
+#studio-view .studio-go-glass .studio-clear:is(:hover, :focus-visible) {
+  background: rgba(238, 232, 222, 0.08);
+}
+#studio-view .studio-go-glass .studio-clear:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -3px;
+}
+#studio-view .studio-go-glass .studio-clear svg {
+  width: 14px;
+  height: 14px;
+}
+/* ------------------------------------------------------------------ the queue in the window at the bottom right */
+/* (0.6.478, variante A of claude_design/maquette-file-bas-droite) The miniature is the place of the queue: under the
+   take in progress, what waits, in its order, a line per request (work-miniature.mjs); the Sortie keeps the take
+   under way and the takes made. The window never taller than the page (under the top bar, 16 px from its foot): the
+   list scrolls in it, never the page. Nothing in it moves but the Flux and the line of the take. */
+.work-mini {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 88px);
+}
+.work-mini-back {
+  flex: none;
+}
+.work-mini.has-now.has-queue:not(.is-folded, .is-foot) .work-mini-back {
+  border-radius: 14px 14px 0 0;
+}
+/* Where the window has no more room (the page too low, the Studio at 1168 × 788), the list scrolls as one, never each
+   of its groups cut to a sliver. */
+.work-mini-file {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.work-mini.has-now:not(.is-folded, .is-foot) .work-mini-file,
+.work-mini-queue + .work-mini-queue {
+  border-top: 1px solid rgba(238, 232, 222, 0.08);
+}
+.work-mini-queue {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  padding: 8px 6px 6px;
+}
+/* The list alone: its first line leaves the chevron its place. */
+.work-mini:not(.has-now) .work-mini-queue:first-child > :first-child {
+  margin-right: 28px;
+}
+/* The name of its conversation, when the take above is another one (or there is none): the Éclipse and the name, a
+   button back to its Studio, as the head of the take. */
+.work-mini-queue-back {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0 0 4px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-1);
+  font: 400 13px/1.2 var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+.work-mini-queue-back:hover {
+  background: rgba(238, 232, 222, 0.04);
+}
+.work-mini-queue-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* « EN ATTENTE · 3 », « EN PAUSE · 3 » (amber), « ÉCHEC · 1 » (red), in the small capitals of the Sortie. */
+.work-mini-queue-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  min-width: 0;
+  min-height: 22px;
+  padding: 0 6px;
+}
+.work-mini-queue-title {
+  color: var(--text-3);
+  font: 400 var(--size-label) / 1 var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.work-mini-queue-title > b {
+  color: var(--text-2);
+  font-weight: 400;
+}
+.work-mini-queue-head.is-paused .work-mini-queue-title > b {
+  color: var(--warning);
+}
+.work-mini-queue-head.is-failed .work-mini-queue-title > b {
+  color: var(--danger);
+}
+.work-mini-rows + .work-mini-queue-head {
+  margin-top: 6px;
+}
+/* What paused it (« Génération arrêtée. », the card held, the page reloaded), above its title. */
+.work-mini-queue-why {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 6px;
+  padding: 0 6px;
+  color: var(--text-2);
+  font: 400 13px/1.3 var(--font-ui);
+}
+.work-mini-queue-why::before {
+  content: '';
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+.work-mini-queue-why.is-card::before {
+  background: var(--warning);
+}
+/* The lines, as those of a list of glass (glass-menu-item), two lines of words each. Four and a half are seen at most
+   (three and a half on a low page): the half says the list goes on, and it scrolls in the window, never the page. */
+.work-mini-rows {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 2px;
+  max-height: calc(4.5 * 46px + 4 * 2px);
+  margin: 4px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+@media (max-height: 800px) {
+  .work-mini-rows {
+    max-height: calc(3.5 * 46px + 3 * 2px);
+  }
+}
+.work-mini-rows + .work-mini-rows {
+  margin-top: 6px;
+}
+.work-mini-row {
+  display: grid;
+  flex: none;
+  grid-template-columns: 16px minmax(0, 1fr) 26px;
+  align-items: center;
+  column-gap: 8px;
+  box-sizing: border-box;
+  min-height: 46px;
+  padding: 0 4px 0 8px;
+  border-radius: 8px;
+  color: var(--text-2);
+}
+.work-mini-row:hover {
+  background: rgba(238, 232, 222, 0.08);
+  color: var(--text-1);
+}
+.work-mini-row > svg {
+  width: 14px;
+  height: 14px;
+  color: var(--text-3);
+  fill: none;
+  stroke: currentColor;
+}
+.work-mini-row-words {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.work-mini-row-text {
+  overflow: hidden;
+  color: inherit;
+  font: 400 13px/1.25 var(--font-ui);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.work-mini-row-what {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-3);
+  font: 400 12px/1.2 var(--font-ui);
+  white-space: nowrap;
+}
+.work-mini-row-model {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Its tries just after its format (« Krea 2 · 16:9 · × 3 »): at the right, against the cross, « × 3 » read as it. */
+.work-mini-row-tries {
+  flex: none;
+  color: var(--text-2);
+  font: 400 12px/1.2 var(--font-mono);
+}
+.work-mini-row-tries::before {
+  content: '· ';
+  color: var(--text-3);
+  font-family: var(--font-ui);
+}
+/* Its cross, always there but quiet; light under the pointer. */
+.work-mini-row-del {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-4);
+  cursor: pointer;
+}
+.work-mini-row:hover .work-mini-row-del {
+  color: var(--text-2);
+}
+.work-mini-row-del:is(:hover, :focus-visible) {
+  outline: none;
+  background: rgba(238, 232, 222, 0.1);
+  color: var(--text-1);
+}
+.work-mini-row-del svg {
+  width: 12px;
+  height: 12px;
+}
+/* A request that failed: why, in the colour of the errors (two lines at most), in place of its model; a click on it
+   gives its settings back to the Studio. */
+.work-mini-row.is-failed {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.work-mini-row.is-failed > svg,
+.work-mini-row.is-failed .work-mini-row-what {
+  color: var(--danger);
+}
+.work-mini-row.is-failed .work-mini-row-words {
+  cursor: pointer;
+}
+.work-mini-row.is-failed .work-mini-row-what {
+  white-space: normal;
+}
+.work-mini-row-why {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.3;
+}
+.work-mini :is(.work-mini-queue-back, .work-mini-row-words, .work-mini-resume, .work-mini-clear):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+/* The queue full, said under the list; why « Reprendre » is greyed, above it. */
+.work-mini-queue-note,
+.work-mini-held {
+  flex: none;
+  margin: 6px 0 0;
+  padding: 0 6px;
+  color: var(--text-3);
+  font: 400 12px/1.35 var(--font-ui);
+}
+.work-mini-held {
+  margin-top: 8px;
+}
+/* Paused: « ▸ Reprendre · 3 » (« Libérer le GPU » while the card is held) and « Vider la file » at its foot. */
+.work-mini-foot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0 0;
+}
+.work-mini-resume {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  height: 36px;
+  min-height: 0;
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(238, 232, 222, 0.09);
+  box-shadow: inset 0 0 0 1px rgba(238, 232, 222, 0.22);
+  color: var(--text-1);
+  font: 500 14px/1 var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.work-mini-resume:hover:not([aria-disabled='true']) {
+  background: rgba(238, 232, 222, 0.14);
+}
+.work-mini-resume svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+.work-mini-resume[aria-disabled='true'] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(238, 232, 222, 0.1);
+  color: var(--text-3);
+  cursor: default;
+}
+.work-mini-clear {
+  flex: none;
+  height: 36px;
+  min-height: 0;
+  margin: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-3);
+  font: 400 13px/1 var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.work-mini-clear:hover {
+  background: rgba(238, 232, 222, 0.06);
+  color: var(--text-1);
+}
+/* Folded (and in the foot of the Paramètres), the pill: what waits beside the percentage (« 3 en attente »), or
+   under the words of Moodix (« 3 en pause »); the list alone, its first title alone (44 px, as the pill). */
+.work-mini .work-mini-kind.is-count {
+  color: var(--text-2);
+  font: 400 12px/1.2 var(--font-ui);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.work-mini .work-mini-kind.is-count.is-paused {
+  color: var(--warning);
+}
+.work-mini:is(.is-folded, .is-foot).has-count:not(.has-take) .work-mini-line {
+  display: flex;
+  grid-area: bar;
+}
+.work-mini:is(.is-folded, .is-foot).has-now .work-mini-file {
+  display: none;
+}
+.work-mini:is(.is-folded, .is-foot):not(.has-now) .work-mini-queue {
+  padding: 9px 6px;
+}
+.work-mini:is(.is-folded, .is-foot):not(.has-now) .work-mini-queue-head {
+  min-height: 26px;
+}
+.work-mini:is(.is-folded, .is-foot):not(.has-now) .work-mini-queue:not(:first-child),
+.work-mini:is(.is-folded, .is-foot):not(.has-now) .work-mini-queue > :not(.work-mini-queue-head),
+.work-mini:is(.is-folded, .is-foot):not(.has-now) .work-mini-queue-head ~ .work-mini-queue-head {
+  display: none;
+}
+/* In the Studio (variante A): the list alone lies under the settings, at their width, its foot on that of the screen
+   (studio.mjs, queueDock): it covers neither « Générer », nor the Sortie, nor the settings. With no room for a line
+   (1280 × 720), its title alone, which its chevron opens over the settings while it is looked at. */
+.work-mini.is-docked {
+  right: auto;
+  bottom: var(--work-mini-bottom);
+  left: var(--work-mini-left);
+  width: var(--work-mini-width);
+  max-height: var(--work-mini-room);
+}
+/* Lying there, its lines scroll with its words (.work-mini-file). */
+.work-mini.is-docked .work-mini-rows {
+  max-height: none;
+  overflow: visible;
+}
+.work-mini.is-docked:not(.is-folded) .work-mini-queue {
+  padding-top: 10px;
+  padding-bottom: 8px;
+}
+/* Its foot there (« Reprendre · 3 » while the button of the Studio follows a take after a reload) stays in sight at
+   the bottom of the window, its lines scrolling under it: at 1440 × 900 it was below the room, out of sight. */
+.work-mini.is-docked .work-mini-file {
+  border-radius: inherit;
+}
+.work-mini.is-docked .work-mini-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin: 0 -6px -8px;
+  padding: 8px 6px;
+  border-top: 1px solid rgba(238, 232, 222, 0.08);
+  background: var(--surface);
+}
+.work-mini.is-docked.is-over {
+  max-height: var(--work-mini-over);
+  box-shadow:
+    inset 0 0 0 1px rgba(238, 232, 222, 0.1),
+    0 18px 48px rgba(0, 0, 0, 0.55);
+}
+/* In a Chat of 1168 px, its pill over the input, 12 px above it: in its corner, it covered the end of the input and
+   its send button. The messages leave it room at their foot. */
+.work-mini.is-raised {
+  bottom: var(--work-mini-raise);
+}
+body:has(> .work-mini.is-raised:not([hidden])) .messages {
+  padding-bottom: 80px;
+}
+/* (0.6.478) The step under way in the middle of the head of the screen, never over Image · Vidéo · Son (at 1168 × 788
+   it was drawn over « Son »): the two sides share the room alike, the tabs keep theirs when they need more. */
+#studio-view .studio-screen-head:has(> .studio-progress:not([hidden])) {
+  display: grid;
+  grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr);
+}
+#studio-view .studio-screen-head:has(> .studio-progress:not([hidden])) > #studio-kinds {
+  grid-column: 1;
+  justify-self: start;
+}
+#studio-view .studio-screen-head:has(> .studio-progress:not([hidden])) > .studio-progress {
+  position: static;
+  grid-column: 2;
+  transform: none;
+}
+#studio-view .studio-screen-head:has(> .studio-progress:not([hidden])) > :not(#studio-kinds, .studio-progress) {
+  grid-column: 3;
+  justify-self: end;
 }

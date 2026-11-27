@@ -677,7 +677,9 @@ export function renderProposal(
       control.addEventListener?.('change', mark);
     }
 
-  const notes = [...(request.notes || [])];
+  // (0.6.493) Not the note of what it does not send (`heldNote`, for the Studio): its greyed inputs and the line under
+  // the notes say it here.
+  const notes = (request.notes || []).filter(note => !(request.heldNote && note === request.heldNote));
   if (plan.edited?.length)
     notes.push('Modifié par vous : ' + plan.edited.map(labelOf).join(', ') + '.');
   for (const note of notes) container.append(node('p', 'field-help proposal-note', note));

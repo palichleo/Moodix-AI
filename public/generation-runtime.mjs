@@ -2,6 +2,7 @@ import { renderProposal } from './video-plan.mjs';
 import { prepareStoryboard } from './resource-preparation.mjs';
 import { compressImage } from './images.mjs';
 import { FAILED_NOTE } from './transcript.mjs';
+import { layoutCount, layoutRecord, layoutWords } from './layout-boxes.mjs';
 
 /**
  * Chat-side generation flow: asks for approval, follows the job and prepares compressed
@@ -450,6 +451,10 @@ export function takeContent(
   // A character put in a video: what to call again to change it (the video followed, not
   // the result; the same character), said with the result for the next request.
   const again = replacedAgain(request, record);
+  // (0.6.477, his decision N11 of 21/11) A take made with boxes (MOSS Image) is told by its prompt and how many
+  // boxes it had, never the JSON the model of images read: the chat model would copy it, and it is long.
+  const boxed = layoutCount(record.prompt);
+  record = layoutRecord(record);
   return JSON.stringify({
     status: error ? 'generated' : 'success',
     run_id: record.id,
@@ -466,6 +471,7 @@ export function takeContent(
     use_as_source: { output: record.id },
     workflow: record.workflowName,
     prompt: record.prompt,
+    ...(boxed ? { boxes: layoutWords(boxed) } : {}),
     workflow_id: record.workflowId,
     workflow_digest: record.parameters.workflow_digest,
     media_type: record.mediaType || 'image',

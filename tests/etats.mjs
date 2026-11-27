@@ -704,3 +704,71 @@ test('(0.6.225) a model converted after its download says the room it needs, on 
   assert.equal(draw({ files, bytes: 30.6 * giga, left: 30.6 * giga }), plain);
   await settle();
 });
+
+test('(0.6.493) a card taller than the conversation keeps its head in view; in a proposal card, the head of that card', async () => {
+  // (relecture-chat-routage.md, m6: at 1280 × 720 the offer of LTX 2.5 in a proposal card, 490 px, had the title of
+  // the card and the button of its model under the top of the conversation, which the page keeps at its end as it
+  // grows: its ResizeObserver, answered before the one of the card.)
+  class Box extends Element {
+    closest(selector) {
+      const name = selector.slice(1);
+      for (let at = this; at; at = at.parent) if (String(at.className).split(' ').includes(name)) return at;
+      return null;
+    }
+    getBoundingClientRect() {
+      return { top: this.top ?? 0 };
+    }
+  }
+  const watchers = [],
+    moves = [],
+    before = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    constructor(answer) {
+      Object.assign(this, { answer, watched: [], off: false });
+      watchers.push(this);
+    }
+    observe(target) {
+      this.watched.push(target);
+    }
+    disconnect() {
+      this.off = true;
+    }
+  };
+  const giga = 1024 ** 3,
+    files = [{ file: 'ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors', size: 20 * giga }],
+    missing = { workflowId: 'ltx25', files, bytes: 20 * giga },
+    area = Object.assign(new Box('main', 'chat-area'), { top: 114, scrollBy: move => moves.push(move) }),
+    message = new Box('div', 'message'),
+    proposal = Object.assign(new Box('section', 'proposal-card'), { top: 32 }),
+    offered = new Box('div', 'proposal-offer');
+  area.append(message, proposal);
+  proposal.append(offered);
+  const draw = host =>
+    missingFileCard({
+      host,
+      request: { workflowName: 'LTX 2.5', mediaType: 'video', missing },
+      node: (...args) => new Box(...args),
+      icon,
+      api: async () => ({ json: async () => ({ job: { state: 'idle' } }) }),
+      wait: () => settle(),
+    }).card;
+  try {
+    draw(offered);
+    assert.equal(watchers.length, 1);
+    assert.equal(watchers[0].watched[0].className, 'missing-card');
+    watchers[0].answer();
+    // Up to the head of the proposal card (32), under the mask of the top of the conversation (114 + 14), 8 px more.
+    assert.deepEqual(moves, [{ top: -104, behavior: 'instant' }]);
+    assert.equal(watchers[0].off, true, 'once, as it comes');
+    // Alone in a message, its own head; one that fits in the conversation moves nothing.
+    draw(message).top = -5;
+    watchers[1].answer();
+    assert.deepEqual(moves.at(-1), { top: -141, behavior: 'instant' });
+    draw(message).top = 300;
+    watchers[2].answer();
+    assert.equal(moves.length, 2);
+  } finally {
+    globalThis.ResizeObserver = before;
+  }
+  await settle();
+});

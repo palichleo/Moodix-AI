@@ -13,6 +13,9 @@ import { clipPlayer, stillClip } from './take-player.mjs';
 import { elapsedClock } from './generation-time.mjs';
 import { settingName } from './setting-names.mjs';
 import { PIECES, PIECE_WORDS as WORDS, SHORT_MODELS } from './pieces.mjs';
+// (0.6.477) The boxes of MOSS Image: their editor, and their prompt shown as a person reads it.
+import { layoutCaption, readLayoutPrompt } from './layout-boxes.mjs';
+import { setupLayoutEditor } from './layout-editor.mjs';
 import {
   CAMERA_DEFAULT,
   CAMERA_GROUPS,
@@ -56,6 +59,7 @@ import { clipSeconds } from './take-length.mjs';
 import { setupMontage } from './montage.mjs';
 import { DICTATING } from './dictation.mjs';
 import { heldCause } from './generation-ui.mjs';
+import { QUEUE_MOST, createQueue, queueParts } from './studio-queue.mjs';
 import { engineOnly, engineText, sizeText, withEngine } from './missing-file.mjs';
 import { licenseBlock, restrictedOf } from './model-licenses.mjs';
 import { licenseSentence } from './models-page.mjs';
@@ -422,6 +426,8 @@ export function proposedValues(request, offered = []) {
     overlap = source && Number.isFinite(parameters.overlap_frames) ? parameters.overlap_frames : 0,
     width = parameters.width ?? request.resolution?.width,
     height = parameters.height ?? request.resolution?.height;
+  // (0.6.477) A prompt of boxes (MOSS Image): its caption in the prompt, its boxes on their piece (layout-editor.mjs).
+  const laid = readLayoutPrompt(String(plan.prompt ?? request.args?.prompt ?? ''), { width, height });
   const settings = {},
     roles = references.map(ref => ref.role),
     // (0.6.102) What its workflow fixes is no choice of Moodix AI: shown at once, as it will be made,
@@ -435,6 +441,7 @@ export function proposedValues(request, offered = []) {
     verb: request.tool || request.call?.function?.name || 'create_image',
     workflow: workflow?.id ?? null,
     prompt: String(plan.prompt ?? request.args?.prompt ?? ''),
+    ...(laid ? { prompt: laid.prompt, boxes: laid.boxes } : {}),
     promptFree: Boolean(editable.prompt),
     size: width > 0 && height > 0 ? sizeKey({ width, height }) : null,
     // (Of a ratio no format is close to, the nearest one, 0.6.92: the format in hand stayed beside its size.)
@@ -527,6 +534,13 @@ export function setupStudio({
   // (0.6.452) The dictation (public/dictation.mjs): its microphone in the corner of the prompt, at the left of the
   // wand, which it never replaces; alone there in Son, which has no wand. Handed to the Bobine too.
   dictation = null,
+  // (0.6.466) Where the queue of « Générer ensuite » is kept (the sessionStorage of the tab), and the identity of the
+  // tab: found again by that same tab reloaded only (studio-queue.mjs). Without them, it lives in the page.
+  queueStorage = null,
+  tab = '',
+  // (0.6.478) The Studio was drawn (its queue may have changed, its settings moved): the window at the bottom right
+  // says the queue again, and lies under the settings (app.js, syncMiniature).
+  onQueue = () => {},
 }) {
   const $ = id => document.getElementById(id);
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms * pace));
@@ -600,12 +614,31 @@ export function setupStudio({
     // Studio in the conversation it began in, { conversation, project }, while the page shows
     // another one, where it is said held; it is that conversation's again when the work ends (letGo).
     heldIn = null;
+  // (0.6.466) The requests « Générer ensuite » froze (studio-queue.mjs). `chaining`: from the end of a take of the
+  // Studio to the start of the next one (its next try, the next request of the queue): the Studio and the work of the
+  // page stay held meanwhile, and nothing of the Chat or the Bobine begins between two of them.
+  const queue = createQueue({ storage: queueStorage, tab });
+  // (`cardWait`: what stops the wait between two of them, freeAgain.)
+  let chaining = false,
+    cardWait = null,
+    // (0.6.478) The window at the bottom right is to be told the queue once this drawing is over (render).
+    queueTold = false;
   /** Whether the Studio holds a work: a take being made, a proposal waiting, a character checked. */
   // (`settling`: a creation just over, until its take is on the screen of its own conversation, 0.6.87.)
   // (Not a take of the Chat it follows, `working.chat`: that one is its conversation's, 0.6.96.)
-  const holds = () => Boolean((working && !working.chat) || proposal || checking || ai || settling);
+  const holds = () => Boolean((working && !working.chat) || proposal || checking || ai || settling || chaining);
+  // (0.6.466) A take of the Studio made by its own « Générer » (or the moment until the next one of its queue): the
+  // form stays free meanwhile. Not a take of the Chat or of the Bobine, nor one followed again: they write in it.
+  const ownWork = () => (working ? Boolean(working.controller) && !working.montage : chaining);
+  /** (0.6.466) Whether the form is held by what is being made: what the Chat or the Bobine makes is shown in it. */
+  const locked = () => Boolean(working) && !ownWork();
   // (0.6.175) What is said where a creation waits for the end of another one of this conversation.
   const BUSY_HERE = 'Génération en cours dans cette conversation : attendez sa fin.';
+  // (0.6.466) The wand while a take is made: the model of the chat has left the card for it (B4: greyed, silent).
+  const WAND_HELD = 'Moodix AI est en pause pendant la génération.';
+  /** (0.6.466) How many requests of the queue wait for their turn now (not those paused). */
+  const queueLeft = () => queue.waiting().length;
+  const requests = count => (count > 1 ? `${count} demandes` : `${count} demande`);
   /**
    * (0.6.175) Why a take of the Bobine cannot be created now, in the user's words; '' when it can. What
    * `generate` refuses: a creation under way here (the Studio's own, a take of the Chat it follows) or
@@ -616,7 +649,11 @@ export function setupStudio({
   function whyNot() {
     if (working?.montage) return '';
     if (away()) return elsewhere() || 'Une création est en cours dans une autre conversation : attendez sa fin.';
-    if (working || settling) return BUSY_HERE;
+    // (0.6.466) The queue of the Studio goes on: said above « Créer » short (montage.mjs, SHORT_WAITS), whole here.
+    const left = queueLeft();
+    if (left)
+      return `Le Studio a encore ${requests(left)} en file : attendez ${left > 1 ? 'leur' : 'sa'} fin, ou arrêtez-la.`;
+    if (working || settling || chaining) return BUSY_HERE;
     return blocked() || elsewhere() || '';
   }
   /** The conversation the Studio works in, and its project: the page's, unless it holds a work of another. */
@@ -625,8 +662,9 @@ export function setupStudio({
   /** The page shows another conversation than the one whose work the Studio holds. */
   const away = () => Boolean(heldIn) && heldIn.conversation !== shownConversation();
   /** A work begins here, in the conversation shown (`id` once it has one): always on screen then. */
-  function holdAt(id = shownConversation()) {
-    heldIn = { conversation: id, project: shownProject() };
+  // (0.6.466) A request of the queue, in its own: the conversation and the project it was asked in (D9).
+  function holdAt(id = shownConversation(), where = shownProject()) {
+    heldIn = { conversation: id, project: where };
   }
   /** The work held here is over: left meanwhile, the Studio goes to the conversation shown. */
   function letGo() {
@@ -674,8 +712,33 @@ export function setupStudio({
     camera: null, // (0.6.211) the camera of a video, once added: { move, speed } (public/camera.mjs)
     // (0.6.257) The last movement chosen in the block « Caméra », kept while its switch is off: it comes back on.
     cameraLast: null,
+    // (0.6.477) The boxes placed for MOSS Image, as fractions of the picture (public/layout-boxes.mjs), and whether
+    // their piece is on the plateau: taken back, they are kept for when it comes again (N8 of 21/11).
+    boxes: [],
+    layout: false,
   });
   const drafts = Object.fromEntries(MODES.map(item => [item.id, blank()]));
+  // (0.6.477) The boxes of MOSS Image (public/layout-editor.mjs): their piece, their windows, the frame they are drawn
+  // in; one thing open at a time with the other windows of the Studio. Frozen while a take is made, and under a
+  // proposal of Moodix AI, whose boxes are its own.
+  const boxes = setupLayoutEditor({
+    node,
+    icon,
+    notice,
+    draft: () => drafts[mode],
+    workflow: () => current(),
+    render: () => render(),
+    goable: () => goable(),
+    busy: () => (working ? whyNot() || BUSY_HERE : ''),
+    proposed: () => answering(),
+    closeOthers: () => {
+      if (pieceOpen) closeWindow();
+      if (addOpen) closeAdd();
+      if (cameraMenu) closeCameraMenu();
+      if (advanced) closeMore();
+    },
+    othersOpen: () => Boolean(pieceOpen || addOpen || cameraMenu || advanced),
+  });
   const picker = node('input');
   picker.type = 'file';
   picker.accept = 'image/png,image/jpeg,image/webp';
@@ -805,6 +868,8 @@ export function setupStudio({
     // (0.6.261) Greyed, it answers with its reason in its bubble, as « Générer » does (pressGo).
     greyable,
     onGreyed: button => queueMicrotask(() => sayTip(button)),
+    // (0.6.466, D7) While a take of the Studio is made, what makes a take of this one waits, greyed, and says why.
+    held: () => (ownWork() ? RAIL_HELD : ''),
   });
   // (0.6.255) What the column of the actions takes at the right of the frame: 16 px, then its buttons of 54.
   const RAIL_ROOM = 70;
@@ -1171,7 +1236,7 @@ export function setupStudio({
     // (0.6.190) « Sujet 1 · glissez-le » (le sujet); the image or the video of the other cases, « glissez-la ».
     pick.title = off || refused || (value ? label + (role === 'reference' ? ' · glissez-le' : ' · glissez-la') + ' vers un autre emplacement pour changer son rôle' : tip);
     pick.setAttribute('aria-label', off ? off : value ? label + ' · ' + value.name : refused ? label + ' · ' + refused : add);
-    pick.disabled = Boolean(working);
+    pick.disabled = locked();
     if (refused || off) pick.setAttribute('aria-disabled', 'true');
     if (value) {
       const preview = node('img');
@@ -1186,7 +1251,7 @@ export function setupStudio({
       mark.setAttribute('aria-hidden', 'true');
       if (!badge && picto) mark.append(icon(picto));
       pick.append(mark);
-      pick.draggable = !working;
+      pick.draggable = !locked();
       pick.ondragstart = event => {
         dragged = { role, index, media, preview: value.preview };
         event.dataTransfer.effectAllowed = 'move';
@@ -1225,7 +1290,7 @@ export function setupStudio({
       event.stopPropagation();
       tile.classList.remove('is-target');
       carrying(null);
-      if (working) return;
+      if (locked()) return;
       if (dragged) {
         const from = dragged;
         dragged = null;
@@ -1317,7 +1382,7 @@ export function setupStudio({
         control.placeholder = WHO[setting.key].hint;
         control.spellcheck = false;
         if (setting.maxLength) control.maxLength = setting.maxLength;
-        control.disabled = Boolean(working);
+        control.disabled = locked();
         control.oninput = () => {
           store[setting.key] = control.value;
         };
@@ -1435,7 +1500,7 @@ export function setupStudio({
       const swap = button('studio-swap', '', () => swapEnds(workflow), 'swap');
       swap.setAttribute('aria-label', 'Inverser début et fin');
       swap.title = 'Inverser début et fin';
-      swap.disabled = Boolean(working);
+      swap.disabled = locked();
       swap.append(time);
       middle.append(swap);
     } else middle.append(time);
@@ -1507,7 +1572,7 @@ export function setupStudio({
     pick.setAttribute('aria-label', said);
     pick.setAttribute('aria-haspopup', 'dialog');
     pick.setAttribute('aria-expanded', String(opened));
-    pick.disabled = Boolean(working);
+    pick.disabled = locked();
     // (0.6.261) Tested before it is given, as in finishPiece: an empty `src` reads as the address of the page.
     const seen = output.thumbUrl || output.originalUrl || '';
     if (seen) preview.src = seen;
@@ -1528,7 +1593,7 @@ export function setupStudio({
     if (opened) {
       // (0.6.198) The clip by the number of its take, as the Bobine says it; a clip of the disk, « la vidéo ».
       const take = output.take,
-        what = (record.prompt || record.name || '').slice(0, 90),
+        what = (layoutCaption(record.prompt) || record.name || '').slice(0, 90),
         pane = pieceWindow(workflow, {
           role: 'source',
           index: 0,
@@ -1578,7 +1643,7 @@ export function setupStudio({
     tile.dataset.slot = 'source-0';
     pick.title = said;
     pick.setAttribute('aria-label', said);
-    pick.disabled = Boolean(working);
+    pick.disabled = locked();
     // (0.6.261) Its address tested before it is given: an empty `src` reads as the address of the page, and a clip
     // without its miniature showed a broken image in place of the sign of a clip.
     const seen = output.thumbUrl || (mediaOf(record) === 'image' ? output.originalUrl : '') || '';
@@ -1590,7 +1655,7 @@ export function setupStudio({
     pick.append(seen ? preview : icon(mediaOf(record) === 'video' ? 'video' : 'image'), mark);
     leave.setAttribute('aria-label', verb === 'upscale' ? 'Ne plus agrandir cette prise' : 'Ne plus interpoler cette prise');
     leave.title = 'Retirer';
-    leave.disabled = Boolean(working);
+    leave.disabled = locked();
     tile.append(pick, leave);
     word.setAttribute('aria-hidden', 'true');
     piece.append(tile, word);
@@ -1648,7 +1713,7 @@ export function setupStudio({
           chip.setAttribute('aria-disabled', 'true');
           chip.title = why;
         }
-        chip.disabled = Boolean(working);
+        chip.disabled = locked();
         chips.append(chip);
       }
       head.append(chips);
@@ -1825,7 +1890,7 @@ export function setupStudio({
     pick.setAttribute('aria-label', said());
     pick.setAttribute('aria-haspopup', 'dialog');
     pick.setAttribute('aria-expanded', String(opened));
-    pick.disabled = Boolean(working);
+    pick.disabled = locked();
     tile.append(pick);
     word.setAttribute('aria-hidden', 'true');
     piece.append(tile, word);
@@ -1902,7 +1967,7 @@ export function setupStudio({
         input.step = String(step);
         // What the model does not hold (its distance, for now): the bar stays, greyed, and says why.
         const off = bounds[key].unavailable || (bounds[key].min === bounds[key].max ? 'Ce modèle ne change pas ce réglage.' : '');
-        input.disabled = Boolean(working) || Boolean(off);
+        input.disabled = locked() || Boolean(off);
         input.setAttribute('aria-label', label);
         input.oninput = () => set({ [key]: Number(input.value) });
         if (off) {
@@ -1939,7 +2004,7 @@ export function setupStudio({
         openPopup(pane, pick, { beside: tile });
       });
       choice.dataset.mode = id;
-      choice.disabled = Boolean(working);
+      choice.disabled = locked();
       modes.append(choice);
     }
     globe.setAttribute('role', 'img');
@@ -1953,7 +2018,7 @@ export function setupStudio({
     marks.end.dataset.end = 'end';
     globe.append(node('span', 'studio-orbit-sphere'), ring, clip, node('span', 'studio-orbit-face', 'face : la caméra de la vidéo'), trail, marks.start, marks.end, marks.fixed);
     globe.onpointerdown = event => {
-      if (working) return;
+      if (locked()) return;
       const end = event.target?.dataset?.end;
       if (end && state.mode === 'move') state.active = end;
       globe.setPointerCapture?.(event.pointerId);
@@ -2038,7 +2103,7 @@ export function setupStudio({
       pick.setAttribute('aria-haspopup', 'dialog');
       pick.setAttribute('aria-expanded', String(opened));
     }
-    pick.disabled = Boolean(working);
+    pick.disabled = locked();
     remove.setAttribute('aria-label', 'Retirer la caméra');
     remove.title = 'Retirer';
     tile.append(pick, remove);
@@ -2072,7 +2137,7 @@ export function setupStudio({
         const still = !cameraHasSpeed(draft.camera.move) || (own && !own.speed);
         speeds.title = still ? 'Ce mouvement n’a pas de vitesse.' : 'À quelle vitesse la caméra bouge.';
         for (const choice of speeds.children) {
-          choice.disabled = still || Boolean(working);
+          choice.disabled = still || locked();
           choice.setAttribute('aria-pressed', String(!still && choice.dataset.speed === draft.camera.speed));
         }
         // (The small scenes play at the speed chosen: moodix.css reads it here.)
@@ -2250,7 +2315,7 @@ export function setupStudio({
     if (mode !== 'video' || answering() || extending || (workflow.camera !== true && !kept)) return null;
     const draft = drafts.video,
       off = kept ? `Caméra gardée : ${workflow.name} ne la prend pas.` : '',
-      held = off ? '' : working ? whyNot() || BUSY_HERE : '';
+      held = off ? '' : locked() ? whyNot() || BUSY_HERE : '';
     if (off || held) cameraMenu = false;
     // (0.6.262) `row`: pieces are kept for another model, their line under the plateau; the block on one row, its
     // ball at the left (moodix.css), so that the column does not scroll. Kept itself, it is one line (is-off).
@@ -2704,6 +2769,8 @@ export function setupStudio({
     // Caméra), as it was.
     if (workflow.camera?.moves) kinds.push({ kind: 'camera' });
     if (workflow.settings?.some(setting => setting.key === 'lyrics' && setting.type === 'string')) kinds.push({ kind: 'lyrics' });
+    // (0.6.477) The boxes of MOSS Image, the last piece of a model of images (layout-editor.mjs): no file.
+    if (workflow.layout) kinds.push({ kind: 'boxes' });
     return kinds;
   }
   /**
@@ -2756,6 +2823,11 @@ export function setupStudio({
         );
         continue;
       }
+      // (0.6.477, B20) The boxes: put on the plateau, their window open, the frame ready to be drawn in.
+      if (piece.kind === 'boxes') {
+        choices.push(boxes.choice(name, given));
+        continue;
+      }
       const list = draft.inputs[piece.role] ?? [],
         free = Array.from({ length: piece.count }, (_, index) => index).find(index => !list[index]),
         clash = exclusiveWith(workflow, piece.role),
@@ -2797,7 +2869,7 @@ export function setupStudio({
     if (mode === 'video' && extending) return null;
     const choices = addChoices(workflow);
     if (!choices.length) return null;
-    const held = answering() ? AI_INPUTS : working ? whyNot() || BUSY_HERE : '';
+    const held = answering() ? AI_INPUTS : locked() ? whyNot() || BUSY_HERE : '';
     if (held) addOpen = false;
     const piece = node('div', 'studio-add' + (addOpen ? ' is-open' : '')),
       menu = node('div', 'glass-menu studio-add-menu'),
@@ -2811,6 +2883,8 @@ export function setupStudio({
           if (pieceOpen) closeWindow();
           if (cameraMenu) closeCameraMenu();
           if (advanced) closeMore();
+          // (0.6.477) And those of the boxes (layout-editor.mjs), opened with the keyboard.
+          if (boxes.isOpen()) boxes.close();
           addOpen = !addOpen;
           piece.classList.toggle('is-open', addOpen);
           pick.setAttribute('aria-expanded', String(addOpen));
@@ -2890,7 +2964,7 @@ export function setupStudio({
     // (0.6.257) The piece is that of a model that reads the camera itself; for the others, the block (cameraBlock).
     const filmed = Boolean(workflow.camera?.moves && drafts[mode].camera) && !answering() && !(mode === 'video' && extending),
       taken = pieceOpen && (pieceOpen.role === 'camera' ? filmed : pieceOpen.role === 'orbit' ? refilming() : pieceOpen.index < (workflow.roles?.[pieceOpen.role]?.count ?? 0));
-    if (pieceOpen && (working || !givenPiece(pieceOpen.role, pieceOpen.index) || !taken)) pieceOpen = null;
+    if (pieceOpen && (locked() || !givenPiece(pieceOpen.role, pieceOpen.index) || !taken)) pieceOpen = null;
     const off = offPieces(workflow),
       frames = framesRow(workflow, off),
       // (0.6.202) What the model does not take: the start and the end at their end of the line of time when it
@@ -2898,6 +2972,9 @@ export function setupStudio({
       // (0.6.257) The camera kept is its block, greyed (cameraBlock), not a piece of the plateau any more.
       rest = off.filter(piece => piece.role !== 'camera' && !(frames && piece.index === 0 && (piece.role === 'start_image' || piece.role === 'end_image'))),
       pieces = [sourcesRow(workflow), referencesRow(workflow), filmed ? cameraPiece(workflow) : null].filter(Boolean);
+    // (0.6.477) The boxes of MOSS Image, after the other pieces; greyed under a model that does not read them.
+    const boxed = boxes.piece(workflow);
+    if (boxed) pieces.push(boxed);
     if (rest.length) {
       const kept = node('div', 'studio-pieces studio-kept');
       kept.setAttribute('role', 'group');
@@ -2915,6 +2992,9 @@ export function setupStudio({
       plateau.append(row);
     }
     if (off.length) plateau.append(offLine(workflow, off));
+    // (0.6.477, B25, B28) What is said of the boxes under it: a model that does not read them, the limit of twelve.
+    const boxNote = boxes.note(workflow);
+    if (boxNote) plateau?.append(boxNote);
     // (0.6.204) The plateau alone: « Qui est qui » left the column for the windows of its two pieces.
     // (0.6.257, K00) Under it, the block « Caméra » of a model that takes one; greyed when it is kept from one.
     const blocks = [plateau, cameraBlock(workflow, { kept: off.some(piece => piece.role === 'camera'), row: off.length > 0 })].filter(Boolean);
@@ -3017,7 +3097,7 @@ export function setupStudio({
     bar.max = String(Math.max(0, count - 1));
     bar.step = '1';
     bar.value = String(index);
-    bar.disabled = disabled || Boolean(working);
+    bar.disabled = disabled || locked();
     bar.setAttribute('aria-label', label);
     if (key) aiTarget(bar, key);
     const marks = [];
@@ -3168,7 +3248,7 @@ export function setupStudio({
     disk.append(floppy, check);
     disk.dataset.workflow = workflow.id;
     disk.dataset.state = 'still';
-    disk.disabled = Boolean(working) || answering();
+    disk.disabled = locked() || answering();
     saveButton = disk;
     return disk;
   }
@@ -3194,7 +3274,7 @@ export function setupStudio({
   }
   /** Keeps the settings of the model on the server, apart from its workflow, in place of the last. */
   async function savePreset(workflow) {
-    if (working || answering()) return;
+    if (locked() || answering()) return;
     const values = snapshot(workflow);
     try {
       const answer = await (await api('studio/preset', { workflow: workflow.id, preset: values })).json();
@@ -3243,7 +3323,7 @@ export function setupStudio({
       });
       model.className = 'studio-model-pick' + (workflow.missing ? ' is-absent' : '');
       model.title = workflow.description || workflow.name;
-      model.disabled = answering() || Boolean(working);
+      model.disabled = answering() || locked();
       if (answering()) model.title = 'Modèle choisi par Moodix AI pour cette proposition';
       model.setAttribute('aria-label', mode === 'audio' ? 'Type' : 'Modèle');
       aiTarget(model, 'model');
@@ -3407,7 +3487,7 @@ export function setupStudio({
         );
         add.setAttribute('aria-label', 'Ajouter un LoRA');
         add.title = 'Ajouter un LoRA';
-        add.disabled = Boolean(working);
+        add.disabled = locked();
         head.append(add);
       }
     }
@@ -3454,7 +3534,7 @@ export function setupStudio({
       const toggle = node('input', 'studio-lora-switch');
       toggle.type = 'checkbox';
       toggle.checked = choice.on;
-      toggle.disabled = Boolean(working);
+      toggle.disabled = locked();
       toggle.title = 'Utiliser ce LoRA pour cette création';
       toggle.setAttribute('aria-label', 'Utiliser le LoRA ' + lora.name);
       toggle.onchange = () => {
@@ -3501,11 +3581,11 @@ export function setupStudio({
       );
     name.className = 'studio-lora-pick';
     name.title = leaf(style.name);
-    name.disabled = Boolean(working);
+    name.disabled = locked();
     name.setAttribute('aria-label', 'LoRA ' + (index + 1));
     remove.title = 'Retirer ce LoRA';
     remove.setAttribute('aria-label', 'Retirer ce LoRA');
-    remove.disabled = Boolean(working);
+    remove.disabled = locked();
     row.append(name, track, value, remove);
     return row;
   }
@@ -3611,7 +3691,7 @@ export function setupStudio({
       seed.min = '0';
       seed.placeholder = seedFixed !== null ? String(seedFixed) : 'aléatoire';
       seed.value = draft.seed;
-      seed.disabled = Boolean(working);
+      seed.disabled = locked();
       seed.setAttribute('aria-label', 'Seed');
       seed.oninput = () => {
         draft.seed = seed.value;
@@ -3620,7 +3700,7 @@ export function setupStudio({
       aiTarget(seed, 'seed');
       dice.title = 'Tirer une seed au hasard';
       dice.setAttribute('aria-label', 'Tirer une seed au hasard');
-      dice.disabled = Boolean(working);
+      dice.disabled = locked();
       row.append(node('span', 'studio-bar-label', 'Seed'), seed, dice);
       lines.push(row);
     }
@@ -3724,8 +3804,124 @@ export function setupStudio({
     if (Number.isInteger(nextTake) && nextTake > 0) return nextTake;
     return 1 + Math.max(0, ...runs.flatMap(record => (record.outputs ?? []).map(output => output.take ?? 0)));
   }
+  /**
+   * (0.6.466) What a take of the Studio is asked with, frozen as it is asked: its mode, a copy of its draft, its page
+   * (a clip continued or filmed again, the page Agrandir, the picture of « Animer »), its shape and its readout. The
+   * form is free while it is made: the screen shows it from this, not from what is being written for the next one.
+   */
+  function lookNow() {
+    return {
+      mode,
+      draft: JSON.parse(JSON.stringify(drafts[mode])),
+      follows: Boolean(current()?.follows),
+      extending: mode === 'video' ? extending : null,
+      refilmId: mode === 'video' ? refilmId : null,
+      finishing: finishOn() ? { ...finishing } : null,
+      animated,
+      looked: Boolean(looked),
+      shape: formShape(),
+      readout: readoutText(current(), { asked: true }),
+    };
+  }
+  /**
+   * (0.6.466) A request of the queue as it is asked: what « Générer » sends (`wanted`, its model kept by its id), its
+   * tries, where it is made (the conversation and the project of the Studio), what the screen shows of it (lookNow)
+   * and what its tile says (`label`). `queued`: asked by « Générer ensuite », behind another one.
+   */
+  function requestEntry(wanted, count, queued = false) {
+    const look = lookNow(),
+      { model = null, ...rest } = wanted,
+      workflow = model ?? current(),
+      finish = wanted.finish ? FINISH[wanted.finish.verb] : null,
+      lasts = Boolean(workflow) && mode !== 'image',
+      seconds = !lasts ? null : mode === 'audio' ? soundSeconds(workflow) : lengthOf(workflow)?.value,
+      // Its length as the screen writes it (« 05.04 S »: 5.0416… s made for 5 asked).
+      format = [mode === 'audio' ? '' : look.shape.label, seconds ? figures(seconds) : ''].filter(Boolean).join(' · ');
+    return {
+      mode,
+      tries: count,
+      wanted: JSON.parse(JSON.stringify({ ...rest, model: model?.id ?? null })),
+      look,
+      conversation: conversation(),
+      project: project(),
+      queued,
+      label: {
+        // (0.6.500) A demand made with boxes (MOSS Image) is named by its description, never by the JSON the model
+        // reads (layoutCaption): the line of the queue showed that JSON once the two works met.
+        prompt:
+          layoutCaption(String(wanted.args?.prompt ?? '')).trim() ||
+          finish?.go ||
+          (refilming() ? 'Changer la caméra' : ''),
+        kind: mode,
+        // Its model without what its name says in brackets (« Bruitages », of « Bruitages (MOSS-SoundEffect v2) »):
+        // whole, it was cut on its tile.
+        model: String(workflow?.name ?? '').replace(/\s*\([^()]*\)\s*$/, ''),
+        format,
+      },
+    };
+  }
+  /**
+   * (0.6.466) What a request of the queue sends, as it was asked, its model read again by its id. Gone since (a model
+   * taken away): said on its tile. What else it lacks now, the server says (« … n'est pas prêt »), on its tile too.
+   */
+  function entryWanted(entry) {
+    const wanted = JSON.parse(JSON.stringify(entry.wanted ?? {}));
+    if (typeof wanted.model !== 'string') return { ...wanted, model: undefined };
+    const model = (info?.tools?.[wanted.verb] ?? []).find(item => item.id === wanted.model);
+    if (!model) throw Error(`${entry.label?.model || 'Son modèle'} n’est plus proposé par le Studio.`);
+    // (Merged with 0.6.480) Listed, but not on this computer any more (its files taken away since): said on its tile,
+    // never sent (the server would offer its download, and no take). A click on the tile gives « Télécharger ».
+    if (model.missing) throw Error(notHere(model.name, model.missing));
+    return { ...wanted, model };
+  }
+  /** (Merged with 0.6.480) Why a request is not made, its model not on this computer (any more): its tile says it. */
+  // (0.6.503) Its files all here, the engine of a new installation alone to fetch (engineOnly): what it lacks, as
+  // the line of its « Télécharger » says it (absentGo). « Pas sur cet ordinateur » said a model that was. Its model
+  // and what it lacks first: the tile of the window cuts its words at two lines.
+  const notHere = (name, missing) =>
+    engineOnly(missing)
+      ? `${name} : il manque le moteur de génération, téléchargez-le d’abord.`
+      : `${name} n’est pas sur cet ordinateur : téléchargez-le d’abord.`;
+  /**
+   * (0.6.466, D5) A click on a request that failed: its settings back in the Studio as they were asked (its page, its
+   * prompt, its model, its images, its tries), why it failed under the screen; its tile leaves the queue. As a take
+   * looked at (inspect): « Revenir » gives back the Studio as it was. Not while the Chat or the Bobine write in it.
+   */
+  function takeBack(entry) {
+    if (locked() || proposal || checking || ai) return notice(whyNot() || BUSY_HERE);
+    const look = entry.look ?? {};
+    if (!look.draft || !MODES.some(item => item.id === entry.mode)) return;
+    looked ??= { mode, drafts: structuredClone(drafts), advanced, kept: { ...kept }, pinned, extending, refilmId };
+    mode = entry.mode;
+    const draft = drafts[mode];
+    for (const key of Object.keys(draft)) if (!(key in look.draft)) delete draft[key];
+    Object.assign(draft, structuredClone(look.draft));
+    extending = mode === 'video' ? (look.extending ?? null) : null;
+    refilmId = mode === 'video' ? (look.refilmId ?? null) : null;
+    finishing = look.finishing ?? null;
+    animated = look.animated ?? null;
+    tries = Math.min(TRIES.at(-1), Math.max(1, entry.tries || 1));
+    triesIn = mode;
+    formatsOpen = addOpen = triesOpen = cameraMenu = false;
+    pieceOpen = null;
+    queue.remove(entry.id);
+    failure = entry.reason || '';
+    render();
+  }
+  /** (0.6.466) The take of the Studio being made, as it was asked (lookNow); null otherwise. */
+  function underWay() {
+    return working?.look ?? null;
+  }
+  /** (0.6.466) The mode of what the screen shows: the take of the Studio being made, else the page in hand. */
+  function screenMode() {
+    return underWay()?.mode ?? mode;
+  }
   /** The shape of what will be made: a ratio, and the format it is. */
+  // (0.6.466) A take of the Studio being made: its own, as it was asked (formShape: the one of the form).
   function shapeOf() {
+    return underWay()?.shape ?? formShape();
+  }
+  function formShape() {
     if (mode === 'audio') return { ratio: 3.4, label: '' };
     if (extending) {
       const { width, height } = extending.parameters ?? {},
@@ -3749,9 +3945,10 @@ export function setupStudio({
    * and its length, « 16:9 - 05.17 S »; an image, its format; a sound, its length. Whether it is
    * a draft or a final is said in the details of the creation (a click in the Sortie).
    */
-  function readoutText(workflow = current()) {
+  function readoutText(workflow = current(), { asked = false } = {}) {
+    if (underWay() && !asked) return underWay().readout;
     if (!workflow) return '';
-    const shape = shapeOf(),
+    const shape = asked ? formShape() : shapeOf(),
       length = lengthOf(workflow);
     if (mode === 'audio') {
       const sound = soundSeconds(workflow);
@@ -3826,6 +4023,9 @@ export function setupStudio({
    * across formats and across modes, and follows the window when it is resized.
    */
   function stage() {
+    // (0.6.466) The mode of what is on the screen: the one of the take of the Studio being made, whatever page the
+    // form shows meanwhile (Image while a sound is made: its bars, not a frame).
+    const mode = screenMode();
     const screen = node('div', 'studio-screen'),
       box = node('div', 'studio-stage'),
       // While a creation is being made the frame is its own (the picture so far). (0.6.256, captures A05 and B09)
@@ -3916,6 +4116,8 @@ export function setupStudio({
       const blank = node('div', 'studio-blank');
       blankLines = { size: node('p', 'studio-blank-size') };
       blankLines.size.setAttribute('aria-hidden', 'true');
+      // (0.6.477, B20) The boxes waiting for their first one: what to do, above the format and the size.
+      blank.append(...boxes.blank(current()));
       blank.append(blankLines.size);
       sayBlank();
       frame.append(blank);
@@ -3934,6 +4136,10 @@ export function setupStudio({
       element.style.height = from.height + 'px';
     }
     box.append(frame, over);
+    // (0.6.477) The boxes of MOSS Image over the frame while they are drawn, the eye of a take made with them
+    // (layout-editor.mjs); not while a take is made, nor over a picture of another page.
+    if (!working && !gpuBlocked() && !refilming() && !start && !finishOn())
+      boxes.layer(over, { blank: Boolean(blankLines), record: last });
     screen.append(box);
     // A take of the Sortie, or a file of the computer, dropped on the screen: shown there with what
     // made it (inspect, inspectFile). Not an image of a case, which only changes case.
@@ -3983,8 +4189,11 @@ export function setupStudio({
    * last of its mode while one is made), not a sound, not while a clip is continued nor while the card is held.
    */
   function railTake() {
+    // (0.6.466) Of the mode on the screen: that of the take of the Studio being made, the form free meanwhile.
+    const mode = screenMode(),
+      continued = underWay() ? underWay().extending : extending;
     const onScreen = working ? (kept[mode] ?? ownRuns().find(item => mediaOf(item) === mode) ?? null) : onStage();
-    if (!onScreen || mode === 'audio' || extending || (gpuBlocked() && !working)) return null;
+    if (!onScreen || mode === 'audio' || continued || (gpuBlocked() && !working)) return null;
     // (0.6.256) Nor while the screen shows the start image « Animer » put: no take on it.
     if (animatedStart()) return null;
     return onScreen.external && !onScreen.resource ? null : onScreen;
@@ -4025,7 +4234,7 @@ export function setupStudio({
         take = output.take;
       Object.assign(video, { preload: 'metadata', playsInline: true, src: output.originalUrl || '' });
       if (output.thumbUrl) video.poster = output.thumbUrl;
-      video.setAttribute('aria-label', record.prompt || 'Dernière vidéo créée');
+      video.setAttribute('aria-label', layoutCaption(record.prompt) || 'Dernière vidéo créée');
       video.onloadedmetadata = () => {
         shaped(video.videoWidth, video.videoHeight);
         measuredOnScreen(record, video.videoWidth, video.videoHeight);
@@ -4039,7 +4248,7 @@ export function setupStudio({
       element.append(video, player.element);
     } else {
       Object.assign(element, {
-        alt: record.prompt || 'Dernière image créée',
+        alt: layoutCaption(record.prompt) || 'Dernière image créée',
         decoding: 'async',
         src: output.originalUrl,
       });
@@ -4200,7 +4409,7 @@ export function setupStudio({
     const held = mode === 'video' && animatedStart() ? 'Le format suit l’image de début.' : '';
     const pick = id => {
       // (0.6.320) Nor while a creation runs, whatever is still on screen (its choices are greyed, see below).
-      if (held || working) return;
+      if (held || locked()) return;
       Object.assign(draft, { format: id, size: null, formatChosen: true });
       formatsOpen = false;
       // The chips and the sizes change with the format (another one may take the place of « ··· »).
@@ -4212,7 +4421,7 @@ export function setupStudio({
       chip.title = held || format.label;
       chip.setAttribute('role', 'radio');
       chip.setAttribute('aria-checked', String(id === draft.format));
-      chip.disabled = Boolean(working) || Boolean(held);
+      chip.disabled = locked() || Boolean(held);
       row.append(chip);
     }
     // Never cut by its panel (16/11): shown above the page, on the side that has room (glass-menu.mjs).
@@ -4229,7 +4438,7 @@ export function setupStudio({
       greyable(more);
       more.title = held;
     }
-    more.disabled = Boolean(working) || Boolean(held);
+    more.disabled = locked() || Boolean(held);
     if (extra) {
       more.setAttribute('role', 'radio');
       more.setAttribute('aria-checked', 'true');
@@ -4244,7 +4453,7 @@ export function setupStudio({
       choice.setAttribute('aria-pressed', String(id === draft.format));
       // (0.6.320) Greyed as the chips while a creation runs: the menu opened before Ctrl+Entrée stays open, and its
       // 4:3 changed the frame of the take being made.
-      choice.disabled = Boolean(working);
+      choice.disabled = locked();
       menu.append(choice);
     }
     wrap.append(row, menu);
@@ -4302,7 +4511,7 @@ export function setupStudio({
    * takes, in the order of its slots, never to one that would not combine with those given.
    */
   function placeImage(workflow, file) {
-    if (working) return;
+    if (locked()) return;
     if (answering())
       return notice(
         'Les images de cette proposition sont celles de Moodix AI : demandez-lui dans le chat pour en changer.',
@@ -4323,7 +4532,7 @@ export function setupStudio({
   const videoFile = files => [...(files ?? [])].find(file => VIDEO_TYPES.includes(file.type)) ?? null;
   /** A video dropped on the column of the prompt goes to the slot of the model that takes one. */
   function placeVideo(workflow, file) {
-    if (working || answering()) return;
+    if (locked() || answering()) return;
     if (finishOn()) return notice(NO_FILE);
     for (const [role, spec] of Object.entries(workflow.roles ?? {}))
       if (takesVideo(workflow, role)) {
@@ -4365,6 +4574,17 @@ export function setupStudio({
   /** « Générer » as the prompt is typed: greyed while it is empty (55), without drawing the Studio again. */
   function goable() {
     const go = document.querySelector?.('#studio-view .studio-go');
+    // (0.6.466) « Reprendre » needs nothing of the form. « Générer ensuite » follows what is typed as « Générer »,
+    // with its own words (greyedWhy).
+    if (go?.classList?.contains?.('is-again')) return;
+    if (go?.classList?.contains?.('is-next')) {
+      const why = greyedWhy('next');
+      go.disabled = Boolean(why);
+      go.classList.toggle('is-blank', why?.light === 'prompt');
+      go.classList.toggle('is-unavailable', Boolean(why) && !why.light);
+      go.title = why?.text || NEXT_TIP;
+      return;
+    }
     // (0.6.455) The dictation first, whatever holds the button besides: greyed while it listens or writes, then given
     // back as it was (`undictated`, kept by render too). Under a proposal of Moodix AI, it stayed lit; greyed by a
     // drawing of the Studio meanwhile, it stayed greyed after. Never « Libérer le GPU » in its place (54), as render.
@@ -4396,6 +4616,8 @@ export function setupStudio({
     go.disabled = blank || Boolean(missing);
     go.classList.toggle('is-blank', blank);
     go.title = blank ? blankWhy() : missing || `${finish ? FINISH[finish.verb].go : 'Générer'} (${MODIFIER}+Entrée)`;
+    // (0.6.477) Nor while a box placed for MOSS Image lacks its words, or the layout is too long (layout-editor.mjs).
+    if (!blank && !missing && !finish) boxes.grey(go, current());
   }
   /** (0.6.253) What « Générer » says without a prompt: what to describe first (the continuation, in Vidéo). */
   // A character put in a video: its wand writes the prompt, as request() says it.
@@ -4410,19 +4632,28 @@ export function setupStudio({
    * (`start_image`…), lit when it is pressed. In the order the form says it (`form`): the model that cannot run
    * here, a creation of another conversation, a camera the model does not make, an input missing, the prompt.
    */
-  function greyedWhy() {
+  // (0.6.466) `kind`: 'next', « Générer ensuite » (the same reasons, and its own: nextHeld); 'again', « Reprendre »,
+  // which needs nothing of the form, only what holds the page (another conversation, the chat).
+  function greyedWhy(kind = '') {
     const workflow = current(),
       draft = drafts[mode];
     // (0.6.480) The engine starts (engineWait): nothing to make yet. Without this, its keys would ask generate(), whose
-    // failure for want of a model (« Aucun modèle prêt ») would stay under the Studio once it is whole.
+    // failure for want of a model (« Aucun modèle prêt ») would stay under the Studio once it is whole. (Merged with
+    // the queue: nor « Reprendre », whose requests would find no model ready either.)
     // (0.6.479) Not when a download prepares it for the model in hand: « Télécharger » says so then, and its line
     // (missingWhy), as form() draws it.
-    if (engineStarts() && !working && !(workflow?.missing && downloading()))
-      return { text: 'Le moteur de génération démarre.' };
+    if (engineStarts() && !working && !(workflow?.missing && downloading())) return { text: engineHeld() };
+    if (kind === 'again') {
+      const busy = elsewhere() || blocked();
+      return busy ? { text: busy } : null;
+    }
     // A take made, the card held: « Générer » is the bar of the work, or « Libérer la carte »; generate() answers.
-    if (!workflow || working || gpuBlocked()) return null;
+    if (!workflow || (working && kind !== 'next') || gpuBlocked()) return null;
     // (0.6.480) Not on this computer: « Télécharger » stands in the place of « Générer », its keys never download.
+    // (Merged with the queue: nor « Générer ensuite » while a take is made, greyed with the same words.)
     if (workflow.missing) return { text: missingWhy(workflow) };
+    const held = kind === 'next' ? nextHeld() : '';
+    if (held) return { text: held };
     if (workflow.unavailable) return { text: workflow.unavailable };
     // (0.6.452) The words of the dictation are not in the prompt yet.
     if (dictating() && !finishOn()) return { text: DICTATING };
@@ -4446,6 +4677,9 @@ export function setupStudio({
     }
     if (!draft.prompt.trim() && !refilming()) return { text: blankWhy(), light: 'prompt' };
     const role = missingRole(workflow, draft.inputs, extending);
+    // (0.6.477) A box placed for MOSS Image without its words, a layout too long: their piece lit (layout-editor.mjs).
+    const boxed = !role && boxes.reason(workflow);
+    if (boxed) return { text: boxed, light: 'boxes' };
     return role ? { text: inputMissing(workflow, draft.inputs, extending), light: role } : null;
   }
   let called = null, // (0.6.253) { element, timer }: what was lit by a press on « Générer » greyed
@@ -4456,9 +4690,16 @@ export function setupStudio({
    * twice, moodix.css), or the case of the image that is missing. Nothing is made. Lit, it generates. What greys it
    * is read from the Studio (greyedWhy), as form() greys it: not from the button, which may be of a drawing before.
    */
-  function pressGo(go = goButton) {
-    const why = away() ? null : greyedWhy();
-    if (!why) return generate();
+  function pressGo(go = goButton, event = null) {
+    // (0.6.466) A take of the Studio being made: « Générer ensuite » puts this request in the queue. Requests paused
+    // in this conversation: « Reprendre ».
+    const next = !away() && ownWork(),
+      again = !next && !away() && resumable().length > 0,
+      why = away() ? null : greyedWhy(next ? 'next' : again ? 'again' : '');
+    // The second click of a double click on « Générer », become « Générer ensuite » under the pointer: no copy of the
+    // take just asked in the queue.
+    if (next && event?.detail > 1) return;
+    if (!why) return next ? queueNext() : again ? resumeQueue() : generate();
     if (!go) return;
     go.title = why.text;
     if (called) {
@@ -4482,17 +4723,231 @@ export function setupStudio({
     // After the focus, which shows the bubble of the prompt; after the title is taken by the bubbles too.
     queueMicrotask(() => sayTip(go));
   }
+  // ------------------------------------------------------------------ (0.6.466) the queue (« Générer ensuite »)
+  const NEXT_TIP = `Générer ensuite : cette demande attendra la fin de celle en cours (${MODIFIER}+Entrée)`,
+    // (D7) What makes a take from the one on the screen, while a take of the Studio is made.
+    RAIL_HELD = 'Attendez la fin de la génération en cours.',
+    // (D6) What waits at most.
+    QUEUE_FULL = `La file est pleine : ${QUEUE_MOST} demandes attendent.`;
+  const theRequests = count => (count > 1 ? `les ${count} demandes` : 'la demande');
+  const resumeTip = count =>
+    `Reprendre la file : ${theRequests(count)} en attente${count > 1 ? ', dans l’ordre' : ''} (${MODIFIER}+Entrée)`;
+  /** The requests paused in this conversation, when « Reprendre » takes the place of « Générer » (form). */
+  // (Merged with 0.6.480) Not while the model in hand is not on this computer: « Télécharger » stands in that place,
+  // « Reprendre » at the foot of the window (queueView); nor while the engine starts, the Studio has no button then.
+  const resumable = () =>
+    !working && !chaining && !answering() && !checking && !gpuBlocked() && !current()?.missing && !engineStarts()
+      ? queue.paused(conversation())
+      : [];
+  /**
+   * Why « Générer ensuite » is greyed, beyond what greys « Générer »: the queue full (D6), a page that makes a take
+   * of a take (Prolonger, Changer la caméra, Agrandir, Interpoler: D7, made once the take is made).
+   */
+  function nextHeld() {
+    if (queue.full()) return QUEUE_FULL;
+    const page = finishOn()
+      ? FINISH[finishing.verb].go
+      : mode === 'video' && extending
+        ? refilming()
+          ? 'Changer la caméra'
+          : 'Prolonger'
+        : '';
+    return page ? `${page} ne se met pas en file : attendez la fin de la génération en cours.` : '';
+  }
+  /**
+   * « Générer ensuite »: what « Générer » would make now, frozen in the queue (its settings, its page, its tries,
+   * its conversation), made in its turn. The form stays as it is: what is written stays, for the next one.
+   */
+  function queueNext() {
+    let wanted;
+    try {
+      wanted = request();
+    } catch (error) {
+      return notice(error.message);
+    }
+    triesFollowPage();
+    if (!queue.add(requestEntry(wanted, tries, true))) return notice(QUEUE_FULL);
+    render();
+  }
+  /**
+   * « Reprendre »: the requests paused in this conversation go again, in their order, the first at once. One that
+   * cannot be read again is a tile in failure and the next one goes; one refused (its reason said): all stay paused.
+   * (0.6.478) Of the conversation `here` (the window at the bottom right resumes from any page). During a take
+   * followed again after a reload (Q3 of the maquette): they go after it, in their order (goOn).
+   */
+  function resumeQueue(here = conversation()) {
+    if (working?.external && !working.chat && !working.place) {
+      queue.resume(here);
+      return render();
+    }
+    for (let next = queue.paused(here)[0]; next; next = queue.paused(here)[0]) {
+      const going = generate({ entry: next });
+      if (working) {
+        queue.resume(here);
+        render();
+        return going;
+      }
+      if (queue.get(next.id)?.state !== 'failed') break;
+    }
+    render();
+  }
+  /** Its ×, « Vider la file »: what waits in this conversation goes; the failures stay, each with its cross. */
+  function clearQueue(here = conversation()) {
+    queue.clear(here);
+    render();
+  }
+  // (0.6.478) What greys « Reprendre » of the window at the bottom right, beyond what greys « Générer ».
+  const BOBINE_HELD = 'Attendez la fin de la prise de la Bobine.',
+    AI_HELD = 'Moodix AI attend votre réponse dans le Studio : répondez-lui d’abord.',
+    // (0.6.480, merged with the queue) The engine starts (engineWait): no model is ready yet, for « Générer » as for
+    // « Reprendre » (the Studio's, the window's) and the requests that would go (generate).
+    ENGINE_HELD = 'Le moteur de génération démarre.';
+  // (0.6.503) Installed the first time (« Préparation du moteur » of a download, minutes): said so, as its screen
+  // says it (engineWait), not « démarre ».
+  const engineHeld = () => (info?.engine?.state === 'installing' ? 'Le moteur de génération s’installe.' : ENGINE_HELD);
+  /** (0.6.478) Why « Reprendre » of the window is greyed now; '' when it can go (at once, or after the take, Q3). */
+  function resumeHeld() {
+    if (working?.montage || working?.place) return BOBINE_HELD;
+    if (working?.external && !working.chat) return '';
+    if (working || chaining || settling) return RAIL_HELD;
+    if (proposal || checking || ai) return AI_HELD;
+    // (Merged with 0.6.480) While the engine starts: its requests would find no model ready.
+    if (engineStarts()) return engineHeld();
+    return blocked() || elsewhere() || '';
+  }
+  /**
+   * (0.6.478, variante A) The queue for the window at the bottom right (work-miniature.mjs), per conversation that has
+   * requests: its name, what waits, what is paused and why, what failed, the queue full, and its foot (« Reprendre ·
+   * 3 » lit or greyed with why, « Libérer le GPU » while the card is held, « Vider la file »). `docked`: it lies under
+   * the settings of the Studio on screen, whose button says « Reprendre · 3 » or « Libérer le GPU » already for the
+   * queue of its conversation: no foot then (never two « Reprendre » on one screen).
+   */
+  function queueView({ docked = false } = {}) {
+    const card = gpuBlocked(),
+      held = card ? '' : resumeHeld(),
+      later = Boolean(working?.external && !working.chat && !working.place),
+      shown = away() ? null : conversation();
+    return queueParts(queue.entries()).map(({ conversation: id, waiting, paused, failed }) => {
+      const count = paused.length,
+        them = theRequests(count),
+        said = docked && id === shown && (card ? !working : resumable().length > 0),
+        reloaded = paused.some(row => row.reason === 'reload'),
+        stopped = !card && !reloaded && paused.some(row => row.reason === 'stopped'),
+        inOrder = count > 1 ? ', dans l’ordre' : '',
+        // (Q3) After the take followed again: « les 3 demandes partiront après la prise en cours, dans l’ordre ».
+        goes = later ? `${them} ${count > 1 ? 'partiront' : 'partira'} après la prise en cours` : `${them} en attente`,
+        clear = `Vider la file : retirer ${them} en attente`;
+      return {
+        conversation: id,
+        title: nameOf(id) || 'Nouvelle conversation',
+        groups: [
+          waiting.length ? { word: 'En attente', state: 'waiting', rows: waiting } : null,
+          count ? { word: 'En pause', state: 'paused', rows: paused } : null,
+          failed.length ? { word: waiting.length || count ? '' : 'Échec', state: 'failed', rows: failed } : null,
+        ].filter(Boolean),
+        // (Under the settings of the Studio whose button resumes it, its line under the screen says why already.)
+        why: !count || said
+          ? ''
+          : card
+            ? 'La carte graphique est restée prise.'
+            : reloaded
+              ? `Page rechargée : ${count > 1 ? `les ${count} demandes attendent` : 'la demande attend'} « Reprendre ».`
+              : stopped
+                ? 'Génération arrêtée.'
+                : '',
+        card: Boolean(count) && card,
+        stopped,
+        note: (waiting.length || count) && queue.full() ? QUEUE_FULL : '',
+        held: count && !said && !card ? held : '',
+        foot:
+          !count || said
+            ? null
+            : card
+              ? {
+                  label: 'Libérer le GPU',
+                  icon: 'chip',
+                  recover: true,
+                  tip:
+                    'La carte graphique est restée prise par la dernière génération : la libérer.' +
+                    ' La file attendra « Reprendre ».',
+                  clear,
+                }
+              : {
+                  label: `Reprendre · ${count}`,
+                  icon: 'go',
+                  held: Boolean(held),
+                  tip:
+                    held === BOBINE_HELD
+                      ? 'La Bobine fait une prise : attendez sa fin, puis reprenez la file.'
+                      : held || `Reprendre la file : ${goes}${inOrder}`,
+                  clear,
+                },
+      };
+    });
+  }
+  /**
+   * (0.6.478, Q3) Requests resumed while a take followed again after a reload was made (the window's « Reprendre »):
+   * they go once it is over, in their order, as those that follow a take of the Studio; the work of the page is theirs
+   * from then. Stopped meanwhile: paused again (D3: nothing goes again by itself).
+   */
+  function goOn(stopped = false) {
+    const next = working || chaining || settling ? null : queue.next();
+    if (!next) return;
+    if (stopped) {
+      queue.pause('stopped');
+      return render();
+    }
+    chaining = true;
+    onWork(next.conversation, next.label?.prompt ?? '');
+    void proceed({ entry: next, follows: true });
+  }
+  /**
+   * (0.6.478, variante A) Where the window at the bottom right lies in the Studio: under the settings, at their width,
+   * its foot on the foot of the screen; `room`, the height left there; `over`, the height from the top of the settings
+   * (opened over them where there is no room). null while the Studio is not on screen, or its blocks are not side by
+   * side (a narrow window: it stays in its corner).
+   */
+  function queueDock() {
+    const box = selector => document.querySelector?.(`#studio-view ${selector}`)?.getBoundingClientRect?.(),
+      settings = box('.studio-block.is-settings'),
+      screen = box('.studio-block.is-preview'),
+      tall = document.documentElement?.clientHeight ?? 0;
+    if (!settings?.width || !screen?.width || !tall || settings.left < screen.right) return null;
+    return {
+      left: Math.round(settings.left),
+      width: Math.round(settings.width),
+      bottom: Math.round(tall - screen.bottom),
+      room: Math.floor(screen.bottom - settings.bottom - 16),
+      over: Math.floor(screen.bottom - settings.top),
+    };
+  }
+  /**
+   * What the line under the screen says of the requests paused here, after what stopped them: « Arrêter » (its
+   * « Génération arrêtée. » said before), the card held, the page reloaded (D3: nothing goes again by itself).
+   */
+  function waitLine(waits, card) {
+    if (!waits.length || working || chaining) return '';
+    const them =
+      waits.length > 1 ? `les ${waits.length} demandes de la file attendent` : 'la demande de la file attend';
+    if (card) return `La carte graphique est restée prise : ${them}.`;
+    if (waits.some(entry => entry.reason === 'reload')) return `Page rechargée : ${them} « Reprendre ».`;
+    return `${them[0].toUpperCase()}${them.slice(1)} « Reprendre ».`;
+  }
   function improvable() {
     const go = document.querySelector?.('#studio-view .studio-enrich-go');
     if (!go || enriching) return;
-    go.disabled = Boolean(working) || !improves() || dictating();
-    go.title = dictating() ? DICTATING : improveTitle();
+    // (0.6.466, B4) Greyed while a take is made, with why (its bubble said what it does).
+    const held = working || chaining ? WAND_HELD : '';
+    go.disabled = Boolean(held) || !improves() || dictating();
+    go.title = held || (dictating() ? DICTATING : improveTitle());
   }
   /** The chat model rewrites what is typed as a full prompt; what was typed can be taken back. */
   async function enrich() {
     // (0.6.317) Never on a page whose prompt is not shown (Agrandir, Interpoler, Changer la caméra): Ctrl+E sent
     // the prompt of Image hidden behind « Agrandir », and wrote it again.
-    if (enriching || working || finishOn() || refilming()) return;
+    if (enriching || finishOn() || refilming()) return;
+    // (0.6.466, B4) Nor while a take is made: the model of the chat has left the card for it. Said, not silent.
+    if (working || chaining) return notice(WAND_HELD);
     // (0.6.452) Nor on a prompt the dictation is still saying (Ctrl+E): its words come after.
     if (dictating()) return notice(DICTATING);
     const draft = drafts[mode],
@@ -4622,7 +5077,9 @@ export function setupStudio({
       make.classList.add('is-working');
       make.setAttribute('aria-busy', 'true');
     }
-    make.disabled = enriching || Boolean(working) || !improves();
+    make.disabled = enriching || Boolean(working) || chaining || !improves();
+    // (0.6.466, B4) A take being made: greyed with why, its bubble said what it does.
+    if (!enriching && (working || chaining)) make.title = WAND_HELD;
     // Moodix AI is taken by a work of another conversation (0.6.81): greyed, and why.
     const taken = !enriching && !working && !answering() && !checking ? elsewhere() : '';
     if (taken) {
@@ -4637,7 +5094,7 @@ export function setupStudio({
     // (0.6.452) The microphone first, at the left of « Revenir à mon texte » and of the wand (D8).
     const mic = micOf();
     if (mic) row.append(mic);
-    if (draft.before !== null && !enriching && !working) {
+    if (draft.before !== null && !enriching && !locked()) {
       const back = button(
         'studio-link',
         '',
@@ -4890,6 +5347,9 @@ export function setupStudio({
       // A large picture is a final, a small one a draft: the profile only names it here.
       if (workflow.stages) args.stage = stageOf(workflow);
     }
+    // (0.6.477) Boxes placed for MOSS Image: the prompt goes as their layout, at the size made (layout-editor.mjs).
+    const laid = refilming() ? null : boxes.prompt(workflow, draft, prompt);
+    if (laid) args.prompt = laid;
     const seedFixed = Number.isSafeInteger(workflow.seedFixed) ? workflow.seedFixed : null;
     if (draft.seed.trim() && (workflow.seeded || seedFixed !== null)) {
       const seed = Number(draft.seed);
@@ -5049,8 +5509,12 @@ export function setupStudio({
     const refuse = why => {
       if (given?.montage) throw Object.assign(new Error(why), { refused: true });
     };
+    // (0.6.466) A request of the queue (`entry`), and whether it follows the take just made (`follows`, as the next try
+    // of a series does): then it goes in the conversation it was asked in, wherever the page is meanwhile (D9).
+    const entry = given?.entry ?? null,
+      follows = Boolean(given?.again || given?.follows);
     // (Nor from the Studio of another conversation than the one whose work it holds, 0.6.87.)
-    if (working || away()) return refuse(whyNot() || BUSY_HERE);
+    if (working || (away() && !follows)) return refuse(whyNot() || BUSY_HERE);
     // An action on a take brings what to make; « Générer » (a click, its keys) does not. (0.6.254) Nor the next try
     // of a series (`again`): what the first one asked, a new seed, and where the series is.
     const onTake = given?.verb ? given : null,
@@ -5060,42 +5524,67 @@ export function setupStudio({
     // The character being checked: the key that generates keeps it, where the question is asked
     // (Image, the button reads « OK »). From another mode, where it reads « Générer », it is no
     // answer: the question comes back on screen instead of being taken for a yes.
-    if (!onTake && checking) {
+    if (!onTake && !entry && checking) {
       if (mode === 'image') return checking.resolve('ok');
       setMode('image');
       return notice('Ce personnage vous convient ? Répondez d’abord : OK, Autre image ou Annuler.');
     }
-    if (!onTake && answering()) return approve();
+    if (!onTake && !entry && !follows && answering()) return approve();
     // No creation of its own while the take just made is put on its screen (0.6.88): its end would
     // have ended this one's work. (An answer to Moodix AI above is no such creation.)
     if (settling) return refuse(BUSY_HERE);
-    const reason = blocked() || (onTake ? '' : current()?.unavailable);
+    // (0.6.466) What follows a take of the Studio is not held by that take, the work of the page (`blocked(true)`); a
+    // request of the queue says itself what its model cannot do (the server's reason, on its tile). (Merged with
+    // 0.6.480) Nor while the engine starts: a request of the queue, a try of a series, wait paused, and why.
+    const reason =
+      (follows ? blocked(true) : blocked() || (onTake || entry ? '' : current()?.unavailable)) ||
+      ((entry || again) && engineStarts() ? engineHeld() : '');
     if (reason) {
       refuse(reason);
+      // (0.6.466) It waits at its place with those after it, for « Reprendre »: nothing goes again by itself.
+      const left = again ? again.series.total - again.series.at + 1 : entry?.tries;
+      if (follows) holdRest(entry ?? again.entry, left, reason, Boolean(again));
       return notice(reason);
     }
     let wanted;
     try {
-      wanted = onTake ?? again?.wanted ?? request();
+      wanted = onTake ?? again?.wanted ?? (entry ? entryWanted(entry) : request());
+      // (0.6.466) A request of the queue at a try after its first one (found again after a reload, held by the card
+      // between two tries): a seed of its own, as the next try of a series has.
+      if (entry?.later) wanted = anotherTry(wanted);
     } catch (error) {
-      failure = error.message;
+      // (0.6.466) A request of the queue that cannot be read again (its model gone): a tile in failure, with why.
+      if (entry) queue.fail(entry.id, error.message);
+      else failure = error.message;
       return render();
     }
     // Asked once the creation can go (0.6.90): asked before, a « yes » cost the conversation set aside
     // for a creation that then did not go (an image missing, a seed refused).
     // (The user said no to what it costs: nothing to say again in the Bobine.)
-    // (0.6.254) Once for a series: its first try.
-    if (!again && !mayBegin()) return refuse('');
+    // (0.6.254) Once for a series: its first try. (0.6.466) Once for a queue: its first request.
+    if (!follows && !mayBegin()) return refuse('');
     // (0.6.254) « × 3 »: three takes one after the other, said on « Générer » (« 1 SUR 3 · 46 % »). Not a take
     // of the Bobine nor an action on a take, which make one; a take of the Bobine puts the tries back to 1.
     // (0.6.260) Nor the page Agrandir (Interpoler): it made the same enlargement three times.
     triesFollowPage();
-    const series = onTake || wanted.finish ? null : (again?.series ?? (tries > 1 ? { at: 1, total: tries } : null));
+    // (0.6.466) A request of the queue with the tries it was asked with (D2: one request, its tries one after the
+    // other).
+    const asks = entry ? entry.tries : tries,
+      series = onTake || wanted.finish ? null : (again?.series ?? (asks > 1 ? { at: 1, total: asks } : null));
     if (onTake?.montage) tries = 1;
+    // (0.6.466) A take of the Studio is a request of its queue from its start: kept in the tab with its tries (B1), at
+    // its place among the others, with what it was asked with (its draft: its screen, and its tile if it fails).
+    let asking = entry ?? again?.entry ?? null;
+    if (!onTake) {
+      if (entry) queue.start(entry.id);
+      else if (asking) queue.tried(asking.id, series?.at ?? 1);
+      else asking = queue.begin(requestEntry(wanted, series?.total ?? 1));
+    }
     // (0.6.260) A creation that begins: no « Arrêter » of a former series held for it, and the list of the tries
     // closed (left open by Ctrl+Entrée, it opened again at the end of the take and took the focus).
     if (!again) seriesStopped = false;
-    triesOpen = false;
+    // (0.6.466) Not by a take that follows another: the list is the user's, opened for the next request.
+    if (!follows) triesOpen = false;
     failure = '';
     // (0.6.177, « studio ne suit pas exactement ce que fait bobine ») A take of the Bobine is followed here as
     // a take of the Chat is (watch): the Studio kept as it is, then the mode of the take at once, and its
@@ -5108,15 +5597,17 @@ export function setupStudio({
       mode = MODE_OF_VERB[wanted.verb] ?? mode;
     }
     const controller = new AbortController(),
-      // Where the creation will be kept once made: the mode it was asked in.
-      asked = mode;
+      // Where the creation will be kept once made: the mode it was asked in. (0.6.466) A request of the queue: its own.
+      asked = asking ? asking.mode : mode;
     let made = null,
       result = null,
       // (0.6.148) Why a take of the bobine was not made: said there, never on the form of a mode.
       refused = '',
       // (0.6.176) Stopped, from here (« Arrêter ») or on the server (the Chat's « Interrompre la réponse »,
       // a card answered « Annuler »): a stop, wherever it came from, and said with one word.
-      halted = false;
+      halted = false,
+      // (0.6.466) The card still taken when a request that follows another went: it waits for it, then goes again.
+      busyCard = false;
     // (`montage`: asked by the montage, which shows it being made on its own timeline.)
     // (0.6.182) `tell`: what the Bobine hears of it, its step, how far it is, its picture so far, and how long it
     // has been (the count of the Studio, as its own line under « Générer » says it).
@@ -5129,12 +5620,19 @@ export function setupStudio({
       series,
       ...(wanted.finish ? { finish: wanted.finish } : {}),
       ...(onTake?.montage?.onProgress ? { tell: () => working && onTake.montage.onProgress(working.label, working.fraction, working.preview, working.time) } : {}),
+      // (0.6.466) Its request in the queue, and what it was asked with: the screen shows it, the form is free.
+      ...(asking ? { entry: asking, look: asking.look } : {}),
     };
+    chaining = false;
     // Its conversation from its first instant (0.6.81): the page may show another meanwhile, the
-    // creation is still this one's, and the page follows it there.
-    const conversationId = await ensureConversation();
-    holdAt(conversationId);
-    onWork(conversationId, wanted.args?.prompt ?? '');
+    // creation is still this one's, and the page follows it there. (0.6.466) A request of the queue: the one it was
+    // asked in, with its project, the page held from the take before it (`follows`).
+    const conversationId = ((entry || again) && asking?.conversation) || (await ensureConversation()),
+      projectId = (entry || again) && asking?.project ? asking.project : project();
+    if (asking && (asking.conversation !== conversationId || asking.project !== projectId))
+      queue.set(asking.id, { conversation: conversationId, project: projectId });
+    holdAt(conversationId, projectId);
+    if (!follows) onWork(conversationId, wanted.args?.prompt ?? '');
     render();
     onChange();
     const pause = () => new Promise(resolve => setTimeout(resolve, 700));
@@ -5160,6 +5658,10 @@ export function setupStudio({
           ...(wanted.size ? { size: wanted.size } : {}),
         })
       ).json();
+      // (Merged with 0.6.480) Its model not on this computer any more, the tools read before had it (its files taken
+      // away since): the server offers its download (`missing`), and no plan. Said (its tile, the line under the
+      // screen, the Bobine), never sent on to be made.
+      if (proposed.missing) throw Error(notHere(proposed.workflowName || 'Son modèle', proposed.missing));
       working.requestId = proposed.requestId;
       cancelIfStopped(proposed.requestId);
       // The size chosen here, where the workflow sets its own.
@@ -5240,18 +5742,45 @@ export function setupStudio({
         }
         made = job.record.id;
       }
-      if (extending) extending = null;
+      // (0.6.466) The page of a request of the queue is left only by that very request: the form was free meanwhile.
+      if (extending && (!asking || asking.look.extending?.id === extending.id)) extending = null;
       // (0.6.256) A video made from the picture « Animer » put: its screen shows the take, not the picture. (0.6.261)
       // Once made only: refused or stopped, the picture stays under « DÉBUT » (it went as the video left). Not a take of
       // the Bobine, which has nothing to do with it.
-      if (asked === 'video' && !onTake?.montage) animated = null;
+      if (asked === 'video' && !onTake?.montage && (!asking || asking.look.animated === animated)) animated = null;
     } catch (error) {
       halted ||= controller.signal.aborted;
+      // (0.6.466) A request of the queue found the card still taken (the server was letting the last take go): no
+      // failure, it goes again once the card is free (freeAgain).
+      busyCard =
+        (follows || Boolean(entry)) &&
+        !halted &&
+        error?.status === 409 &&
+        /opération GPU est déjà en cours/.test(error.message);
       const said = halted ? 'Génération arrêtée.' : error.message;
       if (onTake?.montage) refused = said;
-      else failure = said;
+      else if (!busyCard) failure = said;
     } finally {
       working = null;
+      // (0.6.466) The request it was: made, out of the queue (unless its next try goes); stopped, out, and those
+      // that wait are paused; failed, kept as a tile with its reason, and the next one goes. Asked by « Générer »
+      // with nothing after it, its reason is said under the screen, as before the queue: its settings are those of
+      // the form.
+      const stopped = halted || controller.signal.aborted || seriesStopped,
+        more = Boolean(series && made && series.at < series.total);
+      if (asking && !busyCard) {
+        if (stopped) {
+          queue.done(asking.id);
+          queue.pause('stopped');
+        } else if (made) {
+          if (!more) queue.done(asking.id);
+        } else if (asking.queued || queue.next()) {
+          queue.fail(asking.id, failure);
+          failure = '';
+        } else queue.done(asking.id);
+      }
+      // What follows it, held from now: the Studio and the work of the page stay its own until it begins.
+      chaining = !onTake && !stopped && (busyCard || more || Boolean(queue.next()));
       // Held until its take is on its own screen (settling, 0.6.87).
       settling = true;
       try {
@@ -5276,7 +5805,8 @@ export function setupStudio({
             // (0.6.256) Agrandie or interpolée: on the screen, its page left (as a continuation is once made).
             if (wanted.finish && finishing?.record.id === wanted.finish.record.id) finishing = null;
             // Made from what was looked at: those settings are the user's now, nothing to come back to.
-            endLook();
+            // (0.6.466) Only by the request asked from it: the form was free meanwhile.
+            if (!asking || asking.look.looked) endLook();
           }
           // (0.6.251) A clip filmed again: the server has learnt what this computer took for it (`refilm.made`),
           // which the tools read before do not say. Read again at the next change of camera.
@@ -5289,9 +5819,12 @@ export function setupStudio({
       onChange();
       render();
       scrollStrip();
-      // The page's work is over; left meanwhile, the Studio goes to the conversation shown.
-      onWork(null);
-      letGo();
+      // The page's work is over; left meanwhile, the Studio goes to the conversation shown. (0.6.466) Unless what
+      // follows it goes now: they are one work for the page, the chat held from one to the other.
+      if (!chaining) {
+        onWork(null);
+        letGo();
+      }
     }
     // (0.6.142) Asked by the montage: the take made, or why there is none, said there and not on the form.
     if (onTake?.montage) {
@@ -5299,21 +5832,123 @@ export function setupStudio({
       if (!result) throw Object.assign(new Error(refused || 'La génération a échoué.'), halted ? { stopped: true } : {});
       return result;
     }
-    // (0.6.254) The next try of a series: once this one is made and on its screen, not stopped nor failed, in the
-    // conversation it is made in (another one shown meanwhile: the series ends there, its takes kept).
+    if (!chaining) return;
+    // (0.6.260) « Arrêter » between two takes (the take just made being put on its screen): nothing more goes.
+    // (0.6.466) Its request is over, those that wait are paused (« Reprendre »).
+    if (seriesStopped) {
+      if (asking) queue.done(asking.id);
+      queue.pause('stopped');
+      failure = 'Génération arrêtée.';
+      return endChain();
+    }
+    // (0.6.466) The card still taken: once it is free, the same take goes again, nothing made, nothing lost.
+    if (busyCard) return proceed(again ? { again } : { entry: asking, follows: true }, true);
+    // (0.6.254) The next try of a series: once this one is made and on its screen, not stopped nor failed.
     // (0.6.260) Stopped once its take was saved (the take is then kept, found again in the gallery: `halted` stayed
     // false and the next one went), or between two takes (seriesStopped): the series ends there too.
-    if (series && result && !halted && !controller.signal.aborted && !seriesStopped && series.at < series.total) {
-      // (0.6.260) Said: it ended without a word, the miniature telling the take ready as if all were made.
-      if (conversation() !== conversationId || away())
-        return notice(`Série arrêtée après la prise ${series.at} sur ${series.total} : une autre conversation a été ouverte.`);
-      return generate({ again: { wanted: anotherTry(wanted), series: { ...series, at: series.at + 1 } } });
+    // (0.6.466) In the conversation it is made in, whatever the page shows meanwhile (D9: it went on there, its notice
+    // « Série arrêtée… une autre conversation a été ouverte » is no more).
+    if (series && result && series.at < series.total) {
+      const at = { ...series, at: series.at + 1 };
+      return proceed({ again: { wanted: anotherTry(wanted), series: at, entry: asking } });
+    }
+    // A try made, its record not read again: its series ends there, as before.
+    if (asking && queue.get(asking.id)?.state === 'running') queue.done(asking.id);
+    // (0.6.466) The next request of the queue, in its turn.
+    const next = queue.next();
+    if (next) return proceed({ entry: next, follows: true });
+    endChain();
+  }
+  /**
+   * (0.6.466) The next try, or the next request of the queue, once the card and the page are free (freeAgain): begun,
+   * it holds the Studio and the page as the take before did. One that cannot be read again is a tile in failure, the
+   * next one goes. Held by the card, stopped, or refused before it began (its reason said): it waits at its place,
+   * paused, with those after it; nothing goes again by itself, the Studio and the page are let go.
+   */
+  async function proceed(then, card = false) {
+    for (;;) {
+      const entry = then.entry ?? then.again?.entry ?? null,
+        left = then.again ? then.again.series.total - then.again.series.at + 1 : (entry?.tries ?? 1),
+        why = await freeAgain(card);
+      if (why) {
+        holdRest(entry, left, why, Boolean(then.again));
+        if (why === 'stopped') failure = 'Génération arrêtée.';
+        return endChain();
+      }
+      const going = generate(then);
+      if (working) return going;
+      const next = entry && queue.get(entry.id)?.state === 'failed' ? queue.next() : null;
+      if (next) {
+        then = { entry: next, follows: true };
+        card = false;
+        continue;
+      }
+      // (A try of a series held by a proposal of Moodix AI: its series ends there, as before.)
+      const held = queue.running();
+      if (held) queue.done(held.id);
+      queue.pause('stopped');
+      return endChain();
+    }
+  }
+  /** (0.6.466) Nothing follows any more: the work of the page is over, the Studio follows the page again. */
+  function endChain() {
+    chaining = false;
+    onWork(null);
+    letGo();
+    render();
+  }
+  /**
+   * (0.6.466) A request that could not begin waits at its place, paused, with those after it, and why; `later`, at a
+   * try after its first one.
+   */
+  function holdRest(entry, left, why, later = false) {
+    const reason = why === 'card' ? 'card' : 'stopped';
+    if (entry) queue.hold(entry.id, reason, left, later);
+    queue.pause(reason);
+    if (why !== 'card' && why !== 'stopped') failure = why;
+  }
+  /**
+   * (0.6.466) Between two requests: the card still taken by the last take (`card`, the server letting it go: every
+   * second until its generation is over), or the page busy a moment (a conversation being opened: `blocked`). '' once
+   * free; 'card', the card held by the last take (« Libérer le GPU »); 'stopped', « Arrêter » meanwhile.
+   */
+  async function freeAgain(card) {
+    cardWait = new AbortController();
+    const { signal } = cardWait;
+    // Said on the line of the step while it waits for the card (form, `between`).
+    cardWait.card = card;
+    if (card) render();
+    try {
+      for (let first = true; ; first = false) {
+        if (card || !first) await wait(1000);
+        if (signal.aborted || seriesStopped) return 'stopped';
+        if (gpuBlocked()) return 'card';
+        if (card) {
+          let job = null;
+          try {
+            job = await (await api('tools/job')).json();
+          } catch {
+            job = null;
+          }
+          if (signal.aborted || seriesStopped) return 'stopped';
+          if (job?.blocked) return 'card';
+          if (job && !['done', 'error', 'cancelled'].includes(job.state)) continue;
+          card = cardWait.card = false;
+        }
+        if (!blocked(true)) return '';
+      }
+    } finally {
+      cardWait = null;
     }
   }
   function stop() {
     // (0.6.260) Between two takes of a series (the take just made being put on its screen): the next one does not go.
+    // (0.6.466) Nor the next request of the queue, nor one that waits for the card: they are paused.
     if (!working) {
-      if (settling) seriesStopped = true;
+      if (settling || chaining) {
+        seriesStopped = true;
+        cardWait?.abort();
+      }
       return;
     }
     if (working.external) return stopTurn();
@@ -5333,7 +5968,8 @@ export function setupStudio({
     if (elapsedNode) elapsedNode.textContent = text;
     // (0.6.200) In the bubble of « Générer » too, second after second (workTip).
     const go = away() ? null : document.querySelector?.('#studio-view .studio-go');
-    if (go) go.title = workTip();
+    // (0.6.466) Not « Générer ensuite »: its bubble says what it does, or why it is greyed.
+    if (go && !go.classList?.contains?.('is-next')) go.title = workTip();
     // (0.6.182) A take of the Bobine: said there too, beside the step, second after second.
     working.tell?.();
   });
@@ -5362,6 +5998,12 @@ export function setupStudio({
     if (!series) return done || 'En cours…';
     return [`${series.at} SUR ${series.total}`, done].filter(Boolean).join(' · ');
   }
+  /** (0.6.466) At the right of « Générer ensuite »: how far the take is, and in a series which try (« 1/3 · 46 % »). */
+  function nextPercent(percent = null) {
+    const series = working?.series,
+      done = percent === null ? '' : `${percent} %`;
+    return [series ? `${series.at}/${series.total}` : '', done].filter(Boolean).join(' · ');
+  }
   function progress() {
     if (!working) return;
     if (working.preview) seenPreview = working.preview;
@@ -5371,7 +6013,14 @@ export function setupStudio({
       line = $('studio-progress');
     const known = Number.isFinite(working.fraction) && working.fraction !== null,
       percent = known ? Math.round(Math.min(1, Math.max(0, working.fraction)) * 100) : null;
-    if (go) {
+    // (0.6.466) « Générer ensuite » over the bar that fills: how far, at its right (« 1/3 · 46 % »); its own words in
+    // its bubble, never the step's, which the line under the head says.
+    const next = go?.classList?.contains?.('is-next') ? go.querySelector('.studio-go-percent') : null;
+    if (next) {
+      go.classList.toggle('is-indeterminate', !known);
+      go.style.setProperty('--studio-progress', known ? String(percent / 100) : '0');
+      next.textContent = nextPercent(percent);
+    } else if (go) {
       go.classList.toggle('is-indeterminate', !known);
       go.style.setProperty('--studio-progress', known ? String(percent / 100) : '0');
       const label = go.querySelector('.studio-go-label');
@@ -5394,13 +6043,17 @@ export function setupStudio({
     const frame = document.querySelector?.('#studio-view .studio-frame');
     // (0.6.256, captures A05 and B09) Not over a take being made larger or smoother: it stays seen, veiled, its band
     // of light going down over it (stage).
-    if (frame && mode !== 'audio' && !frame.classList?.contains?.('is-finishing')) {
+    // (0.6.466) The take of the Studio being made, with the images it was asked with: not those of the form, free.
+    const asked = underWay()?.draft ?? drafts[mode];
+    if (frame && screenMode() !== 'audio' && !frame.classList?.contains?.('is-finishing')) {
       if (flux?.frame !== frame) {
         flux?.flux.stop();
         flux = { frame, flux: takeFlux(frame, { node }) };
         // (0.6.179) As the card of the Chat chooses it (fluxStart): the start image, else the first image given.
         const start = fluxStart(
-          Object.entries(drafts[mode].inputs).flatMap(([role, items]) => (items ?? []).filter(Boolean).map(item => ({ role, preview: item.preview }))),
+          Object.entries(asked.inputs).flatMap(([role, items]) =>
+            (items ?? []).filter(Boolean).map(item => ({ role, preview: item.preview })),
+          ),
         );
         if (start) flux.flux.source(start);
         else flux.flux.neutral();
@@ -5696,6 +6349,8 @@ export function setupStudio({
       current.lorasShown = JSON.stringify(loraArgs(workflow, draft));
     }
     if (!values.promptFree) draft.prompt = values.prompt;
+    // (0.6.477) Its boxes, of a prompt of boxes; without, the piece is taken back, the boxes of the user kept (N8).
+    Object.assign(draft, values.boxes ? { boxes: values.boxes, layout: true } : { layout: false });
     for (const [key, value] of Object.entries(values.settings))
       if (!values.settingsFree[key]) (draft.settings[workflow.id] ??= {})[key] = value;
     const steps = [];
@@ -5923,6 +6578,10 @@ export function setupStudio({
       if (stage && values.stage && stage !== values.stage && plan.editable?.stages?.includes(stage))
         changes.stage = stage;
     }
+    // (0.6.477) A proposal made with boxes: their layout made again around the prompt changed, at the size made.
+    const relaid = values.boxes && plan.editable?.prompt && (changes.prompt || changes.width),
+      laid = relaid ? boxes.prompt(workflow, draft, prompt, changes.width ? changes : null) : null;
+    if (laid) changes.prompt = laid;
     // Only when the pointer set the length of this proposal on its bar (`lengthShown`): a workflow
     // whose length is « Fixe » shows no bar, and what the draft holds then is the length of another
     // model, which went as a change of the user (241 frames proposed, 121 made).
@@ -6198,6 +6857,8 @@ export function setupStudio({
     // Its saved settings (« Enregistrer ») do not come over those it is made with.
     presetShown[target] = true;
     Object.assign(draft, { prompt: values.prompt, before: null, inputs: {} });
+    // (0.6.477) Its boxes, of a prompt of boxes; without, the piece is taken back (layout-editor.mjs).
+    Object.assign(draft, values.boxes ? { boxes: values.boxes, layout: true } : { layout: false });
     if (values.size && !extending) Object.assign(draft, { format: values.format ?? draft.format, size: values.size });
     if (workflow.seeded) draft.seed = values.seed !== null ? String(values.seed) : '';
     if (values.loras && workflow.loras?.length) {
@@ -6399,6 +7060,8 @@ export function setupStudio({
     scrollStrip();
     // Left meanwhile (0.6.81): the Studio goes to the conversation shown.
     letGo();
+    // (0.6.478, Q3) Requests resumed while it was made (the window's « Reprendre » after a reload): theirs now.
+    if (external) goOn(result?.error === 'Génération arrêtée.');
   }
 
   // ------------------------------------------------------------------ results
@@ -6813,7 +7476,7 @@ export function setupStudio({
         name,
         from ? 'suite de ' + madeFrom(sourceOf(record), from) : '',
         transform ? (transform === 'AGRANDIE' ? 'agrandissement' : 'interpolation') + (origin ? ' de ' + madeFrom(transformedFrom(record), origin) : '') : '',
-        record.prompt || '',
+        layoutCaption(record.prompt) || '',
       ]
         .filter(Boolean)
         .join(' · '),
@@ -6858,7 +7521,7 @@ export function setupStudio({
       const head = node('span', 'studio-sound-head'),
         wave = node('span', 'studio-thumb-wave'),
         sound = lengthOfRecord(record),
-        title = String(record.prompt || 'Son').split('\n')[0];
+        title = String(layoutCaption(record.prompt) || 'Son').split('\n')[0];
       head.append(
         node('span', '', [Number.isInteger(output.take) ? 'PRISE ' + output.take : '#' + number, sound ? soundFigures(sound) : '']
           .filter(Boolean)
@@ -7058,7 +7721,15 @@ export function setupStudio({
       // Of the whole project, whatever the conversation open (a new one too): they are shared in it.
       shown = sortieAll ? runs : runs.filter(record => mediaOf(record) === mode);
     section.setAttribute('aria-label', 'Sortie');
-    if (!runs.length) {
+    // (0.6.478, variante A) The requests of the queue are in the window at the bottom right alone, under the settings
+    // (work-miniature.mjs): the Sortie keeps the take under way and the takes made. The take under way is drawn
+    // whatever the Sortie holds (0.6.466, B2: with no take yet, or none of the kind shown, it said it was empty while
+    // the screen made one). A take followed again after a reload: « EN COURS » too, when a queue waits.
+    const here = conversation(),
+      queued = queue.entries().some(entry => entry.conversation === here),
+      making = working && (!working.external || queued) ? node('div', 'studio-item is-making') : null,
+      ahead = Boolean(making);
+    if (!runs.length && !ahead) {
       const empty = node('div', 'studio-empty-strip');
       empty.append(node('span', '', own.none));
       section.append(empty);
@@ -7067,7 +7738,7 @@ export function setupStudio({
     // The creations, and at their right the button that sorts them.
     const row = node('div', 'studio-sortie-row');
     section.append(row);
-    if (!shown.length) {
+    if (!shown.length && !ahead) {
       const empty = node('div', 'studio-empty-strip');
       empty.append(node('span', '', sort.none));
       row.append(empty, sortButton(own));
@@ -7077,8 +7748,8 @@ export function setupStudio({
     strip.setAttribute('aria-label', sort.id === 'all' ? 'Créations du projet' : sort.label + ' du projet');
     // The creation under way, at the far left (studio-maquette.md): dark, « EN COURS » and how far.
     // (0.6.256, captures A05 and B09) A take being made larger or smoother: « ↳ AGRANDIE », glued to its take.
-    const making = working && !working.external ? node('div', 'studio-item is-making') : null,
-      finishFrom = making && working.finish && shown.some(record => record.id === working.finish.record.id) ? working.finish.record.id : null;
+    const larger = making ? working.finish : null,
+      finishFrom = larger && shown.some(record => record.id === larger.record.id) ? larger.record.id : null;
     if (making) {
       const pick = node('div', 'studio-item-pick'),
         caption = node('span', 'studio-item-caption');
@@ -7701,7 +8372,7 @@ export function setupStudio({
       // The arrows go from one mode to the next, as in any row (or column) of tabs.
       bar.onkeydown = event => {
         const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.key];
-        if (!step || working) return;
+        if (!step || locked()) return;
         event.preventDefault();
         const ring = MODES.map(item => item.id),
           next = ring[(ring.indexOf(mode) + step + ring.length) % ring.length];
@@ -7713,7 +8384,8 @@ export function setupStudio({
       const chosen = tab.dataset.mode === mode;
       tab.setAttribute('aria-selected', String(chosen));
       tab.tabIndex = chosen ? 0 : -1;
-      tab.disabled = Boolean(working);
+      // (0.6.466) Free while the Studio makes a take of its own: the next request may be of another kind.
+      tab.disabled = locked();
     }
   }
   /**
@@ -7725,7 +8397,7 @@ export function setupStudio({
     if (bar && !body.contains?.(bar)) body.parentElement?.insertBefore?.(bar, body);
   }
   function chooseMode(id) {
-    if (working || aiWorking) return;
+    if (locked() || aiWorking) return;
     if (mode === id) return;
     if (ai) takeOver();
     setMode(id);
@@ -7989,6 +8661,8 @@ export function setupStudio({
       busyElsewhere = !working && !heldGpu && !answering() && !checking ? elsewhere() : '',
       // (0.6.253) The chat answers (or an operation of the page goes on): « Générer » waits, greyed (A10).
       chatBusy = !working && !heldGpu && !answering() && !checking && !ai && !busyElsewhere ? blocked() : '',
+      // (0.6.466) Between two requests of the queue: the next one is being asked, or waits for the card a moment.
+      between = !working && chaining ? (cardWait?.card ? 'Attente de la carte graphique…' : 'Demande suivante…') : '',
       step = node(
         'p',
         'studio-progress' + (heldGpu ? ' is-alert' : ''),
@@ -7998,7 +8672,7 @@ export function setupStudio({
             ? 'GPU libéré. Le modèle peut redémarrer.'
             : busyElsewhere
               ? busyElsewhere.replace(/ : .*$/, '')
-              : (working?.label ?? ''),
+              : (working?.label ?? between),
       ),
       // What Moodix AI understood, while its pointer sets the Studio and while its proposal waits
       // (0.6.95, studio-explain.mjs): in the place of « Moodix AI règle le Studio », its words.
@@ -8011,7 +8685,7 @@ export function setupStudio({
     // proposes. (The card held during a proposal says it on the screen itself: its veil, 54.)
     step.id = 'studio-progress';
     step.setAttribute('role', 'status');
-    step.hidden = Boolean(explain) || (!working && !heldGpu && !freed && !busyElsewhere);
+    step.hidden = Boolean(explain) || (!working && !heldGpu && !freed && !busyElsewhere && !between);
     // How long the take under way has been in the making (0.6.93), beside its step: not among what
     // the status says aloud, which would read it every second.
     elapsedNode = working ? node('time', 'studio-elapsed', working.time ?? '') : null;
@@ -8029,7 +8703,7 @@ export function setupStudio({
       const back = button('studio-look-back', 'Revenir', lookBack, 'undo');
       back.title = 'Retirer ce média de l’écran et remettre vos réglages d’avant';
       back.setAttribute('aria-label', 'Revenir à mes réglages : retirer ce média de l’écran');
-      back.disabled = Boolean(working);
+      back.disabled = locked();
       head.append(back);
     }
     preview.append(head, screen);
@@ -8041,8 +8715,9 @@ export function setupStudio({
     if (onScreen) {
       const row = takeActions(onScreen, 0);
       row.className += ' studio-rail';
-      // (Each makes a creation: not while another conversation makes one, 0.6.81.)
-      row.inert = answering() || Boolean(working) || Boolean(busyElsewhere);
+      // (Each makes a creation: not while another conversation makes one, 0.6.81.) (0.6.466, D7) A take of the Studio
+      // being made: each greyed with why (RAIL_HELD), the form free; a take of the Chat or of the Bobine: held.
+      row.inert = answering() || locked() || Boolean(busyElsewhere);
       if (row.inert) row.classList.add('is-held');
       // (0.6.256) On the page Agrandir (Interpoler) of this take: its button pressed; pressed again, the page is left.
       const pressed =
@@ -8058,15 +8733,45 @@ export function setupStudio({
       over.append(row);
     }
     bar.append(node('div', 'output-actions is-empty'));
+    // (0.6.466) A take of the Studio itself being made (or the moment to the next one of its queue): « Générer
+    // ensuite » over the bar that fills, the form free. Requests paused in this conversation: « Reprendre · n ».
+    const next = ownWork(),
+      waits = queue.paused(conversation()),
+      paused = resumable().length > 0,
+      goes = next ? ' is-next' : paused ? ' is-again' : '';
     // (0.6.253) Greyed, it still answers (greyable): its reason in its bubble, and what lacks lights up (pressGo).
-    const go = aiTarget(greyable(button('primary studio-go', '', () => pressGo(go), 'go')), 'generate'),
-      label = node('span', 'studio-go-label', working ? goLabel() : refilming() ? 'Changer la caméra' : extending ? 'Générer la suite' : finish ? FINISH[finish.verb].go : 'Générer'),
+    const go = aiTarget(
+        greyable(button('primary studio-go' + goes, '', event => pressGo(go, event), 'go')),
+        'generate',
+      ),
+      label = node(
+        'span',
+        'studio-go-label',
+        next
+          ? 'Générer ensuite'
+          : paused
+            ? `Reprendre · ${waits.length}`
+            : working
+              ? goLabel()
+              : refilming()
+                ? 'Changer la caméra'
+                : extending
+                  ? 'Générer la suite'
+                  : finish
+                    ? FINISH[finish.verb].go
+                    : 'Générer',
+      ),
       fill = node('span', 'studio-go-bar');
     goButton = go;
     fill.setAttribute('aria-hidden', 'true');
     // The triangle and its word, centred (moodix-design.md 7 bis 22); the keys are in its tooltip.
     // While the creation is made, « Génération · 42 % » alone, over the bar that fills the button.
-    go.append(label, fill);
+    // (0.6.466) « Générer ensuite »: how far the take is at its right (« 1/3 · 46 % », progress); between two
+    // requests, the bar of a wait, as when a take begins.
+    if (next) {
+      go.append(label, node('span', 'studio-go-percent', working ? nextPercent() : ''), fill);
+      if (!working) go.classList.add('is-indeterminate');
+    } else go.append(label, fill);
     go.title = (answering() ? 'Générer la proposition de Moodix AI' : finish ? FINISH[finish.verb].go : 'Générer') + ` (${MODIFIER}+Entrée)`;
     // Nothing to make without a prompt (55): greyed, said in its tooltip; Moodix AI stays. (0.6.256) Agrandir and
     // Interpoler need none, nor any input but their take.
@@ -8087,6 +8792,8 @@ export function setupStudio({
       go.disabled = true;
       go.title = missing;
     }
+    // (0.6.477, B24, B27) Nor a box placed for MOSS Image without its words, a layout too long (layout-editor.mjs).
+    if (!working && !blank && !missing && !checking && !finish) boxes.grey(go, workflow);
     // (0.6.450) Nor a size the card of this computer cannot make, when the page has no other to offer (an image
     // already large under SeedVR2): greyed, its tooltip says why, as the note under the size.
     const tooLarge = finish && !working ? finishHeld(workflow) : '';
@@ -8098,7 +8805,7 @@ export function setupStudio({
     // (0.6.240) Nor a camera its model does not make, nor the one of a clip too long for it: greyed, its tooltip
     // says which, and it follows the bars of the tool in place (refilmGate, called by its window).
     refilmGate = null;
-    if (refilming() && !working && !go.disabled) {
+    if (refilming() && !working && !next && !go.disabled) {
       const lit = go.title;
       refilmGate = () => {
         const held = refilmRefusal(workflow);
@@ -8133,24 +8840,46 @@ export function setupStudio({
     // (0.6.200) Any other take made: the words of the line of its step and its time, which progress() puts
     // in its bubble at the end of each drawing (workTip).
     if (working?.chat) go.title = BUSY_HERE;
-    if (working) {
+    if (working && !next) {
       go.setAttribute('role', 'progressbar');
       go.setAttribute('aria-valuemin', '0');
       go.setAttribute('aria-valuemax', '100');
       go.setAttribute('aria-label', 'Génération en cours');
     }
+    // (0.6.466) « Générer ensuite » and « Reprendre »: greyed for their own reasons (greyedWhy), said in their bubble,
+    // lit by a press as « Générer » is.
+    if (next || paused) {
+      const why = greyedWhy(next ? 'next' : 'again');
+      undictated.delete(go);
+      go.disabled = Boolean(why);
+      go.classList.toggle('is-blank', why?.light === 'prompt');
+      go.classList.toggle('is-unavailable', Boolean(why) && !why.light);
+      go.title = why?.text || (next ? NEXT_TIP : resumeTip(waits.length));
+      go.setAttribute('aria-label', next ? 'Générer ensuite' : `Reprendre · ${waits.length}`);
+    }
     // (0.6.253, generer-maquette.md, decided on 23/11) Two buttons, 8 px apart, centred: [« × 1 ⌄ » | « ▶ Générer »],
     // one glass, then [« ◐ Moodix AI »] (the Double verre « ▶ Générer » | the Éclipse before). While a take is made,
     // the glass of « Générer » is the bar that fills, « Arrêter » in it at its right, after a rule; Moodix AI stays.
+    // (0.6.466) A take of the Studio: 266 px, « Générer ensuite » in it. Paused: « Reprendre · n », its × after a rule.
     const group = node('div', 'studio-go-group'),
-      glass = node('div', 'studio-go-glass' + (working ? ' is-working' : '')),
+      glass = node('div', 'studio-go-glass' + (working || next ? ' is-working' : '') + (next ? ' is-next' : '')),
       rule = node('span', 'studio-go-rule');
+    if (paused) glass.className += ' is-paused';
     rule.setAttribute('aria-hidden', 'true');
-    if (working) {
-      const halt = button('studio-stop', '', stop, 'stop');
-      halt.setAttribute('aria-label', 'Arrêter la génération');
-      halt.title = 'Arrêter la génération';
+    if (working || next) {
+      const halt = button('studio-stop', '', stop, 'stop'),
+        // (0.6.466) What it does to the queue, while requests wait.
+        words = next && queueLeft() ? 'Arrêter la génération : la file se met en pause' : 'Arrêter la génération';
+      halt.setAttribute('aria-label', words);
+      halt.title = words;
       glass.append(go, rule, halt);
+    } else if (paused) {
+      // (0.6.478) Of the conversation shown: the click is not a conversation (clearQueue takes one from the window).
+      const clear = button('studio-clear', '', () => clearQueue(), 'close'),
+        words = `Vider la file : retirer ${theRequests(waits.length)} en attente`;
+      clear.setAttribute('aria-label', words);
+      clear.title = words;
+      glass.append(go, rule, clear);
     } else {
       // (0.6.254) Its list in the glass, shown above the page (a popover: never cut by the glass).
       const tried = triesButton();
@@ -8163,7 +8892,10 @@ export function setupStudio({
     group.append(glass, agent);
     // (0.6.480, maquette-studio-sans-modele) The model in hand is not on this computer: « Télécharger · 17,7 Go » in
     // the place of « Générer », in its glass (« × n » gone), Moodix AI beside it; what it lacks in amber above them.
-    const absent = workflow.missing && !working && !answering() && !checking && !heldGpu ? absentGo(workflow) : null;
+    // (Merged with the queue, 0.6.466) Nor between two requests of the queue (`next`): « Générer ensuite » stays,
+    // greyed with that reason (greyedWhy); « Télécharger » for a moment there came and went (« rien ne clignote »).
+    const absent =
+      workflow.missing && !working && !next && !answering() && !checking && !heldGpu ? absentGo(workflow) : null;
     if (absent) {
       group.replaceChildren(absent.glass, agent);
       goButton = absent.go;
@@ -8209,7 +8941,10 @@ export function setupStudio({
         'chip',
       );
       free.append(node('span', 'studio-go-label', 'Libérer le GPU'));
-      free.title = 'La carte graphique est restée prise par la dernière génération : la libérer';
+      // (0.6.466) Requests paused here: freed, the card lets them go again with « Reprendre », not by itself.
+      free.title =
+        'La carte graphique est restée prise par la dernière génération : la libérer' +
+        (waits.length ? '. La file attendra « Reprendre ».' : '');
       // (0.6.260) In the glass of « Générer » (0.6.253 left it bare: the group lost its own glass then).
       const held = node('div', 'studio-go-glass');
       held.append(free);
@@ -8220,7 +8955,16 @@ export function setupStudio({
     // (0.6.456) The card held, its screen says so (54), but « Échec » alone told nothing of why the take failed: that,
     // as the server says it, under the screen as any failure, without what it added for the card held (UNRELEASED).
     // Free again, the same, as the server says it then (recover).
-    const failed = heldGpu ? heldCause(gpuError()) : heldCause(failure) || failure;
+    // (0.6.466) Then what waits in the queue of this conversation, paused, and why (waitLine).
+    // (Merged with 0.6.480) Not while « Télécharger » stands in the place of « Reprendre »: the window says why they
+    // wait, « Reprendre » at its foot, and this line what the model lacks (absent.line); « Génération arrêtée. » was
+    // said in both.
+    const failed =
+      absent && waits.length
+        ? ''
+        : [heldGpu ? heldCause(gpuError()) : heldCause(failure) || failure, waitLine(waits, heldGpu)]
+            .filter(Boolean)
+            .join(' ');
     // (0.6.474) The line under the screen, above the buttons: its place kept, empty or not, one line high (moodix.css,
     // .studio-under), for whatever is said there (that failure; any sentence put in it). Said under the buttons, it
     // put « Générer » 31 to 50 px higher under the pointer as a failure came, lower again as it went. Longer than its
@@ -8243,7 +8987,8 @@ export function setupStudio({
 
     desk.append(...[write, preview, settings].map(grained), grained(outputs()));
     desk.classList.toggle('is-generating', Boolean(working));
-    if (working) for (const control of desk.querySelectorAll('textarea, select, input')) control.disabled = true;
+    // (0.6.466) Not by a take of the Studio itself: the next request is written meanwhile.
+    if (locked()) for (const control of desk.querySelectorAll('textarea, select, input')) control.disabled = true;
     // What « Enregistrer » compares with, until the model is saved: the settings it showed first.
     baselines[workflow.id] ??= canonical(snapshot(workflow));
     paintSave();
@@ -8257,7 +9002,15 @@ export function setupStudio({
    * is no longer drawn (the camera taken away with its ×).
    */
   let refocusTo = null;
-  const REFOCUSED = ['studio-tries', 'camera-block-ball', 'camera-block-switch', 'studio-go', 'studio-stop'];
+  // (0.6.466) « Vider la file » too.
+  const REFOCUSED = [
+    'studio-tries',
+    'camera-block-ball',
+    'camera-block-switch',
+    'studio-go',
+    'studio-stop',
+    'studio-clear',
+  ];
   function focusKey(element) {
     if (!element?.matches?.(':focus-visible') || ['TEXTAREA', 'INPUT', 'SELECT'].includes(element.tagName)) return null;
     const names = String(element.className ?? '').split(' '),
@@ -8266,8 +9019,44 @@ export function setupStudio({
     const known = REFOCUSED.find(name => names.includes(name));
     return known ? '.' + known : null;
   }
+  /**
+   * (0.6.466) A field of the Studio being written in, found again once drawn again: by its id, else by what Moodix AI
+   * names it (`data-ai`), with its caret and how far it was scrolled.
+   */
+  function fieldOf(element) {
+    if (!['TEXTAREA', 'INPUT'].includes(element?.tagName)) return null;
+    const key = element.id ? '#' + element.id : element.dataset?.ai ? `[data-ai="${element.dataset.ai}"]` : '';
+    if (!key) return null;
+    let start = null,
+      end = null;
+    try {
+      [start, end] = [element.selectionStart, element.selectionEnd];
+    } catch {
+      // A field of numbers has no caret to give back.
+    }
+    return { key, start, end, top: element.scrollTop ?? 0 };
+  }
+  function writeAgain(desk, { key, start, end, top }) {
+    const field = desk.querySelector?.(key);
+    if (!field || field.disabled) return;
+    field.focus?.({ preventScroll: true });
+    try {
+      if (start !== null && end !== null) field.setSelectionRange?.(start, end);
+    } catch {
+      // (Idem.)
+    }
+    if (top) field.scrollTop = top;
+  }
   function render() {
     kinds();
+    // (0.6.478) Once drawn, whatever it drew: the window at the bottom right says the queue, under the settings.
+    if (!queueTold) {
+      queueTold = true;
+      queueMicrotask(() => {
+        queueTold = false;
+        onQueue();
+      });
+    }
     const body = $('studio-body');
     if (!body) return;
     // The drafts are named after their conversation: at the first drawing, and when a new one gets
@@ -8277,7 +9066,11 @@ export function setupStudio({
     triesFollowPage();
     const focused = globalThis.document?.activeElement,
       focusAgain = (body.contains?.(focused) && focusKey(focused)) || null,
-      focusElse = refocusTo;
+      focusElse = refocusTo,
+      // (0.6.466) The field being written in (the prompt of the next request while a take of the Studio is made, its
+      // seed, a setting): the same one drawn again keeps the focus and the caret. A request of the queue that went or
+      // ended took them away, and the next keys went nowhere.
+      writing = body.contains?.(focused) ? fieldOf(focused) : null;
     refocusTo = null;
     // The stage leaves with the form it is in, and nothing follows its size any longer: still
     // watched, it was reported once more as it went, with no mode left to read a format from.
@@ -8315,6 +9108,7 @@ export function setupStudio({
     // (0.6.260) The focus back on the same control drawn again (focusKey), else where it was said to go.
     const regained = (focusAgain && desk.querySelector?.(focusAgain)) || (focusElse && desk.querySelector?.(focusElse));
     regained?.focus?.({ preventScroll: true });
+    if (!regained && writing) writeAgain(desk, writing);
     // What Moodix AI understood and its prompt, measured once on the page: an arrow only where words
     // are cut (0.6.95). The prompt is measured again when its column changes width.
     if (explaining && (answering() || ai)) explaining.measure();
@@ -8363,7 +9157,10 @@ export function setupStudio({
       node(
         'p',
         'studio-away-text',
-        working
+        // (0.6.466) Its queue goes on there (D9): said with what still waits.
+        (working || chaining) && queueLeft()
+          ? `La file de ${name} occupe le Studio jusqu’à sa fin : encore ${requests(queueLeft())} en attente.`
+          : working || chaining
           ? `La génération de ${name} occupe le Studio jusqu’à sa fin.`
           : checking
             ? `L’image d’un personnage attend votre avis dans le Studio de ${name}.`
@@ -8607,6 +9404,8 @@ export function setupStudio({
       }
       // Empty until its takes are read (settle): the prompt and the inputs are a conversation's own.
       for (const item of MODES) Object.assign(drafts[item.id], { prompt: '', before: null, inputs: {} });
+      // (0.6.477) The boxes too, a conversation's own as its prompt.
+      for (const item of MODES) Object.assign(drafts[item.id], { boxes: [], layout: false });
       lastSeen.delete(next);
       draftsEpoch++;
     }
@@ -8656,7 +9455,7 @@ export function setupStudio({
     return {
       source: { ...outputSource(record), ...(index > 0 ? { index } : {}) },
       preview: output.thumbUrl || output.originalUrl,
-      name: record.prompt || KIND[mediaOf(record)] || 'Création',
+      name: layoutCaption(record.prompt) || KIND[mediaOf(record)] || 'Création',
       width: output.width ?? record.parameters?.width,
       height: output.height ?? record.parameters?.height,
     };
@@ -8678,6 +9477,8 @@ export function setupStudio({
       gone = [];
     // (0.6.211) With the camera it was made with (none: none): its prompt is kept without the sentence added.
     Object.assign(draft, { prompt: String(record.prompt ?? ''), before: null, inputs: {}, extension: null, camera: typeof made.camera === 'string' ? cameraOf(made) : cameraChoice(made.camera) });
+    // (0.6.477) With the boxes it was made with, its prompt their caption (layout-editor.mjs).
+    boxes.adopt(draft, record);
     if (!workflow) return { lost: 0, gone };
     // The LoRAs of the user are of one family of models: those of the family left wait for its return.
     const family = modelsOf(target).find(item => item.id === draft.workflow)?.family;
@@ -8807,7 +9608,8 @@ export function setupStudio({
    * there was lost.
    */
   function settle() {
-    if (!info || runsFor !== where() || working || proposal || ai || checking) return false;
+    // (0.6.466) Nor between two requests of the queue: the form is the user's, the next request is being written.
+    if (!info || runsFor !== where() || working || chaining || proposal || ai || checking) return false;
     // Nor while the prompt of this conversation is being improved: its answer would be written over
     // the settings taken here. (Asked in a conversation left since, it is dropped: nothing to wait for.)
     if (enriching && enrichEpoch === draftsEpoch) return false;
@@ -9026,8 +9828,9 @@ export function setupStudio({
   }
 
   // Ctrl + Entrée (⌘ on a Mac) generates from anywhere in the Studio, not only from the prompt.
+  // (0.6.466) A take of the Studio being made: its keys too (« Générer ensuite », the wand said paused).
   const shortcut = event => {
-    if (!(event.ctrlKey || event.metaKey) || event.altKey || working || enriching || aiWorking) return;
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || locked() || enriching || aiWorking) return;
     // Held by a work of another conversation (« Studio occupé », 0.6.87): nothing of that one is on
     // screen, its keys answer nothing (Ctrl + Entrée started the video waiting there, or said « OK »).
     if (away()) return;
@@ -9237,7 +10040,9 @@ export function setupStudio({
     // (0.6.474) Animer or Prolonger of a take, asked from the viewer of the Sortie or the Archives: as on the screen.
     act: (record, id) => actFromAfar(record, id),
     // (0.6.260) Why that page cannot open now ('' when it can): asked there before the Chat is left.
-    finishBlocked: () => (working ? whyNot() || BUSY_HERE : proposal ? 'Moodix AI est en train de proposer' : ''),
+    // (0.6.466) Nor between two requests of its queue.
+    finishBlocked: () =>
+      working || chaining ? whyNot() || BUSY_HERE : proposal ? 'Moodix AI est en train de proposer' : '',
     conversationChanged,
     invalidate,
     workflowsSaved,
@@ -9279,6 +10084,48 @@ export function setupStudio({
     settingUp: () => aiWorking,
     /** A work held here may be over (the page asks again): left meanwhile, the Studio follows the page. */
     letGo,
+    // (0.6.466) The queue of the Studio (studio-queue.mjs), for the page: the Chat waits for its end, never queued.
+    /** How many requests wait for their turn (not those paused): « 46 % · 3 en attente » in the Chat. */
+    queued: () => queueLeft(),
+    /**
+     * Whether the queue holds the page: requests wait for their turn, or the next one is about to go (between two of
+     * them no take is made for a second, and a message would take the card from it). Paused, it holds nothing.
+     */
+    queueHolds: () => chaining || queueLeft() > 0,
+    /** Why a message of the Chat waits for the queue, in the user's words; '' when no request waits. */
+    queueReason: () => {
+      const left = queueLeft();
+      if (!left) return '';
+      return `Le chat attend la fin de la file du Studio : ${requests(left)} en attente. Arrêter la met en pause.`;
+    },
+    /** What closing the tab would lose: the requests that wait (paused too), the tries of a series not begun. */
+    queueWaits: () => {
+      const running = queue.running();
+      return queue.waits() + (running && running.at < running.tries ? running.tries - running.at : 0);
+    },
+    /** A conversation deleted (`id`; null, all of them): what it had to make goes with it. */
+    forgetQueue: id => {
+      if (id) queue.forget(id);
+      else for (const entry of queue.entries()) queue.remove(entry.id);
+      render();
+    },
+    /** ■ of the Chat between two requests (no take on the server to stop): the next one does not go, all pause. */
+    stopQueue: () => stop(),
+    /** (0.6.470) The page goes away, or is shown again as it was left: the queue kept in the tab stays as it was. */
+    leaving: on => queue.leaving(on),
+    // (0.6.478, variante A) The queue in the window at the bottom right (work-miniature.mjs, app.js syncMiniature):
+    // what it says, where it lies in the Studio, and its gestures, from any page.
+    queueView,
+    queueDock,
+    queueRemove: id => {
+      if (queue.remove(id)) render();
+    },
+    queueResume: id => resumeQueue(id),
+    queueClear: id => clearQueue(id),
+    queueTakeBack: id => {
+      const entry = queue.get(id);
+      if (entry?.state === 'failed') takeBack(entry);
+    },
     /**
      * The take on the screen (« PRISE n » at its top left), for what Moodix AI is told of it:
      * { take, media }, or null when the screen shows none (nothing made, a file of the disk, a

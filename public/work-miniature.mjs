@@ -17,8 +17,18 @@ import { generationTime, takeTime } from './generation-time.mjs';
  * cards of the conversation tell it the take (`take`, from generation-ui.mjs: start, progress,
  * image, done, failed, stopped). `open()` brings back to the conversation; `mark()` draws the
  * Éclipse of Moodix; `makeFlux` and `makePreview` draw the take (none in the tests).
+ *
+ * (0.6.478) It is the place of the queue of the Studio too (variante A of claude_design/maquette-file-bas-droite):
+ * under the take, what waits, in its order (`queue`, from studio.mjs: per conversation, a line per request and its
+ * cross; paused, why, and at its foot « Reprendre · 3 » and « Vider la file »; those that failed, in red). Folded, the
+ * pill says « 3 en attente » beside the percentage. In the Chat of that conversation the list alone (`alone`); in its
+ * Studio, the list alone lies under the settings, at their width (`dock`); in a Chat of 1168 px, where it covered the
+ * end of the input, its pill rises over it (`raise`). A queue paused keeps the window, with no ×, until « Reprendre »
+ * or « Vider la file ».
  */
 export const FOLDED_KEY = 'moodix.miniature';
+/** (0.6.478) The room a list needs under the settings of the Studio: its title, a line, the air around them. */
+const ROOM = 30 + 46 + 26;
 const KINDS = { image: 'Image', video: 'Vidéo', audio: 'Son' };
 // What « waiting » says when nothing else is said (waitFor).
 const WAITING = 'En attente de votre accord';
@@ -34,6 +44,15 @@ export function setupMiniature({
   // history, the conversation it leads back to can be found nowhere else).
   mayClose = () => true,
   onClosed = () => {},
+  // (0.6.478) The gestures of the list of the queue (each told the id it is about, then its conversation): a line
+  // taken out, « Reprendre », « Vider la file », a request that failed given back to the Studio, the name of a
+  // conversation (back to its Studio), « Libérer le GPU ».
+  onRemove = () => {},
+  onResume = () => {},
+  onClear = () => {},
+  onTakeBack = () => {},
+  onOpenQueue = () => {},
+  onRecover = () => {},
   storage = globalThis.localStorage,
   makeFlux = takeFlux,
   makePreview = livePreview,
@@ -58,8 +77,11 @@ export function setupMiniature({
     bar = node('span', 'work-mini-bar'),
     fill = node('span', 'work-mini-fill'),
     fold = node('button', 'work-mini-fold'),
-    close = node('button', 'work-mini-close');
+    close = node('button', 'work-mini-close'),
+    // (0.6.478) What waits in the queue of the Studio, under the take.
+    list = node('div', 'work-mini-file');
   root.hidden = true;
+  list.hidden = true;
   root.setAttribute('aria-label', 'Miniature de la conversation en cours');
   back.type = fold.type = close.type = 'button';
   still.alt = '';
@@ -87,7 +109,7 @@ export function setupMiniature({
   close.setAttribute('aria-label', 'Fermer la miniature');
   close.title = 'Fermer';
   close.hidden = true;
-  root.append(back, fold, close);
+  root.append(back, list, fold, close);
 
   let work = null,
     // What it says: 'answer' (Moodix answers, no take in hand), 'waiting' (a card waits for the
@@ -123,7 +145,26 @@ export function setupMiniature({
   // kept for the other pages left as it was.
   let pillHere = false,
     openedHere = false;
-  const foldedNow = () => (pillHere ? !openedHere : folded);
+  // (0.6.478) The queue (`queue`): its parts, and the key of the list last drawn (drawn again only when it changes:
+  // its scroll, the line under the pointer and the focus stay). `alone`: the list without the take, which the page
+  // shows; `home`: the conversation whose Chat or Studio is on screen (its name is not said there); `docked`: where it
+  // lies in the Studio ({ left, width, bottom, room, over }); `raised`: how high over the input of the chat its pill
+  // goes. Folded or opened there alone (`localMode`, `closedHere`), nothing kept. `footed`: in the foot of the
+  // Paramètres, where it is its pill.
+  let parts = [],
+    listKey = '',
+    alone = false,
+    home = null,
+    docked = null,
+    raised = 0,
+    localMode = '',
+    closedHere = false,
+    footed = false;
+  // (0.6.478) Lying in the Studio where a line has no room (1280 × 720): its title alone, until its chevron opens it
+  // over the settings.
+  const tight = () => Boolean(docked) && docked.room < ROOM;
+  const foldedNow = () =>
+    pillHere || tight() ? !openedHere : docked ? closedHere : folded;
 
   /** The Flux of the take in progress, in the frame, from the picture so far (as the card's). */
   function startFlux(asked) {
@@ -166,6 +207,24 @@ export function setupMiniature({
     root.dataset.phase = phase;
     root.classList.toggle('has-take', Boolean(kindText) && phase !== 'answer' && phase !== 'answered');
     root.classList.toggle('is-folded', foldedNow());
+    // (0.6.478) The take above the list, or the list alone; as its pill (folded, or in the foot of the Paramètres), it
+    // says what waits beside the percentage.
+    const now = Boolean(work) && !alone,
+      count = now && (foldedNow() || footed) ? countOf() : null;
+    back.hidden = !now;
+    list.hidden = !parts.length;
+    if (count) kind.textContent = count.text;
+    kind.classList.toggle('is-count', Boolean(count));
+    kind.classList.toggle('is-paused', Boolean(count?.paused));
+    root.classList.toggle('has-now', now);
+    root.classList.toggle('has-queue', parts.length > 0);
+    root.classList.toggle('has-count', Boolean(count));
+    root.classList.toggle('is-docked', Boolean(docked));
+    root.classList.toggle('is-over', tight() && openedHere);
+    root.classList.toggle('is-raised', raised > 0);
+    const spots = docked ? { ...docked, room: Math.max(44, docked.room) } : raised ? { raise: raised } : {};
+    for (const [name, value] of Object.entries(spots)) root.style?.setProperty?.(`--work-mini-${name}`, `${value}px`);
+    drawList(now);
     bar.hidden = !(phase === 'making' || phase === 'done');
     bar.classList.toggle('is-determinate', Number.isFinite(fraction));
     still.hidden = !picture || making;
@@ -173,8 +232,9 @@ export function setupMiniature({
       stillAt = picture;
       still.src = picture;
     }
-    // The × once the work is over: it stays until the user is back there, or closes it.
-    close.hidden = running || !ended;
+    // The × once the work is over: it stays until the user is back there, or closes it. (0.6.478) Never for the list:
+    // a queue stays until « Reprendre » or « Vider la file ».
+    close.hidden = running || !ended || !now;
     const folding = foldedNow() ? 'Agrandir la miniature' : 'Réduire la miniature';
     fold.setAttribute('aria-label', folding);
     fold.setAttribute('aria-pressed', String(foldedNow()));
@@ -184,11 +244,153 @@ export function setupMiniature({
       `Revenir à la conversation « ${title.textContent} » : ${[kind.textContent, said, figure.textContent, stageTime.textContent].filter(Boolean).join(' · ')}`,
     );
   }
+  /** (0.6.478) What the pill says of the queue: « 3 en attente », else « 3 en pause », else « 1 en échec »; or null. */
+  function countOf() {
+    const groups = parts.flatMap(part => part.groups),
+      rows = state => groups.reduce((sum, group) => sum + (group.state === state ? group.rows.length : 0), 0);
+    const [waiting, paused, failed] = ['waiting', 'paused', 'failed'].map(rows);
+    if (waiting) return { text: `${waiting} en attente` };
+    if (paused) return { text: `${paused} en pause`, paused: true };
+    return failed ? { text: `${failed} en échec` } : null;
+  }
+  /**
+   * (0.6.478) The list of the queue, drawn again only when what it says changes (the take draws the window each
+   * second): its scroll and the line under the pointer stay; the focus stays on its control, or goes to the next one
+   * when its line went (its cross pressed from the keyboard).
+   */
+  function drawList(now) {
+    const key = JSON.stringify([parts, home, now && work?.conversationId, now && phase === 'stopped']);
+    if (key === listKey) return;
+    listKey = key;
+    const spots = () => [...(list.querySelectorAll?.('[data-spot]') ?? [])],
+      focused = root.ownerDocument?.activeElement,
+      at = list.contains?.(focused) ? spots().indexOf(focused) : -1,
+      was = at >= 0 ? focused.dataset.spot : '',
+      lists = () => [...(list.querySelectorAll?.('[data-rows]') ?? [])],
+      scrolled = new Map(lists().map(rows => [rows.dataset.rows, rows.scrollTop])),
+      // (Where the window has no more room, the list scrolls as one: moodix.css.)
+      top = list.scrollTop;
+    list.replaceChildren?.(...parts.map(part => drawPart(part, now)));
+    for (const rows of lists()) rows.scrollTop = scrolled.get(rows.dataset.rows) ?? 0;
+    if (top) list.scrollTop = top;
+    if (at < 0) return;
+    const again = spots();
+    (again.find(spot => spot.dataset.spot === was) ?? again[Math.min(at, again.length - 1)] ?? fold).focus?.();
+  }
+  /** The queue of one conversation: its name, why it is paused, its lines, the queue full, its foot. */
+  function drawPart(part, now) {
+    const box = node('section', 'work-mini-queue'),
+      // The take above is its own, or the page shows its Chat or its Studio: its name is said there already.
+      named = part.conversation !== home && !(now && work?.conversationId === part.conversation);
+    box.setAttribute('aria-label', `File du Studio : « ${part.title} »`);
+    if (named) {
+      const name = node('button', 'work-mini-queue-back'),
+        sign = node('span', 'work-mini-mark'),
+        drawn = mark?.();
+      name.type = 'button';
+      if (drawn) sign.append(drawn);
+      sign.setAttribute('aria-hidden', 'true');
+      name.append(sign, node('span', 'work-mini-queue-name', part.title));
+      name.setAttribute('aria-label', `Revenir au Studio de « ${part.title} »`);
+      name.dataset.spot = `back:${part.conversation}`;
+      name.onclick = () => onOpenQueue(part.conversation);
+      box.append(name);
+    }
+    // (« Génération arrêtée. » not said twice, under the take that says it.)
+    const said = part.stopped && now && phase === 'stopped' && work?.conversationId === part.conversation;
+    if (part.why && !said) box.append(node('p', 'work-mini-queue-why' + (part.card ? ' is-card' : ''), part.why));
+    for (const group of part.groups) {
+      if (group.word) {
+        const head = node('div', `work-mini-queue-head is-${group.state}`),
+          title = node('span', 'work-mini-queue-title');
+        title.append(node('b', '', group.word), node('span', 'work-mini-queue-count', ` · ${group.rows.length}`));
+        head.append(title);
+        box.append(head);
+      }
+      const rows = node('ol', `work-mini-rows is-${group.state}`);
+      rows.dataset.rows = `${part.conversation}|${group.state}`;
+      rows.append(...group.rows.map(item => drawRow(item, group.state === 'failed', part.conversation)));
+      box.append(rows);
+    }
+    if (part.note) box.append(node('p', 'work-mini-queue-note', part.note));
+    if (part.held) box.append(node('p', 'work-mini-held', part.held));
+    if (part.foot) box.append(drawFoot(part));
+    return box;
+  }
+  /** A line: its kind, the start of its prompt, its model and its format, its tries; one that failed, why. */
+  function drawRow(item, failed, conversation) {
+    const line = node('li', 'work-mini-row' + (failed ? ' is-failed' : '')),
+      words = node(failed ? 'button' : 'span', 'work-mini-row-words'),
+      what = node('span', 'work-mini-row-what'),
+      cross = node('button', 'work-mini-row-del'),
+      gone = failed ? 'Retirer cette demande' : 'Retirer de la file',
+      [drawn, shut] = [icon(item.icon), icon('close')];
+    line.dataset.media = item.kind;
+    if (drawn) line.append(drawn);
+    if (failed) what.append(node('span', 'work-mini-row-why', `Échec · ${item.reason}`));
+    else what.append(node('span', 'work-mini-row-model', item.what));
+    if (!failed && item.tries > 1) what.append(node('span', 'work-mini-row-tries', `× ${item.tries}`));
+    words.append(node('span', 'work-mini-row-text', item.prompt), what);
+    // Its kind and its whole prompt in its bubble, at the left of the window (help-tips.mjs): above it, it hid the
+    // line before. Not the bubble of its cross: at its left, it would hide its own line.
+    words.title = item.tip;
+    words.dataset.tipSide = 'left';
+    if (failed) {
+      words.type = 'button';
+      words.setAttribute(
+        'aria-label',
+        `Échec · ${item.reason} · ${item.prompt} · un clic remet ses réglages dans le Studio`,
+      );
+      words.dataset.spot = `pick:${item.id}`;
+      words.onclick = () => onTakeBack(item.id, conversation);
+    }
+    cross.type = 'button';
+    if (shut) cross.append(shut);
+    cross.title = gone;
+    cross.setAttribute('aria-label', gone);
+    cross.dataset.spot = `del:${item.id}`;
+    cross.onclick = () => onRemove(item.id, conversation);
+    line.append(words, cross);
+    return line;
+  }
+  /**
+   * Its foot, paused: « Reprendre · 3 » (greyed with why, which it says above it and in its bubble; « Libérer le
+   * GPU » while the card is held), and « Vider la file ».
+   */
+  function drawFoot(part) {
+    const { foot } = part,
+      box = node('div', 'work-mini-foot'),
+      go = node('button', 'work-mini-resume'),
+      clear = node('button', 'work-mini-clear', 'Vider la file'),
+      drawn = icon(foot.icon);
+    go.type = clear.type = 'button';
+    if (drawn) go.append(drawn);
+    go.append(node('span', '', foot.label));
+    go.title = foot.tip;
+    go.dataset.tipSide = 'left';
+    go.dataset.spot = `go:${part.conversation}`;
+    if (foot.held) go.setAttribute('aria-disabled', 'true');
+    go.onclick = () => {
+      if (foot.held) return;
+      if (foot.recover) onRecover(part.conversation);
+      else onResume(part.conversation);
+    };
+    clear.title = foot.clear;
+    clear.dataset.spot = `clear:${part.conversation}`;
+    clear.onclick = () => onClear(part.conversation);
+    box.append(go, clear);
+    return box;
+  }
   back.onclick = () => open(work);
   fold.onclick = () => {
     // (0.6.200) Where it comes as its pill: opened, or folded again, there alone; nothing kept.
-    if (pillHere) {
+    // (0.6.478) Lying in the Studio with no room for a line: opened over the settings, or folded again, there alone.
+    if (pillHere || tight()) {
       openedHere = !openedHere;
+      return paint();
+    }
+    if (docked) {
+      closedHere = !closedHere;
       return paint();
     }
     folded = !folded;
@@ -205,6 +407,21 @@ export function setupMiniature({
     forget();
     onClosed(was);
   };
+  // (0.6.478) Opened over the settings of the Studio, where it had no room: a click beside it, or Échap, folds it.
+  const page = root.ownerDocument;
+  const foldBack = () => {
+    if (!tight() || !openedHere) return;
+    openedHere = false;
+    paint();
+  };
+  page?.addEventListener?.('pointerdown', event => root.contains(event.target) || foldBack(), true);
+  page?.addEventListener?.('keydown', event => event.key === 'Escape' && foldBack());
+  // (0.6.478) Its height, for a page that scrolls under it: the last row of the Archives comes out from under it,
+  // however long its list (moodix.css).
+  if (typeof ResizeObserver === 'function')
+    new ResizeObserver(() =>
+      page?.documentElement?.style?.setProperty?.('--work-mini-height', `${root.offsetHeight || 0}px`),
+    ).observe(root);
 
   /** The work of a conversation begins: what it says starts again. */
   function begin(given) {
@@ -317,14 +534,26 @@ export function setupMiniature({
    * Where it shows: `null` hidden, 'corner' at the bottom right of the page, or an element (the foot
    * of the Paramètres) where it goes as the pill. The Flux draws only while it is in sight. (0.6.200)
    * `pill`: as its pill whatever the user keeps (the page of the Bobine), until its chevron opens it there.
+   * (0.6.478) `alone`: the list without the take (its Chat or its Studio on screen); `home`: the conversation of that
+   * Chat or Studio; `dock`: where it lies in the Studio, under the settings; `raise`: its pill over the input of the
+   * chat, so high from the foot of the page. It shows while it has a take to show, or a queue.
    */
-  function place(where, { pill = false } = {}) {
-    if (!pill) openedHere = false;
+  function place(where, { pill = false, alone: only = false, home: shownHome = null, dock = null, raise = 0 } = {}) {
+    const local = pill ? 'pill' : dock && where === 'corner' ? 'dock' : '';
+    if (local !== localMode) {
+      localMode = local;
+      openedHere = closedHere = false;
+    }
     pillHere = pill;
-    const visible = Boolean(work && where);
-    shown = visible;
+    alone = Boolean(only);
+    home = shownHome;
+    docked = local === 'dock' ? dock : null;
+    raised = where === 'corner' && raise > 0 ? raise : 0;
+    footed = Boolean(where) && where !== 'corner';
+    const visible = Boolean(where) && (Boolean(work && !alone) || parts.length > 0);
+    shown = visible && Boolean(work) && !alone;
     root.hidden = !visible;
-    flux?.visible(visible);
+    flux?.visible(shown);
     if (!visible) return;
     const inFoot = where !== 'corner';
     root.classList.toggle('is-foot', inFoot);
@@ -340,6 +569,14 @@ export function setupMiniature({
     work.title = text;
     paint();
   }
+  /**
+   * (0.6.478) What waits in the queue of the Studio (studio.mjs, queueView): per conversation, { conversation, title,
+   * groups: [{ word, state, rows }], why, card, stopped, note, held, foot }; [] when nothing waits. Drawn at the next
+   * `place`, which says where.
+   */
+  function queue(given = []) {
+    parts = Array.isArray(given) ? given : [];
+  }
   return {
     element: root,
     begin,
@@ -350,6 +587,7 @@ export function setupMiniature({
     forget,
     place,
     rename,
+    queue,
     /** The work it shows: { conversationId, title, kind, take }, or null. */
     get work() {
       return work;

@@ -1,5 +1,6 @@
 import { askedOf, openCalls, recoveredContent, takesOf, withResult } from './take-recovery.mjs';
 import { closedCalls } from './transcript.mjs';
+import { layoutSaid } from './layout-boxes.mjs';
 
 /**
  * The takes a conversation no longer shows (0.6.99). An exchange taken back (« Régénérer »,
@@ -69,7 +70,8 @@ export function reattached(messages, group) {
   }
   const media = records[0]?.mediaType || 'image',
     name = media === 'video' ? 'create_video' : media === 'audio' ? 'create_audio' : 'create_image',
-    prompts = records.map(record => String(record.prompt ?? '').slice(0, PROMPT_MAX)),
+    // (0.6.477, N11) A take made with boxes by its caption and how many boxes, never their JSON.
+    prompts = records.map(record => String(layoutSaid(record.prompt) ?? '').slice(0, PROMPT_MAX)),
     call = {
       id: group.callId,
       type: 'function',

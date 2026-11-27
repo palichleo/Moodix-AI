@@ -20,6 +20,8 @@ export const PIECE_WORDS = {
   character: 'Personnage',
   // (0.6.211) How the camera moves (public/camera.mjs): no image, a movement of a closed list.
   camera: 'Caméra',
+  // (0.6.477) Boxes placed in the picture for MOSS Image (public/layout-editor.mjs): no image, rectangles.
+  boxes: 'Boîtes',
 };
 
 // (Captures 94, 100, 101 and 104) Each kind of piece in a list « Ajouter »: its name, what the list says of it
@@ -34,6 +36,8 @@ export const PIECES = {
   reference: { name: 'Sujet', given: 'déjà donné', serves: 'Un sujet sert' },
   camera: { name: 'Caméra', given: 'déjà réglée', serves: 'La caméra se règle' },
   lyrics: { name: 'Paroles', given: 'déjà ouvertes', serves: 'Des paroles servent' },
+  // (0.6.477) After the lyrics: the last piece a model of images takes (the plateau keeps this order).
+  boxes: { name: 'Boîtes', given: 'déjà posées', serves: 'Les boîtes servent' },
   image: { name: 'Image', given: 'déjà donnée', serves: 'Une image sert' },
 };
 

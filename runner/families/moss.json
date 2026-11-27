@@ -11,6 +11,7 @@
   },
   "tasks": ["create_image"],
   "hardware": { "cuda": true },
+  "layout": true,
   "requires": ["torch", "diffusers", "transformers", "accelerate", "safetensors", "PIL", "comfy_kitchen"],
   "components": {
     "model": {

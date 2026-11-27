@@ -6,6 +6,7 @@
  * A number the project does not have shows nothing.
  */
 import { stillClip } from './take-player.mjs';
+import { layoutCaption } from './layout-boxes.mjs';
 
 /** At most this many pictures under one reply. */
 export const MOST = 8;
@@ -161,9 +162,11 @@ export function setupCitedTakes({ node, icon, load, project, references, viewOut
       // The picture in its filet; « PRISE 12 » under it, as in the Sortie.
       frame = node('span', 'message-cited-picture');
     open.type = 'button';
-    const what = { image: 'Image', video: 'Vidéo', audio: 'Son' }[media];
-    open.setAttribute('aria-label', `Ouvrir la prise ${item.number} · ${what}${record.prompt ? ' · ' + record.prompt : ''}`);
-    open.title = `Prise ${item.number}${record.prompt ? ' · ' + record.prompt : ''}`;
+    const what = { image: 'Image', video: 'Vidéo', audio: 'Son' }[media],
+      // (0.6.477) A take made with boxes (MOSS Image) by its caption, never by their JSON.
+      said = layoutCaption(record.prompt);
+    open.setAttribute('aria-label', `Ouvrir la prise ${item.number} · ${what}${said ? ' · ' + said : ''}`);
+    open.title = `Prise ${item.number}${said ? ' · ' + said : ''}`;
     // At its format, as in the Sortie: its file's size, its settings', else that of its kind.
     const width = output.width ?? record.parameters?.width,
       height = output.height ?? record.parameters?.height,

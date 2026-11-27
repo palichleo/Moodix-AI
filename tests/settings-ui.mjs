@@ -617,6 +617,43 @@ test('slow status checks cannot accumulate concurrent polling requests', async (
   assert.equal(ui.state.connected, true);
 });
 
+test('(0.6.503) the engine installed, started, stopped or failed: the Studio reads its tools again', async () => {
+  // « Préparation du moteur » of a download: the Studio kept the tools read before, which said the engine stopped, and
+  // the « Reprendre » of its queue went while nothing could be made. As once it is ready, it reads them again.
+  const runners = [],
+    read = [];
+  let fetched = 0;
+  const ui = await settingsUI({
+    request: call =>
+      call.route === 'status' ? Response.json({ state: 'stopped', logs: [], runner: runners.shift() }) : undefined,
+  });
+  ui.state.status.runner = { state: 'stopped' };
+  ui.state.studio = {
+    invalidate: options => read.push(options.tools && ui.state.status.runner.state),
+    prefetch: async () => void fetched++,
+  };
+  // Stopped, installed, starting, ready; back after a take stopped (`recovering`): read again once it is ready, as
+  // before. Then a preparation that fails on the way.
+  for (const runner of [
+    { state: 'stopped' },
+    { state: 'installing' },
+    { state: 'installing' },
+    { state: 'starting' },
+    { state: 'ready' },
+    { state: 'stopping', recovering: true },
+    { state: 'starting', recovering: true },
+    { state: 'ready' },
+    { state: 'stopped' },
+    { state: 'installing' },
+    { state: 'unavailable', error: 'uv : réseau coupé' },
+  ]) {
+    runners.push(runner);
+    await ui.refreshStatus();
+  }
+  const said = ['installing', 'starting', 'ready', 'ready', 'stopped', 'installing', 'unavailable'];
+  assert.deepEqual([read, fetched], [said, said.length]);
+});
+
 test('opening settings rescans folders and selecting one fills both paths without choosing an engine', async () => {
   let scans = 0;
   const profile = {

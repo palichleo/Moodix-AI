@@ -19,6 +19,7 @@ import { DELETE_TIP, deleteQuestion } from './take-delete.mjs';
 import { healThumbnail, thumbnailOf } from './thumbnails.mjs';
 import { stillClip } from './take-player.mjs';
 import { takeSeconds } from './take-length.mjs';
+import { layoutCaption } from './layout-boxes.mjs';
 
 export const KINDS = [
   { id: 'all', icon: 'grid', label: 'Tout' },
@@ -260,8 +261,9 @@ export function setupLibrary({
     }
     // Said whole by the label of the picture: what the veil shows is for the eyes only, but its
     // button that opens the conversation.
+    // (0.6.477) A take made with boxes (MOSS Image) by its caption, never by their JSON.
     const veil = node('div', 'library-veil'),
-      said = node('p', 'library-prompt', record.prompt || NAMES[media] || 'Création'),
+      said = node('p', 'library-prompt', layoutCaption(record.prompt) || NAMES[media] || 'Création'),
       meta = node('p', 'library-meta');
     said.setAttribute('aria-hidden', 'true');
     if (record.legacy || record.unsaved) {
@@ -441,7 +443,12 @@ export function setupLibrary({
     }
     kept.pick.setAttribute(
       'aria-label',
-      [Number.isInteger(take) ? 'Prise ' + take : (NAMES[kept.media] ?? 'Création'), record.prompt || '', where, date(record.createdAt)]
+      [
+        Number.isInteger(take) ? 'Prise ' + take : (NAMES[kept.media] ?? 'Création'),
+        layoutCaption(record.prompt) || '',
+        where,
+        date(record.createdAt),
+      ]
         .filter(Boolean)
         .join(' · '),
     );

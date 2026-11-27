@@ -715,6 +715,17 @@ test('(0.6.464) a take made, the card alone held after it: its card says so, not
   assert.equal(page.split('!madeHeld(result.error) ? result.error').length, 3);
 });
 
+test('(0.6.493) an image of Moodix AI made at once, without a card: what its routing says is written under its message', async () => {
+  // (relecture-chat-routage.md, M2: « chien.png n’est pas envoyée à Krea 2. » was never shown.) The page writes it
+  // where a take of the chat ends (public/app.js), in the line of a failure; not for a video or a sound (their card
+  // says it), nor for an image set in the Studio on screen (the Studio shows its notes while it waits for its go).
+  const page = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  const [, routed] = /const routed =\s*([^;]+);/.exec(page) ?? [];
+  assert.match(routed ?? '', /result\.record && !result\.failed && !request\.mediaType && \(!viaStudio \|\| away\)/);
+  assert.match(routed, /\(request\.notes \?\? \[\]\)\.join\(' '\)/);
+  assert.match(page, /'Analyse indisponible\.' : routed;/);
+});
+
 test('sequential runs and batch outputs append separate tiles to the same grid without replacing originals', async t => {
   const container = new Element(),
     ui = setupGenerationUI({

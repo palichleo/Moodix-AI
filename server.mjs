@@ -149,6 +149,7 @@ const staticFiles = new Map([
   ['/output-actions.mjs', ['output-actions.mjs', 'text/javascript; charset=utf-8']],
   ['/chat-videos.mjs', ['chat-videos.mjs', 'text/javascript; charset=utf-8']],
   ['/studio.mjs', ['studio.mjs', 'text/javascript; charset=utf-8']],
+  ['/studio-queue.mjs', ['studio-queue.mjs', 'text/javascript; charset=utf-8']],
   ['/image-compare.mjs', ['image-compare.mjs', 'text/javascript; charset=utf-8']],
   ['/session-copies.mjs', ['session-copies.mjs', 'text/javascript; charset=utf-8']],
   ['/generation-runtime.mjs', ['generation-runtime.mjs', 'text/javascript; charset=utf-8']],
@@ -156,6 +157,11 @@ const staticFiles = new Map([
   ['/setting-names.mjs', ['setting-names.mjs', 'text/javascript; charset=utf-8']],
   ['/settings-controls.mjs', ['settings-controls.mjs', 'text/javascript; charset=utf-8']],
   ['/markdown.mjs', ['markdown.mjs', 'text/javascript; charset=utf-8']],
+  // (0.6.477) The boxes of a MOSS Image layout, the editor that places them in the frame of the Studio, and the eye
+  // that shows a take with what its model received.
+  ['/layout-boxes.mjs', ['layout-boxes.mjs', 'text/javascript; charset=utf-8']],
+  ['/layout-editor.mjs', ['layout-editor.mjs', 'text/javascript; charset=utf-8']],
+  ['/take-eye.mjs', ['take-eye.mjs', 'text/javascript; charset=utf-8']],
   // (0.6.452) The dictation: its button and its strip, and the sound of the microphone (an AudioWorklet).
   ['/dictation.mjs', ['dictation.mjs', 'text/javascript; charset=utf-8']],
   ['/dictation-worklet.mjs', ['dictation-worklet.mjs', 'text/javascript; charset=utf-8']],
