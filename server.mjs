@@ -125,6 +125,8 @@ const staticFiles = new Map([
   ['/missing-file.mjs', ['missing-file.mjs', 'text/javascript; charset=utf-8']],
   ['/model-licenses.mjs', ['model-licenses.mjs', 'text/javascript; charset=utf-8']],
   ['/models-page.mjs', ['models-page.mjs', 'text/javascript; charset=utf-8']],
+  // (0.6.481) The sections of the page « Modèles ».
+  ['/model-sections.mjs', ['model-sections.mjs', 'text/javascript; charset=utf-8']],
   ['/glass-menu.mjs', ['glass-menu.mjs', 'text/javascript; charset=utf-8']],
   ['/reflection.mjs', ['reflection.mjs', 'text/javascript; charset=utf-8']],
   ['/media-info.mjs', ['media-info.mjs', 'text/javascript; charset=utf-8']],
@@ -1769,7 +1771,10 @@ export async function createApplication({
       // The files of a shipped workflow: downloaded in the background, followed with GET /api/downloads.
       if (path === '/api/downloads/start') {
         if (closing || relaunching) throw problem('L’application est en cours de fermeture.', 409);
-        const record = (await generation.catalog.list()).find(item => item.id === body.id);
+        const record =
+          (await generation.catalog.list()).find(item => item.id === body.id) ??
+          // (0.6.481) A version of a model on its own, from its row in « Modèles » (GenerationService.versionWorkflow).
+          (await generation.versionWorkflow(body.id));
         // (0.6.198) Said to the user, as the page names a model (« Workflow introuvable » before).
         if (!record) throw problem('Modèle introuvable.', 404);
         // `accepted`: the licences with conditions of these files were shown, read and confirmed.

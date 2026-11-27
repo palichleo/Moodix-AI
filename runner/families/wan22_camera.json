@@ -10,7 +10,8 @@
     "order": 5,
     "names": [
       { "match": "camera", "name": "Fun Camera" }
-    ]
+    ],
+    "section": "Wan 2.2"
   },
   "tasks": ["create_video"],
   "hardware": {

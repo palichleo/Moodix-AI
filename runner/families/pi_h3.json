@@ -8,7 +8,8 @@
     "does": "Vidéos de 5 à 15 s avec le son, en 4 étapes.",
     "group": "video",
     "order": 2.5,
-    "version": "4 étapes"
+    "version": "4 étapes",
+    "section": "MiniMax H3"
   },
   "tasks": [
     "create_video"
