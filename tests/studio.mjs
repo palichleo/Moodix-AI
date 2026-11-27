@@ -1179,16 +1179,23 @@ async function studioPage(tools, routes = {}, options = {}) {
   const studio = setupStudio({
     api: async (route, body) => {
       asked.push([route, body]);
+      // (0.6.480) The generation engine while it is not ready (options.engine), as the server says it when asked; the
+      // answer given late when the test wants (options.studioLate). The tools then as they were when asked, a copy as
+      // a server gives (the Studio compares what it read before with what it reads).
+      const engine = route === 'studio' ? options.engine?.() : null,
+        listed = route === 'studio' && (options.engine || options.studioLate) ? structuredClone(tools) : tools;
+      if (route === 'studio') await options.studioLate?.();
       return {
         json: async () =>
           route === 'studio'
             ? {
                 enabled: true,
                 styles: ['a.safetensors', 'b.safetensors'],
-                tools,
+                tools: listed,
                 // (0.6.461) The models of the Bobine, one by family (videoModels), when the test gives them.
                 ...(options.video ? { video: options.video } : {}),
                 presets: options.presets ?? {},
+                ...(engine ? { engine } : {}),
               }
             : (route.startsWith('gallery/') || route.startsWith('project-gallery/')) && options.gallery
               ? // (0.6.301) Its answers as the test gives them, late when it wants.
@@ -3138,6 +3145,423 @@ test('a model this computer cannot run is greyed in the list with its reason, an
   } finally {
     studio.restore();
   }
+});
+
+/**
+ * (0.6.480) A model not on this computer, as lib/tool-catalog.mjs tells it to the Studio (studio({ offers })): greyed
+ * for the router (`unavailable`), what it is for (`does`), and what to download for it (`missing`). `ready`: it is
+ * there.
+ */
+const FREE = { name: 'Apache-2.0', url: 'https://www.apache.org/licenses/LICENSE-2.0', limits: '', restricted: false };
+const absentModel = (id, name, { ready = false, bytes = 19e9, license = FREE, ...more } = {}) => ({
+  id,
+  name,
+  roles: {},
+  limits: sizes,
+  direct: true,
+  size: { width: 1024, height: 1024 },
+  settings: [],
+  seeded: true,
+  does: 'Photos, illustrations, retouche d’une image.',
+  ...(ready
+    ? {}
+    : {
+        unavailable: `Fichier introuvable pour « Modèle » : ${id}.safetensors.`,
+        missing: {
+          workflowId: id,
+          files: [{ role: 'model', file: id + '.safetensors', size: bytes, license }],
+          bytes,
+          left: bytes,
+          needsToken: false,
+          page: '',
+        },
+      }),
+  ...more,
+});
+/** (0.6.480) Waits for what the page does by itself (a download followed once a second): three seconds at most. */
+const untilSeen = async (done, ms = 3000) => {
+  for (const end = Date.now() + ms; !done() && Date.now() < end; )
+    await new Promise(resolve => setTimeout(resolve, 20));
+  return done();
+};
+const labelOf = control => control?.find('studio-go-label')[0]?.textContent;
+
+test('a model not on this computer: the Studio whole, « Télécharger · 17,7 Go » in the place of « Générer », then « Générer » again, the prompt kept (0.6.480)', async () => {
+  const tools = { create_image: [absentModel('krea', 'Krea 2')] };
+  let job = null;
+  const page = await studioPage(tools, {
+    'downloads/start': body => ({ state: 'running', workflowId: body.id, name: 'Krea 2', received: 0, total: 19e9 }),
+    downloads: () => ({ job }),
+  });
+  try {
+    const { body, asked, said } = page;
+    const started = () => asked.filter(([route]) => route === 'downloads/start' || route === 'tools/action');
+    // (Capture of 27/11: one grey sentence.) The Studio whole: its prompt, its screen, its settings and its Sortie.
+    assert.equal(body.find('asset-empty').length, 0);
+    assert.equal(body.find('studio-prompt-field').length, 1);
+    assert.equal(body.find('studio-block').length, 4);
+    // The model named in amber, what it is for, then « Pas sur cet ordinateur · 17,7 Go ».
+    const [name] = body.find('studio-model-name');
+    assert.deepEqual([name.textContent, name.className], ['Krea 2', 'studio-model-name is-absent']);
+    const [note] = body.find('studio-absent-note');
+    assert.deepEqual(
+      [note.textContent, note.children.map(part => [part.className, part.textContent])],
+      ['Photos, illustrations, retouche d’une image. ', [['studio-absent-size', 'Pas sur cet ordinateur · 17,7 Go']]],
+    );
+    // « Télécharger · 17,7 Go » in the glass of « Générer », its licence in its bubble; « × n » gone, Moodix AI beside.
+    const [get] = body.find('studio-get');
+    assert.deepEqual(
+      [labelOf(get), get.title, get.disabled, get.children[0].glyph],
+      ['Télécharger · 17,7 Go', 'Licence : Apache-2.0. En téléchargeant, vous l’acceptez.', false, 'download'],
+    );
+    assert.deepEqual([body.find('studio-go').length, body.find('studio-tries').length], [1, 0]);
+    assert.equal(body.find('studio-go-group')[0].children.at(-1).id, 'agent-open');
+    // What it lacks, in amber under the buttons.
+    assert.deepEqual(
+      body.find('studio-absent-line').map(line => line.textContent),
+      ['Krea 2 n’est pas sur cet ordinateur.'],
+    );
+    // The prompt is written meanwhile; the keys of « Générer » never download: why, in the bubble.
+    page.prompt().value = 'un phare dans la tempête';
+    page.prompt().oninput();
+    page.page['studio-view'].onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
+    await settle();
+    assert.equal(said.at(-1), 'Krea 2 n’est pas sur cet ordinateur : téléchargez-le d’abord.');
+    assert.deepEqual(started(), []);
+    // Pressed: downloaded (a free licence: nothing to confirm), its bar in the glass, « Arrêter » at its right.
+    await body.find('studio-get')[0].onclick();
+    await settle();
+    assert.deepEqual(started(), [['downloads/start', { id: 'krea' }]]);
+    const [bar] = body.find('studio-get');
+    assert.deepEqual(
+      [bar.attributes.role, labelOf(bar), body.find('studio-stop').length],
+      ['progressbar', '0 / 17,7 Go', 1],
+    );
+    assert.deepEqual(
+      body.find('studio-absent-line').map(line => line.textContent),
+      ['Krea 2 se télécharge : « Générer » revient à la fin.'],
+    );
+    // As it goes: its figures in the same button, the Studio not drawn again.
+    job = { state: 'running', workflowId: 'krea', name: 'Krea 2', received: 3.4 * 1024 ** 3, total: 19e9 };
+    assert.ok(await untilSeen(() => labelOf(bar) === '3,4 / 17,7 Go'), labelOf(bar));
+    assert.equal(body.find('studio-get')[0], bar);
+    // There: « Générer » again, lit, the prompt as it was written; nothing said in amber any more.
+    tools.create_image = [absentModel('krea', 'Krea 2', { ready: true })];
+    job = { state: 'done', workflowId: 'krea', name: 'Krea 2', received: 19e9, total: 19e9 };
+    assert.ok(await untilSeen(() => body.find('studio-get').length === 0));
+    const [go] = body.find('studio-go');
+    assert.deepEqual([labelOf(go), go.disabled, page.prompt().value], ['Générer', false, 'un phare dans la tempête']);
+    assert.deepEqual([body.find('studio-absent-line').length, body.find('studio-absent-note').length], [0, 0]);
+    assert.ok(asked.some(([route]) => route === 'studio'));
+  } finally {
+    page.restore();
+  }
+});
+
+test('a model whose source asks for an account: « Télécharger » greyed, where its token goes said under it (0.6.480)', async () => {
+  const ltx = absentModel('ltx', 'LTX 2.5', { bytes: 41e9, does: 'Vidéos et prolongations.' });
+  Object.assign(ltx.missing, { needsToken: true, page: 'https://huggingface.co/Lightricks/LTX-2' });
+  const page = await studioPage(
+    { create_video: [ltx] },
+    { 'downloads/start': () => assert.fail('nothing is downloaded') },
+  );
+  try {
+    page.mode(1);
+    const whole =
+      'LTX 2.5 demande un compte Hugging Face : acceptez sa licence sur https://huggingface.co/Lightricks/LTX-2, ' +
+      'puis enregistrez votre jeton dans Paramètres › Modèles › Fichiers.';
+    const [get] = page.body.find('studio-get');
+    assert.deepEqual([labelOf(get), get.disabled, get.title], ['Télécharger · 38,2 Go', true, whole]);
+    const [line] = page.body.find('studio-absent-line');
+    assert.deepEqual(
+      [line.textContent, line.title],
+      ['LTX 2.5 demande un compte Hugging Face : Paramètres › Modèles › Fichiers.', whole],
+    );
+    // Pressed all the same: why, in its bubble; nothing is downloaded.
+    await get.onclick();
+    await settle();
+    assert.equal(page.said.at(-1), whole);
+    assert.equal(page.asked.filter(([route]) => route.startsWith('downloads')).length, 0);
+  } finally {
+    page.restore();
+  }
+});
+
+test('a licence with conditions is read on the screen before anything is downloaded, refused or accepted (0.6.480)', async () => {
+  const license = {
+    name: 'Krea 2 Community License',
+    url: 'https://example.invalid/krea-2-licence',
+    limits: 'Usage commercial réservé aux structures de moins d’un million de dollars de revenus.',
+    restricted: true,
+  };
+  let job = null;
+  const page = await studioPage(
+    { create_image: [absentModel('krea', 'Krea 2', { license })] },
+    {
+      'downloads/start': body => ({ state: 'running', workflowId: body.id, received: 0, total: 19e9 }),
+      downloads: () => ({ job }),
+    },
+  );
+  try {
+    const { body, asked } = page;
+    const starts = () => asked.filter(([route]) => route === 'downloads/start');
+    assert.equal(
+      body.find('studio-get')[0].title,
+      'Licence : Krea 2 Community License (à conditions). En téléchargeant, vous l’acceptez.',
+    );
+    await body.find('studio-get')[0].onclick();
+    await settle();
+    // Nothing downloaded: its licence on the screen, « J’ai lu, télécharger » in the place of « Télécharger ».
+    assert.deepEqual(starts(), []);
+    const [pane] = body.find('studio-license-pane');
+    assert.deepEqual(
+      [pane.find('license-name')[0].textContent, pane.find('license-limits')[0].textContent],
+      [license.name, license.limits],
+    );
+    assert.equal(labelOf(body.find('studio-get')[0]), 'J’ai lu, télécharger · 17,7 Go');
+    // The line under the buttons stays: nothing moves under the pointer.
+    assert.deepEqual(
+      body.find('studio-absent-line').map(line => line.textContent),
+      ['Krea 2 n’est pas sur cet ordinateur.'],
+    );
+    // Refused: as it was, nothing downloaded.
+    pane.find('studio-decline')[0].onclick();
+    assert.deepEqual(
+      [body.find('studio-license-pane').length, labelOf(body.find('studio-get')[0])],
+      [0, 'Télécharger · 17,7 Go'],
+    );
+    assert.deepEqual(starts(), []);
+    // Read and accepted: downloaded, the licence said accepted to the server.
+    await body.find('studio-get')[0].onclick();
+    await settle();
+    await body.find('studio-get')[0].onclick();
+    await settle();
+    assert.deepEqual(starts(), [['downloads/start', { id: 'krea', accepted: true }]]);
+    assert.equal(body.find('studio-license-pane').length, 0);
+    // Stopped (« Arrêter »): « Télécharger » again, what is left of it read again with the tools.
+    body.find('studio-stop')[0].onclick();
+    job = { state: 'cancelled', workflowId: 'krea' };
+    assert.ok(await untilSeen(() => body.find('studio-stop').length === 0));
+    assert.ok(asked.some(([route]) => route === 'downloads/cancel'));
+    assert.equal(labelOf(body.find('studio-get')[0]), 'Télécharger · 17,7 Go');
+  } finally {
+    page.restore();
+  }
+});
+
+test('a ready model stays the one in hand; one not on this computer is chosen by hand, and waits for another download (0.6.480)', async () => {
+  let job = null;
+  const page = await studioPage(
+    { create_image: [absentModel('moss', 'MOSS Image', { ready: true }), absentModel('krea', 'Krea 2')] },
+    { downloads: () => ({ job }) },
+  );
+  try {
+    const { body } = page;
+    // The ready one in hand, « Générer »; the other in the list, never greyed there, its name alone on the face.
+    assert.equal(body.find('studio-get').length, 0);
+    const pick = body.find('studio-model-pick')[0];
+    assert.equal(pick.className, 'studio-model-pick');
+    assert.deepEqual(
+      pick.children.map(option => [option.textContent, option.disabled, option.title, option.dataset.face]),
+      [
+        ['MOSS Image', undefined, undefined, undefined],
+        ['Krea 2 · pas sur cet ordinateur', undefined, '17,7 Go à télécharger', 'Krea 2'],
+      ],
+    );
+    // Chosen: in hand, in amber, « Télécharger » in the place of « Générer », and it stays so drawn again.
+    pick.value = 'krea';
+    pick.onchange();
+    page.studio.render();
+    assert.deepEqual(
+      [body.find('studio-model-pick')[0].value, body.find('studio-model-pick')[0].className],
+      ['krea', 'studio-model-pick is-absent'],
+    );
+    assert.equal(labelOf(body.find('studio-get')[0]), 'Télécharger · 17,7 Go');
+    // Another model downloads (from Paramètres › Modèles): « Télécharger » greyed, and why, until its end.
+    job = { state: 'running', workflowId: 'other', name: 'MiniMax H3 Omni', received: 1, total: 2 };
+    page.studio.invalidate({ tools: true });
+    await page.studio.prefetch();
+    page.studio.render();
+    assert.ok(await untilSeen(() => body.find('studio-get')[0]?.disabled === true));
+    const waiting = 'MiniMax H3 Omni se télécharge : attendez sa fin.';
+    assert.equal(body.find('studio-get')[0].title, waiting);
+    assert.deepEqual(body.find('studio-absent-line').map(line => line.textContent), [waiting]);
+    job = { state: 'done', workflowId: 'other', name: 'MiniMax H3 Omni' };
+    assert.ok(await untilSeen(() => body.find('studio-get')[0]?.disabled === false));
+    assert.deepEqual(
+      body.find('studio-absent-line').map(line => line.textContent),
+      ['Krea 2 n’est pas sur cet ordinateur.'],
+    );
+  } finally {
+    page.restore();
+  }
+});
+
+test('while the generation engine starts, the Studio says so in the place of « Générer », never « Aucun modèle prêt », and is whole once ready (0.6.480)', async () => {
+  let engine = { state: 'starting' };
+  const tools = {};
+  const page = await studioPage(tools, {}, { engine: () => engine });
+  try {
+    const { body } = page;
+    const words = () => body.find('studio-engine-go').map(labelOf);
+    // (27/11: « Aucun modèle prêt : vérifiez Paramètres › Modèles » for ten seconds, on a computer that has them all.)
+    assert.deepEqual(words(), ['Le moteur démarre…']);
+    assert.equal(body.find('asset-empty').length, 0);
+    assert.deepEqual(
+      body.find('sr-only').map(said => [said.textContent, said.attributes.role]),
+      [['Le moteur de génération démarre…', 'status']],
+    );
+    // Its four blocks as they will be, Moodix AI at hand; nothing to press.
+    assert.deepEqual([body.find('studio-block').length, body.find('studio-go').length], [4, 0]);
+    assert.equal(body.find('studio-go-group')[0].children.at(-1).id, 'agent-open');
+    // In each mode.
+    page.mode(2);
+    assert.deepEqual(words(), ['Le moteur démarre…']);
+    page.mode(0);
+    // Installed the first time: said so.
+    engine = { state: 'installing' };
+    page.studio.invalidate({ tools: true });
+    await page.studio.prefetch();
+    assert.deepEqual(words(), ['Installation du moteur…']);
+    // Its keys make nothing meanwhile (they asked generate(), whose « Aucun modèle prêt » stayed under the Studio).
+    page.page['studio-view'].onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
+    await settle();
+    assert.equal(page.asked.filter(([route]) => route === 'generate' || route === 'tools/action').length, 0);
+    // Ready: the Studio whole, « Générer », and nothing failed meanwhile.
+    engine = null;
+    tools.create_image = [absentModel('krea', 'Krea 2', { ready: true })];
+    page.studio.invalidate({ tools: true });
+    await page.studio.prefetch();
+    assert.deepEqual(
+      [words(), labelOf(body.find('studio-go')[0]), body.find('studio-error').length],
+      [[], 'Générer', 0],
+    );
+  } finally {
+    page.restore();
+  }
+});
+
+test('the Studio is drawn whole once its engine is ready, even when a reading under way still said it started (0.6.480)', async () => {
+  let engine = { state: 'starting' },
+    gate = null;
+  const tools = {};
+  const page = await studioPage(tools, {}, { engine: () => engine, studioLate: () => gate });
+  try {
+    assert.equal(page.body.find('studio-engine-go').length, 1);
+    // A reading begins while the engine starts (the Studio opened again, a minute gone by), and answers late.
+    let answer;
+    gate = new Promise(resolve => (answer = resolve));
+    page.studio.invalidate({ tools: true });
+    const first = page.studio.prefetch();
+    // The engine is ready meanwhile: app.js asks for the tools again (refreshStatus), and shares that reading.
+    engine = null;
+    gate = null;
+    tools.create_image = [absentModel('krea', 'Krea 2', { ready: true })];
+    page.studio.invalidate({ tools: true });
+    const second = page.studio.prefetch();
+    answer();
+    await Promise.all([first, second]);
+    assert.equal(page.body.find('studio-engine-go').length, 0);
+    assert.equal(labelOf(page.body.find('studio-go')[0]), 'Générer');
+  } finally {
+    page.restore();
+  }
+});
+
+test('the engine stopped or failed, no model ready: that is said, not « vérifiez Paramètres › Modèles » (0.6.480)', async () => {
+  let engine = { state: 'unavailable', error: 'Python est introuvable.' };
+  const tools = {};
+  const page = await studioPage(tools, {}, { engine: () => engine });
+  try {
+    const said = () => page.body.find('asset-empty').map(line => line.textContent);
+    assert.deepEqual(said(), ['Moteur de génération indisponible : Python est introuvable.']);
+    engine = { state: 'stopped' };
+    page.studio.invalidate({ tools: true });
+    await page.studio.prefetch();
+    assert.deepEqual(said(), [
+      'Moteur de génération arrêté : préparez-le dans Paramètres › Mise à jour › Composants ' +
+        '(« Vérifier l’environnement »).',
+    ]);
+    // A model not on this computer all the same (a new installation): the Studio whole, its download offered.
+    tools.create_image = [absentModel('krea', 'Krea 2')];
+    page.studio.invalidate({ tools: true });
+    await page.studio.prefetch();
+    assert.deepEqual([said(), labelOf(page.body.find('studio-get')[0])], [[], 'Télécharger · 17,7 Go']);
+  } finally {
+    page.restore();
+  }
+});
+
+test('a proposal of Moodix AI is never set with a model said not on this computer: the tools are read again (0.6.480)', async () => {
+  // The tools were read before the download of Clip ended: not on this computer, they said. Moodix AI proposes it.
+  const { clip, request } = proposalOf(),
+    other = absentModel('h3', 'MiniMax H3 Omni'),
+    absent = { ...clip, unavailable: 'Fichier introuvable pour « Modèle » : v.safetensors.' },
+    tools = { create_video: [other, { ...absent, missing: absentModel('v', 'Clip').missing }] };
+  // (A copy at each reading, as a server gives.)
+  const page = await studioPage(tools, {}, { studioLate: () => {} });
+  try {
+    const { body, asked } = page,
+      read = () => asked.filter(([route]) => route === 'studio').length,
+      before = read();
+    tools.create_video = [clip, other];
+    const answer = page.studio.propose(request, new AbortController().signal);
+    await settle();
+    assert.deepEqual([read() - before, page.studio.proposing(), body.find('studio-get').length], [1, true, 0]);
+    // Refused: Clip stays in hand, « Générer » in its place. « Télécharger » for MiniMax H3 Omni came back there.
+    page.studio.decline();
+    assert.equal(await answer, 'deny');
+    assert.deepEqual([labelOf(body.find('studio-go')[0]), body.find('studio-get').length], ['Générer', 0]);
+  } finally {
+    page.restore();
+  }
+});
+
+test('the tools of the Studio say the generation engine while it is not ready, with the shipped models it would download (0.6.480)', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'atelier-studio-engine-'));
+  let state = 'starting';
+  const worker = {
+    status: () => ({ state, capabilities: {}, error: state === 'unavailable' ? 'Python est introuvable.' : '' }),
+    start: async () => {},
+    close: async () => {},
+  };
+  const app = await createApplication({
+    port: 0,
+    dataDir: directory,
+    modelsDir: join(directory, 'models'),
+    builtinWorkflowDir: fileURLToPath(new URL('../runner/workflows', import.meta.url)),
+    generationWorker: worker,
+  });
+  t.after(async () => {
+    await app.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const { token } = await (await fetch(app.url + '/api/bootstrap?brief=1')).json();
+  const studio = async () =>
+    (await fetch(app.url + '/api/studio', { headers: { Authorization: 'Bearer ' + token } })).json();
+  // It starts: said. Nothing is on this computer: the models of an image, a video and a sound, with what each would
+  // download; those that make a take larger or smoother are not offered from here.
+  let read = await studio();
+  assert.deepEqual(read.engine, { state: 'starting' });
+  for (const verb of ['create_image', 'create_video', 'create_audio'])
+    assert.ok(
+      read.tools[verb].length && read.tools[verb].every(item => item.missing?.bytes > 0 && item.unavailable),
+      verb,
+    );
+  assert.deepEqual(read.tools.upscale, []);
+  const krea = read.tools.create_image.find(item => item.name === 'Krea 2');
+  assert.equal(krea.does, 'Photos, illustrations, retouche d’une image.');
+  assert.equal(krea.missing.left, krea.missing.bytes);
+  assert.ok(krea.missing.files.some(file => file.license?.name));
+  // An account asked by the source of LTX 2.5, no token kept here.
+  assert.equal(read.tools.create_video.find(item => item.name === 'LTX 2.5').missing.needsToken, true);
+  // Ready: nothing said of it. Failed: its error.
+  state = 'ready';
+  read = await studio();
+  assert.equal(read.engine, undefined);
+  state = 'unavailable';
+  read = await studio();
+  assert.deepEqual(read.engine, { state: 'unavailable', error: 'Python est introuvable.' });
 });
 
 /**

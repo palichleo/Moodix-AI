@@ -853,3 +853,96 @@ test('the subjects of a take of the Bobine go to its model under their role; LTX
     told = async list => (await catalogOf(list).videoModels()).find(model => model.family === 'ltx25').create_video.roles.reference;
   assert.deepEqual([await told([ltx]), await told([lacking])], [{ count: 2 }, { count: 2, lora: false }]);
 });
+
+test('the Studio is told the models of an image, a video and a sound this computer lacks, with what to download (0.6.480)', async () => {
+  // (27/11: on a first launch, the Studio of his friend showed one grey sentence, « Aucun modèle prêt ».)
+  const { readFile } = await import('node:fs/promises');
+  const shippedOf = async (id, more = {}) => ({
+    ...JSON.parse(await readFile(new URL(`../runner/workflows/${id}.json`, import.meta.url), 'utf8')),
+    ready: true,
+    builtin: true,
+    ...more,
+  });
+  const lacks = { ready: false, unavailableKind: 'files', unavailableReason: 'Fichier manquant.' },
+    ids = {
+      krea: 'fefb88eb-8311-4409-b636-6efbb42e952c',
+      moss: '3d6f1a8c-2b7e-4f59-9c41-8e0a5d2b7c36',
+      ltx: 'eaec4e2f-0649-4e56-9bd9-809dc9390452',
+      effects: '84390db5-e4b9-413c-9352-bbac225fe79c',
+      music: '8a2e5baf-0c02-4077-b36c-482b4e54bb13',
+      seedvr: '6b0f2e5c-7d1a-4c8e-9a3f-5e2d1c0b9a87',
+    };
+  const workflows = await Promise.all([
+    shippedOf(ids.krea, lacks),
+    shippedOf(ids.moss),
+    shippedOf(ids.ltx, lacks),
+    shippedOf(ids.effects, lacks),
+    shippedOf(ids.music, lacks),
+    shippedOf(ids.seedvr, lacks),
+  ]);
+  const license = { name: 'Apache-2.0', restricted: false },
+    offer = (bytes, more = {}) => ({
+      files: [{ role: 'model', file: 'model.safetensors', size: bytes, license }],
+      bytes,
+      left: bytes,
+      complete: true,
+      needsToken: false,
+      page: '',
+      ...more,
+    }),
+    asked = [];
+  // As ModelDownloads.offers answers: the music model has a file of no known source (nothing to download from here).
+  const offers = list => {
+    asked.push(list.map(workflow => workflow.id).sort());
+    return {
+      [ids.krea]: offer(19e9),
+      [ids.ltx]: offer(41e9, { needsToken: true, page: 'https://huggingface.co/Lightricks/LTX-2' }),
+      [ids.effects]: offer(3e9, { left: 1e9 }),
+      [ids.music]: offer(9e9, { complete: false }),
+      [ids.seedvr]: offer(7e9),
+    };
+  };
+  const studio = await catalogOf(workflows).studio({ offers });
+  // Asked once, for the shipped models that lack their files.
+  assert.deepEqual(asked, [[ids.krea, ids.ltx, ids.effects, ids.music, ids.seedvr].sort()]);
+  const told = verb =>
+    studio[verb].map(item => [
+      item.id,
+      item.missing ? [item.missing.bytes, item.missing.left] : null,
+      item.unavailable,
+    ]);
+  // A ready model first (the one in hand), then those to download, greyed for the router with their reason.
+  assert.deepEqual(told('create_image'), [
+    [ids.moss, null, undefined],
+    [ids.krea, [19e9, 19e9], 'Fichier manquant.'],
+  ]);
+  const krea = studio.create_image[1];
+  assert.deepEqual(krea.missing, {
+    workflowId: ids.krea,
+    files: [{ role: 'model', file: 'model.safetensors', size: 19e9, license }],
+    bytes: 19e9,
+    left: 19e9,
+    needsToken: false,
+    page: '',
+  });
+  assert.equal(krea.does, 'Photos, illustrations, retouche d’une image.');
+  // An account asked by its source: said, with the page of its licence.
+  assert.deepEqual(
+    [told('create_video')[0], studio.create_video[0].missing.needsToken, studio.create_video[0].missing.page],
+    [[ids.ltx, [41e9, 41e9], 'Fichier manquant.'], true, 'https://huggingface.co/Lightricks/LTX-2'],
+  );
+  // What a stopped download left to fetch; the music model, which cannot be downloaded from here, left out as before.
+  assert.deepEqual(told('create_audio'), [[ids.effects, [3e9, 1e9], 'Fichier manquant.']]);
+  // A take made larger or a clip continued: only what is here, never a download from those pages.
+  assert.deepEqual([studio.upscale, studio.extend_video], [[], []]);
+  // Without `offers` (the chat, the Bobine), as before: nothing lacking its files is listed.
+  const before = await catalogOf(workflows).studio();
+  assert.deepEqual(
+    ['create_image', 'create_video', 'create_audio'].map(verb => before[verb].map(item => item.id)),
+    [[ids.moss], [], []],
+  );
+  // Nothing lacks its files: nothing is asked.
+  asked.length = 0;
+  await catalogOf([await shippedOf(ids.moss)]).studio({ offers });
+  assert.deepEqual(asked, []);
+});

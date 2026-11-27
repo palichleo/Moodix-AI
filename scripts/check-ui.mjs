@@ -1660,6 +1660,18 @@ try {
       };`
         : ''),
   });
+  // (0.6.480) Never a model downloaded by the check: « Télécharger » stands in the place of « Générer » for the models
+  // this empty copy lacks, and pressed, it fetches gigabytes. Refused in the page, and said: a step that asks it fails.
+  await send('Page.addScriptToEvaluateOnNewDocument', {
+    source: `{
+      const reach = window.fetch.bind(window);
+      window.fetch = (address, options) => {
+        if (!/\\/api\\/downloads\\/start(\\?|$)/.test(String(address?.url ?? address))) return reach(address, options);
+        console.error('Vérification : un téléchargement de modèle a été demandé, et refusé.');
+        return Promise.reject(new TypeError('Aucun téléchargement pendant la vérification.'));
+      };
+    }`,
+  });
   if (PERF) await send('Performance.enable');
   await size(1280);
   await send('Page.navigate', { url: app.url + '/' });
@@ -1765,6 +1777,63 @@ try {
   );
   await run('Studio : Image, Vidéo, Son', () => click('#studio-open'), () =>
     js(`document.body.dataset.view === 'studio' && [...document.querySelectorAll('#studio-kinds .kind-tab')].map(tab => tab.dataset.mode).join() === 'image,video,audio' && document.querySelector('#studio-kinds .kind-tab[aria-selected="true"]')?.dataset.mode === 'image' && !document.querySelector('#studio-view .bobine-desk')`), { within: 1500 });
+  // (0.6.480, maquette-studio-sans-modele) A first launch: nothing on this computer (this empty copy, its tools as the
+  // server gives them). The Studio whole, never one grey sentence; « Télécharger · 17,7 Go » in the glass of
+  // « Générer », Moodix AI 8 px away; what it lacks in amber under them, in 12 px at least; the page not scrolling.
+  // Looked at only: nothing is pressed, nothing downloaded.
+  await run(
+    'Studio sans modèle : « Télécharger » à la place de « Générer »',
+    () => until(() => js(`Boolean(document.querySelector('#studio-view .studio-go.studio-get'))`), 5000),
+    async () => {
+      const read = JSON.parse(
+        await js(`(() => {
+          const view = document.getElementById('studio-view'), box = element => element?.getBoundingClientRect(),
+            colour = element => (element ? getComputedStyle(element).color : ''),
+            line = view.querySelector('.studio-absent-line'), size = view.querySelector('.studio-absent-size'),
+            glass = box(view.querySelector('.studio-go-glass')),
+            agent = box(view.querySelector('.studio-go-group > .studio-agent')),
+            hex = getComputedStyle(document.documentElement).getPropertyValue('--warning').trim(),
+            page = document.documentElement;
+          return JSON.stringify({
+            blocks: view.querySelectorAll('.studio-block').length,
+            grey: Boolean(view.querySelector('.asset-empty')),
+            label: view.querySelector('.studio-go.studio-get .studio-go-label')?.textContent ?? '',
+            line: line && {
+              text: line.textContent,
+              font: parseFloat(getComputedStyle(line).fontSize),
+              colour: colour(line),
+            },
+            size: size && { text: size.textContent, colour: colour(size) },
+            // (The colour of its token, as the browser says a colour.)
+            amber: /^#[0-9a-f]{6}$/i.test(hex)
+              ? 'rgb(' + [1, 3, 5].map(at => parseInt(hex.slice(at, at + 2), 16)).join(', ') + ')'
+              : hex,
+            gap: glass && agent ? Math.round(agent.left - glass.right) : null,
+            high: glass ? Math.round(glass.height) : null,
+            scrolls: view.scrollHeight > view.clientHeight + 1 || page.scrollHeight > innerHeight + 1,
+          });
+        })()`),
+      );
+      const wanted = [];
+      if (read.blocks !== 4 || read.grey)
+        wanted.push(`le Studio entier, sans phrase grise (lu : ${read.blocks} blocs)`);
+      if (!/^Télécharger · [\d,]+ [MG]o$/.test(read.label))
+        wanted.push(`« Télécharger · … Go » à la place de « Générer » (lu : ${read.label || 'rien'})`);
+      if (!read.size || !/^Pas sur cet ordinateur · /.test(read.size.text) || read.size.colour !== read.amber)
+        wanted.push(
+          `« Pas sur cet ordinateur · … » en ambre sous le modèle (lu : ${read.size?.text ?? 'rien'}, ` +
+            `${read.size?.colour ?? ''})`,
+        );
+      if (!read.line?.text) wanted.push('ce qui manque, sous les boutons');
+      else if (read.line.font < 12 || read.line.colour !== read.amber)
+        wanted.push(`ce qui manque en ambre, en 12 px au moins (lu : ${read.line.font} px, ${read.line.colour})`);
+      if (read.gap !== 8 || read.high !== 46)
+        wanted.push(`Moodix AI à 8 px du verre de 46 px (lu : ${read.gap} px, ${read.high} px)`);
+      if (read.scrolls) wanted.push('la page qui défile');
+      for (const what of wanted) problems.push([step, 'état', what]);
+      return wanted.length === 0;
+    },
+  );
   await dictationSteps();
   await run('Agent', () => click('#studio-view .studio-agent'), () => js(`document.body.dataset.chat === 'open'`));
   await run('Échap (Agent)', () => key('Escape', 'Escape', 27), () => js(`document.body.dataset.chat !== 'open'`));

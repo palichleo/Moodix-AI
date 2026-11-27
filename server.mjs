@@ -1542,14 +1542,28 @@ export async function createApplication({
       if (req.method === 'GET' && path === '/api/studio') {
         // Asked together: the workflows and the LoRAs are both read from the disk.
         const [tools, styles, presets, video] = await Promise.all([
-          runtime.tools.studio(),
+          // (0.6.480) With what each shipped model this computer lacks would download: the Studio draws it too.
+          runtime.tools.studio({ offers: lacking => generation.downloads.offers(lacking) }),
           generation.styles(),
           studioPresets.all(),
           // (0.6.461, Bobine Pro, B04) The models a take of the Bobine may be made with, one by family.
           runtime.tools.videoModels(),
         ]);
+        // (0.6.480) While the generation engine starts (ten seconds at each launch, minutes the first time it is
+        // installed), no model is ready yet: said (`engine`), so that the Studio says it starts. It showed « Aucun
+        // modèle prêt : vérifiez Paramètres › Modèles » meanwhile, on a computer that has them all (27/11).
+        const engine = generation.status();
         // `presets`: the settings saved for each model (« Enregistrer »).
-        return send(200, { enabled: generation.config.enabled === true, tools, styles, presets, video });
+        return send(200, {
+          enabled: generation.config.enabled === true,
+          tools,
+          styles,
+          presets,
+          video,
+          ...(engine.state === 'ready' || engine.recovering
+            ? {}
+            : { engine: { state: engine.state, ...(engine.error ? { error: String(engine.error) } : {}) } }),
+        });
       }
       if (req.method === 'GET' && path === '/api/tools/job') {
         // With what a page draws its card (`proposal`): one reloaded meanwhile follows it again (0.6.82).
