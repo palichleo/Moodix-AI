@@ -34,6 +34,7 @@ import {
   TODO_LIMITS,
   creationOf,
   folderName,
+  framesAlong,
   holeAt,
   isTodo,
   linkOf,
@@ -43,6 +44,8 @@ import {
   placed,
   planAt,
   planStarts,
+  rulerMarks,
+  rulerWord,
   seriesOf,
   snapped,
   takeFound,
@@ -50,6 +53,7 @@ import {
   todoPlans,
   trackOf,
   usualSize,
+  waveMask,
   withEndPulled,
   withItemChanged,
   withPhoto,
@@ -86,6 +90,11 @@ const ZOOM_MAX = 16;
 const ZOOM_STEP = 1.5;
 // How near a cut of the film a sound dragged stops on it, in pixels of the timeline.
 const NEAR_PIXELS = 8;
+// (0.6.459, Bobine Pro, B01) Two pixels between two takes of the timeline (four before); a picture of a take every 62,
+// as high (moodix.css); how wide the timeline is guessed before it was ever measured on the screen (paintFilms).
+const GAP = 2,
+  FRAME = 62,
+  WIDE_GUESS = 1000;
 // « 06.04 », « 1:02.50 »: the instants and lengths of the page. (0.6.345) Written with the bobine
 // (public/montage-model.mjs), where the server reads it too.
 export { mono };
@@ -233,6 +242,14 @@ export function setupMontage({
   // (0.6.456, Bobine Pro, B01) The light of the room in the Bobine: the colour of the image under the head, a CSS
   // colour or 'transparent' (moodix.css, .room-reel draws it behind the screen).
   light = color => page?.document?.documentElement?.style?.setProperty?.('--bobine-light', color),
+  // (0.6.459, Bobine Pro, B01) The film of a take, at the address its output gives (`filmUrl`, server.mjs filmOf): the
+  // loudness of its sound, twelve values a second, and the strip of its pictures. `takeFilm(url)` gives { rate, sound,
+  // levels, frames, stripUrl }, or throws why not.
+  takeFilm = async url => {
+    const answer = await fetch(url);
+    if (!answer.ok) throw Error('Le film de cette prise n’a pas pu être lu (' + answer.status + ').');
+    return answer.json();
+  },
 }) {
   let root = null,
     filRoot = null,
@@ -356,6 +373,18 @@ export function setupMontage({
   const watched = new Set();
   // (0.6.346) The models said missing, asked again the next time they are looked at (doubt).
   const doubted = new Set();
+  // (0.6.459, Bobine Pro, B01) The films of the takes the timeline shows (filmFor), by their address without its key:
+  // { film } once read, { asking } while it is, { failed } when it could not be (asked again when the page is opened
+  // again); two asked at once. The waves drawn of them, by take and what of it is shown (waveOf).
+  const films = new Map(),
+    filmsWanted = [],
+    masks = new Map();
+  let filmsAsked = 0,
+    // How wide the track of the takes is on the screen, in pixels, as last measured (paintFilms): what the marks of the
+    // ruler and the pictures of the takes are laid by. 0 before it was measured.
+    laneWidth = 0,
+    // (A window resized: measured again a moment after.)
+    resized = null;
   const inSeries = () => filling?.stage === 'running' || filling?.stage === 'paused';
   // (0.6.152) What the model of the takes makes at once: what a take to create is cut by.
   const limits = () => ({ create_video: longestFor('create_video'), extend_video: longestFor('extend_video') });
@@ -1237,6 +1266,11 @@ export function setupMontage({
     if (live.clock && live.clock.textContent !== time) live.clock.textContent = time;
     if (live.whole && live.whole.textContent !== whole) live.whole.textContent = whole;
     if (live.head && live.head.style.left !== left) live.head.style.left = left;
+    // (0.6.459, Bobine Pro, B01) The take to create under the head: its dashes lit (moodix.css).
+    for (const { piece, from, to } of live.under ?? []) {
+      const under = String(head >= from - 1e-6 && head < to - 1e-6);
+      if (piece.dataset.under !== under) piece.dataset.under = under;
+    }
   }
   function say() {
     sayTime();
@@ -1767,6 +1801,11 @@ export function setupMontage({
     for (const [id, span] of live.models ?? []) {
       const model = itemOf(id) ? modelOf(id) : null;
       if (model && !span.dataset.state) span.textContent = model.name;
+    }
+    // (0.6.459, Bobine Pro, B01) And on its piece of the timeline.
+    for (const [id, span] of live.pieceModels ?? []) {
+      const model = itemOf(id) ? modelOf(id) : null;
+      if (model && span.textContent !== model.name) span.textContent = model.name;
     }
   }
   /** What a line of « À créer » says of what it is: « Suite de la prise 24 · image de fin » (0.6.190), « Nouvelle prise ». */
@@ -2999,7 +3038,119 @@ export function setupMontage({
 
   // The timeline ----------------------------------------------------------------------------------
   /** (0.6.148, captures 80 et 81) The small bar above the take or the sound chosen: icons, their words on hover. */
-  function popOf(item, record, shown = null) {
+  // The film of the takes on the timeline (0.6.459, Bobine Pro, B01) ----------------------------------------------------
+  /** The address of the film of the output of a take, without its key: what its film is kept by; '' without one. */
+  const filmKey = output => (typeof output?.filmUrl === 'string' ? output.filmUrl.split('?')[0] : '');
+  /**
+   * The film of the output of a take once read, { rate, sound, levels, frames, stripUrl }, else null. Asked to the
+   * server the first time (two at once): its pieces are painted when it comes (paintPiece), nothing else is drawn again.
+   */
+  function filmFor(output) {
+    const key = filmKey(output);
+    if (!key || typeof takeFilm !== 'function') return null;
+    const known = films.get(key);
+    if (known) return known.film ?? null;
+    films.set(key, { asking: true });
+    filmsWanted.push({ key, url: output.filmUrl });
+    askFilms();
+    return null;
+  }
+  function askFilms() {
+    while (filmsAsked < 2 && filmsWanted.length) {
+      const { key, url } = filmsWanted.shift();
+      filmsAsked++;
+      void Promise.resolve()
+        .then(() => takeFilm(url))
+        .then(read => {
+          const levels = Array.isArray(read?.levels) ? read.levels.map(Number) : [],
+            frames = Number.isInteger(read?.frames) && read.frames > 0 && typeof read?.stripUrl === 'string' ? read.frames : 0;
+          films.set(key, { film: { rate: Number(read?.rate) || 12, sound: read?.sound === true && levels.length > 0, levels, frames, stripUrl: frames ? read.stripUrl : '' } });
+        })
+        // (Not read: its piece keeps its thumbnail, without a wave.)
+        .catch(() => films.set(key, { failed: true }))
+        .finally(() => {
+          filmsAsked--;
+          for (const entry of live.films?.get(key) ?? []) paintPiece(entry);
+          askFilms();
+        });
+    }
+  }
+  /** The wave of `film` for what the piece of `item` shows of it, `width` pixels wide (waveMask), kept: a take dragged does not draw it again. */
+  function waveOf(film, item, width) {
+    const most = width > 0 ? Math.min(600, Math.max(24, Math.ceil(width / 2))) : 160,
+      key = [filmKey(outputOf(item.source)), item.from, item.to, most].join('|');
+    let mask = masks.get(key);
+    if (mask === undefined) {
+      if (masks.size >= 400) masks.clear();
+      mask = waveMask(film.levels, { rate: film.rate, from: item.from, to: item.to, most });
+      masks.set(key, mask);
+    }
+    return mask;
+  }
+  /**
+   * What a take shows on its piece of the timeline (`entry`: { item, record, frames, wave }, as the timeline laid them):
+   * its pictures along it, one every 62 px (those of its strip once read; its thumbnail until then, and for an image),
+   * and the wave of its sound under them (a sound: on all of it), flat when it has none.
+   */
+  function paintPiece({ item, record, frames, wave }) {
+    const film = filmFor(outputOf(item.source)),
+      width = laneWidth > 0 ? (laneWidth * (item.to - item.from)) / span() - GAP : 0;
+    if (wave) {
+      const still = item.kind === 'image',
+        mask = !still && film?.sound ? waveOf(film, item, width) : '';
+      wave.dataset.state = mask ? 'sound' : still || (film && !film.sound) ? 'flat' : '';
+      wave.style.setProperty?.('--wave', mask || 'none');
+    }
+    if (!frames || !(width > 0)) return;
+    const picture = pictureOf(record),
+      strip = film?.frames ? film : null,
+      along = framesAlong({ width, side: FRAME, from: item.from, to: item.to, seconds: record ? takeSeconds(record) : 0, frames: strip?.frames ?? 0 });
+    frames.replaceChildren(
+      ...along.map(index => {
+        const cell = node('span', 'montage-piece-frame');
+        if (index >= 0) {
+          cell.style.backgroundImage = `url("${strip.stripUrl}")`;
+          cell.style.backgroundSize = `${strip.frames * FRAME}px ${FRAME}px`;
+          cell.style.backgroundPosition = `${-index * FRAME}px 0`;
+        } else if (picture) cell.style.backgroundImage = `url("${picture}")`;
+        return cell;
+      }),
+    );
+  }
+  /** The marks of the ruler, for the width the timeline has on the screen (laneWidth; guessed before it was measured). */
+  function sayRuler(ruler = live.ruler) {
+    if (!ruler) return;
+    const whole = span();
+    ruler.replaceChildren(
+      ...rulerMarks(whole, laneWidth || WIDE_GUESS * zoom).map(({ at, tier }) => {
+        const tick = node('span', 'montage-tick is-' + tier, tier === 'label' ? rulerWord(at) : '');
+        tick.style.left = percent(at);
+        return tick;
+      }),
+    );
+  }
+  /**
+   * Once the timeline is on the page: how wide its track of the takes is, and when that changed (its first time, the
+   * window resized, the timeline zoomed), its ruler and the pictures of its takes laid again for it.
+   */
+  function paintFilms() {
+    const width = live.lane?.isConnected === false ? 0 : (live.lane?.getBoundingClientRect?.()?.width ?? 0);
+    if (!(width > 0) || Math.abs(width - laneWidth) < 0.5) return;
+    laneWidth = width;
+    sayRuler();
+    for (const entry of live.paints ?? []) paintPiece(entry);
+  }
+  /** The window resized: the timeline measured again a moment after. */
+  function onResize() {
+    if (resized !== null) timers.clear(resized);
+    resized = timers.set(() => {
+      resized = null;
+      paintFilms();
+      fitBar();
+    }, 150);
+  }
+
+  function popOf(item, record) {
     const bar = node('div', 'montage-pop'),
       set = changes => change(withItemChanged(montage, item.id, changes, { longest: record ? takeSeconds(record) : null }), { select: item.id }),
       out = () => change(withoutItem(montage, item.id));
@@ -3026,7 +3177,6 @@ export function setupMontage({
       volume.oninput = () => {
         volume.style.setProperty?.('--fill', String(Number(volume.value) / 200));
         figure.textContent = volume.value + ' %';
-        if (shown) shown.textContent = volume.value + ' %';
         change(withItemChanged(montage, item.id, { volume: Number(volume.value) / 100 }), { still: true, group: 'volume:' + item.id });
       };
       volume.onchange = () => update();
@@ -3037,20 +3187,22 @@ export function setupMontage({
       if (item.photos?.end) bar.append(button('montage-pop-button', '', () => change(withoutPhoto(montage, item.id, 'end')), 'end', 'Retirer l’image de fin'));
       if (item.photos?.start || item.photos?.end) bar.append(part());
     } else {
+      // (0.6.459, Bobine Pro, B03) Son, Cadre, Ouvrir, Retirer: four buttons, nothing between them. Its sound by the
+      // speaker of the screen, cut or not; its frame in one button, that goes from one to the other.
+      // (Their names stay the same, pressed or not: drawn again, the same button keeps the focus, refocus. What they
+      // are, in their titles; to the eye, in their icons, as on B03.)
       if (item.kind === 'video') {
-        const sound = button('montage-pop-button', '', () => set({ volume: item.volume > 0 ? 0 : 1 }), 'sound', item.volume > 0 ? 'Couper le son de la prise' : 'Remettre le son de la prise');
-        sound.setAttribute('aria-pressed', String(item.volume > 0));
-        bar.append(sound, part());
+        const heard = item.volume > 0,
+          sound = button('montage-pop-button', '', () => set({ volume: heard ? 0 : 1 }), heard ? 'volume' : 'volume-off', 'Son de la prise');
+        sound.setAttribute('aria-pressed', String(heard));
+        sound.title = heard ? 'Son : entendu dans la lecture (cliquez pour le couper)' : 'Son : coupé (cliquez pour le remettre)';
+        bar.append(sound);
       }
-      for (const [frame, glyph, tip] of [
-        ['fit', 'fit', 'Ajuster : la prise entière, avec des bandes si son format diffère'],
-        ['fill', 'fill', 'Remplir : plein cadre, ce qui dépasse est coupé'],
-      ]) {
-        const choice = button('montage-pop-button', '', () => set({ frame }), glyph, tip);
-        choice.setAttribute('aria-pressed', String(item.frame === frame));
-        bar.append(choice);
-      }
-      bar.append(part());
+      const filled = item.frame === 'fill',
+        frame = button('montage-pop-button', '', () => set({ frame: filled ? 'fit' : 'fill' }), filled ? 'fill' : 'fit', 'Remplir le cadre');
+      frame.setAttribute('aria-pressed', String(filled));
+      frame.title = filled ? 'Cadre : plein cadre, ce qui dépasse est coupé (cliquez pour ajuster)' : 'Cadre : la prise entière, avec des bandes si son format diffère (cliquez pour remplir)';
+      bar.append(frame);
     }
     if (record && !isTodo(item)) bar.append(button('montage-pop-button', '', () => showTake(record), 'open', 'Ouvrir la prise'));
     bar.append(button('montage-pop-button', '', out, 'trash', item.replaces ? 'Retirer, et rendre sa fin à la vidéo' : 'Retirer de la bobine (Suppr)'));
@@ -3073,15 +3225,21 @@ export function setupMontage({
     // (0.6.169) Drawn again under a take carried: where it goes is shown again at the next move.
     landing = '';
     live.pieces = new Map();
-    // A mark a second up to a minute shown, then every five or ten: the ruler never turns into a comb.
-    const seen = whole / zoom,
-      step = seen <= 60 ? 1 : seen <= 300 ? 5 : 10;
-    for (let second = 0; second <= whole; second += step) {
-      const major = second % (step * 5) === 0,
-        tick = node('span', 'montage-tick' + (major ? ' is-major' : ''), major ? String(second).padStart(2, '0') + ' s' : '');
-      tick.style.left = percent(second);
-      ruler.append(tick);
-    }
+    // (0.6.459, Bobine Pro, B01) What paints the pictures and the wave of each take (paintPiece: all of them, and by the
+    // address of their film), the takes to create the head lights (sayTime), their models (sayModels).
+    live.paints = [];
+    live.films = new Map();
+    live.under = [];
+    live.pieceModels = new Map();
+    const paintable = entry => {
+      live.paints.push(entry);
+      const key = filmKey(outputOf(entry.item.source));
+      if (key) live.films.set(key, [...(live.films.get(key) ?? []), entry]);
+      paintPiece(entry);
+    };
+    // (0.6.459, B01) A mark a second, a longer one every 5 s, « 0:10 » every 10 s; fewer, zoomed out (rulerMarks).
+    live.ruler = ruler;
+    sayRuler(ruler);
     const timeAt = (event, lane) => {
       const box = lane.getBoundingClientRect?.();
       return box?.width ? Math.max(0, ((event.clientX - box.left) / box.width) * whole) : 0;
@@ -3142,7 +3300,7 @@ export function setupMontage({
           pin.setAttribute('aria-pressed', String(chosen === plan.id));
           if (picture) pin.style.backgroundImage = `url("${picture}")`;
           if (side === 'start') pin.style.left = percent(starts[index]);
-          else pin.style.right = `calc(${100 - (100 * (starts[index] + plan.to - plan.from)) / whole}% + 4px)`;
+          else pin.style.right = `calc(${100 - (100 * (starts[index] + plan.to - plan.from)) / whole}% + ${GAP}px)`;
           if (empty) pin.append(icon('image'));
           pin.append(node('span', 'montage-photo-side', side === 'start' ? 'Début' : 'Fin'));
           if (todo) into(pin, dropped => withPhotoIn(montage, dropped, plan.id, side));
@@ -3160,7 +3318,7 @@ export function setupMontage({
           const slot = button(`montage-photo is-${side} is-slot is-ghost`, '', null);
           slot.setAttribute('aria-label', `${side === 'start' ? 'Image de début' : 'Image de fin'} d’une nouvelle prise : glissez une image ici`);
           if (side === 'start') slot.style.left = percent(0);
-          else slot.style.right = `calc(${100 - (100 * TODO_LIMITS.usual) / whole}% + 4px)`;
+          else slot.style.right = `calc(${100 - (100 * TODO_LIMITS.usual) / whole}% + ${GAP}px)`;
           slot.append(icon('image'), node('span', 'montage-photo-side', side === 'start' ? 'Début' : 'Fin'));
           into(slot, dropped => {
             const laid = withTodoDrawn(montage, { id: newId(), at: 0, seconds: TODO_LIMITS.usual });
@@ -3171,7 +3329,7 @@ export function setupMontage({
       else if (carrying) {
         const fresh = button('montage-photo is-start is-slot is-new', '', null);
         fresh.setAttribute('aria-label', 'Une nouvelle prise, qui part de cette image, à la fin de la bobine');
-        fresh.style.left = `calc(${percent(total())} + 4px)`;
+        fresh.style.left = `calc(${percent(total())} + ${GAP}px)`;
         fresh.append(icon('image'), node('span', 'montage-photo-side', 'Début'));
         into(fresh, dropped => {
           const laid = withTodoDrawn(montage, { id: newId(), at: total(), seconds: TODO_LIMITS.usual });
@@ -3202,8 +3360,6 @@ export function setupMontage({
       track.dataset.track = id;
       const items = id === 'plans' ? montage.plans : montage.sounds.filter(sound => sound.track === id);
       items.forEach(item => {
-        // (What a sound says of its volume on its track: its bar, once chosen, says it there too.)
-        let loudness = null;
         // (While the start of a take is cut, the takes stay where they were: only that edge moves.)
         const at = id !== 'plans' ? item.at : ghost?.starts.has(item.id) ? ghost.starts.get(item.id) + (ghost.id === item.id ? ghost.shift : 0) : starts[montage.plans.indexOf(item)],
           todo = isTodo(item),
@@ -3217,9 +3373,10 @@ export function setupMontage({
           suite = todo && id === 'plans' && Boolean(item.todo.suite),
           joined = suite && ['suite', 'last', 'wait'].includes(link?.kind),
           state = todo ? stateOf(item.id) : '',
+          // (0.6.459, Bobine Pro, B01) A sound: « PRISE 97 », its text in its title.
           label =
             id !== 'plans'
-              ? (takeLabel(item.source) || 'Son') + (record?.prompt ? ' · ' + String(record.prompt).split('\n')[0].slice(0, 60) : '')
+              ? takeLabel(item.source) || 'Son'
               : todo
                 ? state || (item.replaces ? 'Sera remplacé' : suite ? '↳ Suite' : '')
                 : takeLabel(item.source) || 'Prise introuvable',
@@ -3237,6 +3394,7 @@ export function setupMontage({
           });
         piece.dataset.id = item.id;
         piece.dataset.missing = String(!record && !todo);
+        if (id !== 'plans' && record?.prompt) piece.title = String(record.prompt).split('\n')[0].slice(0, 160);
         if (id === 'plans') {
           // (0.6.153) Lit with its line and its photos; enrichable with the wand when it has a text.
           // (Its photos are drawn before it, on the track above: the take first, then them.)
@@ -3249,9 +3407,9 @@ export function setupMontage({
           if (enrichingId === item.id) piece.dataset.enriching = 'true';
         }
         piece.setAttribute('aria-pressed', String(chosen === item.id));
-        // (Four pixels between two neighbours: the surface shows between them. A continuation takes
-        // those of the video it continues: the two touch.)
-        piece.style.left = joined ? `calc(${percent(at)} - 4px)` : percent(at);
+        // (0.6.459, Bobine Pro, B01) Two pixels between two neighbours, the surface showing between them; a suite too,
+        // which took those of the video it continues: « ↳ SUITE » says it goes on from it.
+        piece.style.left = percent(at);
         piece.dataset.joined = String(joined);
         // (0.6.169) Dragged against a neighbour, it holds there: the edge that touches says so, lightly.
         if (id === 'plans' && moving === item.id) {
@@ -3264,15 +3422,29 @@ export function setupMontage({
             ].filter(Boolean);
           if (touches.length) piece.dataset.snap = touches.join(' ');
         }
-        piece.style.width = joined ? percent(item.to - item.from) : `calc(${percent(item.to - item.from)} - 4px)`;
+        piece.style.width = `calc(${percent(item.to - item.from)} - ${GAP}px)`;
         if (picture) piece.style.backgroundImage = `url("${picture}")`;
         piece.append(node('span', 'montage-piece-name', label));
         if (id === 'plans') {
-          // What a take to create says: its text, on two lines.
+          // What a take to create says: its text, on two lines. (0.6.459) Its length without « + », a suite too.
           const words = node('span', 'montage-piece-kind', todo ? item.todo.prompt.trim().split('\n')[0].slice(0, 160) : '');
-          piece.append(words, node('span', 'montage-piece-length', (suite ? '+' : '') + mono(item.to - item.from) + ' s'));
-          // (0.6.152, capture 74) Made in parts: where each part after the first begins, a suite.
+          piece.append(words, node('span', 'montage-piece-length', mono(item.to - item.from) + ' s'));
+          if (!todo) {
+            // (0.6.459, Bobine Pro, B01) A take: its pictures along it, and the wave of its sound under them (paintPiece).
+            const frames = node('span', 'montage-piece-frames'),
+              wave = node('span', 'montage-piece-wave');
+            wave.dataset.muted = String(item.kind === 'video' && !(item.volume > 0));
+            piece.append(frames, wave);
+            paintable({ item, record, frames, wave });
+          }
           if (todo) {
+            // (0.6.459, B01) Its model at the bottom right, in mono (modelOf; sayModels says it once the server answered);
+            // its dashes lit while the head is on it (sayTime).
+            const model = node('span', 'montage-piece-model', modelOf(item.id)?.name ?? '');
+            live.pieceModels.set(item.id, model);
+            live.under.push({ piece, from: at, to: at + (item.to - item.from) });
+            piece.append(model);
+            // (0.6.152, capture 74) Made in parts: where each part after the first begins, a suite.
             const { count } = partsOf(item, limits());
             for (let part = 1; part < count; part++) {
               const cut = node('span', 'bobine-part', '↳ Suite');
@@ -3289,8 +3461,12 @@ export function setupMontage({
             Object.assign(live, { bar: done, making: piece.children[0] });
           }
         } else {
-          loudness = node('span', 'montage-piece-length', Math.round((item.volume ?? 1) * 100) + ' %');
-          piece.append(loudness);
+          // (0.6.459, Bobine Pro, B01) A sound: its wave on all of it, in lilac, « PRISE 97 » and its length; its volume
+          // in its small bar.
+          const wave = node('span', 'montage-piece-wave');
+          wave.dataset.muted = String(!((item.volume ?? 1) > 0));
+          piece.append(wave, node('span', 'montage-piece-length', mono(item.to - item.from) + ' s'));
+          paintable({ item, record, frames: null, wave });
         }
         piece.onkeydown = event => {
           if (event.key === 'Delete' || event.key === 'Backspace') change(withoutItem(montage, item.id));
@@ -3390,7 +3566,7 @@ export function setupMontage({
         lane.append(piece);
         // (Not over a take being made: nothing can be changed in it.)
         if (chosen === item.id && !held && making?.id !== item.id) {
-          const bar = popOf(item, recordOf(item.source), loudness);
+          const bar = popOf(item, recordOf(item.source));
           // (0.6.155) Centred above it, kept inside the track; over its photos, it goes into the take (fitBar).
           bar.style.left = `clamp(var(--half), ${percent(at + (item.to - item.from) / 2)}, calc(100% - var(--half)))`;
           // (0.6.158) Where it goes in a take too narrow for it between its places of photo: at its start.
@@ -3457,11 +3633,11 @@ export function setupMontage({
       track.append(node('span', 'montage-track-name', name), lane, layer);
       lanes.append(track);
     }
-    // The head is laid over the lanes, at their scale.
+    // The head is laid over the lanes, at their scale. (0.6.459, Bobine Pro, B01) Over the ruler too: its point there, its
+    // line of 1 px across all the tracks.
     const over = node('div', 'montage-over');
     over.append(headLine);
     // (0.6.155) While the end of a video is pulled, nothing is said over the ruler: « +12.10 S » on the take says it.
-    lanes.append(over);
     // (0.6.149) Zoomed, the bobine scrolls under the names of its tracks: −, + and « Voir toute la
     // bobine » at the top left, and Ctrl + molette, around the pointer.
     const reel = node('div', 'bobine-reel'),
@@ -3493,7 +3669,7 @@ export function setupMontage({
       }
     };
     rule.append(zooms, ruler);
-    inner.append(rule, lanes);
+    inner.append(rule, lanes, over);
     reel.append(inner);
     body.append(reel);
     Object.assign(live, { head: headLine, reel });
@@ -3518,7 +3694,7 @@ export function setupMontage({
       shade.hidden = false;
       shade.dataset.drawn = String(drawn);
       shade.style.left = percent(from);
-      shade.style.width = `calc(${percent(seconds)} - 4px)`;
+      shade.style.width = `calc(${percent(seconds)} - ${GAP}px)`;
       length.textContent = drawn ? mono(seconds) + ' s' : '';
     };
     const hide = () => (empty ? show(0, usual) : (shade.hidden = true));
@@ -3617,7 +3793,7 @@ export function setupMontage({
       lane.append(shadow);
     }
     shadow.style.left = percent(laid.at);
-    shadow.style.width = `calc(${percent(laid.to - laid.from)} - 4px)`;
+    shadow.style.width = `calc(${percent(laid.to - laid.from)} - ${GAP}px)`;
     slideTo(sound ? montage : next);
   }
   /** (0.6.169) Nothing carried over the timeline any more: the takes go back to their place. */
@@ -3634,10 +3810,10 @@ export function setupMontage({
     for (const [id, [piece, ...pins]] of live.pieces ?? []) {
       const plan = starts.get(id);
       if (!plan || !piece) continue;
-      piece.style.left = piece.dataset.joined === 'true' ? `calc(${percent(plan.at)} - 4px)` : percent(plan.at);
+      piece.style.left = percent(plan.at);
       for (const pin of pins)
         if (String(pin.className).includes('is-start')) pin.style.left = percent(plan.at);
-        else pin.style.right = `calc(${100 - (100 * (plan.at + plan.to - plan.from)) / span()}% + 4px)`;
+        else pin.style.right = `calc(${100 - (100 * (plan.at + plan.to - plan.from)) / span()}% + ${GAP}px)`;
     }
   }
   /** A take to create laid at `from` seconds, `seconds` long, chosen: its line of « À créer » waits for its text. */
@@ -3721,6 +3897,8 @@ export function setupMontage({
     // (0.6.149) The timeline zoomed stays where it was scrolled: set once it is on the page.
     if (live.reel) live.reel.scrollLeft = scrolled;
     fil();
+    // (0.6.459) Its ruler and the pictures of its takes, for the width it has there.
+    paintFilms();
     fitBar();
     if (inside) refocus(focused, root);
     show();
@@ -3737,7 +3915,7 @@ export function setupMontage({
     shown.hidden = end === null || Boolean(held);
     if (shown.hidden) return;
     shown.style.left = percent(end);
-    shown.style.width = `calc(${percent(Math.min(HINT, Math.max(0, span() - end)))} - 4px)`;
+    shown.style.width = `calc(${percent(Math.min(HINT, Math.max(0, span() - end)))} - ${GAP}px)`;
   }
   /**
    * (0.6.155) The bar of the take chosen never lies over its photos nor their empty places (capture 78:
@@ -3832,6 +4010,7 @@ export function setupMontage({
       if (focused && old.contains?.(focused)) refocus(focused, next);
     }
     if (live.reel) live.reel.scrollLeft = scrolled;
+    paintFilms();
     slide(before);
     sayGo();
     sayAsk();
@@ -3860,6 +4039,10 @@ export function setupMontage({
       root.dataset.wand = String(wand);
       page?.removeEventListener?.('keydown', pageKeys);
       page?.addEventListener?.('keydown', pageKeys);
+      // (0.6.459) The window resized, the timeline is measured again; the films not read last time are asked again.
+      page?.removeEventListener?.('resize', onResize);
+      page?.addEventListener?.('resize', onResize);
+      for (const [key, known] of films) if (known.failed) films.delete(key);
       // (A press anywhere on the desk gives it the keys.)
       root.tabIndex = -1;
       parts = null;
@@ -3977,6 +4160,9 @@ export function setupMontage({
       // (0.6.153) The wand is put down, the enrichment asked let go.
       wand = false;
       page?.removeEventListener?.('keydown', pageKeys);
+      page?.removeEventListener?.('resize', onResize);
+      if (resized !== null) timers.clear(resized);
+      resized = null;
       closeExport();
       closePieces();
       enriched?.abort();

@@ -348,3 +348,54 @@ test('a sound follows its take moved by a suite, a take to create, a take made o
   assert.equal(cut(holed), 5.5);
   assert.equal(cut(withPhoto(holed, record(9, 'image'), 5.2, { id: id(43) }).montage), 10);
 });
+
+test('the ruler of the Bobine: a mark a second, a longer one every 5 s, « 0:10 » every 10 s; fewer when zoomed out (0.6.459)', async () => {
+  const { rulerMarks, rulerWord } = await import('../public/montage-model.mjs');
+  const steps = (seconds, width) => {
+    const marks = rulerMarks(seconds, width),
+      after = tier => marks.find((mark, at) => at && mark.tier === tier)?.at ?? null;
+    return [marks[1].at, after('long'), after('label'), marks.length];
+  };
+  // (Bobine Pro, B01: 24 px a second.) A mark at each second, the longer at 5 s, the word at 10 s, to the end.
+  const maquette = rulerMarks(70, 70 * 24);
+  assert.deepEqual(
+    maquette.slice(0, 11).map(mark => mark.tier),
+    ['label', 'short', 'short', 'short', 'short', 'long', 'short', 'short', 'short', 'short', 'label'],
+  );
+  assert.deepEqual([maquette.length, maquette.at(-1)], [71, { at: 70, tier: 'label' }]);
+  // Never closer than 14 px, nor words closer than 64: a mark every 2 s, 5 s, 10 s, a minute… as the bobine grows.
+  assert.deepEqual(steps(80, 1000), [2, null, 10, 41]);
+  assert.deepEqual(steps(300, 1000), [5, 10, 20, 61]);
+  assert.deepEqual(steps(600, 1000), [10, 30, 60, 61]);
+  assert.deepEqual(steps(3600, 1200), [60, null, 300, 61]);
+  // Nothing measured, nothing laid.
+  assert.deepEqual([rulerMarks(80, 0), rulerMarks(0, 1000)], [[], []]);
+  assert.deepEqual([0, 10, 59.6, 600, 3599, 3600, 3725].map(rulerWord), ['0:00', '0:10', '1:00', '10:00', '59:59', '1:00:00', '1:02:05']);
+});
+
+test('the wave of a take: its outline mirrored around its middle, the loudest of what each step holds, flat in a silence (0.6.459)', async () => {
+  const { waveMask } = await import('../public/montage-model.mjs');
+  const path = mask => decodeURIComponent(mask).match(/viewBox='0 0 (\d+) 100'.*d='([^']*)'/).slice(1);
+  // Four twelfths of a second: four steps, as high as their values, never under 6 % (a silence: a flat line).
+  assert.deepEqual(path(waveMask([0, 50, 100, 20], { from: 0, to: 4 / 12 })), ['4', 'M0 47H1V25H2V0H3V40H4V60H3V100H2V75H1V53H0Z']);
+  assert.match(decodeURIComponent(waveMask([10], { to: 1 / 12 })), /^url\("data:image\/svg\+xml,<svg .*preserveAspectRatio='none'><path d='M0 45H1V55H0Z'\/><\/svg>"\)$/);
+  // What the piece shows of it: from its second `from` to its second `to`; beyond its sound, silent.
+  assert.deepEqual(path(waveMask([10, 20, 30, 40], { from: 2 / 12, to: 5 / 12 })), ['3', 'M0 35H1V30H2V47H3V53H2V70H1V65H0Z']);
+  // A long one in `most` steps at most, each the loudest of the values it holds.
+  const long = Array.from({ length: 120 }, (_, at) => (at === 61 ? 90 : 10));
+  assert.deepEqual(path(waveMask(long, { from: 0, to: 10, most: 4 })), ['4', 'M0 45H1V45H2V5H3V45H4V55H3V95H2V55H1V55H0Z']);
+  // Nothing to draw: nothing.
+  assert.deepEqual([waveMask([]), waveMask([10, 20], { from: 1, to: 1 }), waveMask(null)], ['', '', '']);
+});
+
+test('the pictures along a take: one every 62 px, each the one of its strip at the middle of what shows of it (0.6.459)', async () => {
+  const { frameAt, framesAlong } = await import('../public/montage-model.mjs');
+  // A take of 10 s whose strip holds 20 pictures, on 200 px: four, the last one cut (its middle at 193 px).
+  assert.deepEqual(framesAlong({ width: 200, from: 0, to: 10, seconds: 10, frames: 20 }), [3, 9, 15, 19]);
+  // Cut to its seconds 2 to 4: the pictures of those seconds only.
+  assert.deepEqual(framesAlong({ width: 130, from: 2, to: 4, seconds: 10, frames: 20 }), [4, 6, 7]);
+  // Without a strip (not read yet, an image): as many, its thumbnail in each.
+  assert.deepEqual(framesAlong({ width: 100, from: 0, to: 3 }), [-1, -1]);
+  assert.deepEqual([framesAlong({ width: 0, from: 0, to: 3 }), framesAlong({ width: 62 * 500, to: 3, most: 400 }).length], [[], 400]);
+  assert.deepEqual([frameAt(9.99, 10, 20), frameAt(-1, 10, 20), frameAt(12, 10, 20), frameAt(3, 0, 5), frameAt(3, 10, 0)], [19, 0, 19, 0, -1]);
+});

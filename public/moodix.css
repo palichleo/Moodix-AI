@@ -16787,7 +16787,8 @@ body[data-view='bobine'] .bobine-view {
   flex-direction: column;
   gap: 8px;
   min-height: 0;
-  padding: 0 var(--pad) 18px;
+  /* (0.6.459, Bobine Pro, B01) 16 px sous la timeline, comme sur la maquette. */
+  padding: 0 var(--pad) 16px;
 }
 body[data-view='bobine'] .chat-area,
 body[data-view='bobine'] .composer-region {
@@ -18981,6 +18982,541 @@ body[data-view='bobine'] .chat-panel {
   .bobine-desk[data-carrying] .montage-photos > .montage-photo,
   .bobine-drop {
     transition: none;
+  }
+}
+
+/* ------------------------------------------------------------------ La timeline (0.6.459, Bobine Pro, B01 à B03) */
+/* Sa maquette du 27/11. Une colonne de 136 px pour les noms des pistes, en petites capitales TX3, un filet à sa droite ;
+   chaque piste est une bande, un filet rgba(238, 232, 222, 0,055) au-dessus, la bande Prises un peu plus claire (2,2 %).
+   Hauteurs : la règle 30 px, Images 36, Prises 92, chaque piste audio 44 (226 px dans une fenêtre basse). Mesurées sur
+   B01, la colonne et la règle comptent le bord du panneau : 135 et 29 px dedans, la seconde 0 au pixel 160 comme là. */
+#bobine-view .montage-timeline > .studio-block-body {
+  padding: 0;
+}
+/* (Pas plus haute que ses pistes : la tête de lecture s'arrête au bas de la dernière, comme sur la maquette.) */
+#bobine-view .bobine-reel-inner {
+  align-self: flex-start;
+  width: calc(141px + (100% - 141px) * var(--zoom, 1));
+}
+#bobine-view :is(.bobine-rule-row, .montage-track) {
+  grid-template-columns: 135px minmax(0, 1fr);
+  padding: 0 6px 0 0;
+}
+#bobine-view .bobine-rule-row {
+  height: 29px;
+  align-items: stretch;
+}
+#bobine-view .montage-lanes {
+  flex: none;
+  gap: 0;
+  padding: 0;
+}
+#bobine-view .montage-track,
+#bobine-view .montage-track[data-track='plans'] {
+  flex: none;
+  min-height: 0;
+  max-height: none;
+  height: 44px;
+  align-items: stretch;
+  border-top: 1px solid rgba(238, 232, 222, 0.055);
+}
+#bobine-view .montage-track[data-track='photos'] {
+  height: 36px;
+}
+#bobine-view .montage-track[data-track='plans'] {
+  height: 92px;
+  background: rgba(238, 232, 222, 0.022);
+}
+#bobine-view .montage-track-name,
+#bobine-view .bobine-zoom {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  border-right: 1px solid rgba(238, 232, 222, 0.055);
+}
+/* (En 10,5 px, la taille des étiquettes, là où la maquette en a 9,5 : une graisse plus légère garde leur gris.) */
+#bobine-view .montage-track-name {
+  padding-left: 16px;
+  font-weight: 400;
+  color: var(--text-3);
+}
+/* (Le zoom en haut de la colonne des pistes : −, +, voir toute la bobine ; leurs milieux aux pixels 46, 71 et 96.) */
+#bobine-view .bobine-zoom {
+  height: auto;
+  gap: 1px;
+  padding-left: 9px;
+}
+#bobine-view .bobine-zoom-button {
+  color: var(--text-3);
+}
+#bobine-view .bobine-zoom-button:enabled:hover,
+#bobine-view .bobine-zoom-button:focus-visible {
+  color: var(--ink);
+}
+/* (Zoomée, la colonne reste à gauche, pleine : les prises passent dessous.) */
+#bobine-view .bobine-reel[data-zoomed='true'] :is(.montage-track-name, .bobine-zoom) {
+  margin-left: 0;
+  background: #131217;
+}
+#bobine-view .bobine-reel[data-zoomed='true'] .montage-track-name {
+  padding-left: 16px;
+}
+#bobine-view .bobine-reel[data-zoomed='true'] .bobine-zoom {
+  padding-left: 9px;
+}
+#bobine-view .bobine-reel[data-zoomed='true'] .montage-track[data-track='plans'] > .montage-track-name {
+  background: #18171b;
+}
+#bobine-view .montage-lane {
+  height: auto;
+  align-self: stretch;
+  border-radius: 0;
+}
+
+/* La règle : un trait par seconde (4 px), un plus long toutes les 5 s (8 px), « 0:10 » toutes les 10 s, en mono TX3
+   à 5 px de son trait ; moins de traits quand la bobine est longue (montage-model.mjs, rulerMarks). */
+#bobine-view .montage-ruler {
+  height: auto;
+  margin: 0;
+}
+#bobine-view .montage-ruler::before {
+  content: none;
+}
+#bobine-view .montage-tick {
+  top: 0;
+  bottom: 0;
+  height: auto;
+  border: 0;
+  padding: 0;
+}
+#bobine-view .montage-tick::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  height: 4px;
+  background: rgba(238, 232, 222, 0.11);
+}
+#bobine-view .montage-tick:is(.is-long, .is-label)::before {
+  height: 8px;
+  background: rgba(238, 232, 222, 0.24);
+}
+#bobine-view .montage-tick.is-label::before {
+  background: rgba(238, 232, 222, 0.28);
+}
+#bobine-view .montage-tick.is-label {
+  padding: 7px 0 0 5px;
+  font: 300 10.5px/1 var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+/* La tête de lecture : une pointe ivoire de 13 × 16 dans la règle, à 11 px de son haut ; un trait de 1 px, ivoire à
+   60 %, sur toutes les pistes. */
+#bobine-view .montage-over {
+  inset: 0 6px 0 135px;
+  z-index: 3;
+}
+#bobine-view .montage-playhead {
+  margin-left: -0.5px;
+  background: rgba(238, 232, 222, 0.6);
+}
+#bobine-view .montage-playhead::before {
+  left: -6px;
+  top: 11px;
+  width: 13px;
+  height: 16px;
+  border-radius: 3px 3px 0 0;
+  background: #eee8de;
+  clip-path: polygon(0 0, 100% 0, 100% 62%, 50% 100%, 0 62%);
+}
+
+/* Une prise : 84 px, à 3 px du haut de sa bande, 2 px entre deux prises (montage.mjs, GAP). En haut ses images sur
+   62 px, une tous les 62 px, prises à intervalles réguliers dans la vidéo ; en bas l'onde de son son sur 22 px, sur un
+   fond presque noir, plate sans son. Ses images touchent son bord haut et son onde son bord bas (B01) : son liseré est
+   posé par-dessus (::after). L'onde : sur la maquette, une barre de 1,2 px à 60 % par valeur (12 par seconde, tous les
+   2 px à 24 px par seconde), qui se fond en une forme pleine à 30 % (mesurée) ; dessinée ainsi, pleine, elle reste
+   la même à toutes les échelles, sans les rayures que des barres tous les 2 px font sur un écran à 1 pixel par point.
+   Coupée, le tiers (20 % au lieu de 60). */
+#bobine-view .montage-piece {
+  top: 3px;
+  bottom: auto;
+  height: 84px;
+  border-color: rgba(238, 232, 222, 0.09);
+  border-radius: 6px;
+}
+#bobine-view .montage-piece:not(.is-sound, .is-todo) {
+  border-width: 0;
+  background: #0c0b0f 0 0 / auto 62px repeat-x;
+}
+#bobine-view .montage-piece:not(.is-sound, .is-todo)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border: 1px solid rgba(238, 232, 222, 0.09);
+  border-radius: inherit;
+  pointer-events: none;
+}
+#bobine-view .montage-piece[data-missing='true']:not(.is-sound, .is-todo)::after {
+  border-style: dashed;
+  border-color: rgba(238, 232, 222, 0.3);
+}
+#bobine-view .montage-piece-frames {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 62px;
+  display: flex;
+  overflow: hidden;
+  pointer-events: none;
+}
+#bobine-view .montage-piece-frame {
+  flex: none;
+  width: 62px;
+  height: 62px;
+  background: #0c0b0f center / cover no-repeat;
+}
+#bobine-view .montage-piece-wave {
+  position: absolute;
+  inset: auto 0 0;
+  height: 22px;
+  background: rgba(12, 11, 15, 0.96);
+  pointer-events: none;
+}
+#bobine-view .montage-piece-wave::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(238, 232, 222, 0.3);
+  -webkit-mask: var(--wave) 0 0 / 100% 100% no-repeat;
+  mask: var(--wave) 0 0 / 100% 100% no-repeat;
+}
+/* (Pas encore lue, ou illisible : rien. Plate : les barres d'un silence, 6 % de sa hauteur.) */
+#bobine-view .montage-piece-wave:not([data-state='sound'], [data-state='flat'])::before {
+  content: none;
+}
+#bobine-view .montage-piece-wave[data-state='flat']::before {
+  -webkit-mask: linear-gradient(#000 0 0) center / 100% 6% no-repeat;
+  mask: linear-gradient(#000 0 0) center / 100% 6% no-repeat;
+}
+#bobine-view .montage-piece-wave[data-muted='true']::before {
+  background: rgba(238, 232, 222, 0.1);
+}
+/* « PRISE 65 » en haut à gauche sur un dégradé sombre, sa durée en haut à droite : plus d'étiquettes noires. */
+#bobine-view .montage-piece:not(.is-sound, .is-todo)::before {
+  inset: 0 0 auto;
+  z-index: 1;
+  height: 28px;
+  background: linear-gradient(180deg, rgba(8, 7, 10, 0.62), rgba(8, 7, 10, 0));
+  pointer-events: none;
+}
+#bobine-view .montage-piece:not(.is-todo) > :is(.montage-piece-name, .montage-piece-length) {
+  z-index: 2;
+  top: 7px;
+  bottom: auto;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  font: 300 10.5px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  color: rgba(238, 232, 222, 0.76);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+#bobine-view .montage-piece:not(.is-todo) > .montage-piece-name {
+  left: 8px;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#bobine-view .montage-piece:not(.is-todo) > .montage-piece-length {
+  right: 8px;
+}
+#bobine-view .montage-piece[data-missing='true'] > .montage-piece-name {
+  color: var(--warning);
+}
+/* (Sa durée seulement si la prise fait 150 px ou plus : 148 sans ses bords, ce que mesure la requête.) */
+@container (max-width: 147.98px) {
+  #bobine-view .montage-piece > .montage-piece-length {
+    display: none;
+  }
+}
+
+/* Une prise à créer : un pointillé d'accent (à 75 % quand la tête de lecture est dessus), des hachures légères ;
+   « ↳ SUITE » en accent et sa durée en haut, son texte sur deux lignes dessous, son modèle en mono en bas à droite.
+   Une suite a ses quatre bords et ses coins (#bobine-view .montage-piece), à 2 px de la vidéo qu'elle continue. */
+#bobine-view .montage-piece.is-todo:not(.is-making) {
+  border: 1px dashed color-mix(in srgb, var(--accent) 50%, transparent);
+}
+#bobine-view .montage-piece.is-todo:not(.is-making):not(.is-replacing) {
+  background:
+    repeating-linear-gradient(135deg, rgba(238, 232, 222, 0.045) 0 1px, transparent 1px 14px),
+    rgba(238, 232, 222, 0.02);
+}
+#bobine-view .montage-piece.is-todo:not(.is-making):is([data-under='true'], [aria-pressed='true']) {
+  border-color: color-mix(in srgb, var(--accent) 75%, transparent);
+}
+#bobine-view .montage-piece.is-todo.is-writing:not(.is-making) {
+  border-style: solid;
+}
+#bobine-view .montage-piece.is-todo.is-failed:not(.is-making) {
+  border-color: rgba(214, 160, 90, 0.75);
+}
+#bobine-view .montage-piece.is-todo > .montage-piece-name {
+  left: 8px;
+  top: 7px;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  font: 300 10.5px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+#bobine-view .montage-piece.is-todo.is-failed > .montage-piece-name {
+  color: var(--warning);
+}
+#bobine-view .montage-piece.is-todo > .montage-piece-length {
+  top: 7px;
+  right: 8px;
+  bottom: auto;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--text-3);
+}
+#bobine-view .montage-piece.is-todo > .montage-piece-kind,
+#bobine-view .montage-piece.is-todo > .montage-piece-name:not(:empty) + .montage-piece-kind,
+#bobine-view .montage-piece.is-todo.is-making > .montage-piece-name:not(:empty) + .montage-piece-kind {
+  top: 23px;
+  left: 8px;
+  right: 8px;
+  bottom: auto;
+  max-width: none;
+  -webkit-line-clamp: 2;
+  color: var(--text-2);
+}
+#bobine-view .montage-piece-model {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 300 10.5px/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  pointer-events: none;
+}
+#bobine-view .montage-piece-model:empty {
+  display: none;
+}
+@container (max-width: 88px) {
+  #bobine-view .montage-piece-model {
+    display: none;
+  }
+}
+/* (Une prise faite en plusieurs fois : chaque partie après la première, « ↳ SUITE » à la hauteur de son nom.) */
+#bobine-view .bobine-part {
+  padding: 7px 0 0 8px;
+  border-left-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--accent);
+}
+/* (Ce qui se dessine sur la piste Prises, ou s'y pose, a la taille d'une prise.) */
+#bobine-view .montage-track[data-track='plans'] :is(.bobine-ghost, .bobine-drop, .bobine-edge-hint) {
+  top: 3px;
+  bottom: auto;
+  height: 84px;
+}
+#bobine-view .montage-track[data-track='plans'] :is(.bobine-ghost, .bobine-drop) {
+  border-radius: 6px;
+}
+#bobine-view .montage-track[data-track='plans'] .bobine-edge-hint {
+  border-radius: 0 6px 6px 0;
+}
+
+/* Un son sur une piste audio : une bande d'accent à 7 %, un liseré à 22 %, son onde en lilas, « PRISE 97 » et sa durée
+   sur une plaque sombre ; son texte dans sa bulle, son volume dans sa petite barre. */
+#bobine-view .montage-piece.is-sound,
+#bobine-view .montage-track:not([data-track='plans']) .bobine-drop {
+  top: 4px;
+  bottom: auto;
+  height: 34px;
+  border-radius: 6px;
+}
+#bobine-view .montage-piece.is-sound {
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+#bobine-view .montage-piece.is-sound > .montage-piece-wave {
+  inset: 5px 0 1px;
+  height: auto;
+  background: none;
+}
+/* (B02 : l'accent à 20 % sur sa bande, mesuré.) */
+#bobine-view .montage-piece.is-sound > .montage-piece-wave::before {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+#bobine-view .montage-piece.is-sound > .montage-piece-wave[data-muted='true']::before {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+/* (B02 : sur une plaque sombre, en TX2.) */
+#bobine-view .montage-piece.is-sound > :is(.montage-piece-name, .montage-piece-length) {
+  top: 3px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(12, 11, 15, 0.6);
+  color: var(--text-2);
+  text-shadow: none;
+}
+#bobine-view .montage-piece.is-sound > .montage-piece-name {
+  left: 4px;
+}
+#bobine-view .montage-piece.is-sound > .montage-piece-length {
+  right: 4px;
+}
+
+/* Une prise choisie (B03) : un liseré d'accent de 1,5 px, deux poignées d'accent de 5 px sur toute sa hauteur, aux
+   bords ; sa petite barre au-dessus, opaque, #121116 : Son, Cadre, Ouvrir, Retirer. (Tenue contre sa voisine, elle
+   garde la lueur de ce bord : data-snap, plus haut.) */
+#bobine-view .montage-piece[aria-pressed='true'] {
+  border-color: var(--accent);
+}
+#bobine-view .montage-piece[aria-pressed='true']:not(.is-todo, [data-snap]) {
+  box-shadow: none;
+}
+#bobine-view .montage-piece[aria-pressed='true']:not(.is-sound, .is-todo)::after {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+#bobine-view .montage-piece.is-sound[aria-pressed='true']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent);
+  pointer-events: none;
+}
+#bobine-view .montage-piece[aria-pressed='true'][data-snap] {
+  --ring: 0 0 0 0 transparent;
+}
+#bobine-view .montage-grip {
+  z-index: 4;
+}
+#bobine-view .montage-piece[aria-pressed='true'] > .montage-grip {
+  width: 5px;
+  background: var(--accent);
+}
+#bobine-view .montage-piece[aria-pressed='true'] > .montage-grip::before {
+  width: 1px;
+  height: 12px;
+  margin: -6px 0 0 -0.5px;
+  background: rgba(12, 11, 15, 0.7);
+  opacity: 1;
+}
+#bobine-view .montage-pop {
+  border-color: rgba(238, 232, 222, 0.1);
+  border-radius: 12px;
+  background: var(--room-menu, #121116);
+}
+#bobine-view .montage-pop-button {
+  width: 32px;
+  height: 26px;
+}
+/* (Son et Cadre disent leur état par leur icône, comme sur B03 : enfoncés, ils ne s'éclairent pas.) */
+#bobine-view .montage-pop-button[aria-pressed='true']:not(:hover, :focus-visible) {
+  background: none;
+  color: var(--muted);
+}
+
+/* Les images de début et de fin : un carré de 25 px dans la bande Images, à 5 px de son haut, un trait qui descend
+   jusqu'à sa prise ; « DÉBUT » ou « FIN » à côté de l'emplacement seulement quand une image y est tenue. */
+#bobine-view .montage-photo,
+#bobine-view .montage-photo:is(.is-start, .is-end) {
+  top: 5px;
+  bottom: auto;
+  width: 25px;
+  height: 25px;
+  border: 1px solid rgba(238, 232, 222, 0.5);
+  border-radius: 5px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+#bobine-view .montage-photo.is-slot {
+  border: 1px dashed rgba(238, 232, 222, 0.3);
+  box-shadow: none;
+}
+#bobine-view .montage-photo.is-slot > svg {
+  width: 13px;
+  height: 13px;
+}
+#bobine-view .montage-photo[aria-pressed='true'] {
+  border-color: var(--ink);
+}
+#bobine-view .montage-photo[data-missing='true'] {
+  border-style: dashed;
+}
+#bobine-view .montage-photo[data-linked='true'] {
+  border-color: rgba(208, 202, 221, 0.9);
+}
+#bobine-view .montage-photos[data-carrying='true'] .montage-photo.is-slot {
+  border-color: rgba(208, 202, 221, 0.8);
+}
+#bobine-view .montage-photo[data-over='true'] {
+  border-style: solid;
+}
+#bobine-view .montage-photo::after {
+  height: 9px;
+  border-left-color: rgba(238, 232, 222, 0.36);
+}
+#bobine-view .montage-photo > .montage-photo-side {
+  display: none;
+}
+#bobine-view .montage-photo[data-over='true'] > .montage-photo-side {
+  display: block;
+  top: 50%;
+  bottom: auto;
+  left: auto;
+  right: calc(100% + 8px);
+  transform: translateY(-50%);
+}
+
+/* Une fenêtre basse (1280 × 720, 240 px de timeline) : la règle 26 px (25 dans le panneau), Images 32, Prises 92,
+   chaque piste audio 38. */
+@media (max-height: 760px) {
+  #bobine-view .bobine-rule-row {
+    height: 25px;
+  }
+  #bobine-view .montage-tick.is-label {
+    padding-top: 5px;
+  }
+  #bobine-view .montage-playhead::before {
+    top: 7px;
+  }
+  #bobine-view .montage-track {
+    height: 38px;
+  }
+  #bobine-view .montage-track[data-track='photos'] {
+    height: 32px;
+  }
+  #bobine-view .montage-photo,
+  #bobine-view .montage-photo:is(.is-start, .is-end) {
+    top: 3px;
+  }
+  #bobine-view .montage-photo::after {
+    height: 7px;
+  }
+  #bobine-view .montage-piece.is-sound,
+  #bobine-view .montage-track:not([data-track='plans']) .bobine-drop {
+    top: 3px;
+    height: 31px;
   }
 }
 

@@ -829,3 +829,91 @@ export function folderName(name) {
   if (/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i.test(plain)) plain = 'Bobine ' + plain;
   return plain || 'Bobine';
 }
+
+// ------------------------------------------------------------------ the timeline of the Bobine Pro (0.6.459)
+
+/**
+ * (0.6.459, Bobine Pro, B01) The marks of the ruler of a timeline `seconds` long on `width` pixels: a short one at each
+ * step, a longer one at each `long`, « 0:10 » at each `label` (a second, 5 s and 10 s in the maquette, at 24 px a
+ * second). The steps keep the marks `gap` pixels apart at least, and the words `words`: zoomed out, a mark every 2 s,
+ * 5 s… and a word every 20 s, 30 s, minute… Each mark: { at (seconds), tier: 'short' | 'long' | 'label' }.
+ */
+export const RULER_GAP = 14,
+  RULER_WORDS = 64;
+const TICKS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600],
+  WORDS = [10, 20, 30, 60, 120, 300, 600, 1200, 1800, 3600, 7200];
+export function rulerMarks(seconds, width, { gap = RULER_GAP, words = RULER_WORDS, most = 2000 } = {}) {
+  const perSecond = seconds > 0 && width > 0 ? width / seconds : 0;
+  if (!perSecond) return [];
+  const tick = TICKS.find(step => step * perSecond >= gap) ?? TICKS.at(-1),
+    label = WORDS.find(step => step % tick === 0 && step * perSecond >= words) ?? tick * Math.ceil(words / (tick * perSecond)),
+    // (Half the step of the words when the marks fall on it: 5 s between the words of 10 s.)
+    long = label / 2 > tick && (label / 2) % tick === 0 ? label / 2 : label,
+    marks = [];
+  for (let index = 0; index * tick <= seconds + 1e-9 && marks.length < most; index++) {
+    const at = index * tick;
+    marks.push({ at, tier: at % label === 0 ? 'label' : at % long === 0 ? 'long' : 'short' });
+  }
+  return marks;
+}
+/** (0.6.459) An instant as the ruler writes it: « 0:00 », « 0:10 », « 1:00 », « 1:00:00 ». */
+export function rulerWord(seconds) {
+  const whole = Math.max(0, Math.round(seconds)),
+    hours = Math.floor(whole / 3600),
+    minutes = Math.floor((whole % 3600) / 60),
+    rest = String(whole % 60).padStart(2, '0');
+  return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${rest}` : `${minutes}:${rest}`;
+}
+
+/**
+ * (0.6.459, Bobine Pro, B01) The wave of the sound of a take from its second `from` to its second `to`, as a mask
+ * (`url("data:image/svg+xml,…")`): its outline mirrored around its middle, one step for each value of `levels`
+ * (`rate` a second, 0 to 100: lib/take-film.mjs), `most` steps at most (each the loudest of the values it holds),
+ * `least` % high at the least (a silence: a flat line). The bars it shows (1,2 px every 2 px) are drawn by
+ * moodix.css under it. What the take shows beyond its sound is silent. '' without a value.
+ */
+export function waveMask(levels, { rate = 12, from = 0, to = (levels?.length ?? 0) / rate, most = 160, least = 6 } = {}) {
+  const first = Math.max(0, Math.round(from * rate)),
+    count = Math.round((to - from) * rate);
+  if (!Array.isArray(levels) || !levels.length || !(count >= 1)) return '';
+  const steps = Math.max(1, Math.min(Math.round(most), count)),
+    heights = [];
+  for (let step = 0; step < steps; step++) {
+    const start = first + Math.floor((step * count) / steps),
+      end = Math.max(start + 1, first + Math.floor(((step + 1) * count) / steps));
+    let loudest = 0;
+    for (let at = start; at < end; at++) loudest = Math.max(loudest, levels[at] ?? 0);
+    heights.push(clamp(loudest, least, 100));
+  }
+  const y = value => Math.round(value * 10) / 10,
+    top = heights.map((height, step) => `${step ? 'V' : 'M0 '}${y(50 - height / 2)}H${step + 1}`).join(''),
+    bottom = heights
+      .map((height, step) => `V${y(50 + height / 2)}H${step}`)
+      .reverse()
+      .join(''),
+    svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${steps} 100' preserveAspectRatio='none'><path d='${top}${bottom}Z'/></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+
+/**
+ * (0.6.459) Which of the `frames` pictures of the strip of a take `seconds` long is shown at its second `time`: the
+ * strip holds the picture at the middle of each share of the clip (runner/video/film.py). -1 without a strip.
+ */
+export function frameAt(time, seconds, frames) {
+  if (!(frames > 0)) return -1;
+  if (!(seconds > 0)) return 0;
+  return clamp(Math.floor((time / seconds) * frames), 0, frames - 1);
+}
+/**
+ * (0.6.459, Bobine Pro, B01) The pictures a take shows along its piece, `width` pixels for its seconds `from` to `to`
+ * (of `seconds`): one every `side` pixels, each the picture of its strip (`frames` of them) at the middle of what
+ * shows of it; -1 for each without a strip (the page shows its thumbnail there). `most` of them at the most.
+ */
+export function framesAlong({ width, side = 62, from = 0, to = 0, seconds = 0, frames = 0, most = 400 }) {
+  if (!(width > 0) || !(side > 0)) return [];
+  const count = Math.min(most, Math.ceil(width / side - 1e-9));
+  return Array.from({ length: count }, (_, index) => {
+    const middle = (index * side + Math.min((index + 1) * side, width)) / 2;
+    return frameAt(from + (middle / width) * (to - from), seconds, frames);
+  });
+}

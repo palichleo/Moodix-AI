@@ -100,7 +100,7 @@ const INTENTION = 'Prise d’une bobine, demandée dans la Bobine.',
 // `at`-th), and from which second of its file it is shown (a suite holds the video it goes on from).
 const placeOf = (f, at, from = 0) => ({ id: f.ui.state().montage.id, plan: f.ui.state().montage.plans[at].id, from });
 
-function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed = null, create = null, estimate = null, write = null, thumbnail = () => {}, width = 1000, modelFor = null, longestFor = null, enrich = null, downloads = null, arrange = null, dragImage = null, win = null, canvas = false, base = true, light = null, paint = null } = {}) {
+function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed = null, create = null, estimate = null, write = null, thumbnail = () => {}, width = 1000, modelFor = null, longestFor = null, enrich = null, downloads = null, arrange = null, dragImage = null, win = null, canvas = false, base = true, light = null, paint = null, takeFilm = null } = {}) {
   WIDTH = width;
   const calls = [],
     queue = [],
@@ -184,6 +184,8 @@ function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed =
     ...(arrange ? { arrange } : {}),
     ...(dragImage ? { dragImage } : {}),
     ...(light ? { light } : {}),
+    // (0.6.459) What reads the film of a take: none by default (the takes of the tests have no address of a film).
+    ...(takeFilm ? { takeFilm } : {}),
     halt: () => void halted++,
     api,
     // (`canvas`: a canvas that draws, for the Flux.)
@@ -356,12 +358,13 @@ test('takes laid by a double click or Enter go on their tracks, kept a moment la
   f.get('montage-take')[3].ondblclick();
   f.get('montage-take')[1].onkeydown({ key: 'Tab' });
   assert.deepEqual([f.names(), f.lengths()], [['Prise 1', 'Prise 3'], ['05.00 s', '03.00 s']]);
-  // The music on « Piste audio 1 », at 60 %.
+  // The music on « Piste audio 1 », at 60 % (its small bar says it). (0.6.459, Bobine Pro, B01) « PRISE 4 », its wave,
+  // its length; its text in its title.
   const sounds = find(f.root, 'is-sound');
-  assert.deepEqual(sounds.map(piece => piece.children.map(part => part.textContent)), [['Prise 4 · Prise 4', '60 %']]);
+  assert.deepEqual(sounds.map(piece => [piece.children.map(part => part.textContent), piece.title]), [[['Prise 4', '', '30.00 s'], 'Prise 4']]);
   assert.deepEqual([f.lanes()[1].children, f.lanes()[2].children], [sounds, []]);
   // Placed at the scale of the timeline: ten seconds at least, here the thirty of the music.
-  assert.deepEqual(f.plans().map(piece => [piece.style.left, piece.style.width]), [['0%', 'calc(16.666666666666668% - 4px)'], ['16.666666666666668%', 'calc(10% - 4px)']]);
+  assert.deepEqual(f.plans().map(piece => [piece.style.left, piece.style.width]), [['0%', 'calc(16.666666666666668% - 2px)'], ['16.666666666666668%', 'calc(10% - 2px)']]);
   // The last laid is the one chosen: its small bar above it, on its track.
   assert.equal(f.ui.state().chosen, f.ui.state().montage.sounds[0].id);
   assert.deepEqual([find(f.track('music'), 'montage-pop').length, f.pop().attributes['aria-label'], f.popLabels(), f.said('montage-pop-figure')], [1, 'Réglages du son', ['Volume', 'Ouvrir la prise', 'Retirer de la bobine (Suppr)'], ['60 %']]);
@@ -391,19 +394,31 @@ test('the small bar of a take chosen: its sound, its frame, opened, taken out; a
   f.plans()[0].onclick();
   assert.deepEqual(f.plans().map(piece => piece.attributes['aria-pressed']), ['true', 'false', 'false']);
   assert.deepEqual([find(f.track('plans'), 'montage-pop').length, f.pop().attributes['aria-label']], [1, 'Réglages de la prise']);
-  assert.deepEqual(f.popLabels(), [
-    'Couper le son de la prise',
-    'Ajuster : la prise entière, avec des bandes si son format diffère',
-    'Remplir : plein cadre, ce qui dépasse est coupé',
-    'Ouvrir la prise',
-    'Retirer de la bobine (Suppr)',
+  // (0.6.459, Bobine Pro, B03) Son, Cadre, Ouvrir, Retirer: four buttons, nothing between them.
+  assert.deepEqual(f.popLabels(), ['Son de la prise', 'Remplir le cadre', 'Ouvrir la prise', 'Retirer de la bobine (Suppr)']);
+  assert.deepEqual([f.get('montage-pop-rule').length, f.pop().children.map(button => button.children[0].className)], [0, ['icon-volume', 'icon-fit', 'icon-open', 'icon-trash']]);
+  // Its frame in one button, from one to the other: pressed, it fills the frame; its title says what it is.
+  const frame = () => f.button('Remplir le cadre');
+  assert.deepEqual([frame().attributes['aria-pressed'], frame().title], ['false', 'Cadre : la prise entière, avec des bandes si son format diffère (cliquez pour remplir)']);
+  frame().onclick();
+  assert.deepEqual([plan(0).frame, frame().attributes['aria-pressed'], frame().title, frame().children[0].className], [
+    'fill',
+    'true',
+    'Cadre : plein cadre, ce qui dépasse est coupé (cliquez pour ajuster)',
+    'icon-fill',
   ]);
-  f.button('Remplir').onclick();
-  assert.deepEqual([plan(0).frame, f.button('Remplir').attributes['aria-pressed'], f.button('Ajuster').attributes['aria-pressed']], ['fill', 'true', 'false']);
-  f.button('Couper le son de la prise').onclick();
-  assert.deepEqual([plan(0).volume, f.button('Remettre le son de la prise').attributes['aria-pressed']], [0, 'false']);
-  f.button('Remettre le son de la prise').onclick();
-  assert.equal(plan(0).volume, 1);
+  frame().onclick();
+  assert.deepEqual([plan(0).frame, frame().attributes['aria-pressed']], ['fit', 'false']);
+  frame().onclick();
+  // Its sound: the speaker of the screen, crossed out once it is cut; its wave said muted. Its name stays, pressed
+  // while it is heard; its title says what it is.
+  const sound = () => f.button('Son de la prise');
+  assert.deepEqual([sound().attributes['aria-pressed'], sound().title], ['true', 'Son : entendu dans la lecture (cliquez pour le couper)']);
+  sound().onclick();
+  assert.deepEqual([plan(0).volume, sound().attributes['aria-pressed'], sound().title, sound().children[0].className], [0, 'false', 'Son : coupé (cliquez pour le remettre)', 'icon-volume-off']);
+  assert.equal(find(f.plans()[0], 'montage-piece-wave')[0].dataset.muted, 'true');
+  sound().onclick();
+  assert.deepEqual([plan(0).volume, find(f.plans()[0], 'montage-piece-wave')[0].dataset.muted], [1, 'false']);
   f.button('Ouvrir la prise').onclick();
   assert.deepEqual(f.calls.at(-1), { route: 'open', body: id(1) });
   // Alt and an arrow move it, it stays the one chosen; its bar follows it.
@@ -411,7 +426,7 @@ test('the small bar of a take chosen: its sound, its frame, opened, taken out; a
   assert.deepEqual([f.names(), f.ui.state().chosen, f.pop().style.left], [['Prise 2', 'Prise 1', 'Prise 3'], plan(1).id, 'clamp(var(--half), 27.5%, calc(100% - var(--half)))']);
   // An image has a frame, no sound.
   f.plans()[2].onclick();
-  assert.deepEqual(f.popLabels().map(label => label.split(' :')[0]), ['Ajuster', 'Remplir', 'Ouvrir la prise', 'Retirer de la bobine (Suppr)']);
+  assert.deepEqual(f.popLabels(), ['Remplir le cadre', 'Ouvrir la prise', 'Retirer de la bobine (Suppr)']);
   // Clicked again, or Échap: let go, no bar.
   f.plans()[2].onclick();
   assert.deepEqual([f.ui.state().chosen, f.get('montage-pop').length], [null, 0]);
@@ -440,7 +455,7 @@ test('a take is stretched by its edges and moved by dragging it; a change leaves
     plan = at => f.ui.state().montage.plans[at],
     places = () => f.plans().map(piece => [piece.style.left, piece.style.width]),
     at = seconds => pc(seconds, 20),
-    wide = seconds => `calc(${pc(seconds, 20)} - 4px)`,
+    wide = seconds => `calc(${pc(seconds, 20)} - 2px)`,
     [screen] = f.get('montage-screen'),
     [takes] = f.get('montage-takes');
   assert.deepEqual(grips().map(grip => grip.className), ['montage-grip is-start', 'montage-grip is-end', 'montage-grip is-start', 'montage-grip is-end']);
@@ -528,8 +543,9 @@ test('the volume of a sound stays in the hand while it is slid; let go, the time
   Object.assign(volume, { value: '80' }).oninput();
   Object.assign(volume, { value: '40' }).oninput();
   assert.deepEqual([f.get('montage-timeline')[0], f.pop(), f.slider('Volume')], [timeline, bar, volume]);
-  // What it says follows: its figure, and the sound on its track.
-  assert.deepEqual([sound().volume, f.said('montage-pop-figure'), find(f.root, 'is-sound')[0].children[1].textContent, volume.style['--fill']], [0.4, ['40 %'], '40 %', '0.2']);
+  // What it says follows: its figure. (0.6.459, Bobine Pro, B01) The sound on its track says its length, no longer its
+  // volume.
+  assert.deepEqual([sound().volume, f.said('montage-pop-figure'), find(find(f.root, 'is-sound')[0], 'montage-piece-length')[0].textContent, volume.style['--fill']], [0.4, ['40 %'], '30.00 s', '0.2']);
   // Let go: drawn as it now is, the same bar keeps the keys.
   volume.focus();
   volume.onchange();
@@ -557,11 +573,11 @@ test('the keys stay with the bobine: what is drawn again under the focus gets it
   }
   // A button of its bar is drawn again with it: the same button has the focus; one that is no longer
   // there leaves it to the desk, which hears the keys of the bobine.
-  const fill = f.button('Remplir');
+  const fill = f.button('Remplir le cadre');
   fill.focus();
   fill.onclick();
-  assert.notEqual(f.button('Remplir'), fill);
-  assert.deepEqual([plan(2).frame, f.focused()], ['fill', f.button('Remplir')]);
+  assert.notEqual(f.button('Remplir le cadre'), fill);
+  assert.deepEqual([plan(2).frame, f.focused()], ['fill', f.button('Remplir le cadre')]);
   f.button('Retirer de la bobine (Suppr)').focus();
   f.focused().onclick();
   assert.deepEqual([f.plans().length, f.focused()], [2, f.root]);
@@ -844,7 +860,7 @@ test('in the void, a ghost of 5 s follows the pointer; a click lays it (0.6.169)
   const empty = await setup().open();
   // An empty bobine: the ghost at its start, breathing.
   const [still] = empty.get('bobine-ghost');
-  assert.deepEqual([still.hidden, still.dataset.breathing, still.style.left, still.style.width, still.textContent], [false, 'true', '0%', 'calc(50% - 4px)', '+']);
+  assert.deepEqual([still.hidden, still.dataset.breathing, still.style.left, still.style.width, still.textContent], [false, 'true', '0%', 'calc(50% - 2px)', '+']);
   const f = await setup({ create: async () => null }).open();
   f.get('montage-take')[0].ondblclick();
   const [lane] = f.lanes(),
@@ -855,7 +871,7 @@ test('in the void, a ghost of 5 s follows the pointer; a click lays it (0.6.169)
   lane.onpointermove({ clientX: 300, target: f.plans()[0] });
   assert.equal(shade().hidden, true);
   lane.onpointermove({ clientX: 800, target: lane });
-  assert.deepEqual([shade().hidden, shade().style.left, shade().style.width], [false, '55%', 'calc(50% - 4px)']);
+  assert.deepEqual([shade().hidden, shade().style.left, shade().style.width], [false, '55%', 'calc(50% - 2px)']);
   lane.onpointermove({ clientX: 600, target: lane });
   assert.equal(shade().style.left, '50%');
   lane.onpointerleave();
@@ -1000,8 +1016,8 @@ test('photos dragged to their track become takes to create, each against the edg
   // (seven seconds: the timeline shows twenty).
   assert.deepEqual(pins(), [
     ['montage-photo is-start', '0%', null, 'Image de début, prise de 00.00 à 05.00'],
-    ['montage-photo is-end', null, 'calc(75% + 4px)', 'Image de fin, prise de 00.00 à 05.00'],
-    ['montage-photo is-end', null, 'calc(65% + 4px)', 'Image de fin, prise de 05.00 à 07.00'],
+    ['montage-photo is-end', null, 'calc(75% + 2px)', 'Image de fin, prise de 00.00 à 05.00'],
+    ['montage-photo is-end', null, 'calc(65% + 2px)', 'Image de fin, prise de 05.00 à 07.00'],
   ]);
   assert.deepEqual(laid(f).map(pin => [pin.style.backgroundImage, pin.textContent]), [['url("/thumb/3")', 'Début'], ['url("/thumb/5")', 'Fin'], ['url("/thumb/6")', 'Fin']]);
   // (0.6.152) Its empty place beside them: the start of the second.
@@ -1257,14 +1273,16 @@ test('the end of a video pulled beyond its take shows its suite to create, joine
   f.press(grips()[1], 500);
   f.pointer.move(540);
   assert.deepEqual([plans().length, plans()[0].to, f.get('montage-tip').length], [2, 5, 0]);
-  // Four seconds beyond: its suite to create, touching it; the image comes later in the bobine.
+  // Four seconds beyond: its suite to create, right after it; the image comes later in the bobine. (0.6.459, Bobine
+  // Pro, B01) Two pixels between them, as between two takes; its length without « + »: « ↳ SUITE » says it goes on.
   f.pointer.move(900);
   assert.deepEqual(look(), [
-    ['montage-piece', 'Prise 1', '05.00 s', '0%', 'calc(25% - 4px)'],
-    ['montage-piece is-todo is-suite', '↳ Suite', '+04.00 s', 'calc(25% - 4px)', '20%'],
-    ['montage-piece', 'Prise 3', '03.00 s', '45%', 'calc(15% - 4px)'],
+    ['montage-piece', 'Prise 1', '05.00 s', '0%', 'calc(25% - 2px)'],
+    ['montage-piece is-todo is-suite', '↳ Suite', '04.00 s', '25%', 'calc(20% - 2px)'],
+    ['montage-piece', 'Prise 3', '03.00 s', '45%', 'calc(15% - 2px)'],
   ]);
-  // (0.6.155) Nothing said over the ruler: « +04.00 s » on the take says it. The video stays the one in hand.
+  assert.equal(f.plans()[1].dataset.joined, 'true');
+  // (0.6.155) Nothing said over the ruler: « 04.00 s » on the take says it. The video stays the one in hand.
   assert.equal(f.get('montage-tip').length, 0);
   assert.equal(f.ui.state().chosen, plans()[0].id);
   // Pulled back within the take: gone, as if nothing had been asked.
@@ -1285,7 +1303,7 @@ test('the end of a video pulled beyond its take shows its suite to create, joine
   f.press(grips()[2], 700);
   f.pointer.move(850);
   f.pointer.up();
-  assert.deepEqual([plans().map(plan => plan.to), f.lengths()[1]], [[5, 3.5, 3], '+03.50 s']);
+  assert.deepEqual([plans().map(plan => plan.to), f.lengths()[1]], [[5, 3.5, 3], '03.50 s']);
   // Towards an end photo it is a new clip, from the last image of the video: said as it is.
   f.get('montage-take')[4].ondragstart({ dataTransfer: { setData() {} } });
   // (The bobine is 11,5 s long now, still twenty shown: 7,5 s, on the second half of the suite.)
@@ -1294,8 +1312,8 @@ test('the end of a video pulled beyond its take shows its suite to create, joine
   // Taken out: the bobine as it was.
   f.button('Retirer de la bobine (Suppr)').onclick();
   assert.deepEqual(look(), [
-    ['montage-piece', 'Prise 1', '05.00 s', '0%', 'calc(25% - 4px)'],
-    ['montage-piece', 'Prise 3', '03.00 s', '25%', 'calc(15% - 4px)'],
+    ['montage-piece', 'Prise 1', '05.00 s', '0%', 'calc(25% - 2px)'],
+    ['montage-piece', 'Prise 3', '03.00 s', '25%', 'calc(15% - 2px)'],
   ]);
   // Neither an image nor a take to create is continued by its edge: the edge of an image is its length.
   f.press(grips()[2], 800);
@@ -1432,7 +1450,7 @@ test('a photo carried lights up the places where it can go; it goes in the one i
   assert.deepEqual([f.photos().dataset.carrying, f.get('is-new').length], ['false', 0]);
   // A photo carried lights them up, with a place at the end of the bobine to begin a new take; a clip does not.
   carry(2);
-  assert.deepEqual([f.photos().dataset.carrying, f.get('is-new').map(item => item.style.left)], ['true', ['calc(55% + 4px)']]);
+  assert.deepEqual([f.photos().dataset.carrying, f.get('is-new').map(item => item.style.left)], ['true', ['calc(55% + 2px)']]);
   assert.equal(f.get('is-new')[0].attributes['aria-label'], 'Une nouvelle prise, qui part de cette image, à la fin de la bobine');
   f.get('montage-take')[2].ondragend();
   carry(0);
@@ -1446,7 +1464,7 @@ test('a photo carried lights up the places where it can go; it goes in the one i
   put(slot(drawn, 'start'), 'drawn');
   const photosOf = () => f.ui.state().montage.plans.map(plan => [plan.photos?.start?.runId ?? null, plan.photos?.end?.runId ?? null]);
   assert.deepEqual(photosOf(), [[null, null], [null, id(3)], [id(5), null]]);
-  assert.deepEqual(laid(f).map(pin => [pin.dataset.plan, pin.style.left ?? null, pin.style.right ?? null]), [[suite, null, 'calc(65% + 4px)'], [drawn, '35%', null]]);
+  assert.deepEqual(laid(f).map(pin => [pin.dataset.plan, pin.style.left ?? null, pin.style.right ?? null]), [[suite, null, 'calc(65% + 2px)'], [drawn, '35%', null]]);
   assert.equal(f.ui.state().chosen, drawn);
   // Dropped on a photo laid: it replaces it.
   carry(5);
@@ -2369,7 +2387,7 @@ test('an empty bobine: its ghost has its two places of photo, at rest; a photo t
   const slots = () => find(f.photos(), 'is-ghost');
   assert.deepEqual(slots().map(slot => [slot.className, slot.attributes['aria-label'], slot.style.left ?? null, slot.style.right ?? null]), [
     ['montage-photo is-start is-slot is-ghost', 'Image de début d’une nouvelle prise : glissez une image ici', '0%', null],
-    ['montage-photo is-end is-slot is-ghost', 'Image de fin d’une nouvelle prise : glissez une image ici', null, 'calc(50% + 4px)'],
+    ['montage-photo is-end is-slot is-ghost', 'Image de fin d’une nouvelle prise : glissez une image ici', null, 'calc(50% + 2px)'],
   ]);
   // A photo dropped on the end: a take to create of 5 s at 0 that arrives on it, chosen; the ghost's places are gone.
   f.get('montage-take')[2].ondragstart({ dataTransfer: { setData() {} } });
@@ -2394,7 +2412,7 @@ test('the end of a video under the pointer shows, in light dots, the suite pulli
   // The end of the video (5 s, then the image: a timeline of 20 s): two seconds after it.
   const [, end, image] = grips();
   end.onpointerenter();
-  assert.deepEqual([hint().hidden, hint().style.left, hint().style.width], [false, '25%', 'calc(10% - 4px)']);
+  assert.deepEqual([hint().hidden, hint().style.left, hint().style.width], [false, '25%', 'calc(10% - 2px)']);
   end.onpointerleave();
   assert.equal(hint().hidden, true);
   // Pressed: gone, the real suite comes under the hand.
@@ -3052,7 +3070,7 @@ test('a take carried over the timeline is drawn where it would go, the takes it 
   assert.deepEqual([ghosts[0][0], tile.className, f.root.dataset.carrying], [tile, 'montage-take is-carried', 'image']);
   // Over the first half of the first take: its shadow before it, the two others pushed later; the bobine as it was.
   f.lanes()[0].ondragover(event(100));
-  assert.deepEqual(shadows().map(shadow => [shadow.className, shadow.style.left, shadow.style.width, shadow.textContent]), [['bobine-drop', '0%', 'calc(15% - 4px)', 'Prise 3']]);
+  assert.deepEqual(shadows().map(shadow => [shadow.className, shadow.style.left, shadow.style.width, shadow.textContent]), [['bobine-drop', '0%', 'calc(15% - 2px)', 'Prise 3']]);
   assert.deepEqual([lefts(), starts()], [['15%', '40%'], [0, 5]]);
   // In the void after the bobine: there, and nothing pushed; out of the timeline, gone, everything in its place.
   f.lanes()[0].ondragover(event(1500));
@@ -4998,4 +5016,117 @@ test('(0.6.458, Bobine Pro, B01) the styles of « Prises »: tiles at 5:3 in row
   assert.match(rule("#bobine-view .montage-grid[data-layout='list']"), /grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(rule("#bobine-view .montage-grid[data-layout='list'] .montage-take-picture"), /width: 80px;\n  height: 48px;/);
   assert.match(rule('#bobine-view .montage-take-text'), /white-space: nowrap;\n  text-overflow: ellipsis;/);
+});
+
+test('(0.6.459, Bobine Pro, B01) the takes show their pictures along them and the wave of their sound, each film read once, two at once', async () => {
+  // The film of a take is asked at the address its output gives the first time the timeline shows it; until it comes,
+  // its thumbnail every 62 px. A video: its pictures above, its wave under them; an image: its picture, a flat wave; a
+  // sound: its wave on all of it.
+  const asked = [],
+    waiting = new Map(),
+    takeFilm = url =>
+      new Promise((done, fail) => {
+        asked.push(url);
+        waiting.set(url.split('?')[0], { done, fail });
+      }),
+    answer = (n, film) => waiting.get('/media/films/' + n).done(film),
+    filmed = (n, mediaType, more) =>
+      take(n, mediaType, {
+        ...more,
+        outputs: [{ take: n, originalUrl: `/media/${n}`, ...(mediaType === 'audio' ? {} : { thumbUrl: `/thumb/${n}` }), ...(mediaType === 'image' ? {} : { filmUrl: `/media/films/${n}?key=k${n}` }) }],
+      }),
+    extra = [
+      filmed(31, 'video', { parameters: { frames: 160, fps: 16 } }),
+      filmed(32, 'video', { parameters: { frames: 80, fps: 16 } }),
+      filmed(33, 'audio', { parameters: { seconds: 6 } }),
+      filmed(34, 'image'),
+    ];
+  const f = await setup({ base: false, extra, takeFilm }).open();
+  const tile = n => f.get('montage-take').find(item => item.dataset.id === id(n));
+  for (const n of [31, 32, 34, 33]) tile(n).ondblclick();
+  await settle();
+  // (18 s of takes, thirty shown on 1000 px.) Two asked at once; the third waits for one of them.
+  assert.deepEqual(asked, ['/media/films/31?key=k31', '/media/films/32?key=k32']);
+  const piece = n => [...f.plans(), ...find(f.root, 'is-sound')].find(item => item.dataset.id === f.ui.state().montage[n === 33 ? 'sounds' : 'plans'].find(laid => laid.source.runId === id(n)).id),
+    cells = n => find(piece(n), 'montage-piece-frame').map(cell => [cell.style.backgroundImage, cell.style.backgroundPosition ?? null]),
+    wave = n => {
+      const [shown] = find(piece(n), 'montage-piece-wave');
+      return [shown.dataset.state, String(shown.style['--wave']).slice(0, 24)];
+    };
+  // Their names first; until their films come, their thumbnails every 62 px, no wave; an image: flat.
+  assert.deepEqual([31, 32, 34].map(n => piece(n).children[0].textContent), ['Prise 31', 'Prise 32', 'Prise 34']);
+  assert.deepEqual([cells(31).length, cells(32).length, cells(34).length], [6, 3, 2]);
+  assert.deepEqual(cells(31)[0], ['url("/thumb/31")', null]);
+  assert.deepEqual([wave(31), wave(34), wave(33)], [['', 'none'], ['flat', 'none'], ['', 'none']]);
+  // Its film come: the pictures of its strip, each the one at the middle of what shows of it; its wave.
+  answer(31, { rate: 12, sound: true, levels: Array.from({ length: 120 }, (_, at) => at % 100), frames: 20, stripUrl: '/media/strips/31?key=s31' });
+  await settle();
+  assert.deepEqual(
+    cells(31).map(([picture, place]) => [picture, place]),
+    [1, 5, 9, 13, 16, 19].map(index => ['url("/media/strips/31?key=s31")', `${-index * 62}px 0`]),
+  );
+  assert.equal(find(piece(31), 'montage-piece-frame')[0].style.backgroundSize, '1240px 62px');
+  assert.deepEqual(wave(31), ['sound', 'url("data:image/svg+xml,']);
+  // The sound asked now that a place is free; a video without a sound: flat, its thumbnail where it has no strip.
+  assert.deepEqual(asked.at(-1), '/media/films/33?key=k33');
+  answer(32, { rate: 12, sound: false, levels: [], frames: 0 });
+  await settle();
+  assert.deepEqual([wave(32), cells(32)[0]], [['flat', 'none'], ['url("/thumb/32")', null]]);
+  waiting.get('/media/films/33').fail(new Error('le Python du moteur de génération est introuvable'));
+  await settle();
+  assert.deepEqual(wave(33), ['', 'none']);
+  // Drawn again (a take chosen): nothing asked again, what was read painted at once.
+  piece(31).onclick();
+  assert.deepEqual([asked.length, wave(31)[0], cells(31)[2][0]], [3, 'sound', 'url("/media/strips/31?key=s31")']);
+  // The page opened again: what could not be read is asked again.
+  f.root = f.ui.desk();
+  await settle();
+  assert.deepEqual(asked.slice(3), ['/media/films/33?key=k33']);
+  answer(33, { rate: 12, sound: true, levels: Array(72).fill(40), frames: 0 });
+  await settle();
+  assert.deepEqual(wave(33), ['sound', 'url("data:image/svg+xml,']);
+  assert.deepEqual(find(piece(33), 'montage-piece-frame'), []);
+  // (0.6.459, B01) The ruler: a mark a second, « 0:10 » every 10 s, in its words.
+  assert.deepEqual(
+    f.get('is-label').map(mark => [mark.textContent, mark.style.left]),
+    [0, 10, 20, 30].map(at => [['0:00', '0:10', '0:20', '0:30'][at / 10], pc(at, 30)]),
+  );
+  assert.deepEqual([f.get('montage-tick').length, f.get('is-long').length], [31, 3]);
+});
+
+test('(0.6.459, Bobine Pro, B01) a take to create says its model at its bottom right; the head on it lights its dashes', async () => {
+  const stored = {
+    schemaVersion: 1,
+    id: id(960),
+    name: 'La mer',
+    format: '16:9',
+    width: 1344,
+    height: 768,
+    fps: 24,
+    sounds: [],
+    plans: [
+      { id: id(961), at: 0, kind: 'video', source: { conversationId: C, runId: id(1), output: 0 }, from: 0, to: 5, frame: 'fit', volume: 1 },
+      { id: id(962), at: 5, kind: 'video', todo: { prompt: 'Il marche vers la mer.', suite: true }, from: 0, to: 4, frame: 'fit', volume: 1 },
+    ],
+  };
+  const f = await setup({ stored: [stored], estimate: async () => ({ workflowName: 'LTX 2.5' }) }).open();
+  await settle();
+  const [todo] = f.plans().filter(piece => piece.className.includes('is-todo'));
+  assert.deepEqual(
+    todo.children.slice(0, 4).map(child => [child.className, child.textContent]),
+    [
+      ['montage-piece-name', '↳ Suite'],
+      ['montage-piece-kind', 'Il marche vers la mer.'],
+      ['montage-piece-length', '04.00 s'],
+      ['montage-piece-model', 'LTX 2.5'],
+    ],
+  );
+  // (A take to create has no pictures nor wave yet.)
+  assert.deepEqual([find(todo, 'montage-piece-frames').length, find(todo, 'montage-piece-wave').length], [0, 0]);
+  // (Twenty seconds shown on 1000 px.) The head at its start, then on it, then past it.
+  assert.equal(f.plans()[1].dataset.under, 'false');
+  f.press(f.get('montage-ruler')[0], 300);
+  assert.deepEqual([f.ui.state().head, f.plans()[1].dataset.under, f.plans()[0].dataset.under], [6, 'true', undefined]);
+  f.press(f.get('montage-ruler')[0], 450);
+  assert.equal(f.plans()[1].dataset.under, 'false');
 });

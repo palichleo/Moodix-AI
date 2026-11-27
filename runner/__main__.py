@@ -1,7 +1,8 @@
 """Start the offline worker: python -m runner --config PATH.
 
-One command runs apart from the worker and ends: python -m runner frame … (runner.video.still),
-the first or the last picture of a video.
+Two commands run apart from the worker and end: python -m runner frame … (runner.video.still),
+the first or the last picture of a video; python -m runner film … (runner.video.film), the pictures
+along a take and the loudness of its sound, for its piece on the timeline of the Bobine.
 """
 
 import argparse
@@ -17,6 +18,10 @@ def main():
         from runner.video.still import main as still
 
         sys.exit(still(sys.argv[2:]))
+    if sys.argv[1:2] == ['film']:
+        from runner.video.film import main as film
+
+        sys.exit(film(sys.argv[2:]))
     os.environ['HF_HUB_OFFLINE'] = '1'
     os.environ['TRANSFORMERS_OFFLINE'] = '1'
     parser = argparse.ArgumentParser(description=__doc__)
