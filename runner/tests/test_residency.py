@@ -577,6 +577,139 @@ class ReaderTest(unittest.TestCase):
             gate.set()
             reader.close()
 
+    def test_several_tensors_are_read_at_once_inside_the_window(self):
+        # (0.6.458) One thread read them one after the other, at 2 GiB/s from a disk that gives more than twice
+        # that to several requests at once: here two readings are held until both have begun.
+        import threading
+
+        from runner.models import residency
+
+        both, lock, begun = threading.Event(), threading.Lock(), []
+
+        class Together(residency.Reader):
+            def _read(self, handle, offset, size):
+                with lock:
+                    begun.append(offset)
+                    if len(begun) >= 2:
+                        both.set()
+                # (The caller's own reading, out of turn, is not held: none is asked here.)
+                both.wait(5)
+                return super()._read(handle, offset, size)
+
+        reader = Together(self.path, list('abcdef'), ahead=2500, readers=2)
+        try:
+            self.assertTrue(both.wait(5), 'two tensors are read at the same time')
+            for name in 'abcdef':
+                self.assertEqual(bytes(reader.take(name).numpy().tobytes()), self.tensors[name], name)
+            said = reader.summary()
+            self.assertEqual(said['direct_gib'], 0, 'each came from what was read ahead')
+            # Never more than its window at once, what is being read counted in it.
+            self.assertLessEqual(reader.held + reader.flight, 2500)
+        finally:
+            both.set()
+            reader.close()
+        self.assertFalse(any(thread.is_alive() for thread in reader.threads), 'every thread ends with it')
+
+    def test_the_window_holds_what_is_read_and_what_is_being_read(self):
+        # Four threads and a window of two tensors: never three of them in RAM at once, whatever their order.
+        import threading
+
+        from runner.models import residency
+
+        lock, most = threading.Lock(), [0]
+
+        class Counted(residency.Reader):
+            def _read(self, handle, offset, size):
+                with lock:
+                    most[0] = max(most[0], self.held + self.flight)
+                return super()._read(handle, offset, size)
+
+        reader = Counted(self.path, list('abcdef'), ahead=2500, readers=4)
+        try:
+            for name in 'abcdef':
+                self.assertEqual(bytes(reader.take(name).numpy().tobytes()), self.tensors[name], name)
+            self.assertLessEqual(most[0], 2500)
+            self.assertEqual(reader.summary()['direct_gib'], 0)
+        finally:
+            reader.close()
+
+    def test_a_reading_that_fails_is_left_to_who_asks_for_it(self):
+        # A thread whose reading fails stops; its tensor, and those no thread reads any more, are read by the
+        # caller, which is told the error of the disk when it has one.
+        from runner.models import residency
+
+        class Broken(residency.Reader):
+            def _read(self, handle, offset, size):
+                if handle is not self.handle:
+                    raise OSError('the disk is gone')
+                return super()._read(handle, offset, size)
+
+        reader = Broken(self.path, list('abcdef'), ahead=2500, readers=3)
+        try:
+            for name in 'abcdef':
+                self.assertEqual(bytes(reader.take(name).numpy().tobytes()), self.tensors[name], name)
+            self.assertEqual(reader.summary()['ahead_gib'], 0)
+            self.assertTrue(reader.done)
+        finally:
+            reader.close()
+
+    def test_the_file_is_read_past_the_systems_cache_whatever_the_place_and_the_type_of_a_tensor(self):
+        # (0.6.458) Read through the system's cache by several threads, the file stayed there for the whole video
+        # (4 to 6 GiB of RAM less). Past the cache a read is made of whole sectors: a tensor that starts
+        # anywhere in one, of any type, is still its own bytes.
+        from unittest import mock
+
+        import torch
+
+        from runner.models import residency
+
+        floats = [1.5, -2.25, 3.0, 1e-3, 7.0]
+        # (A name of 3 letters keeps the header's length odd or even as it falls: the offsets below are in the file.)
+        payload = {
+            'odd': b'\x07' * 3,
+            'floats': struct.pack('<5f', *floats),
+            'large': bytes(range(256)) * 40,
+            'halves': struct.pack('<4e', 0.5, -1.0, 2.0, 4.0),
+            'last': b'\x09' * 5,
+        }
+        header, offset = {}, 0
+        for name, data in payload.items():
+            dtype = {'floats': 'F32', 'halves': 'F16'}.get(name, 'U8')
+            width = {'F32': 4, 'F16': 2}.get(dtype, 1)
+            header[name] = dict(dtype=dtype, shape=[len(data) // width], data_offsets=[offset, offset + len(data)])
+            offset += len(data)
+        encoded = json.dumps(header).encode()
+        with open(self.path, 'wb') as handle:
+            handle.write(struct.pack('<Q', len(encoded)) + encoded + b''.join(payload.values()))
+
+        def read(reader):
+            try:
+                found = {name: reader.take(name) for name in payload}
+                self.assertEqual(found['floats'].dtype, torch.float32)
+                single = [struct.unpack('<f', struct.pack('<f', value))[0] for value in floats]
+                self.assertEqual(found['floats'].tolist(), single)
+                self.assertEqual(found['halves'].tolist(), [0.5, -1.0, 2.0, 4.0])
+                for name in ('odd', 'large', 'last'):
+                    self.assertEqual(bytes(found[name].numpy().tobytes()), payload[name], name)
+                # Read ahead or by the caller, a second time: the same.
+                self.assertEqual(reader.take('floats').tolist(), found['floats'].tolist())
+                return reader.unbuffered, len(reader.threads)
+            finally:
+                reader.close()
+
+        unbuffered, threads = read(residency.Reader(self.path, list(payload), ahead=4096))
+        if os.name == 'nt':
+            self.assertEqual([unbuffered, threads], [True, min(residency.READERS, len(payload))])
+        # Where the file cannot be read so: one thread through the cache, as before, the same tensors.
+        with mock.patch.object(residency, '_unbuffered', lambda *_a, **_k: None):
+            self.assertEqual(read(residency.Reader(self.path, list(payload), ahead=4096)), (False, 1))
+        # A volume that refuses such reads is found out when the file is opened, not at the first tensor.
+        if os.name == 'nt':
+            handle = residency._unbuffered(self.path)
+            self.assertIsNotNone(handle)
+            handle.close()
+        self.assertIsNone(residency._unbuffered(os.path.join(self.folder.name, 'absent.safetensors')))
+
     def test_a_store_follows_its_file_only_when_it_is_not_kept_in_ram(self):
         try:
             import psutil  # noqa: F401

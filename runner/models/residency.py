@@ -648,6 +648,60 @@ class Mapped:
         self.safe = self.storage = None
 
 
+# What a read past the system's cache is aligned on, in the file and in memory: a multiple of the sector of
+# every disk in use (512 or 4096 bytes).
+SECTOR = 4096
+
+
+def _unbuffered(path, probe=True):
+    """The file open for reads that do not go through the system's cache (Windows: FILE_FLAG_NO_BUFFERING),
+    or None where that is not to be had: another system, a volume that refuses it, a sector larger than
+    SECTOR (`probe`: one sector is read to know). Such a handle reads whole sectors, from a sector of the
+    file, into memory that starts on one (Reader._read)."""
+    if os.name != 'nt':
+        return None
+    try:
+        import ctypes
+        import mmap
+        import msvcrt
+        from ctypes import wintypes
+
+        # (A library of its own: the types set here are not those of who else calls CreateFileW.)
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.CreateFileW.restype = wintypes.HANDLE
+        kernel.CreateFileW.argtypes = [
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.HANDLE,
+        ]
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        # GENERIC_READ, shared with who reads and writes (as `open` does), OPEN_EXISTING, FILE_FLAG_NO_BUFFERING.
+        found = kernel.CreateFileW(os.fspath(path), 0x80000000, 0x1 | 0x2, None, 3, 0x20000000, None)
+        if found is None or found == wintypes.HANDLE(-1).value:
+            return None
+        try:
+            descriptor = msvcrt.open_osfhandle(found, os.O_RDONLY | getattr(os, 'O_BINARY', 0))
+        except OSError:
+            kernel.CloseHandle(found)
+            return None
+        handle = os.fdopen(descriptor, 'rb', buffering=0)
+        if probe:
+            try:
+                # (An anonymous mapping starts on a page.)
+                with mmap.mmap(-1, SECTOR) as sector:
+                    handle.readinto(sector)
+            except (OSError, ValueError):
+                handle.close()
+                return None
+        return handle
+    except Exception:  # noqa: BLE001 - a faster way to read only: the file is read through the cache without it
+        return None
+
+
 class Reader:
     """Reads tensors of a file from the disk a little ahead of their use, in the order given.
 
@@ -658,9 +712,19 @@ class Reader:
     Here a thread reads each tensor whole into a buffer of its own, at most `ahead` bytes before
     the model asks for them: the disk works in sequence while the GPU computes, and RAM holds
     one window of the file. A tensor asked for out of turn is read at once by the caller.
+
+    (0.6.458) Several threads (`readers`, READERS unless given), each on the next tensor of the order, inside
+    the same window, and past the system's cache where that is to be had (_unbuffered). One thread read
+    2 GiB/s from a disk that gives more than twice that to several requests at once (see _fill, and
+    Store.gather), and the encoding of a new prompt was nothing but that reading: 12.8 GiB of the conditioner
+    of MiniMax H3 in 6.3 to 7.6 s, for a prompt of 25 tokens (27/11). Several threads through the system's
+    cache were as fast, but left it 4 to 6 GiB of the file for the whole video: 0.6 to 1.2 GiB of RAM
+    available during the steps where one thread left 2.7 to 4.6, and the locked part of the video model
+    cut short three cold starts out of four. Read past the cache, the file takes nothing of the RAM but the
+    window. Where the file cannot be read so, one thread reads it through the cache, as before.
     """
 
-    def __init__(self, path, keys, ahead=GiB):
+    def __init__(self, path, keys, ahead=GiB, readers=None):
         header, base = _header(path)
         self.path, self.ahead = path, ahead
         # {key: (position in the file, bytes, dtype, shape)}, in the order of use.
@@ -675,62 +739,123 @@ class Reader:
             if key in header and key != '__metadata__'
         }
         self.ready, self.held, self.taken = {}, 0, set()
-        self.reading, self.waiting, self.done, self.closed = None, False, False, False
+        # The order of use, the place of each key in it, and the next one a thread takes.
+        self.order = list(self.plan)
+        self.place = {key: index for index, key in enumerate(self.order)}
+        self.next = 0
+        # What the threads read now ({key: bytes}) and its bytes; how many of them wait for room in the
+        # window; whether they are all over.
+        self.reading, self.flight, self.waiting, self.done, self.closed = {}, 0, 0, False, False
+        # `seconds`: the time at least one thread was reading (not the sum of theirs).
         self.stats = dict(read_gib=0.0, seconds=0.0, ahead_gib=0.0, direct_gib=0.0)
+        self.busy, self.since = 0, 0.0
         self.state = threading.Condition()
         self.direct = threading.Lock()
-        self.handle = open(path, 'rb', buffering=0)
-        self.thread = threading.Thread(target=self._run, name='reader', daemon=True)
-        self.thread.start()
+        # The caller's own handle (a tensor asked for out of turn), and whether the file is read past the
+        # system's cache: by several threads then, by one through the cache otherwise.
+        first = _unbuffered(path)
+        self.unbuffered = first is not None
+        self.handle = first or open(path, 'rb', buffering=0)
+        if readers is None:
+            readers = READERS if self.unbuffered else 1
+        count = max(1, min(readers, len(self.order)))
+        self.alive = count
+        self.threads = [threading.Thread(target=self._run, name='reader', daemon=True) for _ in range(count)]
+        # (The first of them, for who knew one thread.)
+        self.thread = self.threads[0]
+        for thread in self.threads:
+            thread.start()
 
-    @staticmethod
-    def _read(handle, offset, size):
+    def _open(self):
+        """A handle of a thread's own: past the system's cache when the file is read so."""
+        return (_unbuffered(self.path, probe=False) if self.unbuffered else None) or open(self.path, 'rb', buffering=0)
+
+    def _read(self, handle, offset, size):
         import torch
 
-        data = torch.empty(size, dtype=torch.uint8)
-        view = memoryview(data.numpy()) if size else b''
-        handle.seek(offset)
-        done = 0
-        while done < size:
-            count = handle.readinto(view[done : done + CHUNK])
-            if not count:
-                raise OSError('Unexpected end of file')
-            done += count
-        return data
+        if not size:
+            return torch.empty(0, dtype=torch.uint8)
+        if not self.unbuffered:
+            data = torch.empty(size, dtype=torch.uint8)
+            view = memoryview(data.numpy())
+            handle.seek(offset)
+            done = 0
+            while done < size:
+                count = handle.readinto(view[done : done + CHUNK])
+                if not count:
+                    raise OSError('Unexpected end of file')
+                done += count
+            return data
+        # Past the system's cache: whole sectors, from a sector of the file, into memory that starts on
+        # one. The tensor is the bytes asked for inside them (its own storage: any type may be read of it).
+        # That memory is a mapping of its own, given back to the system the moment its tensor is let go:
+        # taken from PyTorch's allocator by these threads and let go by the model's, it stayed in the
+        # process long after (12 GiB of a 14.6 GiB conditioner still held once it was read, measured).
+        import mmap
+
+        start = offset // SECTOR * SECTOR
+        wanted = offset - start + size
+        block = mmap.mmap(-1, -(-wanted // SECTOR) * SECTOR)
+        with memoryview(block) as view:
+            handle.seek(start)
+            done = 0
+            while done < wanted:
+                count = handle.readinto(view[done : done + CHUNK])
+                if not count:
+                    raise OSError('Unexpected end of file')
+                done += count
+        return torch.frombuffer(block, dtype=torch.uint8, count=size, offset=offset - start)
 
     def _run(self):
         import time
 
         try:
-            with open(self.path, 'rb', buffering=0) as handle:
-                for key, (offset, size, _dtype, _shape) in self.plan.items():
+            with self._open() as handle:
+                while True:
                     with self.state:
-                        # One window ahead: what is ready waits for the model to take it.
-                        while not self.closed and self.ready and self.held + size > self.ahead:
-                            self.waiting = True
+                        while True:
+                            if self.closed or self.next >= len(self.order):
+                                return
+                            key = self.order[self.next]
+                            if key in self.taken:
+                                self.next += 1
+                                continue
+                            offset, size, _dtype, _shape = self.plan[key]
+                            # One window ahead: what is ready, or being read, waits for the model to take it.
+                            if (self.ready or self.reading) and self.held + self.flight + size > self.ahead:
+                                self.waiting += 1
+                                self.state.notify_all()
+                                self.state.wait()
+                                self.waiting -= 1
+                                continue
+                            break
+                        self.next += 1
+                        self.reading[key] = size
+                        self.flight += size
+                        if not self.busy:
+                            self.since = time.perf_counter()
+                        self.busy += 1
+                    data = None
+                    try:
+                        data = self._read(handle, offset, size)
+                    finally:
+                        with self.state:
+                            self.busy -= 1
+                            if not self.busy:
+                                self.stats['seconds'] += time.perf_counter() - self.since
+                            del self.reading[key]
+                            self.flight -= size
+                            if data is not None and key not in self.taken and not self.closed:
+                                self.ready[key] = data
+                                self.held += size
+                                self.stats['read_gib'] += size / GiB
                             self.state.notify_all()
-                            self.state.wait()
-                        self.waiting = False
-                        if self.closed:
-                            return
-                        if key in self.taken:
-                            continue
-                        self.reading = key
-                    started = time.perf_counter()
-                    data = self._read(handle, offset, size)
-                    with self.state:
-                        self.stats['seconds'] += time.perf_counter() - started
-                        self.reading = None
-                        if key not in self.taken and not self.closed:
-                            self.ready[key] = data
-                            self.held += size
-                            self.stats['read_gib'] += size / GiB
-                        self.state.notify_all()
         except OSError:
             pass  # what is not read ahead is read by whoever asks for it
         finally:
             with self.state:
-                self.reading, self.waiting, self.done = None, False, True
+                self.alive -= 1
+                self.done = not self.alive
                 self.state.notify_all()
 
     def take(self, key):
@@ -752,9 +877,12 @@ class Reader:
                     # thread to come to a key it had read already. (No caller asks twice today.)
                     self.taken.add(key)
                     break
-                # The thread is on it or will come to it: wait, unless it is held up by a full
-                # window (what is ready is asked for later), or has passed this key already.
-                if self.done or key in self.taken or (self.waiting and self.reading != key):
+                # A thread is on it or will come to it: wait, unless they are over, have passed this key
+                # already (taken, or its reading failed), or one is held up by a full window (what is
+                # ready is asked for later).
+                if key not in self.reading and (
+                    self.done or key in self.taken or self.place[key] < self.next or self.waiting
+                ):
                     break
                 self.state.wait(0.05)
             if data is None:
@@ -772,7 +900,8 @@ class Reader:
             self.ready.clear()
             self.held = 0
             self.state.notify_all()
-        self.thread.join(timeout=10)
+        for thread in self.threads:
+            thread.join(timeout=10)
         self.handle.close()
 
     def summary(self):

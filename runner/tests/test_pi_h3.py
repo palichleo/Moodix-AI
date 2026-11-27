@@ -226,6 +226,53 @@ class PiH3Weights(unittest.TestCase):
         self.assertEqual([key[3][0] for key in keys[1:]], ['pi4', 'pi2'])
         self.assertEqual(len({str(key) for key in keys}), 3)
 
+    def test_the_weights_of_the_adapter_go_to_locked_ram_before_the_models(self):
+        # (0.6.458) Asked after the model's 15 GiB, the gigabyte of the adapter found no room in a RAM that was
+        # short: the model was held to be unlocked, thrown away after its video and built anew for the next.
+        room = [15.5]  # GiB of RAM that may still be taken
+
+        class Store:
+            def __init__(self, name, asked):
+                self.name, self.asked, self.kept = name, asked, 0
+
+            def keep(self, keys, reserve=None, spare=()):
+                order.append(self.name)
+                self.kept = min(len(keys), room[0])
+                room[0] -= self.kept
+                # (A part cut short is kept from a gigabyte on: residency.MIN_PART.)
+                if self.kept < 1:
+                    self.kept = 0
+                return self.kept
+
+            @property
+            def pinned(self):
+                return self.kept > 0
+
+        def pool(**streamed):
+            return SimpleNamespace(streamed=lambda *_margin, **_onward: streamed)
+
+        def loaded(model, adapter):
+            return SimpleNamespace(store=Store('model', model), adapter=adapter and Store('adapter', adapter))
+
+        # (A key stands for a gigabyte here.)
+        order, held = [], loaded(15, 1)
+        kept = pipeline.keep_streamed(held, pool(model=range(15), **{minimax_h3.ADAPTER: range(1)}))
+        self.assertEqual(order, ['adapter', 'model'])
+        self.assertEqual([held.adapter.kept, held.store.kept, kept], [1, 14.5, 15.5])
+        self.assertTrue(held.locked, 'the model is left for the next video')
+        # No adapter (MiniMax's own checkpoints, Omni): the model's alone, as before.
+        order, room[0], held = [], 20, loaded(15, None)
+        self.assertEqual(pipeline.keep_streamed(held, pool(model=range(15))), 15)
+        self.assertEqual([order, held.locked], [['model'], True])
+        # Nothing of the model could be kept: not left for the next video (its steps read its file).
+        order, room[0], held = [], 1.5, loaded(15, 1)
+        pipeline.keep_streamed(held, pool(model=range(15), **{minimax_h3.ADAPTER: range(1)}))
+        self.assertEqual([held.adapter.kept, held.store.kept, held.locked], [1, 0, False])
+        # All of the model on the card, nothing to copy: left, whatever RAM has.
+        order, room[0], held = [], 0, loaded(0, None)
+        pipeline.keep_streamed(held, pool(model=()))
+        self.assertTrue(held.locked)
+
 
 class PiH3Sampling(unittest.TestCase):
     def test_the_schedule_is_the_models_on_the_grid_of_pi_h3(self):

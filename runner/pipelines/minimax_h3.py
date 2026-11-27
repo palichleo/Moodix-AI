@@ -106,6 +106,27 @@ class Loaded:
             self.stack.close()
 
 
+def keep_streamed(loaded, pool):
+    """What the steps copy to the GPU goes to page-locked RAM (Store.keep): the weights of the model that do
+    not stay on the card, and those of its step adapter (pi H3). Sets `loaded.locked` (whether the model may
+    be left for the next video) and returns the bytes kept.
+
+    (0.6.458) The adapter's first. Asked after the model's 15 GiB, its gigabyte found no room when RAM was
+    short (32 GiB, a browser and other programs beside): the model was then held to be unlocked and thrown
+    away after its video, and the next one built it anew, 10 s (three cold starts out of five, 27/11). Asked
+    first it always fits; what RAM lacks is then cut from the end of the model's part, which the steps read
+    from its file as they do for a model larger than what may be locked."""
+    from runner.models import minimax_h3
+
+    reserve = int(RAM_RESERVE_GIB * 1024**3)
+    ours = pool.streamed().get(minimax_h3.ADAPTER, ()) if loaded.adapter is not None else ()
+    kept = loaded.adapter.keep(ours, reserve) if ours else 0
+    copied = pool.streamed().get('model', ())
+    kept += loaded.store.keep(copied, reserve, spare=pool.streamed(LOCK_MARGIN_GIB, onward=True).get('model', ()))
+    loaded.locked = (not copied or loaded.store.pinned) and (not ours or loaded.adapter.pinned)
+    return kept
+
+
 def too_large(parameters, card_gib):
     """Why this video cannot be made on a card of `card_gib`, in the user's words; '' when it can,
     or when the card is not known. Said before anything is unloaded for it: at 1344 x 768 for
@@ -812,17 +833,7 @@ def _generate(job, config, progress, key, holder):
             else:
                 # What will not stay on the GPU goes to page-locked RAM once, for every step and
                 # the next videos; what stays is read from the file as it is loaded.
-                copied = pool.streamed().get('model', ())
-                locked = loaded.ram = store.keep(
-                    copied,
-                    int(RAM_RESERVE_GIB * 1024**3),
-                    spare=pool.streamed(LOCK_MARGIN_GIB, onward=True).get('model', ()),
-                )
-                loaded.locked = not copied or store.pinned
-                if loaded.adapter is not None:
-                    ours = pool.streamed().get(minimax_h3.ADAPTER, ())
-                    locked = loaded.ram = locked + loaded.adapter.keep(ours, int(RAM_RESERVE_GIB * 1024**3))
-                    loaded.locked = loaded.locked and (not ours or loaded.adapter.pinned)
+                locked = loaded.ram = keep_streamed(loaded, pool)
             # The share is filled; one left by the last video takes back what it lent.
             pool.preload()
             if adapter is None:
