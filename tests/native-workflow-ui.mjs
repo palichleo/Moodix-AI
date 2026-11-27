@@ -345,13 +345,19 @@ test('the page « Modèles »: one line a model in its group, the version it use
     made('amd', 'SeedVR2', 'seedvr2', 'image', { ready: false, unavailableReason: 'Carte NVIDIA requise.', unavailableKind: 'hardware' }),
   );
   const version = (name, file, more = {}) => ({ path: 'D:\\models\\' + file, file, name, format: 'INT8', how: 'direct', bytes: 1, source: 'found', used: false, ...more });
-  let used = 'ltx-distilled.safetensors';
+  let used = 'ltx-distilled.safetensors',
+    // (0.6.481) With its other versions here, LTX 2.5 is a section of several models.
+    others = false;
   const versions = () =>
     [
       version('Distillé', 'ltx-distilled.safetensors', { source: 'provided' }),
-      version('Uncensored v1.1', 'ltx25_uncensored.safetensors', { parameters: { steps: 8 } }),
-      version('Cinema', 'cinema-Q8_0.gguf', { format: 'GGUF Q8', how: 'convert' }),
-      version('Essai', 'essai-w4a8.safetensors', { format: 'W4A8', how: 'refused', reason: 'W4A8' }),
+      ...(others
+        ? [
+            version('Uncensored v1.1', 'ltx25_uncensored.safetensors', { parameters: { steps: 8 } }),
+            version('Cinema', 'cinema-Q8_0.gguf', { format: 'GGUF Q8', how: 'convert' }),
+            version('Essai', 'essai-w4a8.safetensors', { format: 'W4A8', how: 'refused', reason: 'W4A8' }),
+          ]
+        : []),
     ]
       .map(item => ({ ...item, used: item.file === used }))
       .sort((a, b) => Number(b.used) - Number(a.used));
@@ -397,62 +403,162 @@ test('the page « Modèles »: one line a model in its group, the version it use
   assert.deepEqual([moss.dataset.state, text(moss, 'model-note'), text(moss, 'model-version')], ['waiting', ['Moteur de génération indisponible pour cette famille.'], ['SFT']]);
   assert.equal(find(moss, 'model-note')[0].className, 'model-note');
   assert.deepEqual([lineOf('SeedVR2').dataset.state, find(lineOf('SeedVR2'), 'model-note')[0].className], ['unavailable', 'model-note is-warning']);
-  // A model in two workflows is one line, named by the version of its first.
-  assert.deepEqual(text(lineOf('Real-ESRGAN'), 'model-version'), ['×4 Plus']);
+  // (0.6.481) A model in two workflows is a section: its line says how many models it holds, and nothing else of
+  // them (no switch, no « Réglages »: they are those of its models).
+  const esr = lineOf('Real-ESRGAN');
+  assert.deepEqual(
+    [esr.className, esr.dataset.state, text(esr, 'model-version')],
+    ['model-line model-section', 'section', ['2 modèles']],
+  );
+  assert.deepEqual(
+    esr.children[0].children.map(item => item.className),
+    ['model-name', 'model-about', 'model-side', 'model-chevron'],
+  );
+  assert.equal(find(esr, 'model-chevron')[0].attributes['aria-label'], 'Modèles de Real-ESRGAN');
 
-  // The chevron unfolds its versions: the one used first, the others by what the model makes of them.
+  // The chevron unfolds its versions: the one it has, used.
   chevron.onclick();
   const rows = () => find(lineOf('LTX 2.5'), 'model-version-row');
   assert.deepEqual([lineOf('LTX 2.5').dataset.open, find(lineOf('LTX 2.5'), 'model-chevron')[0].attributes['aria-expanded']], ['true', 'true']);
   assert.deepEqual(
     rows().map(row => [row.tagName, ...row.children.map(item => item.textContent)]),
+    [['DIV', 'Distillé', 'INT8', 'Utilisée']],
+  );
+  assert.deepEqual(
+    rows().map(row => [row.dataset.used, row.dataset.source, row.title]),
+    [['true', 'provided', 'ltx-distilled.safetensors']],
+  );
+  // (0.6.481) A click anywhere on its line folds it as the chevron does; one on a button or on its switch is theirs.
+  const head = () => lineOf('LTX 2.5').children[0];
+  head().onclick({ target: find(head(), 'model-does')[0] });
+  assert.deepEqual([lineOf('LTX 2.5').dataset.open, rows()], [undefined, []]);
+  head().onclick({ target: { closest: selector => (/button/.test(selector) ? {} : null) } });
+  assert.equal(lineOf('LTX 2.5').dataset.open, undefined, 'a click on one of its buttons is that button’s');
+  head().onclick({ target: head() });
+  assert.equal(lineOf('LTX 2.5').dataset.open, 'true');
+  // Its chevron greyed (the settings busy): a click on the line does nothing either.
+  find(head(), 'model-chevron')[0].disabled = true;
+  head().onclick({ target: head() });
+  assert.equal(lineOf('LTX 2.5').dataset.open, 'true');
+  find(head(), 'model-chevron')[0].disabled = false;
+
+  // (0.6.481) Its other versions here: LTX 2.5 is a section, a row for each, the one Moodix ships first; each with
+  // its own switch and its own « Réglages », in the columns of those of a line.
+  others = true;
+  await f.ui.refresh();
+  const words = root => under(root).map(item => item.textContent).filter(Boolean),
+    parts = () => find(lineOf('LTX 2.5'), 'model-part');
+  assert.deepEqual(
+    [lineOf('LTX 2.5').className, lineOf('LTX 2.5').dataset.open, text(lineOf('LTX 2.5'), 'model-version')],
+    ['model-line model-section', 'true', ['4 modèles']],
+  );
+  assert.deepEqual([find(head(), 'model-ai'), find(head(), 'model-settings')], [[], []]);
+  assert.deepEqual(
+    parts().map(part => [part.dataset.kind, ...part.children.slice(0, 3).map(item => words(item).join(' '))]),
     [
-      ['DIV', 'Distillé', 'INT8', 'Utilisée'],
-      ['BUTTON', 'Uncensored v1.1', 'INT8 · 8 étapes'],
-      ['DIV', 'Cinema', 'GGUF Q8', 'À convertir'],
-      ['DIV', 'Essai', 'W4A8', 'Non lu'],
+      ['used', 'Distillé', 'INT8', 'Utilisée'],
+      ['other', 'Uncensored v1.1', 'INT8 · 8 étapes', 'Utiliser'],
+      ['convert', 'Cinema', 'GGUF Q8', 'À convertir'],
+      ['refused', 'Essai', 'W4A8', 'Non lu'],
     ],
   );
-  assert.deepEqual(rows().map(row => [row.dataset.used, row.dataset.unavailable, row.dataset.source]), [['true', undefined, 'provided'], [undefined, undefined, 'found'], [undefined, 'true', 'found'], [undefined, 'true', 'found']]);
-  // The name of its file under the pointer; why it cannot serve, for one that cannot.
-  assert.deepEqual(rows().map(row => row.title), [
-    'ltx-distilled.safetensors',
-    'ltx25_uncensored.safetensors',
+  assert.deepEqual(
+    parts().map(part => part.children.slice(3).map(item => item.className)),
+    Array(4).fill(['history-toggle model-ai', 'model-settings']),
+  );
+  // The name of its file under the pointer; the dot of the one used; greyed, one its model does not read.
+  assert.deepEqual(parts().map(part => [part.title, part.dataset.used, part.dataset.unavailable]), [
+    ['ltx-distilled.safetensors', 'true', undefined],
+    ['ltx25_uncensored.safetensors', undefined, undefined],
+    ['cinema-Q8_0.gguf', undefined, 'true'],
+    ['essai-w4a8.safetensors', undefined, 'true'],
+  ]);
+  // The one used serves: its switch and its « Réglages » are its model's. The others are greyed, and say why.
+  const settingsOf = part => find(part, 'model-settings')[0],
+    switchOf = part => find(part, 'model-ai')[0];
+  assert.deepEqual(
+    [
+      settingsOf(parts()[0]).disabled,
+      settingsOf(parts()[0]).attributes['aria-label'],
+      switchOf(parts()[0]).children[0].checked,
+    ],
+    [false, 'Réglages de LTX 2.5 · Distillé', true],
+  );
+  assert.deepEqual(
+    parts()
+      .slice(1)
+      .map(part => [
+        settingsOf(part).disabled,
+        settingsOf(part).dataset.unavailable,
+        switchOf(part).children[0].disabled,
+        switchOf(part).dataset.held,
+        switchOf(part).title === settingsOf(part).title,
+      ]),
+    Array(3).fill([true, 'true', true, 'true', true]),
+  );
+  assert.deepEqual(parts().slice(1).map(part => switchOf(part).title), [
+    'LTX 2.5 utilise une version à la fois : choisissez « Utiliser » pour celle-ci.',
     'cinema-Q8_0.gguf : un GGUF se convertit avant de servir.',
     'essai-w4a8.safetensors : format W4A8, que ce modèle ne lit pas.',
   ]);
-  // A click keeps another version: asked of the server, and the page is drawn with its answer, still unfolded.
-  await rows()[1].onclick();
+  // « Utiliser » keeps that version: asked of the server, the page drawn with its answer, still open, in its order.
+  const [take] = find(parts()[1], 'model-use');
+  assert.deepEqual(
+    [take.attributes['aria-label'], take.title],
+    ['Utiliser LTX 2.5 · Uncensored v1.1', 'Prendre Uncensored v1.1 : LTX 2.5 n’utilise qu’une version à la fois.'],
+  );
+  await take.onclick();
   assert.deepEqual(f.calls.filter(call => call.route === 'generation/models/version').map(call => call.body), [{ workflowId: 'ltx', path: 'D:\\models\\ltx25_uncensored.safetensors' }]);
-  assert.deepEqual(rows().slice(0, 2).map(row => [row.tagName, row.children[0].textContent, row.dataset.used]), [['DIV', 'Uncensored v1.1', 'true'], ['BUTTON', 'Distillé', undefined]]);
-  assert.deepEqual(text(lineOf('LTX 2.5'), 'model-version'), ['Uncensored v1.1 · INT8']);
+  assert.deepEqual(
+    parts()
+      .slice(0, 2)
+      .map(part => [part.children[0].textContent, part.dataset.kind]),
+    [
+      ['Distillé', 'other'],
+      ['Uncensored v1.1', 'used'],
+    ],
+  );
   assert.equal(f.ui.takeChanges?.() ?? true, true);
-  // Folded again by the chevron.
-  find(lineOf('LTX 2.5'), 'model-chevron')[0].onclick();
-  assert.deepEqual([lineOf('LTX 2.5').dataset.open, rows()], [undefined, []]);
+  // Folded again by a click on its line.
+  head().onclick({ target: head() });
+  assert.deepEqual([lineOf('LTX 2.5').dataset.open, parts()], [undefined, []]);
 
-  // A model in two workflows: a row each, with what it makes and its own « Réglages »; one whose
-  // settings the user changed can be set back to those of Moodix.
+  // A model in two workflows: a row each, named by what it makes, with its own switch and « Réglages »; one whose
+  // settings the user changed can be set back to those of Moodix, under its row.
   find(lineOf('Real-ESRGAN'), 'model-chevron')[0].onclick();
-  const two = find(lineOf('Real-ESRGAN'), 'model-version-row');
-  assert.deepEqual(two.map(row => row.children.slice(0, 3).map(item => item.textContent)), [['×4 Plus', 'Images', 'Utilisée'], ['×2 Plus', 'Vidéos', 'Utilisée']]);
-  // Each carries its own « Réglages » at its end, and says so: its row has a column for it (0.6.125:
-  // without one the button fell under the name, over the next row).
-  assert.deepEqual(two.map(row => [row.children.length, row.className, row.children[3].className]), [[4, 'model-version-row has-settings', 'model-settings'], [4, 'model-version-row has-settings', 'model-settings']]);
-  assert.equal(find(lineOf('LTX 2.5'), 'model-version-row').some(row => row.className.includes('has-settings')), false);
-  assert.deepEqual(two.map(row => find(row, 'model-settings')[0].attributes['aria-label']), ['Réglages de Real-ESRGAN · Images', 'Réglages de Real-ESRGAN · Vidéos']);
+  const two = find(lineOf('Real-ESRGAN'), 'model-part');
+  assert.deepEqual(
+    two.map(part => part.children.slice(0, 2).map(item => item.textContent)),
+    [
+      ['Images', '×4 Plus'],
+      ['Vidéos', '×2 Plus'],
+    ],
+  );
+  assert.deepEqual(
+    two.map(part => settingsOf(part).attributes['aria-label']),
+    ['Réglages de Real-ESRGAN · Images', 'Réglages de Real-ESRGAN · Vidéos'],
+  );
+  assert.deepEqual(
+    two.map(part => switchOf(part).children[0].attributes['aria-label']),
+    ['Proposer Real-ESRGAN · Images à Moodix AI', 'Proposer Real-ESRGAN · Vidéos à Moodix AI'],
+  );
+  const block = find(lineOf('Real-ESRGAN'), 'model-parts')[0];
+  assert.deepEqual(block.children.map(item => item.className), ['model-part', 'model-part', 'text-button model-reset']);
   const [reset] = find(lineOf('Real-ESRGAN'), 'model-reset');
-  assert.equal(reset.textContent, 'Rétablir les réglages de Moodix');
+  assert.deepEqual(
+    [reset.textContent, reset.title],
+    ['Rétablir les réglages de Moodix', 'Rétablir les réglages de Moodix pour Real-ESRGAN · Vidéos'],
+  );
   await reset.onclick();
   assert.deepEqual(f.calls.filter(call => call.route === 'generation/reset').map(call => call.body), [{ id: 'esr-video' }]);
   // A model with none of its files here: the version Moodix ships is named, greyed.
   find(lineOf('SeedVR2'), 'model-chevron')[0].onclick();
   const [none] = find(lineOf('SeedVR2'), 'model-version-row');
   assert.deepEqual([none.children[0].textContent, none.dataset.unavailable], ['Version fournie avec Moodix', 'true']);
-  // « Réglages » opens the page of details of the model, named after it.
-  await find(lineOf('LTX 2.5'), 'model-settings')[0].onclick();
+  // « Réglages » of a model of a section opens its page of details, named after it.
+  await settingsOf(find(lineOf('Real-ESRGAN'), 'model-part')[1]).onclick();
   assert.equal(f.$('workflow-editor').hidden, false);
-  assert.equal(f.$('native-workflow-title').textContent, 'Réglages de LTX 2.5');
+  assert.equal(f.$('native-workflow-title').textContent, 'Réglages de Real-ESRGAN · Vidéos');
 });
 
 test('« Proposé à Moodix AI » on the line of a model: on when all its workflows are offered, a click saves each as its page would; greyed, with why, where the model cannot be made yet (0.6.130)', async t => {
@@ -507,20 +613,27 @@ test('« Proposé à Moodix AI » on the line of a model: on when all its workfl
       : api(route, body);
   f.ui = setupNativeWorkflows({ api: (...args) => f.api(...args), state: {}, node: f.node, notice() {} });
   await f.ui.refresh();
-  // One of its two workflows is not offered: off; a click offers that one, and only that one is saved.
-  assert.equal(box('Real-ESRGAN').checked, false);
+  // (0.6.481) A model of two workflows: no switch on its line (27/11: « c'est par sous section »), one on the row of
+  // each of them, which saves that one only, with what its page would send.
+  assert.deepEqual(find(lineOf('Real-ESRGAN'), 'model-ai'), []);
+  find(lineOf('Real-ESRGAN'), 'model-chevron')[0].onclick();
+  const part = kind => find(lineOf('Real-ESRGAN'), 'model-part').find(row => row.children[0].textContent === kind),
+    partBox = kind => find(part(kind), 'model-ai')[0].children[0];
+  assert.deepEqual([partBox('Images').checked, partBox('Vidéos').checked], [true, false]);
   f.calls.length = 0;
-  box('Real-ESRGAN').checked = true;
-  await box('Real-ESRGAN').onchange();
+  partBox('Vidéos').checked = true;
+  await partBox('Vidéos').onchange();
   assert.deepEqual(saves(), [['esr-video', true]]);
-  assert.equal(box('Real-ESRGAN').checked, true);
-  // Off: both, each saved with what its page would send (the workflow, and what the list said of it).
+  assert.deepEqual([partBox('Images').checked, partBox('Vidéos').checked], [true, true]);
   f.calls.length = 0;
-  box('Real-ESRGAN').checked = false;
-  await box('Real-ESRGAN').onchange();
-  assert.deepEqual(saves(), [['esr-image', false], ['esr-video', false]]);
-  assert.equal(lineOf('Real-ESRGAN').dataset.state, 'off');
-  assert.deepEqual(find(lineOf('Real-ESRGAN'), 'model-note').map(item => item.textContent), ['Pas proposé à Moodix AI : il reste dans le Studio.']);
+  partBox('Images').checked = false;
+  await partBox('Images').onchange();
+  assert.deepEqual(saves(), [['esr-image', false]]);
+  assert.deepEqual(
+    [part('Images').dataset.state, part('Vidéos').dataset.state, partBox('Images').checked],
+    ['off', 'ready', false],
+  );
+  assert.equal(find(lineOf('Real-ESRGAN'), 'model-note').length, 0, 'its switch says it: no word of it on its row');
   // To download first, or a card it cannot run on: greyed, off, and said why under the pointer.
   for (const [name, why] of [['ACE-Step 1.5', 'À télécharger d’abord.'], ['SeedVR2', 'Indisponible sur cet ordinateur.']]) {
     const [label] = find(lineOf(name), 'model-ai');
@@ -699,6 +812,167 @@ test('a model to download says « Télécharger » and its size in the place of 
   f.api = answering;
   await download('Upscale SeedVR2').onclick();
   assert.deepEqual(starts.slice(sent), [{ id: 'seedvr' }, { id: 'seedvr' }]);
+});
+
+test('a section’s model downloads from its row; its licence below, its advance on the section (0.6.481)', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = await setup(t);
+  const giga = 1024 ** 3,
+    OMNI = 'fasth3_omniref_8step_pruned_int8_convrot.safetensors',
+    BASE = 'mm_v0123456789abcdef',
+    license = {
+      name: 'MiniMax H3 Community License Agreement',
+      url: 'https://huggingface.co/MiniMaxAI/MiniMax-H3',
+      limits: 'À conditions.',
+      restricted: true,
+    },
+    made = (id, name, pipeline, more = {}) => ({
+      ...structuredClone(f.template),
+      id,
+      name,
+      pipeline,
+      mediaType: 'video',
+      builtin: true,
+      enabled: true,
+      ready: true,
+      ...more,
+    });
+  f.workflows.push(
+    made('mm', 'MiniMax H3 Omni', 'minimax_h3'),
+    made('pi', 'pi H3', 'pi_h3', { ready: false, unavailableReason: 'Fichier introuvable pour « Modèle ».' }),
+  );
+  const omni = {
+    path: 'D:\\models\\' + OMNI,
+    file: OMNI,
+    name: 'Omni',
+    format: 'INT8',
+    how: 'direct',
+    bytes: 1,
+    source: 'provided',
+    used: true,
+    parameters: { steps: 8 },
+  };
+  const models = [
+    {
+      name: 'MiniMax H3',
+      does: 'Vidéos de 5 à 15 s, avec le son.',
+      group: 'video',
+      order: 2,
+      workflows: [
+        {
+          id: 'mm',
+          family: 'minimax_h3',
+          provided: OMNI,
+          used: omni.path,
+          versions: [omni],
+          absent: [{ file: 'fl2va.safetensors', name: 'De base', download: BASE }],
+        },
+      ],
+    },
+    {
+      name: 'pi H3',
+      does: 'Vidéos en 4 étapes.',
+      group: 'video',
+      order: 2.5,
+      section: 'MiniMax H3',
+      workflows: [{ id: 'pi', family: 'pi_h3', version: '4 étapes' }],
+    },
+  ];
+  const offer = bytes => ({
+      files: [{ role: 'model', file: 'fl2va.safetensors', size: bytes, license }],
+      bytes,
+      left: bytes,
+      complete: true,
+      needsToken: false,
+      page: '',
+    }),
+    offers = { pi: offer(23 * giga) },
+    versions = { [BASE]: offer(21 * giga) };
+  const api = f.api,
+    starts = [];
+  let job = { state: 'idle' };
+  f.api = async (route, body) => {
+    if (route === 'generation')
+      return Response.json({
+        ...(await (await api(route, body)).json()),
+        models,
+        downloads: { offers, versions, job, hasToken: false },
+      });
+    if (route === 'downloads/start') {
+      starts.push(body);
+      return Response.json(
+        (job = {
+          state: 'running',
+          workflowId: body.id,
+          name: 'MiniMax H3 · De base',
+          received: (21 * giga) / 4,
+          total: 21 * giga,
+        }),
+      );
+    }
+    return api(route, body);
+  };
+  f.ui = setupNativeWorkflows({ api: (...args) => f.api(...args), state: {}, node: f.node, notice() {} });
+  await f.ui.refresh();
+  const under = root => [root, ...root.children.flatMap(child => under(child))],
+    find = (root, name) => under(root).filter(item => String(item.className).split(' ').includes(name)),
+    section = () => find(f.$('workflow-list'), 'model-line').find(line => line.dataset.model === 'MiniMax H3'),
+    part = label => find(section(), 'model-part').find(row => row.children[0].textContent === label),
+    download = label => find(part(label), 'model-download')[0];
+  // pi H3 is in the section of MiniMax H3: no line of its own; the section says how many it holds.
+  assert.deepEqual(
+    find(f.$('workflow-list'), 'model-name').map(item => item.textContent),
+    ['MiniMax H3'],
+  );
+  assert.deepEqual(
+    find(section(), 'model-version').map(item => item.textContent),
+    ['3 modèles'],
+  );
+  section().children[0].onclick({ target: section().children[0] });
+  assert.deepEqual(
+    find(section(), 'model-part').map(row => row.children[0].textContent),
+    ['Omni', 'De base', 'pi H3'],
+  );
+  // Each its own: Omni here and used; De base and pi H3 to download, each its size, each its own request.
+  assert.deepEqual(
+    [find(part('Omni'), 'model-version-used')[0].textContent, download('Omni')],
+    ['Utilisée', undefined],
+  );
+  assert.deepEqual(
+    ['De base', 'pi H3'].map(label => [
+      under(download(label))
+        .map(item => item.textContent)
+        .filter(Boolean)[0],
+      download(label).attributes['aria-label'],
+    ]),
+    [
+      ['Télécharger · 21 Go', 'Télécharger MiniMax H3 · De base (21 Go)'],
+      ['Télécharger · 23 Go', 'Télécharger pi H3 (23 Go)'],
+    ],
+  );
+  // A licence with conditions: shown under that row, nothing started before it is accepted.
+  await download('De base').onclick();
+  assert.deepEqual(starts, []);
+  assert.deepEqual(
+    find(section(), 'model-parts')[0].children.map(item => item.className),
+    ['model-part', 'model-part', 'model-license', 'model-part'],
+  );
+  await find(section(), 'model-license')[0].children.at(-1).children[1].onclick();
+  assert.deepEqual(starts, [{ id: BASE, accepted: true }]);
+  // Under way: its advance on the line of the section, « Arrêter » on its row, the others waiting.
+  assert.equal(section().dataset.state, 'downloading');
+  assert.equal(find(section().children[0], 'model-progress')[0].children[0].style.width, '25%');
+  assert.deepEqual(
+    find(part('De base'), 'model-stop').map(item => item.textContent),
+    ['Arrêter'],
+  );
+  assert.deepEqual(
+    [download('pi H3').disabled, download('pi H3').title],
+    [true, 'Un autre téléchargement est en cours.'],
+  );
+  // Folded, the line of the section still shows it.
+  section().children[0].onclick({ target: section().children[0] });
+  assert.deepEqual([section().dataset.open, find(section(), 'model-progress').length], [undefined, 1]);
 });
 
 test('an existing tokenizer is never replaced by a suggestion, and families without one show no tokenizer', async t => {

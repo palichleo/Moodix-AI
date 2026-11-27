@@ -2031,25 +2031,85 @@ try {
   // (0.6.223) Twelve lines since Wan 2.2 Caméra is shipped; (0.6.242) thirteen with « Changer la caméra »;
   // (0.6.269) fourteen with Qwen-Image-Edit (0.6.264), added under runner/ alone (see .githooks/pre-commit);
   // (0.6.423) fifteen with pi H3.
+  // (0.6.481) Thirteen: pi H3 is a model of the section MiniMax H3, Wan 2.2 Caméra one of Wan 2.2 (27/11); those
+  // two lines and that of Real-ESRGAN have no switch of their own, their models have theirs (unfolded).
   const lines =`[...document.querySelectorAll('#workflow-list .model-line')]`,
-    ltx = `document.querySelector('#workflow-list .model-line[data-model="LTX 2.5"]')`;
+    ltx = `document.querySelector('#workflow-list .model-line[data-model="LTX 2.5"]')`,
+    minimax = `document.querySelector('#workflow-list .model-line[data-model="MiniMax H3"]')`;
   // (0.6.131) « Dossiers à part » : a folder a line of 46 px (its name, the folder, « Parcourir »,
   // « Détecter », « ? »), nothing folded, nothing that scrolls sideways.
   await run('onglet Génération : un dossier par ligne', () => click('#settings-tab-generation'), () =>
     js(`(() => { const rows = [...document.querySelectorAll('#settings-panel-generation .set-folder')], panel = document.getElementById('settings-panel-generation'); return rows.length === 7 && rows.every(row => Math.round(row.getBoundingClientRect().height) === 46 && row.querySelectorAll('button.set-act').length === 2 && row.querySelector('.help-tip').dataset.help) && !panel.querySelector('details') && panel.scrollWidth <= panel.clientWidth + 1; })()`), { within: 2500 });
   await run('onglet Modèles', () => click('#settings-tab-workflows'), () =>
-    js(`${lines}.length === 15 && document.querySelectorAll('#workflow-list .model-group').length === 4 && document.querySelector('#settings-tab-workflows .settings-tab-label').textContent === 'Modèles' && document.querySelectorAll('#workflow-list .model-row > .model-ai input').length === 15 && document.querySelectorAll('#workflow-list .model-ai-head').length === 1`), { within: 2500 });
+    js(`${lines}.length === 13 && document.querySelectorAll('#workflow-list .model-group').length === 4 &&
+      document.querySelector('#settings-tab-workflows .settings-tab-label').textContent === 'Modèles' &&
+      document.querySelectorAll('#workflow-list .model-row > .model-ai input').length === 10 &&
+      document.querySelectorAll('#workflow-list .model-ai-head').length === 1 &&
+      [...document.querySelectorAll('#workflow-list .model-section')].map(line => line.dataset.model).join('|') ===
+        'MiniMax H3|Wan 2.2|Real-ESRGAN'`), { within: 2500 });
   // Every line is 46 px tall, « Télécharger » in the place of the version as any other (capture 65);
   // nothing scrolls sideways, nothing of before is shown (no button to import or create, no dot).
+  // (0.6.481) Each box stands apart from the next one (his capture 2 of 27/11: they ran into each other).
   await run('Modèles : lignes de 46 px', async () => {}, () =>
-    js(`(() => { const rows = [...document.querySelectorAll('#workflow-list .model-row')], panel = document.getElementById('settings-panel-workflows'), gone = id => !document.getElementById(id); return rows.length === 15 && rows.every(row => Math.round(row.getBoundingClientRect().height) === 46) && panel.scrollWidth <= panel.clientWidth + 1 && gone('workflow-add') && gone('native-workflow-import') && !document.querySelector('#workflow-list .workflow-state') && document.querySelectorAll('#workflow-list .model-download').length >= 5; })()`), { within: 700 });
+    js(`(() => {
+      const rows = [...document.querySelectorAll('#workflow-list .model-row')],
+        panel = document.getElementById('settings-panel-workflows'),
+        gone = id => !document.getElementById(id),
+        apart = [...document.querySelectorAll('#workflow-list .model-line + .model-line')].every(line =>
+          line.getBoundingClientRect().top - line.previousElementSibling.getBoundingClientRect().bottom >= 4);
+      return rows.length === 13 && rows.every(row => Math.round(row.getBoundingClientRect().height) === 46) && apart &&
+        panel.scrollWidth <= panel.clientWidth + 1 && gone('workflow-add') && gone('native-workflow-import') &&
+        !document.querySelector('#workflow-list .workflow-state') &&
+        document.querySelectorAll('#workflow-list .model-download').length >= 5;
+    })()`), { within: 700 });
+  // (0.6.481) A model made of several opens at a click anywhere in its box (here on its description, at its middle,
+  // as a person clicks): under it a row of 40 px for each of its models, each with its own « Télécharger »,
+  // « Proposé à Moodix AI » and « Réglages » (27/11: « ca doit etre 1 par modele »); its line has none of them.
+  await run('Modèles : une section s’ouvre d’un clic dans sa boîte', async () => {
+    await until(() => js(`${minimax}?.querySelector('.model-chevron')?.disabled === false`), 5000);
+    await js(`${minimax}.scrollIntoView({ block: 'center' })`);
+    return tap('#workflow-list .model-line[data-model="MiniMax H3"] .model-does');
+  }, () =>
+    js(`(() => {
+      const line = ${minimax},
+        parts = [...(line?.querySelectorAll('.model-parts > .model-part') ?? [])],
+        head = line?.querySelector('.model-row'),
+        names = parts.map(part => part.querySelector('.model-part-name').textContent),
+        labels = new Set(parts.map(part => part.querySelector('.model-ai input')?.getAttribute('aria-label')));
+      return line?.dataset.open === 'true' &&
+        line.querySelector('.model-chevron').getAttribute('aria-expanded') === 'true' &&
+        names.join('|') === 'Omni|De base|pi H3' && labels.size === 3 &&
+        parts.every(part => Math.round(part.getBoundingClientRect().height) === 40 &&
+          part.querySelector('.model-ai input') && part.querySelector('.model-settings') &&
+          part.querySelector('.model-download')) &&
+        !head.querySelector('.model-ai, .model-settings, .model-download') &&
+        Math.round(head.getBoundingClientRect().height) === 46;
+    })()`), { within: 1500 });
+  // At the keys too: its chevron is a button, Entrée folds it and Espace opens it again, the focus staying on it.
+  await run('Modèles : Entrée replie la section', async () => {
+    await js(`${minimax}.querySelector('.model-chevron').focus()`);
+    await press('Enter', 'Enter', 13, '\r');
+  }, () =>
+    js(`(() => {
+      const line = ${minimax}, chevron = line?.querySelector('.model-chevron');
+      return line && !line.dataset.open && !line.querySelector('.model-parts') &&
+        chevron.getAttribute('aria-expanded') === 'false' && document.activeElement === chevron;
+    })()`), { within: 1500 });
+  await run('Modèles : Espace la rouvre', () => press(' ', 'Space', 32, ' '), () =>
+    js(`(() => {
+      const line = ${minimax}, chevron = line?.querySelector('.model-chevron');
+      return line?.dataset.open === 'true' && line.querySelectorAll('.model-parts > .model-part').length === 3 &&
+        chevron.getAttribute('aria-expanded') === 'true' && document.activeElement === chevron;
+    })()`), { within: 1500 });
   // The chevron unfolds the versions under the line, which stays as tall; « Réglages » is then in sight.
   // (0.6.290) Clicked once it is free: the tab reads its list again as it opens, its buttons greyed meanwhile
   // (setBusy), and a click that came then did nothing. Some fifty milliseconds too early on a busy machine
   // (a game running): this step and « quitter l'éditeur » failed ten times in eleven, on the code of before too.
+  // (0.6.481) A model alone on its line opens at a click anywhere on it too: here on its name, as a person clicks.
   await run('Modèles : versions dépliées', async () => {
     await until(() => js(`${ltx}?.querySelector('.model-chevron')?.disabled === false`), 5000);
-    return click('#workflow-list .model-line[data-model="LTX 2.5"] .model-chevron');
+    await js(`${ltx}.scrollIntoView({ block: 'center' })`);
+    return tap('#workflow-list .model-line[data-model="LTX 2.5"] .model-name');
   }, () =>
     js(`(() => { const line = ${ltx}; return line?.dataset.open === 'true' && Boolean(line.querySelector('.model-versions')) && Math.round(line.querySelector('.model-row').getBoundingClientRect().height) === 46 && line.querySelector('.model-chevron').getAttribute('aria-expanded') === 'true' && getComputedStyle(line.querySelector('.model-settings')).opacity === '1'; })()`), { within: 700 });
   // The page of a model, behind « Réglages », named after it (0.6.128: « Proposé à Moodix AI » at its
@@ -2077,6 +2137,20 @@ try {
   // « Retour » : nothing was changed, the page « Modèles » is there again, its line still unfolded.
   await run('quitter l’éditeur', () => click('#native-workflow-back'), () =>
     js(`document.getElementById('workflow-editor').hidden && !document.getElementById('settings-form').hidden && ${ltx}?.dataset.open === 'true'`), { within: 700 });
+  // (0.6.481) A model of a section has its own settings: those of pi H3, from its row (a click of a person, once
+  // the list read again lets it be), named after it. Back, its section is still open.
+  const piSettings =
+    '#workflow-list .model-line[data-model="MiniMax H3"] .model-settings[aria-label="Réglages de pi H3"]';
+  await run('Modèles : réglages d’un modèle de section', async () => {
+    await until(() => js(`document.querySelector('${piSettings}')?.disabled === false`), 5000);
+    await js(`document.querySelector('${piSettings}').scrollIntoView({ block: 'center' })`);
+    return tap(piSettings);
+  }, () =>
+    js(`!document.getElementById('workflow-editor').hidden &&
+      document.getElementById('native-workflow-title').textContent === 'Réglages de pi H3'`), { within: 1500 });
+  await run('Modèles : retour, la section ouverte', () => click('#native-workflow-back'), () =>
+    js(`document.getElementById('workflow-editor').hidden && ${minimax}?.dataset.open === 'true' &&
+      ${minimax}.querySelectorAll('.model-parts > .model-part').length === 3`), { within: 700 });
   await size(1280);
   await run('Échap (Configuration)', () => key('Escape', 'Escape', 27), noDialog);
   await run('nouveau projet', () => fromMenu('#thread-project', '.thread-action'), dialog('project-dialog'));

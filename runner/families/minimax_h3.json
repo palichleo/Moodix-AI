@@ -10,7 +10,8 @@
     "names": [
       { "match": "omni", "name": "Omni" },
       { "match": "^(?!.*ref2va).*fl2va", "name": "De base" }
-    ]
+    ],
+    "downloads": ["minimax_h3_fl2va_pruned_int8_convrot.safetensors"]
   },
   "tasks": ["create_video", "extend_video"],
   "hardware": { "cuda": true },
