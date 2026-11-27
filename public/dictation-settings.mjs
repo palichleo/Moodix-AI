@@ -89,6 +89,14 @@ export function setupDictationSettings({
     }
   };
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  /**
+   * (0.6.455) A tip said, or none: a title emptied left the bubble of before (public/help-tips.mjs keeps the tip of a
+   * title it took). « Essayer », lit once the model came, still said « Installez d’abord le modèle. ».
+   */
+  const tip = (element, text) => {
+    element.title = text;
+    if (!text && element.dataset) delete element.dataset.tip;
+  };
 
   /** A row of choices made once; `paint` says which is pressed, and which cannot be. */
   function segments(box, list, pick) {
@@ -117,6 +125,11 @@ export function setupDictationSettings({
   };
   $('dictation-get').onclick = () => void act();
   $('dictation-try').onclick = () => void (trial ? stopTrial() : startTrial());
+  // (0.6.455) A microphone plugged in or out while the settings are open: in the list at once, not at their next
+  // opening.
+  page?.navigator?.mediaDevices?.addEventListener?.('devicechange', () => {
+    if ($('settings')?.open) void listMicrophones();
+  });
 
   function change(patch) {
     if (!current) return;
@@ -134,11 +147,11 @@ export function setupDictationSettings({
       tryIt = $('dictation-try');
     $('dictation-model').textContent = modelLine(status);
     get.textContent = running ? 'Annuler' : installed ? 'Retirer' : 'Télécharger';
-    get.title = running || installed ? '' : licenseTip(status?.model?.license);
+    tip(get, running || installed ? '' : licenseTip(status?.model?.license));
     get.disabled = acting || !status;
     tryIt.textContent = trial ? 'Arrêter' : 'Essayer';
     tryIt.disabled = !installed && !trial;
-    tryIt.title = installed || trial ? '' : FIRST_INSTALL;
+    tip(tryIt, installed || trial ? '' : FIRST_INSTALL);
     for (const choice of $('dictation-language').children)
       choice.setAttribute('aria-checked', String(choice.dataset.value === (current?.language ?? 'fr')));
     const card = status?.card ?? { available: false, reason: '' };
@@ -163,18 +176,24 @@ export function setupDictationSettings({
   async function listMicrophones() {
     const select = $('dictation-mic'),
       system = /Windows/i.test(page?.navigator?.userAgent || '') ? 'Micro par défaut de Windows' : 'Micro par défaut du système';
-    let found = [];
+    let found = [],
+      named = true;
     try {
-      found = (await page.navigator.mediaDevices.enumerateDevices()).filter(
-        device => device.kind === 'audioinput' && device.deviceId && !['default', 'communications'].includes(device.deviceId),
+      const inputs = (await page.navigator.mediaDevices.enumerateDevices()).filter(
+        device => device.kind === 'audioinput',
       );
+      found = inputs.filter(device => device.deviceId && !['default', 'communications'].includes(device.deviceId));
+      // Before a microphone is allowed, some browsers list them without their identifiers.
+      named = !inputs.some(device => !device.deviceId);
     } catch {
       // The browser lists none: the system's alone.
     }
     const options = [new Option(system, '')];
     found.forEach((device, index) => options.push(new Option(device.label || `Micro ${index + 1}`, device.deviceId)));
-    // The one chosen before, gone (unplugged): still named, so that it stays chosen until another is.
-    if (mic && !found.some(device => device.deviceId === mic)) options.push(new Option('Micro choisi (débranché)', mic));
+    // The one chosen before, gone (unplugged): still named, so that it stays chosen until another is. (0.6.455)
+    // « débranché » only where the browser says which are there: plugged in, it was said unplugged.
+    if (mic && !found.some(device => device.deviceId === mic))
+      options.push(new Option(named ? 'Micro choisi (débranché)' : 'Micro choisi', mic));
     select.replaceChildren(...options);
     select.value = mic;
   }
@@ -272,6 +291,9 @@ export function setupDictationSettings({
       context.createMediaStreamSource(stream).connect(sound).connect(quiet).connect(context.destination);
       sound.port.onmessage = ({ data }) => {
         if (trial !== mine || !Number.isFinite(data?.level)) return;
+        // (0.6.455) Its section out of sight (another tab of the settings, of the browser): the microphone is let
+        // go. It stayed open, without end, until the settings closed.
+        if (page?.document?.visibilityState === 'hidden' || !section.getClientRects?.().length) return stopTrial();
         const lit = meterSegments(data.level);
         segments.forEach((segment, index) => segment.classList.toggle('is-on', index < lit));
       };

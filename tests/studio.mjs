@@ -3376,8 +3376,22 @@ test('« Générer » is not greyed for an input a proposal of Moodix AI puts it
   }
 
   // The card held by the last creation (54): « Libérer le GPU » takes the place of « Générer », and what is typed
-  // does not touch it (goable found it under the name of « Générer »).
-  page = await studioPage({ create_video: [wanStudio()] }, {}, { querySelector: laidOutGo, extra: { gpuBlocked: () => true } });
+  // does not touch it (goable found it under the name of « Générer »). (0.6.455) Nor a dictation in the prompt, which
+  // greys « Générer » (goable, at its start and its end, without drawing the Studio again).
+  let speaking = false,
+    followed = null;
+  const dictation = {
+    mic: () => null,
+    busy: where => speaking && where === 'studio',
+    watch: follow => {
+      followed = follow;
+    },
+  };
+  page = await studioPage(
+    { create_video: [wanStudio()] },
+    {},
+    { querySelector: laidOutGo, extra: { gpuBlocked: () => true, dictation } },
+  );
   try {
     page.mode(1);
     const free = () => page.body.find('studio-go')[0],
@@ -3389,6 +3403,12 @@ test('« Générer » is not greyed for an input a proposal of Moodix AI puts it
     assert.deepEqual([free().disabled, free().title], [undefined, held]);
     page.prompt().value = '';
     page.prompt().oninput();
+    assert.deepEqual([free().disabled, free().title], [undefined, held]);
+    speaking = true;
+    followed();
+    assert.deepEqual([free().disabled, free().title], [undefined, held]);
+    speaking = false;
+    followed();
     assert.deepEqual([free().disabled, free().title], [undefined, held]);
   } finally {
     page.restore();

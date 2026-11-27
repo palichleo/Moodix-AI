@@ -1490,6 +1490,7 @@ try {
     );
     await emptied('#prompt');
     dictationSaid = 'Invente la suite.';
+    // (0.6.455) A beep heard first here too (a bar raised), as in the Studio below.
     await run(
       'Dictée (Bobine) : sa bande à la place de la demande, la flèche attend',
       async () => {
@@ -1504,7 +1505,8 @@ try {
           const box = document.querySelector('#bobine-view .bobine-ask-field.is-dictating'), strip = box?.querySelector(':scope > .dictation-strip.in-bobine'), mic = box?.querySelector(':scope > .dictation-mic'),
             send = box?.querySelector(':scope > .bobine-ask-send');
           if (!strip?.getClientRects().length || strip.nextElementSibling !== mic || !send) return false;
-          return !box.querySelector('.bobine-ask-words').getClientRects().length && strip.querySelectorAll('.dictation-bars > i').length === 22 && send.disabled &&
+          const bars = [...strip.querySelectorAll('.dictation-bars > i')];
+          return !box.querySelector('.bobine-ask-words').getClientRects().length && bars.length === 22 && bars.some(bar => parseFloat(bar.style.height) > 4) && send.disabled &&
             (send.dataset.tip || send.title) === ${said(DICTATING)} && mic.classList.contains('is-listening') && box.dataset.state === 'rest';
         })()`),
       { within: 4000 },
@@ -1576,6 +1578,8 @@ try {
     dictationSaid = 'il répare son filet sur le port.';
     const posted = dictationPosted.length;
     await send('Fetch.enable', { patterns: [studio, { urlPattern: '*/api/dictation*', requestStage: 'Request' }] });
+    // (0.6.455) A beep of the browser's microphone heard first (a bar raised), as in the chat: it comes every half
+    // second, and the half second listened to could end just before it (« Le micro n'a rien entendu »).
     await run(
       'Dictée (Studio) : sa bande dans le coin du prompt, Générer et la baguette attendent',
       async () => {
@@ -1590,8 +1594,8 @@ try {
           const field = document.querySelector('#studio-view .studio-prompt-field.is-dictating'), strip = field?.querySelector(':scope > .dictation-strip.in-studio'), corner = field?.querySelector(':scope > .studio-enrich'),
             wand = corner?.querySelector('.studio-enrich-go'), mic = corner?.querySelector('.dictation-mic'), go = document.querySelector('#studio-view .studio-go');
           if (!strip?.getClientRects().length || !wand || !mic || !go) return false;
-          const a = strip.getBoundingClientRect(), b = corner.getBoundingClientRect(), box = field.getBoundingClientRect();
-          return strip.querySelectorAll('.dictation-bars > i').length === 16 && ${beside('a', 'b')} && a.left > box.left && wand.disabled && (wand.dataset.tip || wand.title) === ${said(DICTATING)} &&
+          const a = strip.getBoundingClientRect(), b = corner.getBoundingClientRect(), box = field.getBoundingClientRect(), bars = [...strip.querySelectorAll('.dictation-bars > i')];
+          return bars.length === 16 && bars.some(bar => parseFloat(bar.style.height) > 4) && ${beside('a', 'b')} && a.left > box.left && wand.disabled && (wand.dataset.tip || wand.title) === ${said(DICTATING)} &&
             go.disabled && (go.dataset.tip || go.title) === ${said(DICTATING)} && mic.classList.contains('is-listening') && document.getElementById('studio-prompt').placeholder === ${said(LISTEN_PLACEHOLDER)};
         })()`),
       { within: 4000 },

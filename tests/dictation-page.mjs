@@ -164,7 +164,9 @@ function fakePage({ devices = [{ kind: 'audioinput', deviceId: 'micro-1', label:
     contexts = [],
     nodes = [],
     renders = [],
-    tracks = [];
+    tracks = [],
+    // What listens to the microphones plugged in or out (devicechange).
+    plugged = [];
   class AudioContext {
     constructor(options = {}) {
       Object.assign(this, { sampleRate: options.sampleRate ?? 48000, state: 'running', destination: {} });
@@ -227,12 +229,19 @@ function fakePage({ devices = [{ kind: 'audioinput', deviceId: 'micro-1', label:
       mediaDevices: {
         async getUserMedia(constraints) {
           if (refuse) throw Object.assign(new Error(refuse), { name: refuse });
-          const track = { stopped: false, stop: () => (track.stopped = true) };
+          // `end()`: the microphone stops by itself (unplugged), as the browser says it.
+          const track = {
+            stopped: false,
+            ended: [],
+            stop: () => (track.stopped = true),
+            addEventListener: (type, run) => type === 'ended' && track.ended.push(run),
+            end: () => track.ended.forEach(run => run()),
+          };
           tracks.push(track);
-          return { constraints, getTracks: () => [track] };
+          return { constraints, getTracks: () => [track], getAudioTracks: () => [track] };
         },
         enumerateDevices: async () => devices,
-        addEventListener() {},
+        addEventListener: (type, run) => type === 'devicechange' && plugged.push(run),
       },
     },
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
@@ -241,7 +250,7 @@ function fakePage({ devices = [{ kind: 'audioinput', deviceId: 'micro-1', label:
     clearInterval: timer => clearInterval(timer),
     addEventListener: (type, listener) => type === 'keydown' && keys.push(listener),
   };
-  return { page, document, keys, contexts, nodes, renders, tracks };
+  return { page, document, keys, contexts, nodes, renders, tracks, plugged, devices };
 }
 
 /** The three places, as the page draws them: the bar of the chat, the prompt of the Studio, the field of the Bobine. */
@@ -274,7 +283,11 @@ function dictationOn({ status = { installed: true, maxSeconds: 120 }, text = 'un
   const api = async (route, body, options = {}) => {
     calls.push({ route, body, options });
     if (route === 'dictation') return { json: async () => said.status };
-    if (route === 'dictation/transcribe') return { json: async () => ({ text: said.text }) };
+    // `said.wait`: the words come once it is resolved (« Transcription… » meanwhile).
+    if (route === 'dictation/transcribe') {
+      await said.wait;
+      return { json: async () => ({ text: said.text }) };
+    }
     return { json: async () => ({}) };
   };
   const dictation = setupDictation({
@@ -582,8 +595,103 @@ test('a place drawn again while it listens gets its strip back; gone from the sc
   assert.equal(prompt.placeholder, '');
 });
 
+test('(0.6.455) Ctrl+M with the chat open over the Studio dictates in the chat; a box made inert is passed over', async () => {
+  const fake = dictationOn(),
+    studioMic = fake.dictation.mic('studio');
+  fake.studioField.append(studioMic);
+  await fake.dictation.refresh();
+  // The chat open over the Studio, which is only blurred behind it: the box of the chat, not the prompt of the Studio.
+  fake.document.body.dataset.chat = 'open';
+  press(fake, 'm', fake.document.body, { ctrlKey: true });
+  await settled(() => Boolean(fake.options.querySelector('.dictation-strip')));
+  assert.equal(fake.dictation.busy('chat'), true);
+  press(fake, 'Escape', fake.document.body);
+  assert.equal(fake.dictation.busy(), false);
+  // The Studio set by Moodix AI (inert): out of a box, the Bobine; a click on its microphone says why.
+  delete fake.document.body.dataset.chat;
+  fake.studioField.setAttribute('inert', '');
+  press(fake, 'm', fake.document.body, { ctrlKey: true });
+  await settled(() => Boolean(fake.ask.querySelector('.dictation-strip')));
+  assert.equal(fake.dictation.busy('bobine'), true);
+  press(fake, 'Escape', fake.document.body);
+  await fake.dictation.toggle('studio');
+  assert.equal(fake.notices.at(-1), 'Cette case est fermée pour le moment : la dictée ne peut pas y écrire.');
+  assert.equal(fake.dictation.busy(), false);
+});
+
+test('(0.6.455) during « Transcription… »: Échap is not taken where the strip is gone, the focus stays where it went', async () => {
+  const fake = dictationOn({ text: 'une vague' });
+  await fake.dictation.refresh();
+  let answer;
+  fake.said.wait = new Promise(done => (answer = done));
+  await fake.dictation.toggle('chat');
+  hear(fake, 1);
+  const finishing = fake.dictation.finish();
+  await settled(() => fake.asked('dictation/transcribe').length === 1);
+  // The bar of the chat out of sight (another page): Échap is for what is on screen, a menu, a list.
+  fake.form.hidden = true;
+  assert.equal(press(fake, 'Escape', fake.document.body), false);
+  assert.equal(fake.dictation.busy('chat'), true);
+  fake.form.hidden = false;
+  // Another box clicked meanwhile: the words go in their box, the next keys in the one clicked.
+  const other = new Field(fake.document, { id: 'negative' });
+  fake.document.body.append(other);
+  other.focus();
+  answer();
+  await finishing;
+  assert.equal(fake.prompt.value, 'une vague');
+  assert.equal(fake.document.activeElement, other);
+  assert.deepEqual(fake.prompt.events, ['input']);
+});
+
+test('(0.6.455) another mode or conversation shown during « Transcription… »: the words are said, not written in it', async () => {
+  const fake = dictationOn({ text: 'une vague qui se brise' });
+  let scope = 'image';
+  fake.studioField.append(fake.dictation.mic('studio', { scope: () => scope }));
+  await fake.dictation.refresh();
+  let answer;
+  fake.said.wait = new Promise(done => (answer = done));
+  await fake.dictation.toggle('studio');
+  hear(fake, 1);
+  const finishing = fake.dictation.finish();
+  await settled(() => fake.asked('dictation/transcribe').length === 1);
+  // « Vidéo » clicked: the same box, the prompt of Vidéo in it.
+  scope = 'video';
+  fake.studioPrompt.value = 'Un phare dans la nuit';
+  fake.studioPrompt.setSelectionRange(21, 21);
+  answer();
+  await finishing;
+  assert.equal(fake.studioPrompt.value, 'Un phare dans la nuit');
+  assert.equal(fake.notices.at(-1), 'La case de la dictée n’est plus ouverte. Ce qui a été dit : « une vague qui se brise »');
+  // In the same mode from end to end: written.
+  fake.said.wait = undefined;
+  await fake.dictation.toggle('studio');
+  hear(fake, 1);
+  await fake.dictation.toggle('studio');
+  assert.equal(fake.studioPrompt.value, 'Un phare dans la nuit une vague qui se brise');
+});
+
+test('(0.6.455) a microphone that stops while it listens: what was said until then is written, and it is said', async () => {
+  const fake = dictationOn({ text: 'un chat' });
+  await fake.dictation.refresh();
+  await fake.dictation.toggle('chat');
+  hear(fake, 1);
+  fake.tracks.at(-1).end();
+  await settled(() => !fake.dictation.busy());
+  assert.equal(fake.prompt.value, 'un chat');
+  assert.equal(fake.notices.at(-1), 'Le micro s’est arrêté : ce qui a été dit jusque-là est écrit.');
+});
+
 // ------------------------------------------------------------------ Paramètres › Moodix AI › Dictée
-function settingsOn({ status, confirm = true } = {}) {
+function settingsOn({
+  status,
+  confirm = true,
+  devices = [
+    { kind: 'audioinput', deviceId: 'default' },
+    { kind: 'audioinput', deviceId: 'usb', label: 'Micro USB' },
+  ],
+  mic = null,
+} = {}) {
   const document = fakeDocument(),
     make = (tag, id) => new Element(document, tag, { id }),
     ids = ['dictation-settings', 'dictation-language', 'dictation-place', 'dictation-model', 'dictation-get'];
@@ -602,8 +710,11 @@ function settingsOn({ status, confirm = true } = {}) {
       if (route === 'dictation/settings') said.status = { ...said.status, settings: { ...body } };
       return { json: async () => said.status };
     },
-    { page } = fakePage({ devices: [{ kind: 'audioinput', deviceId: 'default' }, { kind: 'audioinput', deviceId: 'usb', label: 'Micro USB' }] }),
+    fake = fakePage({ devices }),
+    { page } = fake,
     node = (tag, className = '', text = '') => Object.assign(new Element(document, tag, { className }), { textContent: text });
+  // The microphone this browser keeps (`mic`).
+  page.localStorage.getItem = () => mic;
   const ui = setupDictationSettings({
     $: id => elements[id] ?? null,
     node,
@@ -612,7 +723,7 @@ function settingsOn({ status, confirm = true } = {}) {
     confirmFn: question => (asked.push(question), confirm),
     page,
   });
-  return { ui, elements, calls, asked, said };
+  return { ui, elements, calls, asked, said, fake };
 }
 const STATUS = {
   installed: false,
@@ -704,4 +815,62 @@ test('Paramètres › Dictée: « Retirer » asks first, and « Carte graphique 
   elements['dictation-get'].onclick();
   await settled(() => calls.some(call => call.route === 'refresh'));
   assert.equal(calls.some(call => call.route === 'dictation/remove'), true);
+});
+
+test('(0.6.455) Paramètres › Dictée: tips, microphones plugged in, « Essayer » let go out of sight', async t => {
+  const previous = globalThis.Option;
+  globalThis.Option = class extends Element {
+    constructor(text, value) {
+      super(null, 'option');
+      Object.assign(this, { textContent: text, value });
+    }
+  };
+  t.after(() => (globalThis.Option = previous));
+  const { ui, elements, said, fake } = settingsOn({ status: STATUS });
+  await ui.load();
+  // As public/help-tips.mjs makes them: the title taken into the bubble. The model come, they go.
+  for (const id of ['dictation-get', 'dictation-try']) elements[id].dataset.tip = elements[id].title;
+  said.status = { ...STATUS, installed: true, model: { ...STATUS.model, left: 0 } };
+  await ui.load();
+  assert.equal(elements['dictation-try'].disabled, false);
+  assert.deepEqual([elements['dictation-try'].dataset.tip, elements['dictation-get'].dataset.tip], [undefined, undefined]);
+  // A microphone plugged in while the settings are open: in the list at once.
+  await settled(() => elements['dictation-mic'].children.length === 2);
+  fake.devices.push({ kind: 'audioinput', deviceId: 'casque', label: 'Casque' });
+  for (const run of fake.plugged) run();
+  await settled(() => elements['dictation-mic'].children.length === 3);
+  assert.equal(elements['dictation-mic'].children[2].textContent, 'Casque');
+  // « Essayer », then another tab of the settings: the microphone is let go.
+  elements['dictation-try'].onclick();
+  await settled(() => Boolean(fake.nodes[0]?.port.onmessage));
+  fake.nodes[0].port.onmessage({ data: { level: 0.1 } });
+  assert.ok(elements['dictation-meter'].children.some(segment => segment.classList.contains('is-on')));
+  elements['dictation-settings'].hidden = true;
+  fake.nodes[0].port.onmessage({ data: { level: 0.1 } });
+  assert.equal(fake.tracks.at(-1).stopped, true);
+  assert.equal(elements['dictation-try'].textContent, 'Essayer');
+});
+
+test('(0.6.455) the microphone chosen is said unplugged only where the browser says which are there', async t => {
+  const previous = globalThis.Option;
+  globalThis.Option = class extends Element {
+    constructor(text, value) {
+      super(null, 'option');
+      Object.assign(this, { textContent: text, value });
+    }
+  };
+  t.after(() => (globalThis.Option = previous));
+  const listed = async devices => {
+    const { ui, elements } = settingsOn({ status: STATUS, devices, mic: 'usb' });
+    await ui.load();
+    await settled(() => elements['dictation-mic'].children.length > 1);
+    return elements['dictation-mic'].children.map(option => option.textContent);
+  };
+  // Before a microphone is allowed, the browser lists them without their identifiers: it may be there.
+  assert.deepEqual(await listed([{ kind: 'audioinput', deviceId: '', label: '' }]), ['Micro par défaut de Windows', 'Micro choisi']);
+  assert.deepEqual(await listed([{ kind: 'audioinput', deviceId: 'casque', label: 'Casque' }]), [
+    'Micro par défaut de Windows',
+    'Casque',
+    'Micro choisi (débranché)',
+  ]);
 });

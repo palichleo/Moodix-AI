@@ -4289,6 +4289,22 @@ export function setupStudio({
   /** « Générer » as the prompt is typed: greyed while it is empty (55), without drawing the Studio again. */
   function goable() {
     const go = document.querySelector?.('#studio-view .studio-go');
+    // (0.6.455) The dictation first, whatever holds the button besides: greyed while it listens or writes, then given
+    // back as it was (`undictated`, kept by render too). Under a proposal of Moodix AI, it stayed lit; greyed by a
+    // drawing of the Studio meanwhile, it stayed greyed after. Never « Libérer le GPU » in its place (54), as render.
+    if (go && !working && !finishOn() && !current()?.unavailable && !gpuBlocked()) {
+      if (dictating()) {
+        if (!undictated.has(go)) undictated.set(go, [go.disabled, go.title || go.dataset?.tip || '']);
+        go.disabled = true;
+        go.title = DICTATING;
+        return;
+      }
+      const kept = undictated.get(go);
+      if (kept) {
+        undictated.delete(go);
+        [go.disabled, go.title] = kept;
+      }
+    }
     // (0.6.188) Never « Libérer le GPU », which takes its place and its name while the card is held (54). Nor
     // while another conversation makes a creation (0.6.81): greyed with that reason by the form, a key lit it
     // again and its tooltip said « Générer » (its click was refused all the same).
@@ -4304,11 +4320,6 @@ export function setupStudio({
     go.disabled = blank || Boolean(missing);
     go.classList.toggle('is-blank', blank);
     go.title = blank ? blankWhy() : missing || `${finish ? FINISH[finish.verb].go : 'Générer'} (${MODIFIER}+Entrée)`;
-    // (0.6.452) Nor while the dictation listens or writes in the prompt.
-    if (dictating() && !finish) {
-      go.disabled = true;
-      go.title = DICTATING;
-    }
   }
   /** (0.6.253) What « Générer » says without a prompt: what to describe first (the continuation, in Vidéo). */
   // A character put in a video: its wand writes the prompt, as request() says it.
@@ -4562,10 +4573,19 @@ export function setupStudio({
     return row;
   }
   // (0.6.452) While the dictation listens or writes in the prompt: « Générer » and the wand wait for its words.
-  const dictating = () => Boolean(dictation?.busy('studio'));
-  /** The microphone of the dictation, greyed while Moodix AI rewrites the prompt. */
+  const dictating = () => Boolean(dictation?.busy('studio')),
+    // (0.6.455) What « Générer » was before the dictation greyed it ([disabled, title]), given back at its end.
+    undictated = new WeakMap();
+  /**
+   * The microphone of the dictation, greyed while Moodix AI rewrites the prompt. (0.6.455) Its box holds the prompt of
+   * a conversation and of a mode (as enrich() says it): « Vidéo » clicked during « Transcription… », the words went at
+   * the end of the prompt of Vidéo.
+   */
   const micOf = () =>
-    dictation?.mic('studio', { held: () => (enriching ? 'Moodix AI enrichit votre texte…' : '') }) ?? null;
+    dictation?.mic('studio', {
+      held: () => (enriching ? 'Moodix AI enrichit votre texte…' : ''),
+      scope: () => `${draftsEpoch}:${mode}`,
+    }) ?? null;
   /** (0.6.452, D8b) Son has no wand: the microphone alone in the corner of its prompt. */
   function micRow() {
     const mic = micOf();
@@ -7568,8 +7588,10 @@ export function setupStudio({
       go.title = chatBusy;
       go.classList.add('is-unavailable');
     }
-    // (0.6.452) Nor while the dictation listens or writes in the prompt: its words are not there yet.
+    // (0.6.452) Nor while the dictation listens or writes in the prompt: its words are not there yet. (0.6.455) What
+    // it would be without, kept for its end (goable).
     if (dictating() && !working && !finish && !workflow.unavailable) {
+      undictated.set(go, [go.disabled, go.title]);
       go.disabled = true;
       go.title = DICTATING;
     }
