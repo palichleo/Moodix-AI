@@ -14094,6 +14094,10 @@ body[data-setup='incomplete'] #resume-last {
 #messages .generation-failure-reason > span {
   display: block;
 }
+/* (0.6.456) The card held: why the take failed, a little apart from what holds the card. */
+:root[data-gpu-held='true'] #messages .generation-failure-cause {
+  margin-bottom: 8px;
+}
 
 /* One colour of alert (etats-maquette.md): what went wrong is said in amber, never in red (the red
    stays for what deletes). */
@@ -14107,6 +14111,16 @@ body[data-setup='incomplete'] #resume-last {
 }
 #studio-view .studio-held-text > span {
   display: block;
+}
+/* (0.6.456) A screen too narrow for what holds the card (9:16 at 1280 × 720: 111 px wide, why the take failed said
+   under it): « ARRÊTÉE » and « Rien n’a été enregistré. »; the line above the screen says the card is held. */
+@container (max-width: 200px) {
+  #studio-view .studio-held-veil {
+    padding: 24px 12px;
+  }
+  #studio-view .studio-held-text > .studio-held-words {
+    display: none;
+  }
 }
 
 /* ------------------------------------------------------------------ after the try of 0.6.22 (16/11) */

@@ -55,6 +55,7 @@ import {
 import { clipSeconds } from './take-length.mjs';
 import { setupMontage } from './montage.mjs';
 import { DICTATING } from './dictation.mjs';
+import { heldCause } from './generation-ui.mjs';
 
 /**
  * The Studio: the creation tools of the conversation, beside the chat. Four blocks that never
@@ -504,6 +505,8 @@ export function setupStudio({
   pace = 1,
   // The last generation left the card held (its engine did not say it let it go): « Libérer le GPU ».
   gpuBlocked = () => false,
+  // (0.6.456) What the generation that left it held said (its error): why it failed, under its screen.
+  gpuError = () => '',
   recoverGPU = async () => {},
   // The mark of Moodix AI drawn with a mask of its own (app.js, moodixMark): it breathes.
   mark = null,
@@ -3810,10 +3813,12 @@ export function setupStudio({
       }
       const veil = node('div', 'studio-held-veil');
       veil.setAttribute('role', 'alert');
-      // The same words as in the chat (54b); « Libérer le GPU » says what to do, under it.
+      // The same words as in the chat (54b); « Libérer le GPU » says what to do, under it. (0.6.456) Why the take
+      // failed is said under the screen (preview): in a screen of 9:16, 150 px wide at 1280 × 720, it went out of it.
+      // There, the first words go too (moodix.css, .studio-held-words).
       const said = node('p', 'studio-held-text');
       said.append(
-        node('span', '', 'La carte graphique est restée prise par la dernière génération.'),
+        node('span', 'studio-held-words', 'La carte graphique est restée prise par la dernière génération.'),
         node('span', '', ' Rien n’a été enregistré.'),
       );
       veil.append(node('p', 'studio-held-kicker', 'Arrêtée'), said);
@@ -7673,9 +7678,12 @@ export function setupStudio({
     }
     bar.append(group);
     preview.append(bar);
-    // The card held, its state says it all (54): no line of error beside it.
-    if (failure && !heldGpu) {
-      const alert = node('p', 'studio-error', failure);
+    // (0.6.456) The card held, its screen says so (54), but « Échec » alone told nothing of why the take failed: that,
+    // as the server says it, under the screen as any failure, without what it added for the card held (UNRELEASED).
+    // Free again, the same, as the server says it then (recover).
+    const failed = heldGpu ? heldCause(gpuError()) : heldCause(failure) || failure;
+    if (failed) {
+      const alert = node('p', 'studio-error', failed);
       alert.setAttribute('role', 'alert');
       preview.append(alert);
     }

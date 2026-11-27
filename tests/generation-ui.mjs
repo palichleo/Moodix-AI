@@ -1,7 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { cardMeta, clipSeconds, setupGenerationUI, takeLine } from '../public/generation-ui.mjs';
+import {
+  HELD_WORDS,
+  UNRELEASED,
+  cardMeta,
+  clipSeconds,
+  heldCause,
+  setupGenerationUI,
+  takeLine,
+} from '../public/generation-ui.mjs';
 // The parent of an element, out of what is compared (not enumerable).
 const adopt = (parent, item) =>
   item instanceof Element && Object.defineProperty(item, 'parent', { value: parent, writable: true, configurable: true });
@@ -554,10 +562,12 @@ test('a take that fails stays veiled at its format: « ÉCHEC », what failed, �
     ' Rien n’a été enregistré.',
   ]);
   assert.equal(caption.children[1].textContent, 'Échec pendant le décodage de la vidéo');
-  // The card held (54): the same words as in the Studio, then what failed once it is free again.
+  // The card held (54): the same words as in the Studio, after what failed (0.6.456), then what failed once it is
+  // free again.
   ui.held(true);
   assert.equal(veil.children[0].textContent, 'Arrêtée');
   assert.deepEqual(veil.children[1].children.map(item => item.textContent), [
+    'La mémoire de la carte graphique a manqué au décodage.',
     'La carte graphique est restée prise par la dernière génération.',
     ' Rien n’a été enregistré.',
   ]);
@@ -572,6 +582,51 @@ test('a take that fails stays veiled at its format: « ÉCHEC », what failed, �
     ['r1', true],
   ]);
   ui.clear();
+});
+
+test('(0.6.456) the card held after a take that failed: why it failed beside « Échec », without the words of the release', () => {
+  const ui = setupGenerationUI({
+    node: (...args) => new Element(...args),
+    api: async () => {
+      throw Error('No request expected');
+    },
+    openOutput() {},
+  });
+  const veilOf = error => {
+    const container = new Element();
+    const card = ui.mount(container, { requestId: 'r1', mediaType: 'video', resolution: { width: 768, height: 448 } });
+    card.finish({ failed: true, error });
+    const [frame] = container.children[0].children,
+      [chip, veil] = frame.children.slice(-2);
+    return { chip, veil, lines: () => veil.children[1].children.map(item => item.textContent) };
+  };
+  const cause = 'La carte graphique n’a pas assez de mémoire pour prolonger cette vidéo (768 × 448, 4,6 s).';
+  const release = ` ${UNRELEASED} : GPU cleanup incomplete: 3.2 GiB still allocated`;
+  // As the server says it (lib/tool-runtime.mjs, #handBackGpu), the card held since: « Échec » said why.
+  ui.held(true);
+  const { chip, veil, lines } = veilOf(cause + release);
+  assert.deepEqual([chip.textContent, veil.children[0].textContent], ['Échec', 'Arrêtée']);
+  assert.deepEqual(lines(), [cause, HELD_WORDS, ' Rien n’a été enregistré.']);
+  // A cause that says what was kept is not followed by « Rien n’a été enregistré. »; none known, the card held alone.
+  const kept = 'La vidéo est faite, mais son fichier n’a pas été enregistré.';
+  assert.deepEqual(veilOf(kept + release).lines(), [kept, HELD_WORDS]);
+  const unknown = veilOf(release.trim());
+  assert.deepEqual(unknown.lines(), [HELD_WORDS, ' Rien n’a été enregistré.']);
+  // Free again: what failed alone, as the server says it then (recover).
+  ui.held(false);
+  assert.equal(veil.children[0].textContent, 'La génération a échoué');
+  assert.deepEqual(lines(), [cause, ' Rien n’a été enregistré.']);
+  ui.clear();
+});
+
+test('(0.6.456) heldCause: why a take failed, without what the server added when the card stayed held', async () => {
+  assert.equal(heldCause(`La mémoire a manqué. ${UNRELEASED} : timeout`), 'La mémoire a manqué.');
+  assert.equal(heldCause(`${UNRELEASED} : timeout`), '');
+  assert.equal(heldCause('  La mémoire a manqué.  '), 'La mémoire a manqué.');
+  assert.deepEqual([heldCause(), heldCause(null), heldCause('')], ['', '', '']);
+  // The words the server adds, as it writes them.
+  const runtime = await readFile(new URL('../lib/tool-runtime.mjs', import.meta.url), 'utf8');
+  assert.ok(runtime.includes(' ' + UNRELEASED + ' : ${error.message}'), 'what lib/tool-runtime.mjs adds');
 });
 
 test('cancelled generations hide the empty preview and its dimensions', async t => {

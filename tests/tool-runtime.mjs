@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ToolRuntime, collectToolCalls } from '../lib/tool-runtime.mjs';
+import { heldCause } from '../public/generation-ui.mjs';
 const id = 'a1111111-1111-4111-8111-111111111111';
 // Minimal native catalog: a resolved job plus the workflow it came from.
 const nativeWorkflow = (fields = {}) => ({
@@ -317,6 +318,29 @@ test('unconfirmed cleanup blocks execution until explicit recovery succeeds', as
   assert.equal(rt.active, false);
   assert.equal(recovered.state, 'done');
   await assert.rejects(rt.recover(), { status: 409 });
+});
+
+test('(0.6.456) the card held after a take that failed: the page finds why it failed in what the server says', async () => {
+  const { rt, client, request } = runtimeFixture();
+  const pending = await request();
+  client.run = async () => {
+    throw new Error('CUDA out of memory. Tried to allocate 2.00 GiB');
+  };
+  client.free = async () => {
+    throw new Error('GPU cleanup incomplete: 3.2 GiB still allocated');
+  };
+  await rt.execute({ requestId: pending.requestId, permission: 'once' });
+  await rt.finished;
+  const { blocked, error } = rt.status();
+  assert.equal(blocked, true);
+  assert.match(error, /non confirmée : GPU cleanup incomplete/);
+  // What the Chat and the Studio say beside « Échec » (generation-ui.mjs): the take's own failure, in the user's words.
+  assert.match(heldCause(error), /^La carte graphique n’a pas assez de mémoire pour cette image\b/);
+  assert.doesNotMatch(heldCause(error), /Libération|GPU cleanup/);
+  // Free again, the server says the same (recover).
+  client.free = async () => ({ idle: true, memory: { torchAllocated: 0 } });
+  const recovered = await rt.recover();
+  assert.deepEqual([recovered.blocked, recovered.state, recovered.error], [false, 'error', heldCause(error)]);
 });
 
 test('forgetting one conversation invalidates only its pending calls and completed job', async () => {

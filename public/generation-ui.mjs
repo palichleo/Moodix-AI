@@ -110,6 +110,19 @@ const ARTICLES = {
 };
 // The card held by the last generation (54): the same words in the chat and in the Studio.
 export const HELD_WORDS = 'La carte graphique est restée prise par la dernière génération.';
+// (0.6.456) What the server adds to the reason of a take that failed when the card stays held after it
+// (lib/tool-runtime.mjs, #handBackGpu).
+export const UNRELEASED = 'Libération du moteur de génération non confirmée';
+/**
+ * Why a take failed, without what the server added when the card stayed held after it: said with « ÉCHEC »
+ * while the card is held (« Arrêtée » and HELD_WORDS alone hid it), and alone once the card is free again,
+ * as the server says it then (recover).
+ */
+export function heldCause(message = '') {
+  const text = String(message ?? '').trim(),
+    at = text.indexOf(UNRELEASED);
+  return (at < 0 ? text : text.slice(0, at)).trim();
+}
 export function failedDuring(stage = '') {
   const words = String(stage).replace(/…$/, '').replace(/ · \d+\/\d+$/, '').trim().split(' '),
     article = ARTICLES[words[0]];
@@ -141,11 +154,17 @@ export function setupGenerationUI({
     retries = new Map();
   let gpuHeld = false,
     retrying = '';
-  /** « ARRÊTÉE » and the card held while it is; what failed, once it is free again. */
+  /**
+   * « ARRÊTÉE » and the card held while it is, after what failed (0.6.456: « Échec » alone told nothing of
+   * it); what failed, once it is free again.
+   */
   function word({ kicker, said, reason }) {
+    const cause = heldCause(reason) || (gpuHeld ? '' : reason);
     kicker.textContent = gpuHeld ? 'Arrêtée' : 'La génération a échoué';
-    said.replaceChildren(node('span', '', gpuHeld ? HELD_WORDS : reason));
-    if (gpuHeld || !/enregistré/.test(reason)) said.append(node('span', '', ' Rien n’a été enregistré.'));
+    said.replaceChildren();
+    if (cause) said.append(node('span', 'generation-failure-cause', cause));
+    if (gpuHeld) said.append(node('span', '', HELD_WORDS));
+    if (!/enregistré/.test(cause)) said.append(node('span', '', ' Rien n’a été enregistré.'));
   }
   let downloads = Promise.resolve();
   const observer =

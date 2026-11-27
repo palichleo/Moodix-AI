@@ -5157,6 +5157,8 @@ const studioUI = setupStudio({
   waitForModel: (...args) => waitForModel(...args),
   // A chat answer in progress keeps the model: the Studio waits for it.
   gpuBlocked: () => Boolean(state.status.toolJob?.blocked),
+  // (0.6.456) Why the generation that held it failed: said under the screen of the Studio.
+  gpuError: () => (state.status.toolJob?.blocked ? state.status.toolJob.error || '' : ''),
   mark: () => moodixMark()[0],
   recoverGPU: () => recoverGPU(),
   blocked: () =>
