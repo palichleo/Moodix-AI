@@ -648,6 +648,38 @@ test('(0.6.198) a sentence that sends the user to a setting names where it is, a
     assert.doesNotMatch(await read('public/' + name), /Moodix Agent/, name);
 });
 
+test('(0.6.479) « Télécharger » of a model behind a Hugging Face account shows the token field', async () => {
+  // (27/11, a new installation) It opened « Mise à jour » since 0.5.15: the field is in « Modèles », and the
+  // explanation was written under it, out of sight. The friend was never asked for an account.
+  const read = async name => (await readFile(new URL('../' + name, import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  const html = await read('public/index.html'),
+    app = await read('public/app.js'),
+    before = html.slice(0, html.indexOf('id="hf-token"')),
+    [, panel] = [...before.matchAll(/role="tabpanel" id="[^"]+" [^>]*data-settings-panel="([^"]+)"/g)].at(-1),
+    start = app.indexOf('showTokenField:'),
+    shown = app.slice(start, app.indexOf('onHelpChange:', start));
+  assert.equal(panel, 'workflows');
+  assert.ok(shown.includes(`settingsTabs.select('${panel}');`), shown);
+  // Brought into sight with what it says: the list of the models is long above it.
+  assert.ok(shown.includes("$('hf-token').scrollIntoView({ block: 'center' });"), shown);
+  assert.ok(shown.includes("$('hf-token-status').textContent = message;"), shown);
+  // Its state (« Jeton enregistré », « Retirer ») read as the settings open: it was only when « Mise à jour » showed.
+  const from = app.indexOf('function openSettings() {'),
+    opening = app.slice(from, app.indexOf('Promise.all([', from));
+  assert.ok(opening.includes('void refreshToken();'), opening);
+});
+
+test('(0.6.479) its files all here on a new installation, Moodix says its engine is missing, not a file', async () => {
+  const app = (await readFile(new URL('../public/app.js', import.meta.url), 'utf8')).replace(/\r\n/g, '\n'),
+    from = app.indexOf('function missingFile('),
+    said = app.slice(from, app.indexOf('missingFileCard({', from)),
+    lacks =
+      "request.missing.files.length ? (many ? 'des fichiers' : 'un fichier') : " +
+      "'le moteur de génération de Moodix'";
+  assert.ok(said.includes(lacks), said);
+  assert.ok(said.includes('il lui manque ` +\n      `${lacks}.'), said);
+});
+
 test('(0.6.198) what the page says to the user calls a model « modèle », never « workflow », and says « agrandir », never « upscale »', async () => {
   // (Vérification du 21/11, A8) Reasons of a greyed button, errors, names read. In these files every sentence is
   // the user's; what the chat model reads is written elsewhere (app.js, lib/tool-*.mjs) and keeps its words.

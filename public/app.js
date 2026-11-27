@@ -1718,6 +1718,8 @@ async function saveToken(token) {
     const { hasToken } = await (await api('downloads/token', { token })).json();
     $('hf-token').value = '';
     renderToken(hasToken, hasToken ? 'Jeton enregistré sur cet ordinateur.' : 'Jeton retiré.');
+    // (0.6.479) Said to the cards of the chat whose « Télécharger » waits for it (missing-file.mjs).
+    document.dispatchEvent(new CustomEvent('moodix:token', { detail: { hasToken } }));
     void workflowsUI.refresh({ settings: false }).catch(() => {});
   } catch (error) {
     $('hf-token-status').textContent = error.message;
@@ -1900,8 +1902,12 @@ async function refreshStatus() {
     workflowsUI.updateRunner?.(state.status.runner);
     // A generation has just ended: the room takes the light of the new take (room.mjs).
     if (jobBefore && state.status.toolJob?.id !== jobBefore) state.onTakeDone?.();
-    // The generation engine has just become ready: the Studio reads again what it offers.
-    if (state.status.runner?.state === 'ready' && runnerBefore !== 'ready') {
+    // The generation engine has just become ready: the Studio reads again what it offers. (0.6.503) Or it changed
+    // otherwise: installed by the « Télécharger » of a model (« Préparation du moteur »), started, stopped or failed
+    // on the way. The Studio says so, and « Reprendre » waits while it starts (studio.mjs, engineStarts): it said what
+    // it had read before, the engine stopped. (Not a worker coming back after a take stopped: nothing changes then.)
+    const runner = state.status.runner;
+    if (runner?.state !== runnerBefore && (runner?.state === 'ready' || !runner?.recovering)) {
       state.studio?.invalidate?.({ tools: true });
       void state.studio?.prefetch?.();
     }
@@ -2294,6 +2300,9 @@ function openSettings() {
   updateControls();
   // The bin of the history, read each time (0.6.103).
   void refreshTrash();
+  // (0.6.479) The Hugging Face token: its field is in « Modèles › Fichiers » since 0.6.119, and its state (« Jeton
+  // enregistré », « Retirer ») was read only when « Mise à jour » showed: a token kept looked absent.
+  void refreshToken();
   // (0.6.452) The dictation: its model, a download under way, its settings.
   void dictationUI.load();
   Promise.all([
@@ -2970,9 +2979,11 @@ function missingFile(view, request, history, conversationId = state.conversation
   // (`conversationId`: the one of the turn, 0.6.87; the one shown when the answer came, which the
   // user may have left meanwhile, said « Ouvrez la conversation de cette demande » back in it.)
   const many = request.missing.files.length > 1,
+    // (0.6.479) Its files all here on a new installation: the engine of generation alone is missing.
+    lacks = request.missing.files.length ? (many ? 'des fichiers' : 'un fichier') : 'le moteur de génération de Moodix',
     sentence =
       `${MISSING_FOR[request.tool] ?? 'Pour cette création'}, il me faut ${request.workflowName}, et il lui manque ` +
-      `${many ? 'des fichiers' : 'un fichier'}. Dès qu’${many ? 'ils sont' : 'il est'} là, je reprends votre demande.`,
+      `${lacks}. Dès qu’${many ? 'ils sont' : 'il est'} là, je reprends votre demande.`,
     original = history.findLast(message => message.role === 'user' && !message.internal),
     asked = JSON.stringify(original?.content ?? '');
   view.generations.append(node('p', 'missing-say', sentence));
@@ -5435,9 +5446,12 @@ const workflowsUI = setupNativeWorkflows({
     updateControls();
   },
   showTokenField: message => {
-    settingsTabs.select('update');
+    // (0.6.479) The tab of its field, « Modèles »: « Mise à jour » was opened since 0.5.15, where it is not, and
+    // a click on « Télécharger » of LTX 2.5 led nowhere (27/11).
+    settingsTabs.select('workflows');
     $('hf-token-status').textContent = message;
-    $('hf-token').focus();
+    $('hf-token').focus({ preventScroll: true });
+    $('hf-token').scrollIntoView({ block: 'center' });
   },
   onHelpChange: target => helpTips.refresh(target),
 });

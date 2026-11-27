@@ -60,7 +60,7 @@ import { setupMontage } from './montage.mjs';
 import { DICTATING } from './dictation.mjs';
 import { heldCause } from './generation-ui.mjs';
 import { QUEUE_MOST, createQueue, queueParts } from './studio-queue.mjs';
-import { sizeText } from './missing-file.mjs';
+import { engineOnly, engineText, sizeText, withEngine } from './missing-file.mjs';
 import { licenseBlock, restrictedOf } from './model-licenses.mjs';
 import { licenseSentence } from './models-page.mjs';
 
@@ -3297,7 +3297,15 @@ export function setupStudio({
       const model = select(
         list.map(item => [
           item.id,
-          item.name + (item.missing ? ' · pas sur cet ordinateur' : item.unavailable ? ' · indisponible' : ''),
+          item.name +
+            // (0.6.479) Its files all here on a new installation, the engine alone to fetch: it is on this computer.
+            (item.missing
+              ? engineOnly(item.missing)
+                ? ' · il manque le moteur'
+                : ' · pas sur cet ordinateur'
+              : item.unavailable
+                ? ' · indisponible'
+                : ''),
         ]),
         workflow.id,
         choose,
@@ -3308,7 +3316,8 @@ export function setupStudio({
         // « Générer »), its size in its bubble; its name alone on the face of the list (glass-menu.mjs), in amber.
         if (item.missing) {
           const option = model.children[index];
-          option.title = sizeText(item.missing.left || item.missing.bytes) + ' à télécharger';
+          // (0.6.479) With the engine of a new installation, as its button says it (missingSize).
+          option.title = missingSize(item) + ' à télécharger';
           option.dataset.face = item.name;
         } else if (item.unavailable) Object.assign(model.children[index], { disabled: true, title: item.unavailable });
       });
@@ -3343,8 +3352,10 @@ export function setupStudio({
     // (0.6.480) Not on this computer (maquette-studio-sans-modele, 27/11): what it is for, then in amber « Pas sur cet
     // ordinateur · 17,7 Go ». Its reason (« Fichier introuvable… ») said nothing of what to do.
     if (workflow.missing) {
-      const absent = node('p', 'studio-model-note studio-absent-note', workflow.does ? workflow.does + ' ' : '');
-      absent.append(node('b', 'studio-absent-size', 'Pas sur cet ordinateur · ' + missingSize(workflow)));
+      const absent = node('p', 'studio-model-note studio-absent-note', workflow.does ? workflow.does + ' ' : ''),
+        // (0.6.479) Its files all here, the engine of a new installation alone to fetch (Qwen-Image-Edit, 27/11).
+        lacks = engineOnly(workflow.missing) ? 'Il manque le moteur de génération · ' : 'Pas sur cet ordinateur · ';
+      absent.append(node('b', 'studio-absent-size', lacks + missingSize(workflow)));
       return absent;
     }
     const note = node('p', 'studio-model-note', workflow.unavailable);
@@ -3860,11 +3871,17 @@ export function setupStudio({
     if (!model) throw Error(`${entry.label?.model || 'Son modèle'} n’est plus proposé par le Studio.`);
     // (Merged with 0.6.480) Listed, but not on this computer any more (its files taken away since): said on its tile,
     // never sent (the server would offer its download, and no take). A click on the tile gives « Télécharger ».
-    if (model.missing) throw Error(notHere(model.name));
+    if (model.missing) throw Error(notHere(model.name, model.missing));
     return { ...wanted, model };
   }
   /** (Merged with 0.6.480) Why a request is not made, its model not on this computer (any more): its tile says it. */
-  const notHere = name => `${name} n’est pas sur cet ordinateur : téléchargez-le d’abord.`;
+  // (0.6.503) Its files all here, the engine of a new installation alone to fetch (engineOnly): what it lacks, as
+  // the line of its « Télécharger » says it (absentGo). « Pas sur cet ordinateur » said a model that was. Its model
+  // and what it lacks first: the tile of the window cuts its words at two lines.
+  const notHere = (name, missing) =>
+    engineOnly(missing)
+      ? `${name} : il manque le moteur de génération, téléchargez-le d’abord.`
+      : `${name} n’est pas sur cet ordinateur : téléchargez-le d’abord.`;
   /**
    * (0.6.466, D5) A click on a request that failed: its settings back in the Studio as they were asked (its page, its
    * prompt, its model, its images, its tries), why it failed under the screen; its tile leaves the queue. As a take
@@ -4623,7 +4640,9 @@ export function setupStudio({
     // (0.6.480) The engine starts (engineWait): nothing to make yet. Without this, its keys would ask generate(), whose
     // failure for want of a model (« Aucun modèle prêt ») would stay under the Studio once it is whole. (Merged with
     // the queue: nor « Reprendre », whose requests would find no model ready either.)
-    if (engineStarts() && !working) return { text: ENGINE_HELD };
+    // (0.6.479) Not when a download prepares it for the model in hand: « Télécharger » says so then, and its line
+    // (missingWhy), as form() draws it.
+    if (engineStarts() && !working && !(workflow?.missing && downloading())) return { text: engineHeld() };
     if (kind === 'again') {
       const busy = elsewhere() || blocked();
       return busy ? { text: busy } : null;
@@ -4783,6 +4802,9 @@ export function setupStudio({
     // (0.6.480, merged with the queue) The engine starts (engineWait): no model is ready yet, for « Générer » as for
     // « Reprendre » (the Studio's, the window's) and the requests that would go (generate).
     ENGINE_HELD = 'Le moteur de génération démarre.';
+  // (0.6.503) Installed the first time (« Préparation du moteur » of a download, minutes): said so, as its screen
+  // says it (engineWait), not « démarre ».
+  const engineHeld = () => (info?.engine?.state === 'installing' ? 'Le moteur de génération s’installe.' : ENGINE_HELD);
   /** (0.6.478) Why « Reprendre » of the window is greyed now; '' when it can go (at once, or after the take, Q3). */
   function resumeHeld() {
     if (working?.montage || working?.place) return BOBINE_HELD;
@@ -4790,7 +4812,7 @@ export function setupStudio({
     if (working || chaining || settling) return RAIL_HELD;
     if (proposal || checking || ai) return AI_HELD;
     // (Merged with 0.6.480) While the engine starts: its requests would find no model ready.
-    if (engineStarts()) return ENGINE_HELD;
+    if (engineStarts()) return engineHeld();
     return blocked() || elsewhere() || '';
   }
   /**
@@ -5521,7 +5543,7 @@ export function setupStudio({
     // 0.6.480) Nor while the engine starts: a request of the queue, a try of a series, wait paused, and why.
     const reason =
       (follows ? blocked(true) : blocked() || (onTake || entry ? '' : current()?.unavailable)) ||
-      ((entry || again) && engineStarts() ? ENGINE_HELD : '');
+      ((entry || again) && engineStarts() ? engineHeld() : '');
     if (reason) {
       refuse(reason);
       // (0.6.466) It waits at its place with those after it, for « Reprendre »: nothing goes again by itself.
@@ -5644,7 +5666,7 @@ export function setupStudio({
       // (Merged with 0.6.480) Its model not on this computer any more, the tools read before had it (its files taken
       // away since): the server offers its download (`missing`), and no plan. Said (its tile, the line under the
       // screen, the Bobine), never sent on to be made.
-      if (proposed.missing) throw Error(notHere(proposed.workflowName || 'Son modèle'));
+      if (proposed.missing) throw Error(notHere(proposed.workflowName || 'Son modèle', proposed.missing));
       working.requestId = proposed.requestId;
       cancelIfStopped(proposed.requestId);
       // The size chosen here, where the workflow sets its own.
@@ -7876,8 +7898,24 @@ export function setupStudio({
   }
 
   // ------------------------------------------------------------------ a model not on this computer (0.6.480)
-  /** What a model not on this computer leaves to download, as its button says it (« 17,7 Go »). */
-  const missingSize = workflow => sizeText(workflow.missing.left || workflow.missing.bytes);
+  /**
+   * What a model not on this computer leaves to download, as its button says it (« 17,7 Go »). (0.6.479) With the
+   * engine of a new installation, which the same click prepares: « 3,0 Go » for that engine alone.
+   */
+  const missingSize = workflow =>
+    sizeText(withEngine(workflow.missing.left || workflow.missing.bytes, workflow.missing));
+  /** (0.6.479) Whether a download is under way: of the model in hand (`fetching`), or of another (`fetchOther`). */
+  const downloading = () => fetching?.stage === 'running' || Boolean(fetchOther);
+  /**
+   * (0.6.479) What the download in hand does, above its button: its files, then the engine of a new installation
+   * (`engine`, from GET /api/downloads), which uv prepares without telling its bytes (sayFetch).
+   */
+  const fetchSaid = name =>
+    fetching?.engine !== 'preparing'
+      ? `${name} se télécharge : « Générer » revient à la fin.`
+      : /^Démarrage/.test(fetching.current || '')
+        ? 'Le moteur de génération démarre : « Générer » revient à la fin.'
+        : 'Le moteur de génération s’installe, une seule fois : « Générer » revient à la fin.';
   /**
    * Why nothing is made with a model not on this computer, in the bubble of its button (and of the keys of « Générer »,
    * greyedWhy): its download under way, another one meanwhile, the account its source asks for, or what it lacks.
@@ -7886,13 +7924,18 @@ export function setupStudio({
     const { name, missing } = workflow,
       mine = fetching?.stage === 'running' && fetching.id === workflow.id,
       other = fetching?.stage === 'running' && !mine ? fetching.name : fetchOther;
-    if (mine) return `${name} se télécharge : « Générer » revient à la fin.`;
+    if (mine) return fetchSaid(name);
     if (other) return `${other} se télécharge : attendez sa fin.`;
+    // (0.6.479) Where the token is made, said as the Bobine and the card of the chat say it (« un jeton de lecture »
+    // told a beginner nothing, 27/11).
     if (missing.needsToken)
       return (
-        `${name} demande un compte Hugging Face : acceptez sa licence${missing.page ? ' sur ' + missing.page : ''}, ` +
+        `${name} demande un compte Hugging Face : acceptez sa licence${missing.page ? ' sur ' + missing.page : ''} ` +
+        'avec ce compte, créez un jeton de lecture sur huggingface.co/settings/tokens, ' +
         'puis enregistrez votre jeton dans Paramètres › Modèles › Fichiers.'
       );
+    // (0.6.479) Its files all here: the engine of a new installation is what it lacks.
+    if (engineOnly(missing)) return engineText(missing);
     return `${name} n’est pas sur cet ordinateur : téléchargez-le d’abord.`;
   }
   /**
@@ -7924,13 +7967,21 @@ export function setupStudio({
       fetching = { id: workflow.id, name: workflow.name, offer, stage: 'confirm' };
       return redraw();
     }
-    fetching = { id: workflow.id, name: workflow.name, offer, stage: 'running', received: 0, total: offer.bytes };
+    // (0.6.479) With the engine of a new installation, which the server counts in the job too; prepared first when a
+    // file is converted by it (`engine` 'preparing' at once, lib/model-downloads.mjs).
+    const total = withEngine(offer.bytes, offer);
+    fetching = { id: workflow.id, name: workflow.name, offer, stage: 'running', received: 0, total };
     redraw();
     try {
       const asked = { id: offer.workflowId, ...(accepted ? { accepted: true } : {}) },
         job = await (await api('downloads/start', asked)).json();
       if (fetching?.id !== workflow.id) return;
-      Object.assign(fetching, { received: job.received ?? 0, total: job.total || offer.bytes });
+      Object.assign(fetching, {
+        received: job.received ?? 0,
+        total: job.total || total,
+        engine: job.engine,
+        current: job.current,
+      });
     } catch (error) {
       if (fetching?.id === workflow.id) fetching = null;
       fetchError = 'Téléchargement impossible : ' + error.message;
@@ -7962,7 +8013,13 @@ export function setupStudio({
     // (An answer of before: the download it was asked for is not the one in hand any more.)
     if ((fetching?.stage === 'running' ? fetching.offer.workflowId : '') !== id) return;
     if (job?.state === 'running' && id && job.workflowId === id) {
-      Object.assign(fetching, { received: job.received ?? 0, total: job.total || fetching.total });
+      // (0.6.479) And what it does once its files are there: the engine of a new installation being prepared.
+      Object.assign(fetching, {
+        received: job.received ?? 0,
+        total: job.total || fetching.total,
+        engine: job.engine,
+        current: job.current,
+      });
       sayFetch();
       return followLater();
     }
@@ -8000,10 +8057,31 @@ export function setupStudio({
         ? '0'
         : giga
           ? (received / 1024 ** 3).toFixed(1).replace('.', ',')
-          : Math.round(received / 1024 ** 2).toLocaleString('fr-FR');
+          : Math.round(received / 1024 ** 2).toLocaleString('fr-FR'),
+      // (0.6.479) The engine of a new installation, once its files are there: « Préparation… », its bar going and
+      // coming (uv does not tell its bytes), as a take whose advance is unknown (progress). In the button alone: the
+      // screen of the engine that starts (engineWait) is not drawn meanwhile (form).
+      engine = fetching.engine === 'preparing',
+      said = fetchSaid(fetching.name);
+    fetchLive.button.classList?.toggle('is-indeterminate', engine);
     fetchLive.button.style.setProperty?.('--studio-progress', String(Math.round(part * 1000) / 1000));
-    fetchLive.button.setAttribute('aria-valuenow', String(Math.round(part * 100)));
-    fetchLive.label.textContent = `${come} / ${sizeText(total)}`;
+    if (engine) fetchLive.button.removeAttribute?.('aria-valuenow');
+    else fetchLive.button.setAttribute('aria-valuenow', String(Math.round(part * 100)));
+    fetchLive.button.setAttribute(
+      'aria-label',
+      !engine
+        ? 'Téléchargement de ' + fetching.name
+        : /^Démarrage/.test(fetching.current || '')
+          ? 'Démarrage du moteur de génération'
+          : 'Préparation du moteur de génération',
+    );
+    // (Its first word: the glass under way is 206 px wide, « Arrêter » in it, moodix.css.)
+    fetchLive.label.textContent = engine
+      ? `${(fetching.current || 'Préparation').split(' ')[0]}…`
+      : `${come} / ${sizeText(total)}`;
+    // Its bubble and its line above the buttons say what it does.
+    fetchLive.button.title = said;
+    if (fetchLive.line && fetchLive.line.textContent !== said) fetchLive.line.textContent = said;
   }
   /**
    * A download of this model already under way (from Paramètres › Modèles, the Bobine, a card of the chat), or of
@@ -8018,9 +8096,19 @@ export function setupStudio({
       .then(({ job } = {}) => {
         if (job?.state !== 'running' || fetching || fetchOther) return;
         const { id, name } = workflow,
-          total = job.total || offer.bytes;
+          // (0.6.479) With the engine of a new installation, and what the download does (its files, the engine).
+          total = job.total || withEngine(offer.bytes, offer);
         if (job.workflowId === offer.workflowId)
-          fetching = { id, name, offer, stage: 'running', received: job.received ?? 0, total };
+          fetching = {
+            id,
+            name,
+            offer,
+            stage: 'running',
+            received: job.received ?? 0,
+            total,
+            engine: job.engine,
+            current: job.current,
+          };
         else fetchOther = job.name || 'Un autre modèle';
         redraw();
         followLater();
@@ -8050,9 +8138,21 @@ export function setupStudio({
       fill = node('span', 'studio-go-bar');
     fill.setAttribute('aria-hidden', 'true');
     go.append(label, fill);
-    go.title = licenseSentence(offer.files) || `Télécharger ${name} (${size})`;
-    let line = node('p', 'studio-absent-line', `${name} n’est pas sur cet ordinateur.`),
+    // (0.6.479) The engine of a new installation, which the same click prepares, said in its bubble; alone (its files
+    // all here), what it is, and its line above the buttons says what lacks: never « pas sur cet ordinateur ».
+    const named = licenseSentence(offer.files) || `Télécharger ${name} (${size})`,
+      engine = engineText(offer),
+      alone = engineOnly(offer);
+    go.title = alone ? engine : engine ? `${named.replace(/\.?$/, '.')} ${engine}` : named;
+    let line = node(
+        'p',
+        'studio-absent-line',
+        alone
+          ? `Les fichiers de ${name} sont là : il manque le moteur de génération.`
+          : `${name} n’est pas sur cet ordinateur.`,
+      ),
       pane = null;
+    if (engine) line.title = alone ? engine : `${line.textContent} ${engine}`;
     if (running) {
       // Its bar, its figures (sayFetch), « Arrêter » after a rule, as a take being made.
       go.disabled = true;
@@ -8068,8 +8168,11 @@ export function setupStudio({
       halt.setAttribute('aria-label', 'Arrêter le téléchargement');
       halt.title = 'Arrêter le téléchargement';
       glass.append(go, rule, halt);
-      fetchLive = { button: go, label };
       line = node('p', 'studio-absent-line', missingWhy(workflow));
+      // (0.6.479) Its line too: what the download does changes from its files to the engine (sayFetch). Filled at once:
+      // drawn again meanwhile (the tools read again as the engine is prepared), the button stood empty a second.
+      fetchLive = { button: go, label, line };
+      sayFetch();
     } else {
       glass.append(go);
       if (confirm) {
@@ -8308,6 +8411,9 @@ export function setupStudio({
   function setMode(next) {
     // (0.6.254) Another page of the Studio: one try again.
     if (next !== mode) tries = 1;
+    // (0.6.479) Nor why the download of a model of another page could not be: it stayed above the « Télécharger » of
+    // this one's model (failure, beside it, was let go).
+    if (next !== mode) fetchError = '';
     mode = next;
     failure = '';
     formatsOpen = addOpen = triesOpen = cameraMenu = false;
@@ -8340,7 +8446,13 @@ export function setupStudio({
     if (!info.enabled) return message('La génération locale est désactivée : activez-la dans Paramètres › Génération.');
     // (0.6.480) The generation engine starts: no model is ready until it is (« Aucun modèle prêt » for ten seconds on a
     // computer that has them all, 27/11). Said, the Studio as it will be; drawn whole once it is ready.
-    if (engineStarts() && !list.some(item => !item.unavailable)) return engineWait();
+    // (0.6.479) Not while a download prepares it (a new installation) and the model in hand shows it: its button says
+    // so, « Préparation… » (sayFetch); this screen beside it said the engine started. A download under way elsewhere is
+    // looked for first (watchFetch).
+    if (engineStarts() && !list.some(item => !item.unavailable) && !(workflow?.missing && downloading())) {
+      if (workflow?.missing) watchFetch(workflow);
+      return engineWait();
+    }
     // (0.6.480) Nor while it is stopped or failed: that, and not the models, is what to look at.
     if (!workflow && engineDown()) return message(engineDown());
     // (0.6.480) A licence to read for another model than the one in hand now: left (« Télécharger » again).

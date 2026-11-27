@@ -121,7 +121,15 @@ export function partsOf(section, workflows, downloads) {
           state,
           serves: false,
           note: state === 'missing' ? 'Pas sur cet ordinateur, et pas de téléchargement connu.' : '',
-          download: state === 'download' ? { id: item.download, offer, bytes: offer.left ?? offer.bytes ?? 0 } : null,
+          download:
+            state === 'download'
+              ? {
+                  id: item.download,
+                  offer,
+                  // (0.6.479) With the engine of a new installation, which its click prepares too, as lineOf counts it.
+                  bytes: (offer.left ?? offer.bytes ?? 0) + (Number(offer.engine?.bytes) || 0),
+                }
+              : null,
           held: state === 'missing' ? 'Ce modèle n’est pas sur cet ordinateur.' : 'À télécharger d’abord.',
         });
       }

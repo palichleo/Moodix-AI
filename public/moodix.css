@@ -14210,6 +14210,10 @@ body[data-setup='incomplete'] #resume-last {
 .missing-go:hover {
   background: rgba(238, 232, 222, 0.16);
 }
+/* (0.6.479) Grisé faute de jeton Hugging Face (sa phrase dans sa bulle) : rien ne s'allume sous le pointeur. */
+.missing-go:disabled:hover {
+  background: rgba(238, 232, 222, 0.1);
+}
 .missing-go svg {
   width: 15px;
   height: 15px;

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { proposalCard } from '../public/proposal-card.mjs';
+import { lackingText } from '../public/missing-file.mjs';
 
 // The proposal of Moodix in its message (direction-artistique.md, « La proposition vidéo »).
 class Element {
@@ -624,6 +625,46 @@ test('(0.6.476) a model that is not on this computer: its download offered in th
   assert.deepEqual(shown, [true, false, false, 'MiniMax H3 Omni']);
   card.go.onclick();
   assert.equal(await card.answer, 'once');
+});
+
+test('(0.6.503) several files to download: the head of the proposal says « Il manque des fichiers »', async () => {
+  // (Merged with 0.6.479: « des fichiers » when there are several, his decision of 27/11.) The head of the card said
+  // « Il manque un fichier » for any, the head of its offer, which says it so, hidden under it (0.6.493, m6).
+  const offer = {
+    workflowId: 'mm',
+    workflowName: 'MiniMax H3 Omni',
+    family: 'minimax_h3',
+    files: [
+      { file: 'minimax_h3_omni.safetensors', size: 21 * 1024 ** 3 },
+      { file: 'umt5_xxl.safetensors', size: 11 * 1024 ** 3 },
+    ],
+    bytes: 32 * 1024 ** 3,
+    left: 32 * 1024 ** 3,
+    needsToken: false,
+    page: '',
+  };
+  const card = setup(chosenOf('ltx25', 'LTX 2.5'), {
+    delay: 0,
+    answer: route =>
+      route === 'tools/revise'
+        ? { ...chosenOf('ltx25', 'LTX 2.5'), requestId: 'r2', approvalToken: 't2', offer }
+        : route === 'downloads'
+          ? { job: { state: 'idle' } }
+          : {},
+  });
+  card.title.children[0].onclick({ stopPropagation() {} });
+  menuOf(card.card).children.find(item => item.children[0].children[0].textContent === 'MiniMax H3 Omni').onclick();
+  await wait(0);
+  const [missing] = card.card.children[4].children;
+  assert.deepEqual(
+    [card.status.textContent, missing.attributes['aria-label']],
+    ['Il manque des fichiers', 'Il manque des fichiers'],
+  );
+  // One file, or the engine of a new installation alone (its files all here): as the card of the chat says them.
+  assert.equal(lackingText({ files: [offer.files[0]] }), 'Il manque un fichier');
+  assert.equal(lackingText({ files: [], engine: { bytes: 3 * 1024 ** 3 } }), 'Il manque le moteur de génération');
+  card.cancel.onclick();
+  assert.equal(await card.answer, 'cancel');
 });
 
 test('(0.6.493) a proposal gone greys « Générer » with why: its time over, or the server saying so; never left on', async () => {

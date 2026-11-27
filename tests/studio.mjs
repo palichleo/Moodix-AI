@@ -3555,8 +3555,10 @@ test('a model whose source asks for an account: « Télécharger » greyed, wher
   );
   try {
     page.mode(1);
+    // (0.6.479) Where the token is made, as the Bobine and the card of the chat say it.
     const whole =
-      'LTX 2.5 demande un compte Hugging Face : acceptez sa licence sur https://huggingface.co/Lightricks/LTX-2, ' +
+      'LTX 2.5 demande un compte Hugging Face : acceptez sa licence sur https://huggingface.co/Lightricks/LTX-2 ' +
+      'avec ce compte, créez un jeton de lecture sur huggingface.co/settings/tokens, ' +
       'puis enregistrez votre jeton dans Paramètres › Modèles › Fichiers.';
     const [get] = page.body.find('studio-get');
     assert.deepEqual([labelOf(get), get.disabled, get.title], ['Télécharger · 38,2 Go', true, whole]);
@@ -3842,6 +3844,163 @@ test('(0.6.474) a model not on this computer: what it lacks in the line kept abo
     assert.deepEqual(said(starting.body), []);
   } finally {
     starting.restore();
+  }
+});
+
+test('(0.6.479) new installation: the engine counted, alone when the files are here, « Préparation… »', async () => {
+  // (27/11, the computer of a friend: Qwen-Image-Edit downloaded, « Générer » answered « Moteur de génération
+  // arrêté ». Never the screen of the engine that starts beside its download.)
+  const GIB = 1024 ** 3,
+    engineOffer = { bytes: 3 * GIB },
+    krea = absentModel('krea', 'Krea 2'),
+    qwen = absentModel('qwen', 'Qwen-Image-Edit'),
+    tools = { create_image: [krea, qwen] };
+  krea.missing.engine = engineOffer;
+  Object.assign(qwen.missing, { files: [], bytes: 0, left: 0, engine: engineOffer });
+  let engine = null,
+    job = null;
+  const page = await studioPage(
+    tools,
+    {
+      'downloads/start': body =>
+        (job = {
+          state: 'running',
+          workflowId: body.id,
+          name: 'Qwen-Image-Edit',
+          received: 0,
+          total: 3 * GIB,
+          engine: 'preparing',
+          current: 'Préparation du moteur',
+        }),
+      downloads: () => ({ job }),
+    },
+    { engine: () => engine },
+  );
+  try {
+    const { body } = page,
+      line = () => body.find('studio-absent-line').map(said => said.textContent),
+      alone =
+        'Les fichiers sont là : il manque le moteur de génération de Moodix, environ 3,0 Go, ' +
+        'installé une seule fois pour tous les modèles.';
+    // Its files and the engine its click prepares: counted in its button, said in its bubble.
+    const [get] = body.find('studio-get');
+    assert.deepEqual(
+      [labelOf(get), get.title],
+      [
+        'Télécharger · 20,7 Go',
+        'Licence : Apache-2.0. En téléchargeant, vous l’acceptez. Le moteur de génération de Moodix se télécharge ' +
+          'avec : environ 3,0 Go, une seule fois pour tous les modèles.',
+      ],
+    );
+    assert.equal(body.find('studio-absent-size')[0].textContent, 'Pas sur cet ordinateur · 20,7 Go');
+    const pick = body.find('studio-model-pick')[0];
+    assert.deepEqual(
+      pick.children.map(option => [option.textContent, option.title]),
+      [
+        ['Krea 2 · pas sur cet ordinateur', '20,7 Go à télécharger'],
+        ['Qwen-Image-Edit · il manque le moteur', '3,0 Go à télécharger'],
+      ],
+    );
+    // Its files all here: the engine alone, never « pas sur cet ordinateur ».
+    pick.value = 'qwen';
+    pick.onchange();
+    page.studio.render();
+    const [only] = body.find('studio-get');
+    assert.deepEqual([labelOf(only), only.title], ['Télécharger · 3,0 Go', alone]);
+    assert.equal(body.find('studio-absent-size')[0].textContent, 'Il manque le moteur de génération · 3,0 Go');
+    assert.deepEqual(line(), ['Les fichiers de Qwen-Image-Edit sont là : il manque le moteur de génération.']);
+    assert.equal(body.find('studio-absent-line')[0].title, alone);
+    page.page['studio-view'].onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
+    await settle();
+    assert.equal(page.said.at(-1), alone);
+    // Pressed: the engine is prepared at once, uv untelling its bytes: « Préparation… », as a take of unknown advance.
+    await body.find('studio-get')[0].onclick();
+    await settle();
+    // The engine installs meanwhile: the tools read again say so, and the Studio stays as it is.
+    engine = { state: 'installing' };
+    page.studio.invalidate({ tools: true });
+    await page.studio.prefetch();
+    page.studio.render();
+    assert.equal(body.find('studio-engine-go').length, 0);
+    const [bar] = body.find('studio-get');
+    assert.deepEqual(
+      [labelOf(bar), bar.attributes['aria-label'], bar.attributes['aria-valuenow'], body.find('studio-stop').length],
+      ['Préparation…', 'Préparation du moteur de génération', undefined, 1],
+    );
+    const installs = 'Le moteur de génération s’installe, une seule fois : « Générer » revient à la fin.';
+    assert.deepEqual([line(), bar.title], [[installs], installs]);
+    // Its keys say what it does, not that the engine starts.
+    page.page['studio-view'].onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
+    await settle();
+    assert.equal(page.said.at(-1), installs);
+    // It starts: said in the same button, the Studio not drawn again.
+    job = { ...job, current: 'Démarrage du moteur' };
+    assert.ok(await untilSeen(() => labelOf(bar) === 'Démarrage…'), labelOf(bar));
+    assert.deepEqual(line(), ['Le moteur de génération démarre : « Générer » revient à la fin.']);
+    assert.equal(bar.attributes['aria-label'], 'Démarrage du moteur de génération');
+    // Ready: « Générer ».
+    engine = null;
+    tools.create_image = [absentModel('krea', 'Krea 2'), absentModel('qwen', 'Qwen-Image-Edit', { ready: true })];
+    job = { state: 'done', workflowId: 'qwen', name: 'Qwen-Image-Edit', engine: 'ready' };
+    assert.ok(await untilSeen(() => body.find('studio-get').length === 0));
+    assert.deepEqual([labelOf(body.find('studio-go')[0]), body.find('studio-engine-go').length], ['Générer', 0]);
+  } finally {
+    page.restore();
+  }
+});
+
+test('(0.6.479) an engine prepared by a download begun elsewhere: in « Télécharger », no second screen', async () => {
+  const qwen = absentModel('qwen', 'Qwen-Image-Edit'),
+    job = {
+      state: 'running',
+      workflowId: 'qwen',
+      name: 'Qwen-Image-Edit',
+      received: 0,
+      total: 3 * 1024 ** 3,
+      engine: 'preparing',
+      current: 'Préparation du moteur',
+    };
+  Object.assign(qwen.missing, { files: [], bytes: 0, left: 0, engine: { bytes: 3 * 1024 ** 3 } });
+  const page = await studioPage(
+    { create_image: [qwen] },
+    { downloads: () => ({ job }) },
+    { engine: () => ({ state: 'installing' }) },
+  );
+  try {
+    // (Begun in Paramètres › Modèles: « Installation du moteur… », nothing to press, until it is found.)
+    assert.ok(await untilSeen(() => page.body.find('studio-get').length === 1));
+    assert.deepEqual(
+      [page.body.find('studio-engine-go').length, labelOf(page.body.find('studio-get')[0])],
+      [0, 'Préparation…'],
+    );
+    // A page of the Studio without a model: the screen of the engine, as before.
+    page.mode(2);
+    assert.equal(page.body.find('studio-engine-go').length, 1);
+  } finally {
+    page.restore();
+  }
+});
+
+test('(0.6.479) why a download failed stays with its model, never said on another page of the Studio', async () => {
+  const page = await studioPage(
+    { create_image: [absentModel('krea', 'Krea 2')], create_video: [absentModel('ltx', 'LTX 2.5', { bytes: 41e9 })] },
+    {
+      'downloads/start': () => {
+        throw new Error('Pas assez de place.');
+      },
+    },
+  );
+  try {
+    const said = () => page.body.find('studio-under')[0].children.map(line => [line.className, line.textContent]);
+    await page.body.find('studio-get')[0].onclick();
+    await settle();
+    assert.deepEqual(said(), [['studio-error', 'Téléchargement impossible : Pas assez de place.']]);
+    page.mode(1);
+    assert.deepEqual(said(), [['studio-absent-line', 'LTX 2.5 n’est pas sur cet ordinateur.']]);
+    page.mode(0);
+    assert.deepEqual(said(), [['studio-absent-line', 'Krea 2 n’est pas sur cet ordinateur.']]);
+  } finally {
+    page.restore();
   }
 });
 
@@ -14072,6 +14231,73 @@ test('(0.6.501, queue) MOSS Image absent, its boxes posed, a queue paused: nothi
       [said.at(-1), page.asked.filter(([route]) => route === 'downloads/start').length, takes.length, page.tiles()],
       [why, 0, 1, [['En pause 1', 'B']]],
     );
+  } finally {
+    page.restore();
+  }
+});
+
+/** (0.6.503) A Studio reloaded with the request « B » paused (as above), its models as `patch` makes them. */
+async function pausedB(patch, engine) {
+  const kept = { queueStorage: tabStore(), tab: 'onglet-1' },
+    first = await queueStudio({ extra: kept });
+  try {
+    first.type('A');
+    first.press();
+    await until(() => first.takes.length === 1);
+    first.type('B');
+    first.press();
+  } finally {
+    first.restore();
+  }
+  const tools = lookModels();
+  for (const model of Object.values(tools).flat()) Object.assign(model, patch(model));
+  return queueStudio({ extra: kept, tools, engine: () => engine });
+}
+
+// (0.6.503) The engine installed the first time (« Préparation du moteur » of a download, minutes, which app.js now
+// reads: refreshStatus): « Reprendre » of the window greyed with « s’installe », as its screen says it; nothing sent.
+test('(0.6.503, queue) the engine being installed: « Reprendre » of the window says so, nothing sent', async () => {
+  const INSTALLING = 'Le moteur de génération s’installe.',
+    page = await pausedB(
+      () => ({ unavailable: 'Le moteur de génération s’installe : quelques minutes, la première fois seulement…' }),
+      { state: 'installing' },
+    );
+  try {
+    const [lying] = page.studio.queueView({ docked: true });
+    assert.deepEqual([lying.held, lying.foot?.held, lying.foot?.tip], [INSTALLING, true, INSTALLING]);
+    page.keys();
+    page.studio.queueResume(lying.conversation);
+    await settle();
+    assert.deepEqual(
+      [page.asked.filter(([route]) => route === 'tools/action').length, page.takes.length, page.tiles()],
+      [0, 0, [['En pause 1', 'B']]],
+    );
+    assert.equal(page.notices.at(-1), INSTALLING);
+  } finally {
+    page.restore();
+  }
+});
+
+// (0.6.503) Its model lacks only the engine of a new installation (its files all here): its tile says that, never « pas
+// sur cet ordinateur »; its model and what it lacks first (the tile of the window cuts its words at two lines).
+test('(0.6.503, queue) a request whose model lacks only the engine: its tile says the engine lacks', async () => {
+  const engine = { bytes: 3 * 1024 ** 3 },
+    page = await pausedB(
+      model => ({
+        unavailable: 'Le moteur de génération n’est pas encore installé.',
+        missing: { workflowId: model.id, files: [], bytes: 0, left: 0, engine },
+      }),
+      { state: 'stopped' },
+    );
+  try {
+    const [lying] = page.studio.queueView({ docked: true });
+    assert.deepEqual([lying.foot?.label, lying.foot?.held], ['Reprendre · 1', false]);
+    page.studio.queueResume(lying.conversation);
+    await settle();
+    assert.equal(page.asked.filter(([route]) => route === 'tools/action').length, 0);
+    assert.deepEqual(page.tiles(), [
+      ['Échec', 'Krea 2 : il manque le moteur de génération, téléchargez-le d’abord.'],
+    ]);
   } finally {
     page.restore();
   }

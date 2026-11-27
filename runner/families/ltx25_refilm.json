@@ -36,6 +36,9 @@
       "signature": [
         {
           "key": "(?:^|\\.)(?:transformer_blocks|diffusion_model\\.transformer_blocks)\\.\\d+\\."
+        },
+        {
+          "key": "^(?:model\\.diffusion_model\\.|diffusion_model\\.)?audio_patchify_proj\\.weight$"
         }
       ]
     },
@@ -45,7 +48,11 @@
       "required": true,
       "signature": [
         {
-          "key": "(?:^|\\.)embed_tokens\\.weight$"
+          "key": "(?:^|\\.)embed_tokens\\.weight$",
+          "shape": [262144, 3840]
+        },
+        {
+          "key": "^text_embedding_projection\\.video_aggregate_embed\\.weight$"
         }
       ]
     },
@@ -55,10 +62,13 @@
       "required": true,
       "signature": [
         {
-          "key": "(?:^|\\.)encoder\\."
+          "key": "^encoder\\.down_blocks\\."
         },
         {
-          "key": "(?:^|\\.)decoder\\."
+          "key": "^decoder\\.diff_blocks\\."
+        },
+        {
+          "key": "^per_channel_statistics\\.mean-of-means$"
         }
       ]
     },
@@ -69,10 +79,10 @@
       "note": "Requis par l'échantillonneur couplé même pour une vidéo muette.",
       "signature": [
         {
-          "key": "(?:^|\\.)encoder\\."
+          "key": "^audio_vae\\.decoder\\."
         },
         {
-          "key": "(?:^|\\.)decoder\\."
+          "key": "^vocoder\\."
         }
       ]
     },

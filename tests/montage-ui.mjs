@@ -2024,12 +2024,18 @@ test('a licence with conditions is read in « À créer » before the download, 
   // A model behind a Hugging Face account: said, the button greyed.
   const { f: g } = await series({ times: { workflowName: 'LTX 2.5', missing: { ...offer, needsToken: true, page: 'huggingface.co/Lightricks' } }, downloads });
   // (0.6.461) In a low window, in a line (moodix.css): the whole in its bubble, and for a screen reader.
-  const account = 'LTX 2.5 demande un compte Hugging Face : acceptez sa licence sur huggingface.co/Lightricks, puis enregistrez votre jeton dans Paramètres › Modèles › Fichiers.',
+  // (0.6.479) Where the token is made, said with the rest.
+  const account =
+      'LTX 2.5 demande un compte Hugging Face : acceptez sa licence sur huggingface.co/Lightricks avec ce compte, ' +
+      'créez un jeton de lecture sur huggingface.co/settings/tokens, ' +
+      'puis enregistrez votre jeton dans Paramètres › Modèles › Fichiers.',
     brief = g.get('bobine-missing-brief')[0];
   assert.deepEqual(
     [g.get('bobine-go-download')[0].disabled, g.said('bobine-missing-whole'), brief.textContent, brief.dataset.tip, brief.attributes['aria-hidden']],
     [true, [account], 'LTX 2.5 demande un compte Hugging Face.', account, 'true'],
   );
+  // (0.6.479) Greyed, its bubble says why, not its licences (« En téléchargeant, vous les acceptez »).
+  assert.equal(g.get('bobine-go-download')[0].title, account);
   // Its download already under way (from Paramètres › Modèles): followed here.
   Object.assign(job, { state: 'running', workflowId: 'ltx', name: 'LTX 2.5', received: 10 * GB, total: 20 * GB });
   const { f: h } = await series({ times: { workflowName: 'LTX 2.5', missing: offer }, downloads });
@@ -2038,6 +2044,66 @@ test('a licence with conditions is read in « À créer » before the download, 
   // A model whose download nobody can say (no offer): the sentence, « Créer » greyed.
   const { f: k } = await series({ times: { workflowName: 'LTX 2.5', missing: true } });
   assert.deepEqual([k.said('bobine-missing'), k.get('bobine-go-download').length, k.go(), k.goMain().disabled], [['LTX 2.5 n’est pas sur cet ordinateur.'], 0, 'Créer', true]);
+});
+
+test('(0.6.479) a new installation: « Télécharger » of « À créer » brings the engine, said as prepared', async () => {
+  // The user's choice of 27/11 (« Oui, d'un seul clic »): the engine of generation comes with the first model.
+  const GB = 1024 ** 3,
+    free = [{ file: 'ltx-2.5-int8.safetensors', size: 20 * GB, license: { name: 'Apache 2.0' } }],
+    offer = { workflowId: 'ltx', files: free, bytes: 20 * GB, left: 20 * GB, needsToken: false, page: '' };
+  offer.engine = { bytes: 3 * GB };
+  const job = { state: 'idle' },
+    downloads = route => {
+      if (route === 'downloads/start')
+        Object.assign(job, { state: 'running', workflowId: 'ltx', name: 'LTX 2.5', received: 0, total: 23 * GB });
+      return structuredClone(route === 'downloads' ? { job } : job);
+    },
+    idle = route => (route === 'downloads' ? { job: { state: 'idle' } } : {});
+  const { f } = await series({ times: { workflowName: 'LTX 2.5', missing: offer }, downloads });
+  const fetch = () => f.get('bobine-go-download')[0],
+    engine =
+      'Le moteur de génération de Moodix se télécharge avec : environ 3,0 Go, une seule fois pour tous les modèles.';
+  // (In a low window, what it lacks alone in a line, the whole in its bubble: two sentences took the room of
+  // « À créer ».)
+  assert.deepEqual(
+    [fetch().textContent, f.said('bobine-missing-whole'), f.said('bobine-missing-brief')],
+    [
+      'Télécharger · 23,0 Go',
+      ['LTX 2.5 n’est pas sur cet ordinateur. ' + engine],
+      ['LTX 2.5 n’est pas sur cet ordinateur.'],
+    ],
+  );
+  fetch().onclick();
+  await settle();
+  assert.equal(fetch().textContent, '0 / 23,0 Go');
+  // Its files there, the engine prepared: what it does, in the place of the figures (uv does not tell its bytes).
+  Object.assign(job, { received: 20 * GB, engine: 'preparing', current: 'Préparation du moteur' });
+  await f.later({ ms: 1000 });
+  assert.equal(fetch().textContent, 'Préparation du moteur…');
+  // Behind a Hugging Face account: the engine its button counts, said once the token is there (with it, the line took
+  // seven lines at 1440 × 900, and the card of « À créer » was cut).
+  const gated = { ...offer, needsToken: true, page: 'huggingface.co/Lightricks' },
+    { f: g } = await series({ times: { workflowName: 'LTX 2.5', missing: gated }, downloads: idle });
+  assert.deepEqual(
+    [g.get('bobine-go-download')[0].textContent, g.said('bobine-missing-whole')[0].endsWith(' Fichiers.')],
+    ['Télécharger · 23,0 Go', true],
+  );
+  // Its files all here (decision of 27/11): offered as a file to download, what it lacks said, never « n’est pas sur
+  // cet ordinateur ».
+  const alone =
+      'Les fichiers sont là : il manque le moteur de génération de Moodix, environ 3,0 Go, ' +
+      'installé une seule fois pour tous les modèles.',
+    whole = { workflowId: 'ltx', files: [], bytes: 0, left: 0, needsToken: false, page: '', engine: { bytes: 3 * GB } },
+    { f: e } = await series({ times: { workflowName: 'LTX 2.5', missing: whole }, downloads: idle });
+  assert.deepEqual(
+    [
+      e.get('bobine-go-download')[0].textContent,
+      e.get('bobine-go-download')[0].title,
+      e.said('bobine-missing-whole'),
+      e.said('bobine-missing-brief'),
+    ],
+    ['Télécharger · 3,0 Go', alone, [alone], ['Il manque le moteur de génération.']],
+  );
 });
 
 test('a line of « À créer » and its take on the track light up together; a click on one brings the other in view (0.6.153)', async () => {

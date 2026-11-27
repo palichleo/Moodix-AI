@@ -67,6 +67,34 @@ test('a line says the version its model uses; what is in its way decides the res
   assert.equal(why({ enabled: false, unavailableReason: 'Fichier introuvable pour « Modèle ».' }).note, 'Pas proposé à Moodix AI. Fichier introuvable pour « Modèle ».');
 });
 
+test('(0.6.479) on a new installation, the engine its click prepares is in its size once, and said meanwhile', () => {
+  // The user's choice of 27/11 (« Oui, d'un seul clic »): the total on the button.
+  const engine = { engine: { bytes: 3 * GIB } },
+    lacking = [record('a', { ready: false }), record('b', { ready: false })],
+    line = lineOf(model({ id: 'a' }, { id: 'b' }), lacking, {
+      offers: { a: offer(20 * GIB, engine), b: offer(GIB, engine) },
+      job: { state: 'idle' },
+    });
+  assert.deepEqual([line.state, line.bytes], ['download', 24 * GIB]);
+  // Its files all here: the engine alone (the friend's Qwen-Image-Edit, downloaded before this version).
+  const alone = lineOf(model({ id: 'a' }), [record('a', { ready: false, unavailableReason: 'Moteur arrêté.' })], {
+    offers: { a: offer(0, engine) },
+    job: {},
+  });
+  assert.deepEqual([alone.state, alone.bytes], ['download', 3 * GIB]);
+  // Prepared after the files: what it does, in the place of the figures (uv does not tell its bytes).
+  const job = {
+    state: 'running',
+    engine: 'preparing',
+    current: 'Démarrage du moteur',
+    received: 20 * GIB,
+    total: 23 * GIB,
+  };
+  assert.equal(progressText(job, 5e6), 'Démarrage du moteur');
+  assert.equal(progressText({ ...job, current: '' }), 'Préparation du moteur');
+  assert.equal(progressText({ ...job, engine: 'waiting', current: 'ltx.safetensors' }), '20,0 / 23,0 Go');
+});
+
 test('without lines from the server, a line a workflow, in the group of what it makes', () => {
   const served = [model({ id: 'a' })];
   assert.equal(linesOf(served, [record('a')]), served);
@@ -90,7 +118,11 @@ test('a version says its format and its steps; a size and the advance of a downl
   assert.deepEqual(versionData({ format: 'GGUF Q8' }), ['GGUF Q8']);
   assert.deepEqual(versionData({ parameters: { steps: 20 } }), ['20 étapes']);
   assert.deepEqual([versionData({ format: 'FP8', parameters: { steps: '8' } }), versionData(undefined)], [['FP8'], []]);
-  assert.deepEqual([sizeText(27.3 * GIB), sizeText(GIB), sizeText(640 * 1024 ** 2), sizeText(1000)], ['27,3 Go', '1 Go', '640 Mo', '1 Mo']);
+  // (0.6.479) Always with its decimal, as the Studio and the Bobine write it (« 3,0 Go »).
+  assert.deepEqual(
+    [sizeText(27.3 * GIB), sizeText(GIB), sizeText(640 * 1024 ** 2), sizeText(1000)],
+    ['27,3 Go', '1,0 Go', '640 Mo', '1 Mo'],
+  );
   // « 3,4 / 27,3 Go · 14 min » (capture 68): the time left once the speed is known.
   const job = { received: 3.4 * GIB, total: 27.3 * GIB };
   assert.equal(progressText(job), '3,4 / 27,3 Go');
@@ -100,8 +132,11 @@ test('a version says its format and its steps; a size and the advance of a downl
   assert.equal(progressText(job, (23.9 * GIB) / (170 * 60)), '3,4 / 27,3 Go · 3 h');
   assert.equal(progressText({ received: 64 * 1024 ** 2, total: 128 * 1024 ** 2 }, 1024 ** 2 * 0.6), '64 / 128 Mo · 2 min');
   // Done, or more than its size: no time left to say; nothing known of its size: nothing said.
-  assert.equal(progressText({ received: 2 * GIB, total: GIB }, 5), '1 / 1 Go');
-  assert.deepEqual([progressText({ received: 5 }, 9), progressText(undefined), progressText({ total: GIB }, -1)], ['', '', '0 / 1 Go']);
+  assert.equal(progressText({ received: 2 * GIB, total: GIB }, 5), '1,0 / 1,0 Go');
+  assert.deepEqual(
+    [progressText({ received: 5 }, 9), progressText(undefined), progressText({ total: GIB }, -1)],
+    ['', '', '0 / 1,0 Go'],
+  );
   assert.deepEqual([progressShare(job).toFixed(2), progressShare({ received: 5, total: 2 }), progressShare({ received: -1, total: 2 }), progressShare({}), progressShare(undefined)], ['12.45', 100, 0, 0, 0]);
   // The speed: what came since the last look, smoothed with what was known.
   assert.equal(speedOf(null, { at: 1000, received: 50 }), 0);

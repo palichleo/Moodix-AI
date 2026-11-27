@@ -11,7 +11,7 @@ const MODEL = Buffer.from('model weights '.repeat(200)),
   VOCAB = Buffer.from('{"a":1}'),
   sha = data => createHash('sha256').update(data).digest('hex');
 
-async function fixture(t, { catalog, free = 1024 ** 4 } = {}) {
+async function fixture(t, { catalog, free = 1024 ** 4, onDone = null, engine = null } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'atelier-downloads-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const models = join(root, 'models');
@@ -66,6 +66,8 @@ async function fixture(t, { catalog, free = 1024 ** 4 } = {}) {
     folderOf: (family, role) => join(models, role === 'model' ? 'diffusion_models' : 'text_encoders'),
     fetchImpl,
     statfs: async () => ({ bavail: free, bsize: 1 }),
+    onDone,
+    engine,
   });
   const workflow = {
     id: 'krea',
@@ -84,6 +86,184 @@ async function fixture(t, { catalog, free = 1024 ** 4 } = {}) {
   };
   return { root, models, downloads, workflow, registered, requests, bodies, finish };
 }
+
+/**
+ * (0.6.479) The engine of a new installation as lib/generation-service.mjs gives it to the downloads, simulated: to
+ * prepare until it is, held while `hold` waits (« Arrêter » ends that wait), failing with `fail`.
+ */
+function engineOf({ bytes = 3000 } = {}) {
+  const engine = {
+    bytes,
+    ready: false,
+    hold: null,
+    fail: null,
+    signals: [],
+    needed: async () => !engine.ready,
+    prepare: async signal => {
+      engine.signals.push(signal);
+      if (engine.hold)
+        await Promise.race([
+          engine.hold,
+          new Promise((_, no) => signal.addEventListener('abort', () => no(signal.reason), { once: true })),
+        ]);
+      if (engine.fail) throw engine.fail;
+      engine.ready = true;
+    },
+    progress: () => 'Préparation du moteur',
+  };
+  return engine;
+}
+const preparing = async downloads => {
+  for (let tries = 0; tries < 400 && downloads.status().engine !== 'preparing'; tries++)
+    await new Promise(next => setTimeout(next, 5));
+  return downloads.status();
+};
+
+test('(0.6.479) a new installation: one click brings the files, then prepares the engine, its size said', async t => {
+  // (27/11) Qwen-Image-Edit downloaded on a new installation, its engine never came: the user chose « Oui, d'un
+  // seul clic », the engine prepared by the same « Télécharger », its size said on the button.
+  const engine = engineOf(),
+    f = await fixture(t, { engine }),
+    // Its files all here: the engine is all it lacks.
+    whole = { id: 'whole', name: 'Real-ESRGAN', pipeline: 'krea2', builtin: true, ready: false, components: {} };
+  const offers = await f.downloads.offers([f.workflow, whole]);
+  // `bytes` and `left` stay those of the files (what the Bobine, the chat and the Studio read); the engine beside.
+  assert.equal(offers.krea.bytes, MODEL.length + VOCAB.length);
+  assert.equal(offers.krea.left, MODEL.length + VOCAB.length);
+  assert.deepEqual(offers.krea.engine, { bytes: 3000 });
+  assert.deepEqual(
+    [offers.whole.files, offers.whole.bytes, offers.whole.left, offers.whole.complete, offers.whole.engine],
+    [[], 0, 0, true, { bytes: 3000 }],
+  );
+  let release;
+  engine.hold = new Promise(done => (release = done));
+  await f.downloads.start(f.workflow);
+  const during = await preparing(f.downloads);
+  // The files there and registered first; the bar at their end while the engine is prepared, which says what it does.
+  assert.deepEqual(
+    [during.state, during.engine, during.current, during.received, during.total],
+    ['running', 'preparing', 'Préparation du moteur', MODEL.length + VOCAB.length, MODEL.length + VOCAB.length + 3000],
+  );
+  assert.deepEqual([...f.registered.keys()].sort(), ['model-asset', 'tokenizer-asset']);
+  release();
+  const done = await f.finish();
+  assert.deepEqual(
+    [done.state, done.engine, done.received, done.total],
+    ['done', 'ready', done.total, MODEL.length + VOCAB.length + 3000],
+  );
+  assert.equal(engine.signals.length, 1);
+  // Prepared: nothing left to offer, to this model or to the other.
+  assert.deepEqual(await f.downloads.offers([f.workflow, whole]), {});
+});
+
+test('(0.6.479) an engine already prepared: a download brings its files, and nothing more', async t => {
+  const engine = engineOf(),
+    f = await fixture(t, { engine });
+  engine.ready = true;
+  const offers = await f.downloads.offers([f.workflow, { ...f.workflow, id: 'whole', components: {} }]);
+  assert.deepEqual(Object.keys(offers), ['krea']);
+  assert.equal('engine' in offers.krea, false);
+  await f.downloads.start(f.workflow);
+  const done = await f.finish();
+  assert.deepEqual([done.state, 'engine' in done, done.total], ['done', false, MODEL.length + VOCAB.length]);
+  assert.equal(engine.signals.length, 0);
+  await assert.rejects(f.downloads.start(f.workflow), /Rien à télécharger/);
+});
+
+test('(0.6.479) « Arrêter » stops the engine being prepared; the files stay, the next click prepares it', async t => {
+  const engine = engineOf(),
+    f = await fixture(t, { engine });
+  engine.hold = new Promise(() => {});
+  await f.downloads.start(f.workflow);
+  await preparing(f.downloads);
+  f.downloads.cancel();
+  const stopped = await f.finish();
+  assert.equal(stopped.state, 'cancelled');
+  assert.equal(engine.signals[0].aborted, true, 'the preparation was told to stop');
+  assert.deepEqual([...f.registered.keys()].sort(), ['model-asset', 'tokenizer-asset']);
+  // What is left: the engine alone, which the same « Télécharger » takes up; no file is fetched again.
+  const offer = (await f.downloads.offers([f.workflow])).krea;
+  assert.deepEqual([offer.files, offer.bytes, offer.left, offer.engine], [[], 0, 0, { bytes: 3000 }]);
+  const fetched = f.requests.length;
+  engine.hold = null;
+  await f.downloads.start(f.workflow);
+  const done = await f.finish();
+  assert.deepEqual([done.state, done.engine, done.total], ['done', 'ready', 3000]);
+  assert.equal(f.requests.length, fetched);
+  assert.equal(engine.signals.length, 2);
+});
+
+test('(0.6.479) a preparation of the engine that fails says why, its files kept, and is offered again', async t => {
+  const told = [],
+    engine = engineOf(),
+    f = await fixture(t, { engine, onDone: workflow => told.push(workflow.id) });
+  // What uv says: many lines, the first and the last kept.
+  engine.fail = new Error(
+    'error: Failed to fetch: `https://download.pytorch.org/whl/cu130/torch`\n  x\n  Caused by: reset',
+  );
+  await f.downloads.start(f.workflow);
+  const failed = await f.finish();
+  assert.equal(failed.state, 'error');
+  assert.equal(
+    failed.error,
+    'Les fichiers sont là, mais le moteur de génération n’a pas pu être préparé : ' +
+      'error: Failed to fetch: `https://download.pytorch.org/whl/cu130/torch` … Caused by: reset',
+  );
+  assert.deepEqual([...f.registered.keys()].sort(), ['model-asset', 'tokenizer-asset']);
+  assert.deepEqual(told, [], 'not told as done: the model cannot be used yet');
+  assert.deepEqual((await f.downloads.offers([f.workflow])).krea.engine, { bytes: 3000 });
+});
+
+test('(0.6.479) a download over, its files there and registered, is told once; failed or stopped, never', async t => {
+  // What the engine of the model starts on (lib/generation-service.mjs): it stayed stopped on a new installation.
+  const told = [],
+    f = await fixture(t, {
+      onDone: workflow => told.push([workflow.id, [...f.registered.keys()].sort().join(' ')]),
+    });
+  f.bodies['krea2_turbo.safetensors'] = undefined;
+  await f.downloads.start(f.workflow);
+  assert.equal((await f.finish()).state, 'error');
+  f.bodies['krea2_turbo.safetensors'] = MODEL;
+  await f.downloads.start(f.workflow);
+  assert.equal((await f.finish()).state, 'done');
+  assert.deepEqual(told, [['krea', 'model-asset tokenizer-asset']]);
+});
+
+test('(0.6.503) the engine being prepared by a download is still offered: its model never left out', async t => {
+  // The service says no engine is to prepare while one is (its environment installs, then it starts): the model just
+  // downloaded, its files all here, had no offer then, and the Studio read again meanwhile left it out.
+  const engine = engineOf(),
+    f = await fixture(t, { engine }),
+    whole = { id: 'whole', name: 'Real-ESRGAN', pipeline: 'krea2', builtin: true, ready: false, components: {} },
+    prepare = engine.prepare;
+  let busy = false;
+  engine.needed = async () => !engine.ready && !busy;
+  engine.prepare = async signal => {
+    busy = true;
+    try {
+      await prepare(signal);
+    } finally {
+      busy = false;
+    }
+  };
+  let release;
+  engine.hold = new Promise(done => (release = done));
+  await f.downloads.start(f.workflow);
+  await preparing(f.downloads);
+  assert.equal(await engine.needed(), false, 'as the service says it meanwhile');
+  const during = await f.downloads.offers([f.workflow, whole]);
+  // Its files there: the engine alone, as before the click for the other one.
+  assert.deepEqual(
+    [during.krea.files, during.krea.bytes, during.krea.left, during.krea.complete, during.krea.engine],
+    [[], 0, 0, true, { bytes: 3000 }],
+  );
+  assert.deepEqual(during.whole.engine, { bytes: 3000 });
+  // A second click meanwhile waits for it, as any download.
+  await assert.rejects(f.downloads.start(whole), /déjà en cours/);
+  release();
+  assert.equal((await f.finish()).state, 'done');
+  assert.deepEqual(await f.downloads.offers([f.workflow, whole]), {});
+});
 
 test('a shipped workflow offers what it lacks, and the files land in their folders, registered for it', async t => {
   const f = await fixture(t);
@@ -364,7 +544,7 @@ test('two starts asked at the same instant are one download: the file is whole, 
 
 // (0.6.223) Wan 2.2 Fun Camera is published as 8-bit floats only, which the engine does not read: its
 // two files are downloaded, then written again in the engine's format on this computer.
-async function converting(t, { free = 1024 ** 4, convert } = {}) {
+async function converting(t, { free = 1024 ** 4, convert, engine = null } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'moodix-convert-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const folder = join(root, 'models', 'diffusion_models'),
@@ -400,6 +580,7 @@ async function converting(t, { free = 1024 ** 4, convert } = {}) {
       return new Response(range ? MODEL.subarray(Number(range[1])) : MODEL, { status: range ? 206 : 200 });
     },
     statfs: async () => ({ bavail: free, bsize: 1 }),
+    engine,
     ...(convert === null
       ? {}
       : {
@@ -494,6 +675,54 @@ test('a file to convert asks for the room of both files, is never written over a
   const bare = await converting(t, { convert: null });
   await assert.rejects(bare.downloads.start(bare.workflow), /se convertissent après le téléchargement/);
   assert.equal(bare.requests.length, 0);
+});
+
+test('(0.6.479) a file the engine converts, on a new installation: the engine first, then the files', async t => {
+  // Wan 2.2 Fun Camera, written again by the Python of the engine (runner/convert.py). Its engine prepared after its
+  // files came too late: the conversion failed (« … n’est pas encore installé »), and the engine never came.
+  const engine = engineOf(),
+    order = [],
+    f = await converting(t, {
+      engine,
+      convert: async (from, to) => {
+        if (!engine.ready) throw new Error('le moteur de génération n’est pas encore installé');
+        order.push('conversion');
+        await writeFile(to, 'int8');
+      },
+    });
+  const prepare = engine.prepare;
+  engine.prepare = async signal => {
+    order.push('moteur');
+    await prepare(signal);
+  };
+  let release;
+  engine.hold = new Promise(done => (release = done));
+  await f.downloads.start(f.workflow);
+  const during = await preparing(f.downloads);
+  // Nothing fetched yet: the engine first, said as being prepared.
+  assert.deepEqual(
+    [during.engine, during.received, during.total, f.requests.length],
+    ['preparing', 0, MODEL.length + 3000, 0],
+  );
+  release();
+  await f.downloads.task;
+  const done = f.downloads.status();
+  assert.equal(done.state, 'done', done.error);
+  assert.deepEqual(
+    [order, done.engine, done.received, done.total],
+    [['moteur', 'conversion'], 'ready', MODEL.length + 3000, MODEL.length + 3000],
+  );
+  assert.equal(f.registered.get('camera-high').path, f.target);
+  // Its preparation failing, nothing is fetched for nothing, and no file is said to be there.
+  const failing = engineOf(),
+    g = await converting(t, { engine: failing });
+  failing.fail = new Error('error: Failed to fetch');
+  await g.downloads.start(g.workflow);
+  await g.downloads.task;
+  assert.deepEqual(
+    [g.downloads.status().state, g.downloads.status().error, g.requests.length],
+    ['error', 'Le moteur de génération n’a pas pu être préparé : error: Failed to fetch', 0],
+  );
 });
 
 

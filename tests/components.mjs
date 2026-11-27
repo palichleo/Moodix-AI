@@ -72,6 +72,8 @@ test('component rows say what is missing, what fails and what is not used', asyn
   assert.equal(found.llama.state, 'ok');
   assert.equal(found.nvidia.state, 'off');
   assert.equal(found.python.state, 'missing');
+  // (0.6.479) Where it comes from on a new installation: the « Télécharger » of a model installs it too.
+  assert.match(found.python.detail, /le premier « Télécharger » d’un modèle/);
   assert.equal(found.torch, undefined);
   assert.equal(found.node.version, process.versions.node);
   assert.ok(!calls.some(command => /python/i.test(command)), 'no Python is started when none is prepared');

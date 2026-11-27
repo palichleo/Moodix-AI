@@ -21,7 +21,7 @@
 import { FORMATS } from './formats.mjs';
 import { thumbnailOf } from './thumbnails.mjs';
 import { layoutCaption } from './layout-boxes.mjs';
-import { sizeText } from './missing-file.mjs';
+import { engineOnly, engineText, sizeText, withEngine } from './missing-file.mjs';
 import { withArrangement } from './montage-arrange.mjs';
 import { licenseBlock, restrictedOf } from './model-licenses.mjs';
 import { licenseSentence } from './models-page.mjs';
@@ -2765,10 +2765,13 @@ export function setupMontage({
     if (writing && !writing.series) row.append(button('bobine-halt', 'Arrêter', () => writing?.controller.abort()));
     const foot = node('div', 'bobine-go');
     // What is said above the button, in amber: the model this computer lacks, or why it cannot be downloaded.
-    let said = absent ? `${absent.name} n’est pas sur cet ordinateur.` : '',
+    // (0.6.479) Its files all here on a new installation, the engine alone to fetch: what it lacks, never « n’est pas
+    // sur cet ordinateur ».
+    const engineAlone = engineOnly(absent?.offer);
+    let said = absent ? (engineAlone ? engineText(absent.offer) : `${absent.name} n’est pas sur cet ordinateur.`) : '',
       // (0.6.461) What it says in a line in a low window (moodix.css), the whole in its bubble: whole, its four lines took
       // the room of « À créer » at 1280 × 720, whose card could not be seen whole any more.
-      briefly = '',
+      briefly = engineAlone ? 'Il manque le moteur de génération.' : '',
       licences = null;
     live.download = null;
     if (downloading || (absent?.offer && !ready.length && !inSeries())) {
@@ -2777,7 +2780,8 @@ export function setupMontage({
         fetch = button('bobine-go-main bobine-go-download', '', () => void download({ name, offer }, { accepted: downloading?.stage === 'confirm' })),
         label = node('span', 'bobine-go-label', ''),
         fill = node('span', 'bobine-go-fill'),
-        size = sizeText(offer.left || offer.bytes);
+        // (0.6.479) With the engine of a new installation, which the same click prepares.
+        size = sizeText(withEngine(offer.left || offer.bytes, offer));
       fetch.append(fill, icon('download'), label);
       fetch.dataset.state = downloading?.stage ?? '';
       if (downloading?.stage === 'running') {
@@ -2793,11 +2797,27 @@ export function setupMontage({
         said = '';
       } else {
         label.textContent = 'Télécharger · ' + size;
-        // Its licences under the pointer.
-        fetch.title = licenseSentence(offer.files) || `Télécharger ${name} (${size})`;
+        // Its licences under the pointer. (0.6.479) Its files all here: the engine it fetches.
+        fetch.title = engineOnly(offer)
+          ? engineText(offer)
+          : licenseSentence(offer.files) || `Télécharger ${name} (${size})`;
+        // (0.6.479) The engine of a new installation, said with its files (in a low window, what lacks alone).
+        if (engineText(offer) && !engineOnly(offer)) {
+          said = [said, engineText(offer)].filter(Boolean).join(' ');
+          briefly = `${name} n’est pas sur cet ordinateur.`;
+        }
         if (offer.needsToken) {
           fetch.disabled = true;
-          said = `${name} demande un compte Hugging Face : acceptez sa licence${offer.page ? ' sur ' + offer.page : ''}, puis enregistrez votre jeton dans Paramètres › Modèles › Fichiers.`;
+          // (0.6.479) Where the token is made, said with the rest.
+          const account =
+            `${name} demande un compte Hugging Face : acceptez sa licence${offer.page ? ' sur ' + offer.page : ''} ` +
+            'avec ce compte, créez un jeton de lecture sur huggingface.co/settings/tokens, ' +
+            'puis enregistrez votre jeton dans Paramètres › Modèles › Fichiers.';
+          // (0.6.479) Greyed, its bubble says why, as in the Studio and on the card of the chat (not its licences). The
+          // engine its button counts is said once the token is there: with it, the line took seven lines at 1440 × 900,
+          // and the card of « À créer » could not be seen whole any more.
+          fetch.title = account;
+          said = account;
           briefly = `${name} demande un compte Hugging Face.`;
         }
         watch({ name, offer });
@@ -2965,6 +2985,9 @@ export function setupMontage({
       first = series.find(item => !can.has(item.id));
     if (!series.length) return 'Aucune prise à créer dans cette bobine.';
     if (!first) return '';
+    // (0.6.479) Its files all here, the engine of a new installation alone to fetch: what it lacks.
+    if (first.ready && modelMissing(first.id) && engineOnly(modelOf(first.id).offer))
+      return 'Il manque le moteur de génération.';
     if (first.ready && modelMissing(first.id)) return `${modelName(itemOf(first.id)) || modelOf(first.id).name} n’est pas sur cet ordinateur.`;
     if (!first.ready && !first.prompt && !first.blocked)
       return series.filter(item => !item.ready && !item.prompt && !item.blocked).length > 1
@@ -3313,12 +3336,12 @@ export function setupMontage({
       downloading = { name, offer, stage: 'confirm' };
       return update();
     }
-    downloading = { name, offer, stage: 'running', received: 0, total: offer.bytes };
+    downloading = { name, offer, stage: 'running', received: 0, total: withEngine(offer.bytes, offer) };
     update();
     try {
       const job = await (await api('downloads/start', { id: offer.workflowId, ...(accepted ? { accepted: true } : {}) })).json();
       if (!downloading) return;
-      Object.assign(downloading, { received: job.received ?? 0, total: job.total || offer.bytes });
+      Object.assign(downloading, { received: job.received ?? 0, total: job.total || downloading.total });
     } catch (error) {
       downloading = null;
       fetchError = 'Téléchargement impossible : ' + error.message;
@@ -3353,7 +3376,13 @@ export function setupMontage({
       relisted();
       return update();
     }
-    Object.assign(downloading, { received: job.received ?? 0, total: job.total || downloading.total });
+    // (0.6.479) And what it does once its files are there, the engine of a new installation being prepared.
+    Object.assign(downloading, {
+      received: job.received ?? 0,
+      total: job.total || downloading.total,
+      engine: job.engine,
+      current: job.current,
+    });
     sayDownload();
     timers.set(followDownload, POLL);
   }
@@ -3366,7 +3395,11 @@ export function setupMontage({
     // (« 3,4 / 20,0 Go »: what has come, in the unit of the whole.)
     const giga = total >= 1024 ** 3,
       come = received > 0 ? (giga ? (received / 1024 ** 3).toFixed(1).replace('.', ',') : Math.round(received / 1024 ** 2).toLocaleString('fr-FR')) : '0';
-    said.label.textContent = `${come} / ${sizeText(total)}`;
+    // (0.6.479) The engine of a new installation, prepared after the files: what it does (uv does not tell its bytes).
+    said.label.textContent =
+      downloading.engine === 'preparing'
+        ? `${downloading.current || 'Préparation du moteur'}…`
+        : `${come} / ${sizeText(total)}`;
   }
   /** (0.6.155) A download of this model already under way (from Paramètres › Modèles): followed here. */
   function watch(absent) {
@@ -3377,7 +3410,15 @@ export function setupMontage({
       .then(response => response.json())
       .then(({ job }) => {
         if (job?.state !== 'running' || job.workflowId !== id || downloading) return;
-        downloading = { name: absent.name, offer: absent.offer, stage: 'running', received: job.received ?? 0, total: job.total || absent.offer.bytes };
+        downloading = {
+          name: absent.name,
+          offer: absent.offer,
+          stage: 'running',
+          received: job.received ?? 0,
+          total: job.total || withEngine(absent.offer.bytes, absent.offer),
+          engine: job.engine,
+          current: job.current,
+        };
         update();
         timers.set(followDownload, POLL);
       })

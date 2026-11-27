@@ -375,6 +375,280 @@ test('launch reconciles an existing private environment even with generation dis
   assert.equal(probes, 4);
 });
 
+test('(0.6.479) a model waiting for its engine: switched off, being installed, never installed, stopped', async t => {
+  // (27/11, a new installation) Qwen-Image-Edit downloaded, every model said « Moteur de génération arrêté. », and
+  // nothing said what to do.
+  const root = await mkdtemp(join(tmpdir(), 'native-waiting-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let setup = 'idle',
+    prepared = false;
+  const service = new GenerationService({
+    root,
+    dataDir: root,
+    workflowDir: join(root, 'workflow'),
+    outputDir: join(root, 'output'),
+    worker: { status: () => ({ state: 'stopped', capabilities: {} }), start: async () => {}, close: async () => {} },
+    environment: {
+      status: () => ({ state: setup }),
+      exists: async () => prepared,
+      prepared: async () => prepared,
+      ensure: async () => process.execPath,
+      cancel: async () => {},
+      close: async () => {},
+    },
+  });
+  t.after(() => service.close());
+  const reason = async () => {
+    await service.downloads.engine.needed();
+    service.syncCapabilities();
+    return service.catalog.capabilities.ltx25.reason;
+  };
+  service.config.enabled = false;
+  assert.equal(
+    await reason(),
+    'La génération locale est coupée : Paramètres › Génération › « Activer la génération locale ».',
+  );
+  service.config.enabled = true;
+  assert.equal(
+    await reason(),
+    'Le moteur de génération n’est pas encore installé : « Télécharger », dans Paramètres › Modèles, ' +
+      'l’installe avec un modèle.',
+  );
+  setup = 'installing';
+  assert.equal(await reason(), 'Le moteur de génération s’installe : quelques minutes, la première fois seulement…');
+  setup = 'idle';
+  prepared = true;
+  assert.equal(await reason(), 'Moteur de génération arrêté.');
+});
+
+test('(0.6.479) the engine a download prepares: on a new installation only, stopped, then started', async t => {
+  // The user's choice of 27/11 (« Oui, d'un seul clic »): « Télécharger » of a model prepares the engine too.
+  const root = await mkdtemp(join(tmpdir(), 'native-engine-download-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let state = 'stopped',
+    setup = 'idle',
+    prepared = false,
+    hold = null;
+  const calls = [],
+    worker = {
+      status: () => ({ state, capabilities: {} }),
+      start: async () => {
+        calls.push('start');
+        state = 'ready';
+      },
+      close: async () => {
+        state = 'stopped';
+      },
+    },
+    environment = {
+      status: () => ({ state: setup }),
+      exists: async () => prepared,
+      prepared: async () => prepared,
+      ensure: async () => {
+        calls.push('ensure');
+        setup = 'installing';
+        try {
+          await hold?.promise;
+        } finally {
+          setup = 'idle';
+        }
+        prepared = true;
+        return process.execPath;
+      },
+      cancel: async () => {
+        calls.push('cancel');
+        hold?.stop(Object.assign(new Error('arrêté'), { name: 'AbortError' }));
+      },
+      close: async () => {},
+    };
+  const service = new GenerationService({
+    root,
+    dataDir: root,
+    workflowDir: join(root, 'workflow'),
+    outputDir: join(root, 'output'),
+    worker,
+    environment,
+  });
+  t.after(() => service.close());
+  const engine = service.downloads.engine;
+  // About what it downloads, from what the code knows (runner/uv.lock, and an estimate of PyTorch).
+  assert.ok(engine.bytes > 2 * 1024 ** 3 && engine.bytes < 5 * 1024 ** 3, String(engine.bytes));
+  // A new installation: to prepare; with a Python of the user's, never.
+  assert.equal(await engine.needed(), true);
+  service.config.pythonPath = process.execPath;
+  assert.equal(await engine.needed(), false);
+  service.config.pythonPath = '';
+  // At launch, nothing downloaded without a click.
+  await service.prepareOnLaunch();
+  assert.deepEqual(calls, []);
+  // « Arrêter » while it is installed: its preparation is told to stop, nothing started.
+  hold = {};
+  hold.promise = new Promise((_, stop) => (hold.stop = stop));
+  const controller = new AbortController(),
+    stopping = engine.prepare(controller.signal);
+  for (let tries = 0; tries < 400 && setup !== 'installing'; tries++) await new Promise(next => setTimeout(next, 5));
+  assert.equal(engine.progress(), 'Préparation du moteur');
+  assert.equal(await engine.needed(), false, 'being prepared: never twice');
+  controller.abort();
+  await assert.rejects(stopping, /arrêté/);
+  assert.deepEqual([calls, state], [['ensure', 'cancel'], 'stopped']);
+  // The next click: installed, then started.
+  hold = null;
+  await engine.prepare(new AbortController().signal);
+  assert.deepEqual([calls, state], [['ensure', 'cancel', 'ensure', 'start'], 'ready']);
+  assert.equal(await engine.needed(), false);
+});
+
+test('(0.6.479) its files here on a new installation: the « Télécharger » of a model prepares the engine', async t => {
+  // The friend's computer once updated: Qwen-Image-Edit downloaded before this version, its engine never prepared.
+  const { fileURLToPath } = await import('node:url');
+  const root = await mkdtemp(join(tmpdir(), 'native-engine-alone-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let state = 'stopped',
+    prepared = false;
+  const worker = {
+      status: () => ({ state, capabilities: {} }),
+      start: async () => {
+        state = 'ready';
+      },
+      close: async () => {
+        state = 'stopped';
+      },
+    },
+    environment = {
+      status: () => ({ state: 'idle' }),
+      exists: async () => prepared,
+      prepared: async () => prepared,
+      ensure: async () => {
+        prepared = true;
+        return process.execPath;
+      },
+      cancel: async () => {},
+      close: async () => {},
+    };
+  const service = await new GenerationService({
+    root,
+    dataDir: join(root, 'data'),
+    workflowDir: join(root, 'workflow'),
+    builtinWorkflowDir: fileURLToPath(new URL('../runner/workflows', import.meta.url)),
+    outputDir: join(root, 'output'),
+    worker,
+    environment,
+  }).init();
+  t.after(() => service.close());
+  // Real-ESRGAN for the images has its one file: the engine is all it lacks.
+  await writeFile(join(service.folderOf('realesrgan_image', 'upscaler'), 'RealESRGAN_x4plus.pth'), Buffer.alloc(64));
+  // Said so in the list (`engine`, as `files` for LTX 2.5): the chat offers it as what « Télécharger » brings.
+  const kinds = async () => {
+    await service.downloads.engine.needed();
+    service.syncCapabilities();
+    const listed = await service.catalog.list(),
+      kind = pipeline => listed.find(item => item.pipeline === pipeline).unavailableKind;
+    return [kind('realesrgan_image'), kind('ltx25')];
+  };
+  assert.deepEqual(await kinds(), ['engine', 'files']);
+  const workflows = await service.catalog.list(),
+    upscale = workflows.find(item => item.pipeline === 'realesrgan_image'),
+    ltx = workflows.find(item => item.pipeline === 'ltx25'),
+    offers = await service.downloads.offers(workflows);
+  assert.deepEqual(
+    [offers[upscale.id].files, offers[upscale.id].left, offers[upscale.id].engine],
+    [[], 0, { bytes: service.downloads.engine.bytes }],
+  );
+  // LTX 2.5 lacks its files: they and the engine, in the same click, each said apart.
+  assert.equal(offers[ltx.id].left, 41018712772);
+  assert.deepEqual(offers[ltx.id].engine, { bytes: service.downloads.engine.bytes });
+  await service.downloads.start(upscale);
+  await service.downloads.task;
+  const job = service.downloads.status();
+  assert.deepEqual(
+    [job.state, job.engine, job.total, state],
+    ['done', 'ready', service.downloads.engine.bytes, 'ready'],
+  );
+  // Prepared: the files of LTX 2.5 alone are left, and nothing of the engine.
+  const after = await service.downloads.offers(await service.catalog.list());
+  assert.deepEqual([upscale.id in after, after[ltx.id].left, 'engine' in after[ltx.id]], [false, 41018712772, false]);
+  assert.deepEqual(await kinds(), [undefined, 'files']);
+});
+
+test('(0.6.503) the engine being prepared by a download: its models still lack it, read again', async t => {
+  // It installs, then it starts. A reload meanwhile (snapshot), or a message of the chat, said the families
+  // « s’installe » alone: every model whose files are here left the Studio and the chat, LTX 2.5 with them.
+  const { fileURLToPath } = await import('node:url');
+  const root = await mkdtemp(join(tmpdir(), 'native-engine-coming-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let state = 'stopped',
+    setup = 'idle',
+    prepared = false;
+  const holds = {},
+    hold = name => new Promise(go => (holds[name] = go)),
+    worker = {
+      status: () => ({ state, capabilities: {} }),
+      start: async () => {
+        state = 'starting';
+        await hold('start');
+        state = 'ready';
+      },
+      close: async () => {
+        state = 'stopped';
+      },
+    },
+    environment = {
+      status: () => ({ state: setup }),
+      exists: async () => prepared,
+      prepared: async () => prepared,
+      ensure: async () => {
+        setup = 'installing';
+        await hold('ensure');
+        setup = 'idle';
+        prepared = true;
+        return process.execPath;
+      },
+      cancel: async () => {},
+      close: async () => {},
+    };
+  const service = await new GenerationService({
+    root,
+    dataDir: join(root, 'data'),
+    workflowDir: join(root, 'workflow'),
+    builtinWorkflowDir: fileURLToPath(new URL('../runner/workflows', import.meta.url)),
+    outputDir: join(root, 'output'),
+    worker,
+    environment,
+  }).init();
+  // (Its waits ended first, should an assertion fail meanwhile: the service closes then.)
+  t.after(() => {
+    holds.ensure?.();
+    holds.start?.();
+    return service.close();
+  });
+  await writeFile(join(service.folderOf('realesrgan_image', 'upscaler'), 'RealESRGAN_x4plus.pth'), Buffer.alloc(64));
+  // As a reload reads it: what Real-ESRGAN lacks, and what its « Télécharger » brings.
+  const listed = async () => {
+      const shot = await service.snapshot(),
+        upscale = shot.workflows.find(item => item.pipeline === 'realesrgan_image');
+      return [upscale.unavailableKind, shot.downloads.offers[upscale.id]?.engine ?? null];
+    },
+    engine = { bytes: service.downloads.engine.bytes },
+    until = async name => {
+      for (let tries = 0; tries < 400 && !holds[name]; tries++) await new Promise(next => setTimeout(next, 5));
+    };
+  assert.deepEqual(await listed(), ['engine', engine]);
+  await service.downloads.start((await service.catalog.list()).find(item => item.pipeline === 'realesrgan_image'));
+  await until('ensure');
+  assert.equal(service.downloads.status().current, 'Préparation du moteur');
+  assert.deepEqual(await listed(), ['engine', engine]);
+  holds.ensure();
+  await until('start');
+  assert.equal(service.downloads.status().current, 'Démarrage du moteur');
+  assert.deepEqual(await listed(), ['engine', engine]);
+  // Started: nothing more to download for it.
+  holds.start();
+  await service.downloads.task;
+  assert.deepEqual([service.downloads.status().state, state], ['done', 'ready']);
+  assert.deepEqual(await listed(), [undefined, null]);
+});
+
 test('the engine is told to import its libraries as it starts, unless the user turned that off (0.6.105)', async t => {
   // Its first creation of a session paid them: six seconds, eighteen just after the computer started.
   const root = await mkdtemp(join(tmpdir(), 'native-warm-'));

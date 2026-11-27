@@ -1,6 +1,6 @@
 import { closePopup, openPopup } from './glass-menu.mjs';
 import { layoutCaption } from './layout-boxes.mjs';
-import { missingFileCard } from './missing-file.mjs';
+import { lackingText, missingFileCard } from './missing-file.mjs';
 import { takesWords } from './montage-model.mjs';
 import { renderProposal, symbol } from './video-plan.mjs';
 
@@ -522,7 +522,8 @@ export function proposalCard({
       phase === 'waiting' ? (request.mediaType === 'video' ? 'En attente de votre accord' : '') : phase === 'paused' ? 'En pause' : `Départ dans ${Math.max(1, Math.ceil(left / 1000))} s`;
     // (0.6.493) Gone, it no longer waits for anything. While the download of the model chosen is offered, the head of
     // the card says it, in place of the head of the offer (« Il manque un fichier », which hid its title: m6).
-    if (offer) status.textContent = 'Il manque un fichier';
+    // (0.6.503) In the words of the card of the offer: « Il manque des fichiers » for several (LTX 2.5's six, 27/11).
+    if (offer) status.textContent = lackingText(offer);
     if (gone) status.textContent = gone.startsWith('Cet appel a expiré') ? 'Expirée' : 'Plus valable';
     card.dataset.phase = phase;
   }

@@ -944,6 +944,66 @@ test('music and sound effects: the model names the workflow, and each keeps its 
   assert.deepEqual(song.notes, []);
 });
 
+test('(0.6.479) a new installation: a model whose files are all here is offered for its engine', async () => {
+  // Qwen-Image-Edit downloaded on a new installation (27/11): neither ready (no engine) nor lacking a file, the chat
+  // model was never told of it, and a request named to it was refused.
+  const shipped = (id, more) => ({
+    ...JSON.parse(readFileSync(new URL(`../runner/workflows/${id}.json`, import.meta.url), 'utf8')),
+    builtin: true,
+    ready: false,
+    ...more,
+  });
+  const krea = shipped('fefb88eb-8311-4409-b636-6efbb42e952c', { unavailableKind: 'files' }),
+    qwen = shipped('a7601a5d-e43b-4f4e-8871-2d9dc7138bd9', { unavailableKind: 'engine' }),
+    // (A request of its own each time: the router writes on the sources it is given.)
+    edit = () => ({ prompt: 'Make it night', source: { resource: 'r2' }, workflow: qwen.id }),
+    told = async list => (await catalogOf(list).definitions()).some(item => item.function.name === 'create_image');
+  // Told to the chat model, alone too; named, it is routed, and its engine offered (tool-runtime.mjs #missing).
+  assert.equal(await told([qwen]), true);
+  const routed = await catalogOf([krea, qwen]).route('create_image', edit(), media);
+  assert.deepEqual([routed.workflow.id, routed.workflow.ready], [qwen.id, false]);
+  // An image given leads to it in the chat (`chatFirst`, 0.6.476) as when it is ready: every model lacks the engine
+  // then, and Krea 2 its files besides; its download is not proposed in the place of the engine alone.
+  const given = { prompt: 'Make it night', source: { resource: 'r2' } };
+  assert.equal((await catalogOf([krea, qwen]).route('create_image', given, media)).workflow.id, qwen.id);
+  // Its engine there and only stopped (no kind): nothing to download for it, neither told nor routed.
+  const stopped = { ...qwen, unavailableKind: undefined };
+  assert.equal(await told([stopped]), false);
+  await assert.rejects(catalogOf([krea, stopped]).route('create_image', edit(), media), /ne peut pas exécuter/);
+});
+
+test('(0.6.503) a new installation, every model lacking the engine: a video of Moodix AI as on 27/11', async () => {
+  // (Merged with 0.6.493) A model whose files are all here lacks only the engine (`engine`), which leads as one ready
+  // (0.6.479): LTX 2.5 by default, its files here or to download; MiniMax H3 Omni only named, or for its own clip.
+  // (While a download prepares the engine, the kind stays: lib/generation-service.mjs, syncCapabilities. Without it,
+  // LTX 2.5 left the list, and MiniMax H3 Omni was routed in its place.)
+  const ENGINE = { ready: false, unavailableKind: 'engine' },
+    fresh = everyShipped().map(workflow => ({ ...workflow, ...ENGINE })),
+    lists = [fresh, otherwise(fresh, ['ltx25'], TO_FETCH), otherwise(fresh, ['ltx25', 'minimax_h3'], TO_FETCH)];
+  const [a, b, c] = ['a', 'b', 'c'].map(resource => ({ resource })),
+    v = { resource: 'v' },
+    LTX = 'LTX 2.5 (à télécharger)',
+    MINIMAX = 'MiniMax H3 Omni (à télécharger)',
+    third = 'LTX 2.5 prend 2 sujets au plus : celui-ci reste là, mais n’est pas envoyé.';
+  const table = [
+    ['create_video', {}, LTX],
+    ['create_video', { start_image: a }, LTX],
+    ['create_video', { start_image: a, end_image: b }, LTX],
+    ['create_video', { reference: [a, b, c] }, LTX, [third]],
+    ['create_video', { workflow: MINIMAX_ID }, MINIMAX],
+    ['extend_video', { source: v }, LTX],
+    ['extend_video', { source: { output: 'ltx-clip' } }, LTX],
+    ['extend_video', { source: { output: 'minimax-clip' } }, MINIMAX],
+  ];
+  for (const list of lists)
+    for (const [name, args, model, left = []] of table)
+      assert.deepEqual(
+        await sayRouted(list, name, { intention: 'x', ...args }),
+        { model, notes: [], left },
+        JSON.stringify([name, args, list.find(workflow => workflow.pipeline === 'ltx25').unavailableKind]),
+      );
+});
+
 test('(0.6.460) music asked for with the music model not downloaded: it is offered to download, never the sound-effect model in its place', async () => {
   // (27/11, a real request to his chat model: « Fais-moi une musique douce au piano » was proposed with
   // « Bruitages (MOSS-SoundEffect v2) », the only audio workflow ready there: the model was told of no other.)
@@ -1456,4 +1516,55 @@ test('the Studio is told the models of an image, a video and a sound this comput
   asked.length = 0;
   await catalogOf([await shippedOf(ids.moss)]).studio({ offers });
   assert.deepEqual(asked, []);
+});
+
+test('(0.6.479) new installation: the Studio and the Bobine are told the models lacking only the engine', async () => {
+  // Qwen-Image-Edit downloaded on a new installation (27/11): its files here, the engine not, it was in neither.
+  const { readFile } = await import('node:fs/promises');
+  const shippedOf = async (id, more = {}) => ({
+    ...JSON.parse(await readFile(new URL(`../runner/workflows/${id}.json`, import.meta.url), 'utf8')),
+    ready: false,
+    builtin: true,
+    unavailableReason: 'Moteur de génération arrêté.',
+    ...more,
+  });
+  const ids = {
+    krea: 'fefb88eb-8311-4409-b636-6efbb42e952c',
+    qwen: 'a7601a5d-e43b-4f4e-8871-2d9dc7138bd9',
+    ltx: 'eaec4e2f-0649-4e56-9bd9-809dc9390452',
+  };
+  const workflows = await Promise.all([
+    shippedOf(ids.krea, { unavailableKind: 'files' }),
+    shippedOf(ids.qwen, { unavailableKind: 'engine' }),
+    shippedOf(ids.ltx, { unavailableKind: 'engine' }),
+  ]);
+  // As ModelDownloads.offers answers then: the engine beside each, the engine alone for a model whose files are here.
+  const engine = { bytes: 3213357020 },
+    alone = { files: [], bytes: 0, left: 0, complete: true, needsToken: false, page: '', engine },
+    file = { role: 'model', file: 'krea.safetensors', size: 19e9, license: null },
+    offers = () => ({
+      [ids.krea]: { ...alone, files: [file], bytes: 19e9, left: 19e9 },
+      [ids.qwen]: alone,
+      [ids.ltx]: alone,
+    });
+  const studio = await catalogOf(workflows).studio({ offers });
+  assert.deepEqual(
+    studio.create_image.map(item => [item.id, item.missing?.engine, item.missing?.files.length]),
+    [
+      [ids.krea, engine, 1],
+      [ids.qwen, engine, 0],
+    ],
+  );
+  assert.deepEqual(studio.create_video.find(item => item.id === ids.ltx)?.missing, {
+    workflowId: ids.ltx,
+    files: [],
+    bytes: 0,
+    left: 0,
+    needsToken: false,
+    page: '',
+    engine,
+  });
+  // The Bobine: LTX 2.5 to download as one lacking its files (its button « Télécharger »), not greyed with its reason.
+  const ltx = (await catalogOf(workflows).videoModels()).find(model => model.family === 'ltx25');
+  assert.deepEqual([ltx.create_video.missing, ltx.create_video.unavailable], [true, undefined]);
 });

@@ -1928,6 +1928,31 @@ test('a model of the card that is not on this computer: its download offered wit
   assert.deepEqual(heldOf(made).map(([as]) => as), ['start_image']);
 });
 
+test('(0.6.479) a model of the card lacking only the engine: offered as one lacking its files, with it', async () => {
+  // (Greyed with its reason before, its download nowhere to press.)
+  const engine = { bytes: 3213357020 },
+    workflows = shipped().map(workflow =>
+      workflow.pipeline === 'minimax_h3'
+        ? { ...workflow, ready: false, builtin: true, unavailableKind: 'engine' }
+        : workflow,
+    ),
+    { runtime } = world({
+      workflows,
+      resources: framed(),
+      offerOf: async () => ({ complete: true, files: [], bytes: 0, left: 0, needsToken: false, page: '', engine }),
+    });
+  const place = { conversationId: A, turnId: turn, messages: [] };
+  const first = await runtime.request(
+    [call('create_video', { prompt: 'x', intention: 'x', duration: 5, reference: [{ resource: SUBJECT }] })],
+    place,
+  );
+  const minimax = first.models.find(model => model.name === 'MiniMax H3 Omni');
+  assert.deepEqual([minimax.missing, minimax.off], [true, undefined]);
+  const offered = await revise(runtime, first, { workflow: minimax.workflowId });
+  const { files, bytes, left, engine: prepared } = offered.offer;
+  assert.deepEqual([files, bytes, left, prepared], [[], 0, 0, engine]);
+});
+
 test('a model the card cannot take is refused in its words, the proposal kept; by hand, or for an image, no list (0.6.476)', async () => {
   const { runtime } = world({ resources: framed() });
   const place = { conversationId: A, turnId: turn, messages: [] };

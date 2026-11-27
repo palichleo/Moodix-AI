@@ -201,6 +201,35 @@ test('the version a workflow lacks to run is downloaded by that workflow, as its
   );
 });
 
+test('(0.6.479) a new installation: each row of a section counts the engine its click prepares', () => {
+  // Every model lacks the engine then: the row of a version downloaded on its own said its files alone, where the
+  // row of its workflow counted the engine too (lineOf).
+  const workflows = [
+      record('mm', { ready: false, unavailableReason: 'Fichier introuvable pour « Modèle ».' }),
+      record('pi', { pipeline: 'pi_h3', ready: false }),
+    ],
+    engine = { bytes: 3 * GIB },
+    absent = [
+      { file: OMNI, name: 'Omni', download: 'mm' },
+      { file: FL2VA, name: 'De base', download: 'mm_v0123456789abcdef' },
+    ],
+    downloads = {
+      offers: { mm: offer(42 * GIB, { engine }), pi: offer(0, { engine }) },
+      versions: { mm_v0123456789abcdef: offer(40 * GIB, { left: 39 * GIB, engine }) },
+      job: { state: 'idle' },
+    };
+  const [section] = sectionsOf([minimax([], absent), pi]);
+  assert.deepEqual(
+    partsOf(section, workflows, downloads).map(part => [part.label, part.state, part.download.bytes]),
+    [
+      ['Omni', 'download', 45 * GIB],
+      ['De base', 'download', 42 * GIB],
+      // Its files all here: the engine alone.
+      ['pi H3', 'download', 3 * GIB],
+    ],
+  );
+});
+
 test('Wan 2.2 and its Caméra, Real-ESRGAN’s two workflows, a model alone (0.6.481)', () => {
   const wan = {
       name: 'Wan 2.2',
