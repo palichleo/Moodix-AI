@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { ToolCatalog, serves } from '../lib/tool-catalog.mjs';
 import { CAPABLE } from '../lib/model-wording.mjs';
 
@@ -374,38 +374,367 @@ test('the shipped music workflow gives create_audio its lyrics, length and langu
   );
 });
 
-test('an image to reuse and none to modify: said in words, with what to do (0.6.460)', async () => {
-  const shipped = id => ({
-    ...JSON.parse(readFileSync(new URL(`../runner/workflows/${id}.json`, import.meta.url), 'utf8')),
-    ready: true,
-  });
-  const krea = shipped('fefb88eb-8311-4409-b636-6efbb42e952c'),
-    moss = shipped('3d6f1a8c-2b7e-4f59-9c41-8e0a5d2b7c36'),
-    qwen = shipped('a7601a5d-e43b-4f4e-8871-2d9dc7138bd9'),
-    catalog = catalogOf([krea, moss, qwen]);
-  const refused = await catalog
-    .route('create_image', { prompt: 'A boat in this style', reference: [{ resource: 'r1' }] }, media)
-    .then(() => assert.fail('routed'), error => error);
-  assert.equal(refused.status, 400);
-  // Until then: « Aucun workflow ne correspond à ces entrées pour create_image. fefb88eb-…: no free image slot… ».
-  assert.equal(
-    refused.message,
-    'Aucun modèle d’image ne prend une référence seule : il faut la donner comme image à modifier (source) ' +
-      'pour partir d’elle, ou décrire dans le prompt ce qu’il faut en garder.',
-  );
-  // With the image to modify, Qwen-Image-Edit takes both.
-  const both = await catalog.route(
+// (0.6.476) Every workflow shipped, ready (`builtin`: shipped, as the list of the application says it), and the same
+// list with some families made otherwise: their files to download, not offered to Moodix AI, impossible here.
+const everyShipped = () =>
+  readdirSync(new URL('../runner/workflows/', import.meta.url))
+    .filter(name => name.endsWith('.json'))
+    .map(name => ({
+      ...JSON.parse(readFileSync(new URL(`../runner/workflows/${name}`, import.meta.url), 'utf8')),
+      ready: true,
+      builtin: true,
+    }));
+const otherwise = (list, pipelines, patch) =>
+  list.map(workflow => (pipelines.includes(workflow.pipeline) ? { ...workflow, ...patch } : workflow));
+const of = (list, pipeline) => list.find(workflow => workflow.pipeline === pipeline);
+const TO_FETCH = { ready: false, unavailableKind: 'files' },
+  NOT_HERE = { ready: false, unavailableKind: 'hardware', unavailableReason: 'il lui faut une carte NVIDIA.' };
+const MOSS_ID = '3d6f1a8c-2b7e-4f59-9c41-8e0a5d2b7c36',
+  LTX_ID = 'eaec4e2f-0649-4e56-9bd9-809dc9390452',
+  MINIMAX_ID = 'e06b6ac9-0d3f-4538-b9ff-bf41cf3ef38f';
+// The sources of the tables: images of the project, a video of the project (`v`), a take of each video model.
+const projectSources = {
+  mediaOf: async source => (source.resource === 'v' || source.output?.endsWith('clip') ? 'video' : 'image'),
+  originOf: async source =>
+    ({
+      'minimax-clip': { workflowId: MINIMAX_ID, pipeline: 'minimax_h3' },
+      'ltx-clip': { workflowId: LTX_ID, pipeline: 'ltx25' },
+    })[source.output] ?? null,
+};
+// What the card says of a routing: its model (« à télécharger »: its files are), its notes, why each input is not sent.
+const said = routed => ({
+  model: routed.workflow.name + (routed.workflow.ready === false ? ' (à télécharger)' : ''),
+  notes: routed.notes,
+  left: (routed.left ?? []).map(item => item.why),
+});
+const sayRouted = (list, name, args, options = {}) =>
+  catalogOf(list)
+    .route(name, { prompt: 'x', ...structuredClone(args) }, { ...projectSources, ...options })
+    .then(said);
+
+test('an image given to create_image: Qwen-Image-Edit when it is ready here, else Krea 2 from it; nothing refused, nothing left out without a word (0.6.476)', async () => {
+  const all = everyShipped(),
+    // Not downloaded, not offered to Moodix AI, impossible on this computer: never a download proposed for it.
+    absent = [
+      otherwise(all, ['qwen_image_edit'], TO_FETCH),
+      otherwise(all, ['qwen_image_edit'], { enabled: false }),
+      otherwise(all, ['qwen_image_edit'], NOT_HERE),
+    ];
+  const [a, b, c, s] = ['a', 'b', 'c', 's'].map(resource => ({ resource })),
+    QWEN = 'Qwen-Image-Edit',
+    KREA = 'Krea 2',
+    another = model => `${model} ne prend pas d’autre image : elle reste là, mais n’est pas envoyée.`;
+  // What the chat passes; what is made with Qwen-Image-Edit ready; what is made without it.
+  const table = [
+    [{}, { model: KREA }, { model: KREA }],
+    [{ workflow: MOSS_ID }, { model: 'MOSS Image' }, { model: 'MOSS Image' }],
+    // A model named keeps its priority where it takes what is passed; MOSS Image takes no image.
+    [
+      { workflow: MOSS_ID, source: a },
+      { model: QWEN, notes: [`MOSS Image ne prend pas ces entrées ensemble : ${QWEN} est utilisé à la place.`] },
+      { model: KREA, notes: [`MOSS Image ne prend pas ces entrées ensemble : ${KREA} est utilisé à la place.`] },
+    ],
+    [{ source: a }, { model: QWEN }, { model: KREA }],
+    // « Le même personnage » (source + 0,7): Qwen-Image-Edit has no denoise, which is said.
+    [
+      { source: a, denoise: 0.7 },
+      { model: QWEN, notes: [`Débruitage : valeur ignorée, ${QWEN} ne prend pas ce réglage.`] },
+      { model: KREA },
+    ],
+    // A reference alone: the image modified, said; it was refused (0.6.460).
+    [
+      { reference: [a] },
+      { model: QWEN, notes: [`La référence est prise comme image à modifier : ${QWEN} part d’elle.`] },
+      { model: KREA, notes: [`La référence est prise comme image à modifier : ${KREA} part d’elle.`] },
+    ],
+    [
+      { reference: [a, b] },
+      { model: QWEN, notes: [`La première référence est prise comme image à modifier : ${QWEN} part d’elle.`] },
+      {
+        model: KREA,
+        notes: [`La première référence est prise comme image à modifier : ${KREA} part d’elle.`],
+        left: [another(KREA)],
+      },
+    ],
+    [{ source: s, reference: [a] }, { model: QWEN }, { model: KREA, left: [another(KREA)] }],
+    // More than its two other images: the third stays in the card, greyed, said.
+    [
+      { source: s, reference: [a, b, c] },
+      { model: QWEN, left: [`${QWEN} prend 2 autres images au plus : celle-ci reste là, mais n’est pas envoyée.`] },
+      { model: KREA, left: [another(KREA), another(KREA), another(KREA)] },
+    ],
+    // A size asked: Qwen-Image-Edit keeps the size of its image, which is said.
+    [
+      { source: s, width: 1024, height: 1536 },
+      {
+        model: QWEN,
+        notes: [
+          `Largeur : valeur ignorée, ${QWEN} ne prend pas ce réglage.`,
+          `Hauteur : valeur ignorée, ${QWEN} ne prend pas ce réglage.`,
+        ],
+      },
+      { model: KREA },
+    ],
+  ];
+  for (const [args, ready, without] of table) {
+    assert.deepEqual(
+      await sayRouted(all, 'create_image', args),
+      { notes: [], left: [], ...ready },
+      JSON.stringify(args),
+    );
+    for (const list of absent)
+      assert.deepEqual(
+        await sayRouted(list, 'create_image', args),
+        { notes: [], left: [], ...without },
+        JSON.stringify(args),
+      );
+  }
+  // What is not sent is kept with what it is (the card shows it, greyed, with why).
+  const { left } = await catalogOf(absent[0]).route(
     'create_image',
-    { prompt: 'x', source: { resource: 'r2' }, reference: [{ resource: 'r1' }] },
-    media,
+    { prompt: 'x', source: { ...s }, reference: [{ ...a }] },
+    projectSources,
   );
-  assert.equal(both.workflow.id, qwen.id);
-  // A model that takes a reference alone, given more than it has places for: not that, the reasons as before.
-  const others = { ...qwen, id: 'others', references: qwen.references.filter(item => item.role === 'reference_image') },
-    three = { prompt: 'x', reference: [{ resource: 'r1' }, { resource: 'r2' }, { resource: 'r3' }] };
-  await assert.rejects(catalogOf([krea, others]).route('create_image', three, media), /^Error: Aucun workflow ne/);
-  const one = { ...three, reference: [{ resource: 'r1' }] };
-  assert.equal((await catalogOf([krea, others]).route('create_image', one, media)).workflow.id, 'others');
+  assert.deepEqual(
+    left.map(({ role, index, kind, source }) => ({ role, index, kind, source })),
+    [{ role: 'reference', index: 0, kind: 'none', source: { resource: 'a', media: 'image' } }],
+  );
+  // Nothing ready: the download of the one that does it all, Krea 2 for an image to modify.
+  const none = all.map(workflow => ({ ...workflow, ...TO_FETCH }));
+  assert.equal((await sayRouted(none, 'create_image', { source: a })).model, 'Krea 2 (à télécharger)');
+  assert.equal((await sayRouted(none, 'create_image', { reference: [a, b] })).model, 'Qwen-Image-Edit (à télécharger)');
+  // No model here starts from an image (MOSS Image alone): said in words.
+  await assert.rejects(sayRouted([of(all, 'moss')], 'create_image', { source: a }), {
+    status: 400,
+    message:
+      'Aucun modèle d’image de cet ordinateur ne part d’une image : ' +
+      'décrivez dans le prompt ce qu’il faut en garder.',
+  });
+  // By the user's own hand nothing changes: Krea 2 for an image to modify, a reference alone refused as before.
+  assert.equal((await sayRouted(all, 'create_image', { source: a }, { byHand: true })).model, 'Krea 2');
+  await assert.rejects(sayRouted(all, 'create_image', { reference: [a] }, { byHand: true }), {
+    status: 400,
+    message:
+      'Aucun modèle d’image ne prend une référence seule : il faut la donner comme image à modifier (source) ' +
+      'pour partir d’elle, ou décrire dans le prompt ce qu’il faut en garder.',
+  });
+  // A model of the user's that takes a reference alone, given more than it has places for: the rest greyed, said.
+  const qwen = of(all, 'qwen_image_edit'),
+    others = { ...qwen, id: 'others', references: qwen.references.filter(item => item.role === 'reference_image') };
+  assert.deepEqual(await sayRouted([of(all, 'krea2'), others], 'create_image', { reference: [a, b, c] }), {
+    model: QWEN,
+    notes: [],
+    left: [`${QWEN} prend 2 autres images au plus : celle-ci reste là, mais n’est pas envoyée.`],
+  });
+});
+
+test('a video of Moodix AI: LTX 2.5 as soon as it is ready and takes what is passed; MiniMax H3 Omni named, for its own clip, or without LTX 2.5 (0.6.476)', async () => {
+  const all = everyShipped(),
+    absent = [
+      otherwise(all, ['ltx25'], TO_FETCH),
+      otherwise(all, ['ltx25'], { enabled: false }),
+      otherwise(all, ['ltx25'], NOT_HERE),
+    ];
+  const [a, b, c] = ['a', 'b', 'c'].map(resource => ({ resource })),
+    v = { resource: 'v' },
+    LTX = 'LTX 2.5',
+    MINIMAX = 'MiniMax H3 Omni';
+  // What the chat passes; what is made with LTX 2.5 ready; what is made without it.
+  const table = [
+    [
+      'create_video',
+      { duration: 5 },
+      { model: LTX },
+      { model: MINIMAX, notes: [`Durée : 5 s → 5,17 s, la plus proche que ${MINIMAX} permet.`] },
+    ],
+    ['create_video', { start_image: a }, { model: LTX }, { model: 'Wan 2.2' }],
+    ['create_video', { start_image: a, end_image: b }, { model: LTX }, { model: 'pi H3' }],
+    ['create_video', { reference: [a, b] }, { model: LTX }, { model: MINIMAX }],
+    // Three subjects: LTX 2.5 takes two, MiniMax H3 Omni three.
+    ['create_video', { reference: [a, b, c] }, { model: MINIMAX }, { model: MINIMAX }],
+    ['create_video', { workflow: MINIMAX_ID }, { model: MINIMAX }, { model: MINIMAX }],
+    // A suite: the model of its clip, else LTX 2.5; with a subject, MiniMax H3 Omni (LTX 2.5 takes none in a suite).
+    ['extend_video', { source: v }, { model: LTX }, { model: MINIMAX }],
+    ['extend_video', { source: { output: 'minimax-clip' } }, { model: MINIMAX }, { model: MINIMAX }],
+    ['extend_video', { source: { output: 'ltx-clip' } }, { model: LTX }, { model: MINIMAX }],
+    ['extend_video', { source: v, reference: [a] }, { model: MINIMAX }, { model: MINIMAX }],
+  ];
+  for (const [name, args, ready, without] of table) {
+    const asked = { intention: 'x', ...args };
+    assert.deepEqual(await sayRouted(all, name, asked), { notes: [], left: [], ...ready }, JSON.stringify(args));
+    for (const list of absent)
+      assert.deepEqual(await sayRouted(list, name, asked), { notes: [], left: [], ...without }, JSON.stringify(args));
+  }
+  // A start image and a subject: LTX 2.5 takes both; without it no model here does, refused as before.
+  assert.equal((await sayRouted(all, 'create_video', { intention: 'x', start_image: a, reference: [b] })).model, LTX);
+  await assert.rejects(
+    sayRouted(absent[0], 'create_video', { intention: 'x', start_image: a, reference: [b] }),
+    /^Error: Aucun workflow ne correspond/,
+  );
+  // Nothing ready: the download of LTX 2.5, a video from words.
+  const none = all.map(workflow => ({ ...workflow, ...TO_FETCH }));
+  assert.equal((await sayRouted(none, 'create_video', { intention: 'x' })).model, 'LTX 2.5 (à télécharger)');
+  // The other lines of the table of the study (27/11) do not move.
+  for (const list of [all, ...absent]) {
+    assert.equal(
+      (await sayRouted(list, 'replace_character', { intention: 'x', source: v, reference: a })).model,
+      'Wan 2.1 SCAIL-2',
+    );
+    assert.equal((await sayRouted(list, 'upscale', { source: a })).model, 'Upscale SeedVR2');
+    assert.equal((await sayRouted(list, 'upscale', { source: v })).model, 'Upscale vidéo (Real-ESRGAN ×2)');
+    assert.equal((await sayRouted(list, 'interpolate', { source: v })).model, 'Interpoler (RIFE 4.26)');
+  }
+  // By the user's own hand (the buttons of a take), as before: the model with the fewest empty slots.
+  assert.equal((await sayRouted(all, 'create_video', { intention: 'x' }, { byHand: true })).model, MINIMAX);
+  assert.equal((await sayRouted(all, 'extend_video', { intention: 'x', source: v }, { byHand: true })).model, MINIMAX);
+  // The Studio and the Bobine name their model: it is the one made, LTX 2.5 ready or not.
+  for (const list of [all, ...absent])
+    assert.equal(
+      (await sayRouted(list, 'create_video', { intention: 'x', workflow: MINIMAX_ID }, { byHand: true })).model,
+      MINIMAX,
+    );
+  // The Studio lists its models in the order of their families (`preference`), which is not the chat's.
+  const families = name =>
+    JSON.parse(readFileSync(new URL(`../runner/families/${name}.json`, import.meta.url), 'utf8'));
+  assert.deepEqual(
+    [families('ltx25').preference, families('minimax_h3').preference, families('qwen_image_edit').preference],
+    [undefined, undefined, -1],
+  );
+  assert.deepEqual(
+    [families('ltx25').chatFirst, families('qwen_image_edit').chatFirst],
+    [['create_video', 'extend_video'], ['create_image']],
+  );
+});
+
+test('the models of the card of a video proposal: what each takes of its inputs, why one cannot be chosen, the one to download (0.6.476)', async () => {
+  const all = everyShipped(),
+    a = { resource: 'a', media: 'image' },
+    b = { resource: 'b', media: 'image' },
+    v = { resource: 'v', media: 'video' };
+  const listed = await catalogOf(all).choices('create_video', { start_image: [a], end_image: [b], reference: [a] });
+  // The models of the Bobine, in its order; never Wan 2.2 Caméra nor SCAIL-2.
+  assert.deepEqual(
+    listed.map(model => [model.family, model.name, model.all, model.off ?? '', model.missing ?? false]),
+    [
+      ['ltx25', 'LTX 2.5', true, '', false],
+      ['minimax_h3', 'MiniMax H3 Omni', false, '', false],
+      ['pi_h3', 'pi H3', false, '', false],
+      ['wan22', 'Wan 2.2', false, '', false],
+    ],
+  );
+  assert.equal(listed[0].workflowId, LTX_ID);
+  // Without a start image, Wan 2.2 cannot be made: greyed, with what to do.
+  const words = await catalogOf(all).choices('create_video', { reference: [a] });
+  assert.equal(
+    words.find(model => model.family === 'wan22').off,
+    'Wan 2.2 part d’une image de début : ajoutez-en une à la carte, puis choisissez-le.',
+  );
+  // A suite: the models that make none are greyed, saying which do.
+  const suite = await catalogOf(all).choices('extend_video', { source: [v] });
+  assert.deepEqual(
+    suite.map(model => [model.name, model.off ?? '']),
+    [
+      ['LTX 2.5', ''],
+      ['MiniMax H3 Omni', ''],
+      ['pi H3', 'pi H3 ne prolonge pas une vidéo. Pour une suite : LTX 2.5 ou MiniMax H3 Omni.'],
+      ['Wan 2.2', 'Wan 2.2 ne prolonge pas une vidéo. Pour une suite : LTX 2.5 ou MiniMax H3 Omni.'],
+    ],
+  );
+  // Its files to download: in the list all the same (`missing`), its download offered once chosen; impossible here,
+  // not offered to Moodix AI: greyed with the reason.
+  const other = await catalogOf(
+    otherwise(otherwise(otherwise(all, ['minimax_h3'], TO_FETCH), ['pi_h3'], NOT_HERE), ['wan22'], { enabled: false }),
+  ).choices('create_video', { start_image: [a] });
+  assert.deepEqual(
+    other.map(model => [model.name, model.missing ?? false, model.off ?? '']),
+    [
+      ['LTX 2.5', false, ''],
+      ['MiniMax H3 Omni', true, ''],
+      ['pi H3', false, 'pi H3 : il lui faut une carte NVIDIA.'],
+      [
+        'Wan 2.2',
+        false,
+        'Wan 2.2 n’est pas proposé à Moodix AI : activez « Proposé à Moodix AI » dans ses réglages (Paramètres › Modèles).',
+      ],
+    ],
+  );
+  assert.equal(await catalogOf(all).choices('create_image', {}), null);
+});
+
+test('what a model does not take of the inputs of a card, in the words of the Bobine, and the line that says what to do (0.6.476)', async () => {
+  const { fitInputs, leftWhy, heldWarning } = await import('../lib/tool-catalog.mjs');
+  const all = everyShipped(),
+    ltx = of(all, 'ltx25'),
+    minimax = of(all, 'minimax_h3'),
+    pi = of(all, 'pi_h3'),
+    image = resource => ({ resource, media: 'image' }),
+    inputs = { start_image: [image('s')], end_image: [image('e')], reference: [image('r')] };
+  // LTX 2.5 takes them all; MiniMax H3 Omni the subject; pi H3 the start and the end.
+  assert.deepEqual(fitInputs(ltx, inputs, 'create_video').left, []);
+  assert.deepEqual(
+    fitInputs(minimax, inputs, 'create_video').left.map(({ role, kind }) => [role, kind]),
+    [
+      ['start_image', 'none'],
+      ['end_image', 'none'],
+    ],
+  );
+  assert.deepEqual(
+    fitInputs(pi, inputs, 'create_video').left.map(({ role, kind }) => [role, kind]),
+    [['reference', 'none']],
+  );
+  assert.equal(
+    leftWhy(minimax, 'create_video', { role: 'start_image', kind: 'none' }),
+    'MiniMax H3 Omni ne prend pas d’image de début : elle reste là, mais n’est pas envoyée.',
+  );
+  assert.equal(
+    leftWhy(pi, 'create_video', { role: 'reference', kind: 'none' }, { others: 'LTX 2.5 ou MiniMax H3 Omni' }),
+    'pi H3 ne prend pas de sujet : choisissez LTX 2.5 ou MiniMax H3 Omni. Il reste là, mais n’est pas envoyé.',
+  );
+  assert.equal(
+    leftWhy(ltx, 'extend_video', { role: 'reference', kind: 'none' }, { others: 'MiniMax H3 Omni' }),
+    'LTX 2.5 ne prend pas de sujet dans une suite. Pour une suite avec des sujets : MiniMax H3 Omni. ' +
+      'Il reste là, mais n’est pas envoyé.',
+  );
+  assert.equal(
+    leftWhy(ltx, 'create_video', { role: 'reference', kind: 'full', count: 2 }),
+    'LTX 2.5 prend 2 sujets au plus : celui-ci reste là, mais n’est pas envoyé.',
+  );
+  // The line of the card: what is not sent, and what to do.
+  const sent = [{ role: 'reference_image' }],
+    frames = [
+      { as: 'start_image', kind: 'none' },
+      { as: 'end_image', kind: 'none' },
+    ];
+  assert.equal(
+    heldWarning(minimax, 'create_video', sent, frames, ['LTX 2.5']),
+    'L’image de début et l’image de fin ne sont pas envoyées à MiniMax H3 Omni : retirez-les, ou choisissez LTX 2.5.',
+  );
+  assert.equal(
+    heldWarning(pi, 'create_video', [{ role: 'start_image' }], [{ as: 'reference', kind: 'none' }], []),
+    'Le sujet 1 n’est pas envoyé à pi H3 : retirez-le.',
+  );
+  assert.equal(heldWarning(ltx, 'create_video', sent, [], ['pi H3']), '');
+  // A MiniMax H3 of the user's with a start and an end: subjects, or a start and an end, not both.
+  const full = {
+    ...minimax,
+    references: [
+      { id: 'start', role: 'start_image', required: false, name: 'Image de début' },
+      { id: 'end', role: 'end_image', required: false, name: 'Image de fin' },
+      { id: 'subject-1', role: 'reference_image', required: false, name: 'Référence 1' },
+    ],
+  };
+  const fit = fitInputs(full, inputs, 'create_video');
+  assert.deepEqual(fit.left.map(({ role, kind }) => [role, kind]), [['reference', 'apart']]);
+  assert.equal(
+    leftWhy(full, 'create_video', fit.left[0]),
+    'MiniMax H3 Omni prend des sujets ou un début et une fin, pas les deux : celui-ci reste là, mais n’est pas envoyé.',
+  );
+  const both = [{ role: 'start_image' }, { role: 'end_image' }];
+  assert.equal(
+    heldWarning(full, 'create_video', both, [{ as: 'reference', kind: 'apart' }]),
+    'MiniMax H3 Omni prend des sujets ou un début et une fin, pas les deux : retirez les images de début et de fin ' +
+      'ou le sujet.',
+  );
 });
 
 test('music and sound effects: the model names the workflow, and each keeps its own limits', async () => {
@@ -868,6 +1197,7 @@ test('the Studio is told the models of an image, a video and a sound this comput
       krea: 'fefb88eb-8311-4409-b636-6efbb42e952c',
       moss: '3d6f1a8c-2b7e-4f59-9c41-8e0a5d2b7c36',
       ltx: 'eaec4e2f-0649-4e56-9bd9-809dc9390452',
+      omni: 'e06b6ac9-0d3f-4538-b9ff-bf41cf3ef38f',
       effects: '84390db5-e4b9-413c-9352-bbac225fe79c',
       music: '8a2e5baf-0c02-4077-b36c-482b4e54bb13',
       seedvr: '6b0f2e5c-7d1a-4c8e-9a3f-5e2d1c0b9a87',
@@ -875,6 +1205,7 @@ test('the Studio is told the models of an image, a video and a sound this comput
   const workflows = await Promise.all([
     shippedOf(ids.krea, lacks),
     shippedOf(ids.moss),
+    shippedOf(ids.omni, lacks),
     shippedOf(ids.ltx, lacks),
     shippedOf(ids.effects, lacks),
     shippedOf(ids.music, lacks),
@@ -896,6 +1227,7 @@ test('the Studio is told the models of an image, a video and a sound this comput
     asked.push(list.map(workflow => workflow.id).sort());
     return {
       [ids.krea]: offer(19e9),
+      [ids.omni]: offer(40e9),
       [ids.ltx]: offer(41e9, { needsToken: true, page: 'https://huggingface.co/Lightricks/LTX-2' }),
       [ids.effects]: offer(3e9, { left: 1e9 }),
       [ids.music]: offer(9e9, { complete: false }),
@@ -904,7 +1236,12 @@ test('the Studio is told the models of an image, a video and a sound this comput
   };
   const studio = await catalogOf(workflows).studio({ offers });
   // Asked once, for the shipped models that lack their files.
-  assert.deepEqual(asked, [[ids.krea, ids.ltx, ids.effects, ids.music, ids.seedvr].sort()]);
+  assert.deepEqual(asked, [[ids.krea, ids.omni, ids.ltx, ids.effects, ids.music, ids.seedvr].sort()]);
+  // (0.6.491) Of the videos to download, LTX 2.5 leads (the one the chat takes first), whatever the order they come in.
+  assert.deepEqual(
+    studio.create_video.map(item => item.id),
+    [ids.ltx, ids.omni],
+  );
   const told = verb =>
     studio[verb].map(item => [
       item.id,

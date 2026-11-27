@@ -9775,6 +9775,105 @@ body:not([data-view='chat']) .resume {
   margin: 0 6px;
   background: rgba(238, 232, 222, 0.12);
 }
+/* (0.6.476) Une image que le modèle choisi ne prend pas : gardée à sa place, grisée (pas son ×), sa raison dans sa
+   bulle ; elle n'est pas envoyée. Le × d'une image la retire de la carte, la proposition refaite sans elle : un rond
+   sombre de 18 px dans son coin, sous le pointeur ou au clavier, toujours là sur une image grisée et sur un écran
+   tactile. Il paraît d'un coup, sans fondu. */
+.proposal-input.is-held .proposal-input-frame > :is(img, .proposal-input-file) {
+  opacity: 0.38;
+  filter: grayscale(1);
+}
+.proposal-input.is-held figcaption {
+  color: var(--text-4);
+}
+.proposal-input-frame:has(> .proposal-input-remove) {
+  position: relative;
+}
+.proposal-input-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid #2a2e37;
+  border-radius: 999px;
+  background: #0b0c0f;
+  color: var(--text-2);
+  opacity: 0;
+}
+.proposal-input-remove > svg {
+  width: 9px;
+  height: 9px;
+  stroke-width: 2.2;
+}
+.proposal-input:is(:hover, :focus-within, .is-held) .proposal-input-remove {
+  opacity: 1;
+}
+.proposal-input-remove:hover {
+  color: var(--text-1);
+}
+@media (hover: none) {
+  .proposal-input-remove {
+    opacity: 1;
+  }
+}
+/* (0.6.476) La ligne qui dit ce que le modèle choisi n'envoie pas, et quoi faire : en ambre, comme une raison. */
+.proposal-note.proposal-warning {
+  color: var(--warning);
+}
+/* (0.6.476) Le modèle d'une vidéo de Moodix AI, dans le titre de sa carte : un bouton à liseré, comme le modèle d'une
+   carte « À créer » de la Bobine (« LTX 2.5 ⌄ ») ; il ouvre la liste des modèles, une de nos listes de verre. En ambre
+   quand celui choisi n'est pas sur cet ordinateur : son téléchargement est proposé dans la carte, à la place de ses
+   réglages, comme le fait la carte « Il manque un fichier » (que la carte habille de son verre, sans le doubler). */
+.proposal-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: 24px;
+  min-height: 0;
+  margin: -7px 0;
+  padding: 0 8px;
+  border: 1px solid rgba(238, 232, 222, 0.16);
+  border-radius: 7px;
+  background: rgba(238, 232, 222, 0.05);
+  color: var(--text-2);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.proposal-model > svg {
+  width: 7px;
+  height: 7px;
+  opacity: 0.6;
+  transform: rotate(90deg);
+}
+.proposal-model:hover {
+  border-color: rgba(238, 232, 222, 0.32);
+  color: var(--text-1);
+}
+.proposal-model[data-missing='true'] {
+  color: var(--warning);
+}
+#messages .proposal-card .proposal-offer .missing-card {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+/* (0.6.476) Un texte sous « Paramètres avancés » (le prompt négatif de Wan 2.2) : sur toute la largeur de ses deux
+   colonnes. */
+#messages .proposal-card .proposal-panels .proposal-grid > .proposal-field.is-wide {
+  grid-column: 1 / -1;
+}
 .proposal-foot {
   display: flex;
   align-items: center;

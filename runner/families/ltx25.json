@@ -405,5 +405,6 @@
       }
     ]
   },
-  "exclusive": [["source"], ["reference"]]
+  "exclusive": [["source"], ["reference"]],
+  "chatFirst": ["create_video", "extend_video"]
 }
