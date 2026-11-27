@@ -35,6 +35,28 @@ export function roomText(offer) {
   return `Il faut ${sizeText(offer.room)} de place libre : après le téléchargement, les fichiers sont convertis pour le moteur de Moodix, puis les originaux sont effacés.`;
 }
 
+/**
+ * (0.6.493) A card taller than the conversation (LTX 2.5's six files and two licences at 1280 × 720): its head kept in
+ * view, in a proposal card the head of that card, with the button of its model (relecture, m6). The page keeps the
+ * conversation at its end as it grows (its ResizeObserver, public/app.js, made first, so answered first); here, in the
+ * same frame, before it is painted, the conversation goes back up to that head. « Télécharger » comes after the
+ * licences, read down.
+ */
+function keepHead(card) {
+  const Watch = globalThis.ResizeObserver;
+  if (typeof Watch !== 'function') return;
+  const watch = new Watch(() => {
+    watch.disconnect();
+    const top = card.closest?.('.proposal-card') ?? card,
+      area = top.closest?.('.chat-area');
+    if (!area || !card.isConnected) return;
+    // Under the mask of the top of the conversation (14 px, moodix.css), and a little room.
+    const under = area.getBoundingClientRect().top + 22 - top.getBoundingClientRect().top;
+    if (under > 0) area.scrollBy?.({ top: -under, behavior: 'instant' });
+  });
+  watch.observe(card);
+}
+
 export function missingFileCard({
   host,
   request,
@@ -234,6 +256,7 @@ export function missingFileCard({
   }
   render();
   host.append(card);
+  keepHead(card);
   // A download of this file already under way (stopped and started again from the settings).
   void api('downloads')
     .then(response => response.json())

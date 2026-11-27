@@ -62,7 +62,10 @@ class Element {
 const node = (...args) => new Element(...args);
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const video = () => ({ mediaType: 'video', workflowName: 'LTX 2.5', requestId: 'r', approvalToken: 't', plan: { intention: 'Un plan fixe.' } });
-function setup(request = video(), { delay = 60, takes = null, importImage = null, answer = () => ({}) } = {}) {
+function setup(
+  request = video(),
+  { delay = 60, takes = null, importImage = null, answer = () => ({}), onFetched } = {},
+) {
   const host = new Element('div', 'generation-grid'),
     composer = new Element('textarea'),
     controller = new AbortController(),
@@ -72,7 +75,18 @@ function setup(request = video(), { delay = 60, takes = null, importImage = null
     revised.push([route, body]);
     return Response.json(answer(route, body));
   };
-  const pending = proposalCard({ host, request, signal: controller.signal, node, api, delay, composer, takes, importImage });
+  const pending = proposalCard({
+    host,
+    request,
+    signal: controller.signal,
+    node,
+    api,
+    delay,
+    composer,
+    takes,
+    importImage,
+    ...(onFetched ? { onFetched } : {}),
+  });
   const [head] = pending.card.children,
     [title, status] = head.children,
     foot = pending.card.children[2],
@@ -540,9 +554,12 @@ test('(0.6.476) a model that is not on this computer: its download offered in th
       page: '',
     },
     MINIMAX = { ...chosenOf('minimax_h3', 'MiniMax H3 Omni'), requestId: 'r4', approvalToken: 't4' };
-  let downloaded = false;
+  let downloaded = false,
+    fetched = 0;
   const card = setup(chosenOf('ltx25', 'LTX 2.5'), {
     delay: 0,
+    // (0.6.493) The page then reads its models again (the Studio, the Bobine: relecture, m5).
+    onFetched: () => fetched++,
     answer: route => {
       if (route === 'tools/revise')
         return downloaded
@@ -567,6 +584,9 @@ test('(0.6.476) a model that is not on this computer: its download offered in th
   const [missing] = offered.children;
   assert.equal(missing.className, 'missing-card');
   assert.equal(missing.children[0].textContent, 'Il manque un fichier · Vidéo · MiniMax H3 Omni');
+  // (0.6.493) Said by the head of the card, whose title stays in view at 1280 × 720 (the head of the offer is not
+  // drawn there: public/moodix.css, relecture m6).
+  assert.equal(card.status.textContent, 'Il manque un fichier');
   const [chooser] = card.title.children;
   assert.deepEqual([chooser.children[0].textContent, chooser.dataset.missing], ['MiniMax H3 Omni', 'true']);
   // In its list, the one checked is the one offered.
@@ -581,6 +601,7 @@ test('(0.6.476) a model that is not on this computer: its download offered in th
   assert.deepEqual(buttons.map(item => item.children.at(-1).textContent), ['Annuler', 'Télécharger · 21,0 Go']);
   buttons[0].onclick();
   assert.deepEqual([body.hidden, foot.hidden, offered.hidden, offered.children.length], [false, false, true, 0]);
+  assert.equal(card.status.textContent, 'En attente de votre accord');
   const [back] = card.title.children;
   assert.deepEqual([back.children[0].textContent, back.dataset.missing], ['LTX 2.5', undefined]);
   assert.equal(card.host.children.some(child => child.className === 'proposal-cancelled'), false);
@@ -593,12 +614,136 @@ test('(0.6.476) a model that is not on this computer: its download offered in th
   assert.deepEqual([offered.hidden, body.hidden, revisions().length], [true, false, sent]);
   // Downloaded: the proposal is made for it, and the card shows it.
   await choose('MiniMax H3 Omni');
+  assert.equal(fetched, 0);
   downloaded = true;
   under(offered).filter(item => item.tag === 'button')[1].onclick();
   await wait(10);
+  assert.equal(fetched, 1, 'the files there, said to the page once');
   assert.deepEqual(revisions().at(-1)[1].edits, { workflow: 'mm' });
   const shown = [offered.hidden, body.hidden, foot.hidden, card.title.children[0].children[0].textContent];
   assert.deepEqual(shown, [true, false, false, 'MiniMax H3 Omni']);
   card.go.onclick();
   assert.equal(await card.answer, 'once');
+});
+
+test('(0.6.493) a proposal gone greys « Générer » with why: its time over, or the server saying so; never left on', async () => {
+  const greyed = card => [
+    card.go.attributes['aria-disabled'],
+    card.go.dataset.tip,
+    card.go.disabled,
+    card.status.textContent,
+  ];
+  // Its time over (`expiresIn`: what the server keeps it): greyed, its reason in its bubble, nothing made.
+  const late = setup({ ...video(), expiresIn: 20 }, { delay: 0 });
+  assert.equal(late.status.textContent, 'En attente de votre accord');
+  assert.equal(late.go.attributes['aria-disabled'], undefined);
+  await wait(50);
+  assert.deepEqual(greyed(late), ['true', 'Cet appel a expiré. Relancez la demande.', false, 'Expirée']);
+  late.go.onclick();
+  await wait(0);
+  assert.equal(late.card.parent, late.host, 'nothing made: the card stays, its « Annuler » with it');
+  late.cancel.onclick();
+  assert.equal(await late.answer, 'cancel');
+  // Its count stops with it where it has one: nothing starts by itself.
+  const counted = setup({ ...video(), expiresIn: 10 }, { delay: 80 });
+  await wait(120);
+  assert.deepEqual(
+    [counted.card.parent === counted.host, counted.go.classList.contains('is-counting'), counted.status.textContent],
+    [true, false, 'Expirée'],
+  );
+  counted.cancel.onclick();
+  assert.equal(await counted.answer, 'cancel');
+  // Each answer of the server counts its own time: the download offered keeps it a day (lib/tool-runtime.mjs).
+  const waiting = setup(chosenOf('ltx25', 'LTX 2.5', { expiresIn: 30 }), {
+    delay: 0,
+    answer: () => ({ ...chosenOf('pi_h3', 'pi H3'), requestId: 'r2', approvalToken: 't2', expiresIn: 60000 }),
+  });
+  waiting.title.children[0].onclick({ stopPropagation() {} });
+  menuOf(waiting.card).children[2].onclick();
+  await wait(60);
+  assert.equal(waiting.go.attributes['aria-disabled'], undefined, 'the time of the new proposal');
+  waiting.cancel.onclick();
+  assert.equal(await waiting.answer, 'cancel');
+  // Refused by the server (the files of a model came after the proposal expired; another tab used it): the same,
+  // the reason in red under the card as before.
+  for (const [said, word] of [
+    ['Cet appel a expiré. Relancez la demande.', 'Expirée'],
+    ['Cette proposition ne peut plus être modifiée.', 'Plus valable'],
+  ]) {
+    const refused = setup(chosenOf('ltx25', 'LTX 2.5'), {
+      delay: 0,
+      answer: route => {
+        if (route === 'tools/revise') throw new Error(said);
+        return {};
+      },
+    });
+    refused.title.children[0].onclick({ stopPropagation() {} });
+    menuOf(refused.card).children[2].onclick();
+    await wait(10);
+    assert.deepEqual(greyed(refused), ['true', said, false, word]);
+    assert.ok(under(refused.card).some(item => item.textContent === said), 'said under the card');
+    refused.go.onclick();
+    await wait(0);
+    assert.equal(refused.revised.filter(([route]) => route !== 'tools/revise').length, 0);
+    assert.equal(refused.card.parent, refused.host);
+    refused.cancel.onclick();
+    assert.equal(await refused.answer, 'cancel');
+  }
+  // Any other refusal leaves it on: the proposal is still the one to confirm.
+  const kept = setup(chosenOf('ltx25', 'LTX 2.5'), {
+    delay: 0,
+    answer: route => {
+      if (route === 'tools/revise') throw new Error('Wan 2.2 part d’une image de début.');
+      return {};
+    },
+  });
+  kept.title.children[0].onclick({ stopPropagation() {} });
+  menuOf(kept.card).children[2].onclick();
+  await wait(10);
+  assert.deepEqual([kept.go.attributes['aria-disabled'], kept.go.disabled], [undefined, false]);
+  kept.go.onclick();
+  assert.equal(await kept.answer, 'once');
+  // Greyed, it reads so: the grey of what cannot be chosen, no accent (public/moodix.css).
+  const { readFile } = await import('node:fs/promises');
+  const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  assert.match(css, /\.proposal-card \.proposal-go\[aria-disabled='true'\][^{]*\{[^}]*color: var\(--text-4\);/);
+  assert.match(css, /\n#messages \.proposal-card \.proposal-offer \.missing-head \{\s*display: none;/);
+  // (0.6.493) And the offer tighter in the card, every licence still read before « Télécharger » (relecture, m6: at
+  // 1280 × 720, its title and the button of the model under the top of the conversation).
+  assert.match(css, /\n#messages \.proposal-card \.proposal-offer \.missing-file \{\s*padding: 1px 0;/);
+  assert.match(css, /\n#messages \.proposal-card \.proposal-offer \.missing-foot \{\s*margin-top: 10px;/);
+  assert.doesNotMatch(css, /\.proposal-offer \.license-[a-z]+ \{\s*display: none;/);
+});
+
+test('(0.6.493) for a suite, the list of the card says what each model takes beside its clip, not for a new shot', async () => {
+  const suite = { source: { count: 1, required: true } },
+    models = [
+      { ...MODELS[0], extend_video: { roles: { ...suite, reference: { count: 0 } } } },
+      { ...MODELS[1], extend_video: { roles: { ...suite, reference: { count: 3 } } } },
+      { ...MODELS[2], off: 'pi H3 ne prolonge pas une vidéo. Pour une suite : LTX 2.5 ou MiniMax H3 Omni.' },
+      MODELS[3],
+    ];
+  const words = async verb => {
+    const card = setup(chosenOf('ltx25', 'LTX 2.5', { models, ...(verb ? { verb } : {}) }), { delay: 0 });
+    card.title.children[0].onclick({ stopPropagation() {} });
+    const said = menuOf(card.card).children.map(item => [
+      item.children[0].children[1].textContent,
+      item.attributes['aria-label'],
+    ]);
+    card.cancel.onclick();
+    await card.answer;
+    return said;
+  };
+  assert.deepEqual(await words('extend_video'), [
+    ['Vidéo, son', 'LTX 2.5, Vidéo, son'],
+    ['Vidéo, 3 sujets, son', 'MiniMax H3 Omni, Vidéo, 3 sujets, son'],
+    ['Début, fin, son', 'pi H3, Début, fin, son'],
+    ['Début seulement, sans son', 'Wan 2.2, Début seulement, sans son'],
+  ]);
+  // A new shot, as before.
+  for (const verb of ['create_video', undefined])
+    assert.deepEqual(
+      (await words(verb)).map(([said]) => said),
+      ['Début, fin, 2 sujets, son', '3 sujets, son', 'Début, fin, son', 'Début seulement, sans son'],
+    );
 });

@@ -865,3 +865,22 @@ test('(0.6.476) what the model chosen does not send stays in its place, greyed, 
   assert.match(rule2('.proposal-note.proposal-warning'), /color: var\(--warning\);/);
   assert.doesNotMatch(rule2('.proposal-input-remove'), /transition/);
 });
+
+test('(0.6.493) in a card, the note of what is not sent is left to its greyed inputs and its line: said once', () => {
+  const said = 'sujet3.png n’est pas envoyée à LTX 2.5.',
+    line = 'Le sujet 3 n’est pas envoyé à LTX 2.5 : retirez-le, ou choisissez MiniMax H3 Omni.',
+    told = 'Durée : 30 s → 10,04 s, la plus proche que LTX 2.5 permet.',
+    why = 'LTX 2.5 prend 2 sujets au plus : celui-ci reste là, mais n’est pas envoyé.';
+  const shown = request => {
+    const box = node('section');
+    renderProposal(box, request, { node, card: true });
+    return all(box)
+      .filter(item => String(item.className).includes('proposal-note'))
+      .map(item => item.textContent);
+  };
+  const held = { held: [{ as: 'reference', label: 'sujet3.png', why }], warning: line };
+  // The server sends it with the notes (the Studio says it so) and names it (`heldNote`) where a card shows it.
+  assert.deepEqual(shown({ ...proposal(), notes: [told, said], heldNote: said, ...held }), [told, line]);
+  // Without that name, every note is said, as before.
+  assert.deepEqual(shown({ ...proposal(), notes: [told, said], ...held }), [told, said, line]);
+});

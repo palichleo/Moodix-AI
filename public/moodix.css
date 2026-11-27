@@ -9869,6 +9869,41 @@ body:not([data-view='chat']) .resume {
   backdrop-filter: none;
   box-shadow: none;
 }
+/* (0.6.493) Dans la carte, la tête « Il manque un fichier » de l'offre n'est pas redite : le titre de la carte nomme
+   le modèle, en ambre, et son statut le dit. À 1280 × 720, elle poussait ce titre sous la barre du haut. */
+#messages .proposal-card .proposal-offer .missing-head {
+  display: none;
+}
+/* (0.6.493) Et l'offre plus serrée dans la carte (lignes des fichiers, marges des licences et du pied, 32 px de moins
+   pour MiniMax H3 Omni) : à 1280 × 720, la carte entière tient sous le fil d'Ariane, son titre et le bouton du modèle
+   hors du masque du haut de la conversation. Les licences restent toutes lues avant « Télécharger ». */
+#messages .proposal-card .proposal-offer .missing-file {
+  padding: 1px 0;
+}
+#messages .proposal-card .proposal-offer .license-block {
+  margin-top: 10px;
+}
+#messages .proposal-card .proposal-offer .license-head {
+  margin-bottom: 5px;
+}
+#messages .proposal-card .proposal-offer .license-list {
+  gap: 5px;
+}
+#messages .proposal-card .proposal-offer .missing-foot {
+  margin-top: 10px;
+}
+/* (0.6.493) « Générer » grisé quand la proposition n'est plus valable (expirée, refaite dans un autre onglet) : sa
+   raison dans sa bulle, jamais allumé pour être refusé. */
+#messages .proposal-card .proposal-go[aria-disabled='true'],
+#messages .proposal-card .proposal-go[aria-disabled='true']:hover {
+  border-color: rgba(238, 232, 222, 0.12);
+  background: rgba(238, 232, 222, 0.04);
+  color: var(--text-4);
+  cursor: default;
+}
+#messages .proposal-card .proposal-go[aria-disabled='true'] .proposal-go-play {
+  border-left-color: var(--text-4);
+}
 /* (0.6.476) Un texte sous « Paramètres avancés » (le prompt négatif de Wan 2.2) : sur toute la largeur de ses deux
    colonnes. */
 #messages .proposal-card .proposal-panels .proposal-grid > .proposal-field.is-wide {
@@ -14204,7 +14239,8 @@ body[data-setup='incomplete'] #resume-last {
 .license-files {
   min-width: 0;
   color: var(--text-3);
-  font: 400 11.5px/1.4 var(--font-mono);
+  /* (0.6.493) 12 px, la plus petite taille d'un texte qui n'est pas en petites capitales (11,5 px avant). */
+  font: 400 12px/1.4 var(--font-mono);
   overflow-wrap: anywhere;
 }
 .license-limits {
