@@ -2834,6 +2834,31 @@ test('the request sent again once its file is downloaded never takes the takes o
   assert.equal(offered.onReady(), true);
 });
 
+test('(0.6.475) the file of a card of the chat downloaded: the Studio and the Bobine read their models again, whether the request goes again by itself or not', async () => {
+  // (Downloaded from a card while another page was shown, the Bobine drawn after said its model missing, in amber,
+  // until the Studio read its tools again.)
+  const told = [],
+    shown = page({ state: { studio: { invalidate: options => told.push(plain(options)) } } }),
+    request = { tool: 'create_video', workflowName: 'LTX 2.5', missing: { files: [{ name: 'ltx.safetensors' }] } },
+    messages = [
+      { role: 'user', content: 'Fais une vidéo du phare' },
+      { role: 'assistant', content: '', tool_calls: [functionCall('create_video', 'call_b')] },
+      { role: 'tool', tool_call_id: 'call_b', content: JSON.stringify({ status: 'missing_file' }) },
+    ];
+  let offered = null;
+  shown.context.missingFileCard = options => (offered = options);
+  Object.assign(shown.state, { conversationId: ID, messages });
+  shown.context.missingFile(shown.context.assistantMessage(), request, messages, ID);
+  // Another conversation shown when it is there: nothing sent again, the models read again all the same.
+  shown.state.conversationId = ELSEWHERE;
+  assert.equal(offered.onReady(), false);
+  assert.deepEqual(told, [{ tools: true }]);
+  // Its conversation shown: sent again by itself, the models read again too.
+  shown.state.conversationId = ID;
+  assert.equal(offered.onReady(), true);
+  assert.deepEqual(told, [{ tools: true }, { tools: true }]);
+});
+
 // ------------------------------------------------------------------ guards of the history, the page (0.6.103)
 test('a first message cancelled while the model loads: the conversation stays one, its message said waiting in the box; chosen again, it shows', async t => {
   const store = await historyStore(t),

@@ -2913,6 +2913,9 @@ function missingFile(view, request, history, conversationId = state.conversation
     // The conversation has not moved: the message goes again by itself. Written in meanwhile (or
     // something running, or a draft in the box): the card offers to take the request up again.
     onReady: () => {
+      // (0.6.475) The file there: the Studio and the Bobine read their models again, as when the settings close (the
+      // list of the Bobine said it missing until the next reading of the Studio).
+      state.studio?.invalidate?.({ tools: true });
       const index = lastExchange(state.messages);
       if (state.conversationId !== conversationId || index < 0 || JSON.stringify(state.messages[index].content) !== asked)
         return false;
