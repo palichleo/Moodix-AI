@@ -696,7 +696,8 @@ async function generationOver(id = state.conversationId) {
  * call reads « demande restée sans suite ».
  */
 async function forgetConversation(id, reason = 'studio-empty') {
-  if (!state.saveHistory || !state.historyItems.some(item => item.id === id)) return;
+  // (0.6.469) Never by a page that goes away (`leaving`): what failed there is its own requests.
+  if (state.leaving || !state.saveHistory || !state.historyItems.some(item => item.id === id)) return;
   try {
     await historyWrite;
     // Never with a take (0.6.87): deleted, a conversation takes its takes with it (their records are
@@ -4884,6 +4885,9 @@ async function runInStudio(proposal, { signal, onProgress, conversationId = stat
   };
   await persistConversation(talkId);
   const takeBack = async () => {
+    // (0.6.469) Not by a page that goes away: its requests fail, the creation goes on at the server, and its
+    // conversation, begun for it, must be there for the page found again (take-recovery.mjs).
+    if (state.leaving) return;
     // Stopped: once the server has handed the card back, it allows the save (generationOver, 0.6.84).
     await generationOver(talkId);
     const talk = holderOf(talkId);
@@ -5358,7 +5362,18 @@ state.recovery = setupTakeRecovery({
     void refreshStatus();
   },
 });
+// (0.6.469) Shown again as it was left (the browser kept it): it is here again, its requests are its own again.
+window.addEventListener('pageshow', event => {
+  if (!event.persisted) return;
+  state.leaving = false;
+  state.studio?.leaving?.(false);
+});
 window.addEventListener('pagehide', () => {
+  // (0.6.469) The page goes away (reloaded, closed): from here its requests fail by themselves. What they asked for
+  // goes on at the server: nothing is cancelled nor taken back for it (generation-runtime.mjs, takeBack).
+  state.leaving = true;
+  // (0.6.470) The queue of the Studio kept in this tab stays as it is now (studio-queue.mjs, leaving).
+  state.studio?.leaving?.(true);
   state.recovery.rememberTab();
   // The generation this tab started: another tab may follow it at once (0.6.86); reloaded, this
   // same tab follows it again.

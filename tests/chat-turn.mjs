@@ -1881,6 +1881,53 @@ test('a creation of the Studio is kept as it starts, and taken back when it make
   await assert.rejects(store.read(ID));
 });
 
+test('(0.6.469) a page that goes away takes nothing back: the conversation begun for a take stays for the page found again', async t => {
+  // The page reloaded while the server checks its engine: its request fails in the browser, the take is still
+  // being made. Seen on 27/11: the conversation begun for it was deleted (« studio-empty »), its take never made.
+  const store = await historyStore(t),
+    deleted = [],
+    proposal = { call: functionCall('create_image', 'action1'), workflowName: 'Krea 2', requestId: 'r1', plan: { prompt: 'un renard' } },
+    leaving = page({
+      store,
+      // (What the page reads after its request failed fails too: it is going away.)
+      requestTool: async () => {
+        leaving.state.leaving = true;
+        throw new TypeError('Failed to fetch');
+      },
+      state: { conversationId: ID, view: 'studio' },
+      routes: {
+        'history/delete': async body => (deleted.push(plain(body)), Response.json({ removed: body.id })),
+        [`gallery/${ID}?images=0`]: async () => Response.json({ runs: [] }),
+      },
+    });
+  await assert.rejects(
+    leaving.context.runInStudio(proposal, { signal: new AbortController().signal, onProgress() {}, conversationId: ID }),
+    { message: 'Failed to fetch' },
+  );
+  assert.deepEqual(deleted, [], 'not deleted');
+  // As it was saved when the take started (0.6.82): its line, its call and the answer kept for it, which the page
+  // found again reads.
+  assert.deepEqual(roles((await store.read(ID)).messages), ['user', 'assistant', 'tool']);
+  // The same failure of a page that stays: taken back as before (0.6.82).
+  const staying = page({
+    store,
+    requestTool: async () => {
+      throw new TypeError('Failed to fetch');
+    },
+    state: { conversationId: ID, view: 'studio' },
+    routes: {
+      'history/delete': async body => (deleted.push(plain(body)), await store.remove(body.id), Response.json({ removed: body.id })),
+      [`gallery/${ID}?images=0`]: async () => Response.json({ runs: [] }),
+    },
+  });
+  await store.remove(ID);
+  await assert.rejects(
+    staying.context.runInStudio(proposal, { signal: new AbortController().signal, onProgress() {}, conversationId: ID }),
+    { message: 'Failed to fetch' },
+  );
+  assert.deepEqual(deleted, [{ confirm: true, id: ID, reason: 'studio-empty' }]);
+});
+
 test('a creation of the Studio that makes nothing never deletes a conversation that existed, nor one with takes (0.6.87)', async t => {
   // « Modifier » on its first message leaves no message in the page, and one in the history: taken
   // back, the conversation was deleted with its folder, the records of its takes in it.

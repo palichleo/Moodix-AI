@@ -17,7 +17,9 @@ const WAITS = new Set(['waiting', 'paused']);
 
 export function createQueue({ storage = null, tab = '' } = {}) {
   let entries = [],
-    made = 0;
+    made = 0,
+    // (0.6.470) The page goes away (`leaving`): nothing more is kept from here.
+    frozen = false;
   const newId = () => globalThis.crypto?.randomUUID?.() ?? `q${Date.now().toString(36)}${(made += 1)}`;
   const find = id => entries.find(entry => entry.id === id) ?? null;
   const of = (conversation, states) =>
@@ -27,7 +29,7 @@ export function createQueue({ storage = null, tab = '' } = {}) {
   const triesOf = fields => Math.max(1, fields.tries || 1);
   /** Kept in the tab at each change; nothing kept once the queue is empty. A storage that refuses keeps nothing. */
   function save() {
-    if (!storage || !tab) return;
+    if (!storage || !tab || frozen) return;
     try {
       if (entries.length) storage.setItem(QUEUE_KEY, JSON.stringify({ tab, entries }));
       else storage.removeItem(QUEUE_KEY);
@@ -62,6 +64,17 @@ export function createQueue({ storage = null, tab = '' } = {}) {
   }
   restore();
   return {
+    /**
+     * (0.6.470) The page goes away (reloaded, closed) or is shown again as it was left: while it goes, what it does
+     * to the queue is not kept. Its requests fail by themselves then (the take goes on at the server), and what it
+     * made of that (the take under way written « failed », those that wait paused for a stop) came back with the
+     * page: « ÉCHEC · Failed to fetch » beside a take being made. Kept as it was when the page left, the queue is
+     * read again as a reload reads it: the take under way followed, the others paused.
+     */
+    leaving(on = true) {
+      frozen = Boolean(on);
+      if (!frozen) save();
+    },
     /** Every entry, in the order they were asked. */
     entries: () => [...entries],
     get: find,

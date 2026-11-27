@@ -373,3 +373,30 @@ test('(0.6.466) the page gives the Studio the storage and the identity of its ta
   assert.match(forget, /forgetCopies\(target\?\.id \?\? null\);\r?\n[^\n]*\r?\n\s+state\.studio\?\.forgetQueue\?\./);
   assert.match(forget, /state\.studio\?\.forgetQueue\?\.\(target\?\.id \?\? null\);/);
 });
+
+test('(0.6.470) a page that goes away keeps its queue as it was: what its failing requests do to it is not kept', async () => {
+  // The page reloaded while a take is made, another request waiting: its requests fail in the browser, and what
+  // it then made of its queue (the take « failed », the others paused for a stop) came back with the reload.
+  const storage = tabStorage(),
+    queue = createQueue({ storage, tab: 't1' }),
+    running = queue.begin(asked('A')),
+    waiting = queue.add(asked('B'));
+  queue.leaving();
+  queue.fail(running.id, 'Failed to fetch');
+  queue.pause('stopped');
+  queue.remove(waiting.id);
+  // Read again by the page reloaded: the take under way is followed by the page (not a request any more), the one
+  // that waited comes back paused by the reload, not by a stop, and nothing failed.
+  const again = createQueue({ storage, tab: 't1' });
+  assert.deepEqual(
+    again.entries().map(entry => [entry.prompt, entry.state, entry.reason]),
+    [['B', 'paused', 'reload']],
+  );
+  // Shown again as it was left (the browser kept the page): it keeps what it holds from then on.
+  queue.leaving(false);
+  assert.deepEqual(JSON.parse(storage.items.get(QUEUE_KEY)).entries.map(entry => [entry.prompt, entry.state]), [['A', 'failed']]);
+  // The page tells its Studio as it goes, and as it comes back (app.js).
+  const page = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.match(page, /state\.leaving = true;\s+\/\/[^\n]*\n\s+state\.studio\?\.leaving\?\.\(true\);/);
+  assert.match(page, /state\.leaving = false;\s+state\.studio\?\.leaving\?\.\(false\);/);
+});

@@ -9357,6 +9357,8 @@ export function setupStudio({
     },
     /** ■ of the Chat between two requests (no take on the server to stop): the next one does not go, all pause. */
     stopQueue: () => stop(),
+    /** (0.6.470) The page goes away, or is shown again as it was left: the queue kept in the tab stays as it was. */
+    leaving: on => queue.leaving(on),
     /**
      * The take on the screen (« PRISE n » at its top left), for what Moodix AI is told of it:
      * { take, media }, or null when the screen shows none (nothing made, a file of the disk, a
