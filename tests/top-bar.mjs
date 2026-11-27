@@ -200,7 +200,7 @@ test('nothing left of the panel of files in the styles', async () => {
   }
 });
 
-test('the welcome: no logo, an invitation in Gloock; a box of glass; « 0 % » under the pointer only', async () => {
+test('the welcome: no logo, an invitation in Gloock; a box of glass, which says « Écrivez à Moodix… » in a conversation and in the Studio', async () => {
   const html = await read('index.html'),
     css = await read('moodix.css');
   const welcome = html.slice(html.indexOf('<div id="welcome"'), html.indexOf('<form class="composer"'));
@@ -212,6 +212,24 @@ test('the welcome: no logo, an invitation in Gloock; a box of glass; « 0 % » u
   // Its box says what to write; in a conversation, « Écrivez à Moodix… » (on vouvoie partout).
   assert.match(html, /<textarea id="prompt" rows="1" maxlength="100000" placeholder="Une image, un plan, un son… quelques mots suffisent\."><\/textarea>/);
   assert.match(await read('app.js'), /\? 'Écrivez à Moodix…'\n {4}: 'Une image, un plan, un son… quelques mots suffisent\.';/);
+  // (0.6.454) In the Studio too, before the first message (agent-studio-maquette.md, 25/11): the Studio hides the
+  // welcome by the style alone, and its box of Moodix AI said the words of the welcome. Its words follow the view.
+  const app = await read('app.js'),
+    words = app.slice(app.indexOf('const promptWords = () => {'), app.indexOf('const followWelcome = () => {'));
+  assert.ok(words.length > 50);
+  assert.match(app, /new MutationObserver\(promptWords\)\.observe\(document\.body, \{ attributes: true, attributeFilter: \['data-view'\] \}\);/);
+  for (const [view, welcomeHidden, said] of [
+    ['chat', false, 'Une image, un plan, un son… quelques mots suffisent.'],
+    ['chat', true, 'Écrivez à Moodix…'],
+    ['studio', false, 'Écrivez à Moodix…'],
+    ['studio', true, 'Écrivez à Moodix…'],
+    ['bobine', false, 'Une image, un plan, un son… quelques mots suffisent.'],
+  ]) {
+    const prompt = { placeholder: '' },
+      nodes = { prompt, welcome: { hidden: welcomeHidden } };
+    runInNewContext(words + 'promptWords();', { $: id => nodes[id], document: { body: { dataset: { view } } } });
+    assert.equal(prompt.placeholder, said, `${view}, the welcome ${welcomeHidden ? 'hidden' : 'shown'}`);
+  }
   // Being written in: its border of 1 px a little lighter, no ring around it; the box of glass.
   assert.match(css, /\.composer:has\(textarea:focus-visible\),\n\.composer:focus-within \{\n {2}outline: none;/);
   assert.match(css, /:root:not\(\[data-theme='light'\]\) #chat-form\.composer \{[^}]*background: var\(--glass\);[^}]*backdrop-filter: blur\(24px\) saturate\(1\.15\);/);
@@ -219,11 +237,85 @@ test('the welcome: no logo, an invitation in Gloock; a box of glass; « 0 % » u
   // Joindre of 34 px (corners of 8), Envoyer of 38 px (corners of 10).
   assert.match(css, /#chat-form #attach \{[^}]*width: 34px;[^}]*height: 34px;[^}]*border-radius: var\(--radius-s\);/);
   assert.match(css, /#chat-form \.send-button \{[^}]*width: 38px;[^}]*height: 38px;[^}]*border-radius: var\(--radius-l\);/);
-  // The share of the context: hidden, its room kept; shown over the box, on focus, or nearly full.
-  assert.match(css, /\.context-meter \{\n {2}opacity: 0;/);
-  assert.match(css, /#chat-form:hover ~ \.context-meter,\n\.context-meter:hover,\n\.context-meter:focus-visible,\n\.context-meter\[data-warning='near'\],\n\.context-meter\[data-warning='full'\] \{\n {2}opacity: 1;/);
+  // (0.6.454) The share of the context is a ring in the bar of the box (the test after this one): nothing left of the
+  // line under the box, hidden until the pointer came over the box.
+  assert.doesNotMatch(css, /context-track|#chat-form:hover ~ \.context-meter/);
   // No colour at the top of the cards of suggestion.
   assert.doesNotMatch(css, /\.suggestions button:nth-child\(\d\) \{\n {2}border-top: 2px solid/);
+});
+
+test('(0.6.454) the share of the context is a ring at the left of the dictation, in the bar of the box of the Chat and of the Studio', async () => {
+  // agent-studio-maquette.md (25/11): at the left of Envoyer; 27/11, the micro there: « donc le contexte à gauche de dictée ».
+  const html = await read('index.html'),
+    css = await read('moodix.css');
+  const tools = html.slice(html.indexOf('<div class="send-tools">'), html.indexOf('</form>'));
+  const order = [...tools.matchAll(/ id="([\w-]+)"/g)].map(([, id]) => id);
+  assert.deepEqual(order, ['compose-state', 'composer-recover', 'cancel', 'context-meter', 'dictate', 'send']);
+  // Still a progress bar for screen readers and the keyboard; nothing of it left under the box.
+  assert.match(tools, /<div id="context-meter" class="context-meter" role="progressbar" tabindex="0" aria-label="Contexte utilisé dans cette conversation" aria-valuemin="0">/);
+  assert.equal(html.match(/id="context-meter"/g).length, 1);
+  assert.doesNotMatch(html, /context-track/);
+  // 20 px, a stroke of 2: its ground, then two arcs from its foot to its top, one by the right, one by the left, each
+  // of a length of 100.
+  const ring = tools.slice(tools.indexOf('<svg class="context-ring"'), tools.indexOf('</svg>', tools.indexOf('<svg class="context-ring"')));
+  assert.match(ring, /viewBox="0 0 20 20" aria-hidden="true"><circle class="context-ring-ground" cx="10" cy="10" r="9"\/>/);
+  assert.deepEqual(
+    [...ring.matchAll(/<path class="context-ring-fill" pathLength="100" d="([^"]+)"\/>/g)].map(([, path]) => path),
+    ['M10 19A9 9 0 0 1 10 1', 'M10 19A9 9 0 0 0 10 1'],
+  );
+  const rule = selector => css.match(new RegExp('\\n' + selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' \\{[^}]*\\}'))?.[0] ?? '';
+  // In a room of 34 × 34, 4 px from the micro (the bar puts 13 between its tools).
+  assert.match(rule('#chat-form .context-meter'), /width: 34px;\n {2}height: 34px;[^}]*margin-right: -9px;[^}]*cursor: help;/);
+  assert.match(rule('.context-ring'), /width: 20px;\n {2}height: 20px;/);
+  assert.match(rule('.context-ring circle,\n.context-ring path'), /fill: none;\n {2}stroke-width: 2;/);
+  assert.match(rule('.context-ring-ground'), /stroke: rgba\(238, 232, 222, 0\.13\);/);
+  // Filled from its foot by the share (0 to 100, without a unit: context-meter.mjs), in 0,6 s; none with less motion.
+  assert.match(
+    rule('.context-ring-fill'),
+    /stroke: rgba\(238, 232, 222, 0\.6\);\n {2}stroke-linecap: butt;\n {2}stroke-dasharray: 100 100;\n {2}stroke-dashoffset: calc\(100 - var\(--context-used, 0\)\);\n {2}transition:\n {4}stroke-dashoffset 0\.6s ease,/,
+  );
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n {2}\.context-ring-fill \{\n {4}transition: none;/);
+  // Amber from 90 %, the one colour of alert.
+  assert.match(css, /\n\.context-meter\[data-warning='near'\] \.context-ring-fill,\n\.context-meter\[data-warning='full'\] \.context-ring-fill \{\n {2}stroke: var\(--alert\);/);
+  assert.match(css, /--alert: #e7b76a;/);
+  // None before the first message; none while something runs: « 42 % » in its place, at the left of Interrompre.
+  assert.match(css, /\n\.workspace:has\(#messages:empty\) \.context-meter \{\n {2}display: none;/);
+  assert.match(css, /\n#chat-form \.send-tools:has\(> #cancel:not\(\[hidden\]\)\) > \.context-meter \{\n {2}display: none;/);
+  // Its bubble: the tokens in mono under the share, the warning in amber (help-tips.mjs).
+  assert.match(rule('.help-line.is-mono'), /font: 400 12px\/1\.6 var\(--font-mono\);/);
+  assert.match(rule('.help-line.is-warn'), /color: var\(--alert\);/);
+});
+
+test('(0.6.454) Moodix AI opened in the Studio before the first message: no panel, the box alone is the window', async () => {
+  // agent-studio-maquette.md, A (25/11): the panel of 700 px held the box alone, its glass in the glass of the panel, over
+  // an empty band. The box takes the glass and the shadow of the panel, at the size it has in a conversation.
+  const css = await read('moodix.css');
+  const at = "body[data-view='studio'][data-chat='open'] .workspace:has(#messages:empty)";
+  const rule = selector => {
+    const start = css.indexOf('\n' + selector + ' {');
+    return start < 0 ? '' : css.slice(start, css.indexOf('}', start));
+  };
+  const panel = rule(at + ' > .chat-panel'),
+    box = rule(":root:not([data-theme='light']) " + at + ' #chat-form.composer');
+  for (const part of ['padding-top: 0;', 'border-color: transparent;', 'background: transparent;', 'backdrop-filter: none;', 'box-shadow: none;'])
+    assert.ok(panel.includes(part), part);
+  // The middle of the box (122 px high) on the middle of the window.
+  assert.match(panel, /--chat-foot: calc\(50% - 61px\);/);
+  assert.match(rule(at + ' .composer-region'), /padding-bottom: 0;/);
+  for (const part of [
+    'min-height: 100px;',
+    'padding-top: 16px;',
+    'border-color: rgba(238, 232, 222, 0.17);',
+    'border-radius: 16px;',
+    'background: rgba(16, 15, 20, 0.86);',
+    'backdrop-filter: blur(18px);',
+    'box-shadow: 0 30px 90px rgba(0, 0, 0, 0.5);',
+  ])
+    assert.ok(box.includes(part), part);
+  assert.match(rule(at + ' #chat-form .composer-tools'), /margin-top: 10px;/);
+  // The same box in a conversation: as high, its tools as far.
+  assert.match(css, /\.workspace:not\(:has\(#messages:empty\)\) #chat-form\.composer \{\n {2}min-height: 100px;\n {2}padding-top: 16px;/);
+  assert.match(css, /\.workspace:not\(:has\(#messages:empty\)\) #chat-form \.composer-tools \{\n {2}margin-top: 10px;/);
 });
 
 test('the logo opens the accueil, a new conversation in the project in hand, from any view (16/11)', async () => {

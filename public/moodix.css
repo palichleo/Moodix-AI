@@ -1377,37 +1377,6 @@ dialog::backdrop {
   --update-light: #91c9f2;
 }
 
-.context-meter {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  width: fit-content;
-  margin-left: auto;
-  padding: 8px 5px 4px;
-  cursor: help;
-}
-.context-track {
-  display: block;
-  width: 72px;
-  height: 4px;
-  overflow: hidden;
-  border-radius: 9px;
-  background: var(--line);
-  flex-shrink: 0;
-}
-.context-track::before {
-  content: '';
-  display: block;
-  height: 100%;
-  width: var(--context-used, 0%);
-  background: var(--muted);
-}
-.context-meter[data-warning='near'] .context-track::before {
-  background: var(--warning);
-}
-.context-meter[data-warning='full'] .context-track::before {
-  background: var(--danger);
-}
 #settings-unsaved {
   position: fixed;
   inset: 0;
@@ -1447,11 +1416,6 @@ dialog::backdrop {
 }
 .unsaved-actions #settings-discard {
   color: var(--danger);
-}
-@media (max-width: 640px) {
-  .context-track {
-    width: 58px;
-  }
 }
 
 /* The scrollable transcript and the composer share their width and horizontal gutters. */
@@ -7551,20 +7515,6 @@ body[data-view='library'] .chat-panel {
   border-color: #3a3f4a;
   box-shadow: none;
 }
-/* The share of the context in use (« 0 % »), a figure that says nothing at first sight: shown
-   under the pointer over the message box or over it, on the keyboard's focus, and when the
-   context is nearly full; its room kept, nothing moves. */
-.context-meter {
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-#chat-form:hover ~ .context-meter,
-.context-meter:hover,
-.context-meter:focus-visible,
-.context-meter[data-warning='near'],
-.context-meter[data-warning='full'] {
-  opacity: 1;
-}
 
 /* ------------------------------------------------------------------ references at hand (0.5.114)
    « # » in the message box: the project's references in a list above it, their picture, their
@@ -9178,25 +9128,69 @@ body:not([data-view='chat']) .resume {
 .workspace:not(:has(#messages:empty)) #chat-form .composer-tools {
   margin-top: 10px;
 }
-.workspace:not(:has(#messages:empty)) .context-meter {
-  position: relative;
-  z-index: 1;
-  display: block;
-  width: auto;
-  height: 2px;
-  margin: -3px 12px 0;
-  padding: 0;
-  opacity: 1;
+/* (0.6.454) The share of the context: a ring in the bar of the box, at the left of the dictation, the same in the Chat
+   and in the Studio (agent-studio-maquette.md, 25/11: at the left of Envoyer; 27/11: « donc le contexte à gauche de
+   dictée »). It took the place of a line of 2 px at the foot of the box. 20 px, a stroke of 2, in a room of 34 × 34 for
+   the pointer and the keyboard, 4 px from the micro. It fills from its foot, up both sides at once (two arcs, each of
+   a length of 100), and closes at its top when the context is full; amber from 90 %, the one colour of alert. None
+   before the first message (further up); none while something runs: « 42 % » is in its place, at the left of
+   Interrompre, one figure at a time. */
+#chat-form .context-meter {
+  flex: none;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 34px;
+  height: 34px;
+  /* 4 px from the micro: the bar puts 13 between its tools. */
+  margin-right: -9px;
+  border-radius: 8px;
+  cursor: help;
 }
-.workspace:not(:has(#messages:empty)) .context-track {
-  display: block;
-  width: 100%;
-  height: 2px;
-  border-radius: 2px;
-  background: transparent;
+#chat-form .send-tools:has(> #cancel:not([hidden])) > .context-meter {
+  display: none;
 }
-.workspace:not(:has(#messages:empty)) .context-track::before {
-  background: rgba(238, 232, 222, 0.55);
+.context-ring {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+.context-ring circle,
+.context-ring path {
+  fill: none;
+  stroke-width: 2;
+}
+.context-ring-ground {
+  stroke: rgba(238, 232, 222, 0.13);
+}
+.context-ring-fill {
+  stroke: rgba(238, 232, 222, 0.6);
+  stroke-linecap: butt;
+  stroke-dasharray: 100 100;
+  stroke-dashoffset: calc(100 - var(--context-used, 0));
+  transition:
+    stroke-dashoffset 0.6s ease,
+    stroke 0.2s ease;
+}
+.context-meter[data-warning='near'] .context-ring-fill,
+.context-meter[data-warning='full'] .context-ring-fill {
+  stroke: var(--alert);
+}
+@media (prefers-reduced-motion: reduce) {
+  .context-ring-fill {
+    transition: none;
+  }
+}
+/* Its bubble: the share, the tokens in mono under it, the warning in amber (help-tips.mjs, data-tip-lines). */
+.help-line {
+  display: block;
+}
+.help-line.is-mono {
+  color: var(--text-3);
+  font: 400 12px/1.6 var(--font-mono);
+}
+.help-line.is-warn {
+  color: var(--alert);
 }
 /* While a generation runs: « 42 % » alone and Interrompre, in the box of the conversation. */
 #chat-form .compose-state {
@@ -10734,6 +10728,36 @@ body[data-view='studio'][data-chat='open'] .chat-panel {
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
   box-shadow: 0 30px 90px rgba(0, 0, 0, 0.5);
+}
+/* (0.6.454) Before the first message (agent-studio-maquette.md, A, chosen on 25/11): no panel. It held the box alone,
+   whose glass was seen in its own, over an empty band (the room of the context, the margin of the welcome). The box is
+   the window, in the middle, as large as in a conversation, so that the panel is born around it without it changing;
+   the glass and the shadow of the panel are its own. */
+body[data-view='studio'][data-chat='open'] .workspace:has(#messages:empty) > .chat-panel {
+  /* The middle of the box (122 px high) on the middle. */
+  --chat-foot: calc(50% - 61px);
+  padding-top: 0;
+  border-color: transparent;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+body[data-view='studio'][data-chat='open'] .workspace:has(#messages:empty) .composer-region {
+  padding-bottom: 0;
+}
+:root:not([data-theme='light']) body[data-view='studio'][data-chat='open'] .workspace:has(#messages:empty) #chat-form.composer {
+  min-height: 100px;
+  padding-top: 16px;
+  border-color: rgba(238, 232, 222, 0.17);
+  border-radius: 16px;
+  background: rgba(16, 15, 20, 0.86);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.5);
+}
+body[data-view='studio'][data-chat='open'] .workspace:has(#messages:empty) #chat-form .composer-tools {
+  margin-top: 10px;
 }
 @media (prefers-reduced-motion: reduce) {
   #studio-view {
@@ -18682,11 +18706,7 @@ body[data-view='bobine'] .chat-panel {
   font: 500 14.5px/1 var(--font-ui);
   cursor: pointer;
 }
-#studio-view .studio-tries svg:first-child {
-  width: 8px;
-  height: 8px;
-  color: var(--text-3);
-}
+/* (0.6.454) The number alone: the × before it is gone (27/11). */
 #studio-view .studio-tries svg:last-child {
   width: 11px;
   height: 11px;
@@ -18863,8 +18883,8 @@ body[data-view='bobine'] .chat-panel {
   letter-spacing: 0.12em;
 }
 /* ------------------------------------------------------------------ (0.6.254) The tries, « × 1 » to « × 4 » */
-/* Under the left part of the glass of « Générer » (A09, « Les essais, ouverts »): opaque, the × fine and grey, the
-   count in Jost, a check at the right of the one chosen. */
+/* Under the left part of the glass of « Générer » (A09, « Les essais, ouverts »): opaque, the count in Jost (without
+   the × before it since 0.6.454), a check at the right of the one chosen. */
 #studio-view .studio-tries-menu {
   min-width: 94px;
   padding: 6px;
@@ -18881,11 +18901,6 @@ body[data-view='bobine'] .chat-panel {
   padding: 0 10px;
   color: var(--text-1);
   font: 500 14.5px/1 var(--font-ui);
-}
-#studio-view .studio-tries-menu .glass-menu-item svg:first-child {
-  width: 8px;
-  height: 8px;
-  color: var(--text-3);
 }
 #studio-view .studio-tries-menu .glass-menu-item svg:last-child:not(:first-child) {
   width: 12px;

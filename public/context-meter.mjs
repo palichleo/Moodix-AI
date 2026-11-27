@@ -57,11 +57,24 @@ export function setupContextMeter({
               : 'Messages envoyés et réponses, avec les consignes et outils inclus dans cette conversation.';
     const warning =
       budget.warning === 'full' ? 'Contexte saturé.' : budget.warning === 'near' ? 'Contexte presque rempli.' : '';
-    box.title = [usage, detail, warning].filter(Boolean).join('\n');
-    box.style.setProperty('--context-used', budget.occupied + '%');
+    // (0.6.454) The bubble of the ring (agent-studio-maquette.md, 25/11): the share in whole percents (never « 90 % »
+    // before the amber, nor « 100 % » before it is full), then the tokens in mono, then the warning in amber. How it
+    // is counted stays for screen readers alone.
+    const lines =
+      budget.used === null
+        ? ['Contexte utilisé : comptage indisponible.']
+        : [
+            'Contexte utilisé : ' + Math.floor(budget.occupied) + ' %',
+            qualifier + format(budget.used) + ' / ' + format(capacity) + ' tokens',
+            warning,
+          ].filter(Boolean);
+    box.dataset.tipLines = budget.used === null ? 'plain' : warning ? 'plain mono warn' : 'plain mono';
+    box.title = lines.join('\n');
+    // The share, from 0 to 100, without a unit: each arc of the ring is drawn on a length of 100 (moodix.css).
+    box.style.setProperty('--context-used', String(budget.occupied));
     box.dataset.warning = budget.warning;
     box.setAttribute('aria-valuemax', String(capacity));
-    box.setAttribute('aria-valuetext', box.title);
+    box.setAttribute('aria-valuetext', [usage, detail, warning].filter(Boolean).join(' '));
     if (budget.used === null) box.removeAttribute('aria-valuenow');
     else box.setAttribute('aria-valuenow', String(Math.min(capacity, budget.used)));
   }

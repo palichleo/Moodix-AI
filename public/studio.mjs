@@ -4609,6 +4609,8 @@ export function setupStudio({
   /**
    * (0.6.253) « × 1 ⌄ », at the left of the glass of « Générer »: a fine grey ×, the count in Jost, its arrow.
    * (0.6.254) Pressed, its list under it, opaque (#121116): × 1 to × 4, a check on the one chosen.
+   * (0.6.454) The number alone, without the × before it, in the button and in its list (27/11: « enleve le "x" devant
+   * le "x1", je veux juste le numero, c'est plus beau »).
    */
   function triesButton() {
     const pick = greyable(node('button', 'studio-tries')),
@@ -4617,7 +4619,7 @@ export function setupStudio({
       held = triesHeld();
     if (held) triesOpen = false;
     pick.type = 'button';
-    pick.append(icon('tries-x'), node('span', 'studio-tries-count', String(held ? 1 : tries)), icon('tries-down'));
+    pick.append(node('span', 'studio-tries-count', String(held ? 1 : tries)), icon('tries-down'));
     pick.title = held || 'Essais : combien en faire d’un coup';
     pick.setAttribute('aria-label', `Essais : ${held ? 1 : tries}`);
     pick.setAttribute('aria-haspopup', 'menu');
@@ -4649,7 +4651,7 @@ export function setupStudio({
       item.setAttribute('role', 'menuitemradio');
       item.setAttribute('aria-checked', String(count === tries));
       item.setAttribute('aria-label', count === 1 ? '1 essai' : `${count} essais`);
-      item.append(icon('tries-x'), node('span', 'studio-tries-count', String(count)));
+      item.append(node('span', 'studio-tries-count', String(count)));
       if (count === tries) item.append(icon('check'));
       menu.append(item);
     }

@@ -26,6 +26,12 @@ class Element {
       this.children.push(child);
     }
   }
+  replaceChildren(...children) {
+    for (const child of this.children) child.parent = null;
+    this.children = [];
+    this.text = '';
+    this.append(...children);
+  }
   hasAttribute(name) {
     return name in this.attributes;
   }
@@ -163,6 +169,41 @@ test('(0.6.200) the bubble shown says the new title of its control at once; with
   delete go.dataset.tip;
   retitle(go, '');
   assert.equal(bubble.hidden, true);
+});
+
+test('(0.6.454) data-tip-lines: a bubble of several lines, each with its look; its new words at once; without it, one text', () => {
+  // The ring of the context (agent-studio-maquette.md): its share, its tokens in mono, its warning in amber.
+  const { document, body } = page();
+  let heard = null;
+  document.defaultView.MutationObserver = class {
+    constructor(callback) {
+      heard = callback;
+    }
+    observe() {}
+  };
+  const ring = new Element('div', { attributes: { title: 'Contexte utilisé : 18 %\n≈ 1 475 / 8 192 tokens', 'data-tip-lines': 'plain mono' } }),
+    plain = new Element('button', { attributes: { title: 'Envoyer le message' } });
+  body.append(ring, plain);
+  setupHelpTips(body);
+  const bubble = body.children.find(child => child.className === 'help-bubble'),
+    lines = () => bubble.children.map(line => [line.tagName, line.className, line.textContent]);
+  body.fire('focusin', { target: ring });
+  assert.deepEqual(lines(), [
+    ['SPAN', 'help-line is-plain', 'Contexte utilisé : 18 %'],
+    ['SPAN', 'help-line is-mono', '≈ 1 475 / 8 192 tokens'],
+  ]);
+  // Nearly full while it is shown: a third line, in amber, at once.
+  ring.dataset.tipLines = 'plain mono warn';
+  ring.setAttribute('title', 'Contexte utilisé : 92 %\n≈ 7 537 / 8 192 tokens\nContexte presque rempli.');
+  heard([{ type: 'attributes', target: ring, attributeName: 'title' }]);
+  assert.deepEqual(lines().map(([, look, words]) => [look, words]), [
+    ['help-line is-plain', 'Contexte utilisé : 92 %'],
+    ['help-line is-mono', '≈ 7 537 / 8 192 tokens'],
+    ['help-line is-warn', 'Contexte presque rempli.'],
+  ]);
+  // Every other bubble: its words alone, as before.
+  body.fire('focusin', { target: plain });
+  assert.deepEqual([bubble.children.length, bubble.textContent], [0, 'Envoyer le message']);
 });
 
 // The sidebar is gone (0.6.0), and with it the bubble at the right of its folded icons: the icons

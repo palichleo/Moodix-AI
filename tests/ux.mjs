@@ -198,7 +198,62 @@ test('context gauge fills only with used tokens, regardless of response reservat
   assert.equal(unknown.warning, '');
 });
 
-test('the context gauge is its bar alone: no figure beside it (16/11); the share stays in its tooltip', async () => {
+test('(0.6.454) the bubble of the ring: the share in whole percents, the tokens in mono, the warning in amber; how it is counted for screen readers alone', () => {
+  // agent-studio-maquette.md (25/11): « Contexte utilisé : 18 % », then « ≈ 1 475 / 8 192 tokens », then at 90 % and
+  // more « Contexte presque rempli. », at 100 % « Contexte saturé. ».
+  const box = element();
+  let result = {};
+  const meter = setupContextMeter({
+    $: () => box,
+    api: async () => Response.json(result),
+    getRequest: () => null,
+    getConfig: () => ({ contextSize: 8192 }),
+    isReady: () => false,
+    isBusy: () => false,
+  });
+  const said = (prompt_tokens, completion_tokens = 0) => {
+    meter.observe({ usage: { prompt_tokens, completion_tokens } });
+    return [box.title.split('\n'), box.dataset.tipLines, box.dataset.warning, box.style['--context-used']];
+  };
+  const tokens = value => new Intl.NumberFormat('fr-FR').format(value) + ' / 8 192 tokens';
+  assert.deepEqual(said(1475), [['Contexte utilisé : 18 %', tokens(1475)], 'plain mono', '', String((100 * 1475) / 8192)]);
+  // Never « 90 % » before the amber, nor « 100 % » before it is full: whole percents counted down.
+  assert.deepEqual(said(7372).slice(0, 3), [['Contexte utilisé : 89 %', tokens(7372)], 'plain mono', '']);
+  assert.deepEqual(said(7373).slice(0, 3), [['Contexte utilisé : 90 %', tokens(7373), 'Contexte presque rempli.'], 'plain mono warn', 'near']);
+  assert.deepEqual(said(8191).slice(0, 3), [['Contexte utilisé : 99 %', tokens(8191), 'Contexte presque rempli.'], 'plain mono warn', 'near']);
+  assert.deepEqual(said(8000, 900), [['Contexte utilisé : 100 %', tokens(8900), 'Contexte saturé.'], 'plain mono warn', 'full', '100']);
+  // How it is counted: no more in the bubble, still for screen readers.
+  assert.match(box.attributes['aria-valuetext'], /^Contexte utilisé : 8.900 \/ 8.192 tokens \(100 %\)\. Messages envoyés et réponses, avec les consignes et outils inclus dans cette conversation\. Contexte saturé\.$/);
+  assert.doesNotMatch(box.title, /Messages envoyés/);
+});
+
+test('(0.6.454) the bubble of the ring says « ≈ » or « ≥ » before an estimate; without a count, one line', async () => {
+  const box = element();
+  let answer = {};
+  const meter = setupContextMeter({
+    $: () => box,
+    api: async () => Response.json(answer),
+    getRequest: () => ({ messages: [{ role: 'user', content: 'Sent' }] }),
+    getConfig: () => ({ contextSize: 8192 }),
+    isReady: () => true,
+    isBusy: () => false,
+    delay: 0,
+  });
+  const count = async value => {
+    answer = value;
+    meter.schedule();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    return [box.title, box.dataset.tipLines];
+  };
+  assert.deepEqual(await count({ used: 1475, precision: 'estimated' }), ['Contexte utilisé : 18 %\n≈ 1 475 / 8 192 tokens', 'plain mono']);
+  assert.deepEqual(await count({ used: 1475, precision: 'text-only' }), ['Contexte utilisé : 18 %\n≥ 1 475 / 8 192 tokens', 'plain mono']);
+  assert.match(box.attributes['aria-valuetext'], /le coût des images est inconnu/);
+  assert.deepEqual(await count({}), ['Contexte utilisé : comptage indisponible.', 'plain']);
+  assert.match(box.attributes['aria-valuetext'], /^Contexte utilisé : comptage indisponible\. Le comptage nécessite un moteur prêt et compatible\.$/);
+  meter.pause();
+});
+
+test('the context gauge is its ring alone: no figure beside it (16/11); the share stays in its bubble', async () => {
   const { readFile } = await import('node:fs/promises');
   const read = async name => readFile(new URL('../public/' + name, import.meta.url), 'utf8');
   assert.doesNotMatch(await read('index.html'), /context-figure/);
@@ -214,8 +269,9 @@ test('the context gauge is its bar alone: no figure beside it (16/11); the share
     isBusy: () => false,
   }).observe({ usage: { prompt_tokens: 2000, completion_tokens: 500 } });
   assert.deepEqual(asked, ['context-meter']);
-  assert.equal(box.style['--context-used'], '25%');
-  assert.match(box.title, /2.500 \/ 10.000 tokens \(25 %\)/);
+  // (0.6.454) The share from 0 to 100, without a unit: the arcs of the ring are drawn on a length of 100.
+  assert.equal(box.style['--context-used'], '25');
+  assert.equal(box.title, 'Contexte utilisé : 25 %\n2 500 / 10 000 tokens');
 });
 
 test('no text of the interface is smaller than 12 px', async () => {
@@ -323,19 +379,19 @@ test('a new conversation resets the gauge to zero and never counts an unsent dra
   meter.schedule();
   await new Promise(resolve => setTimeout(resolve, 8));
   assert.equal(calls, 0);
-  assert.equal($('context-meter').style['--context-used'], '0%');
+  assert.equal($('context-meter').style['--context-used'], '0');
   id = 'first';
   request = { messages: [{ role: 'user', content: 'Sent' }] };
   meter.schedule();
   await new Promise(resolve => setTimeout(resolve, 8));
   assert.equal(calls, 1);
-  assert.equal($('context-meter').style['--context-used'], '12.5%');
+  assert.equal($('context-meter').style['--context-used'], '12.5');
   meter.observe({ usage: { prompt_tokens: 1024, completion_tokens: 1024 } });
-  assert.equal($('context-meter').style['--context-used'], '25%');
+  assert.equal($('context-meter').style['--context-used'], '25');
   id = null;
   request = null;
   meter.schedule();
-  assert.equal($('context-meter').style['--context-used'], '0%');
+  assert.equal($('context-meter').style['--context-used'], '0');
   assert.equal($('context-meter').attributes['aria-valuenow'], '0');
   assert.equal(calls, 1);
   meter.pause();

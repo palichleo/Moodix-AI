@@ -118,7 +118,19 @@ export function setupHelpTips(root, { id = 'help-bubble', host = root, delay = 1
     if (bubble.parentNode !== layer) layer.append(bubble);
     if (current !== target) current?.removeAttribute?.('aria-describedby');
     current = target;
-    bubble.textContent = text;
+    // (0.6.454) `data-tip-lines`: a bubble of several lines, each with its look (« plain », « mono », « warn »): the
+    // ring of the context says its share, its tokens in mono, its warning in amber.
+    const looks = target.dataset.tipLines?.split(' ');
+    if (looks)
+      bubble.replaceChildren(
+        ...text.split('\n').map((words, at) => {
+          const line = page.createElement('span');
+          line.className = 'help-line is-' + (looks[at] || 'plain');
+          line.textContent = words;
+          return line;
+        }),
+      );
+    else bubble.textContent = text;
     bubble.dataset.kind = target.dataset.help ? 'help' : 'tip';
     bubble.hidden = false;
     place(target);

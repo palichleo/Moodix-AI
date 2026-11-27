@@ -6141,13 +6141,19 @@ try {
 }
 // The welcome of the chat comes and goes with the first message: the words of the message box and
 // the line « Reprendre » follow it (« Écrivez à Moodix… » in a conversation).
-const followWelcome = () => {
-  $('prompt').placeholder = $('welcome').hidden
+// (0.6.454) In the Studio too, before the first message (agent-studio-maquette.md, 25/11): the Studio hides the
+// welcome by the style alone, and its box of Moodix AI said the words of the welcome.
+const promptWords = () => {
+  $('prompt').placeholder = $('welcome').hidden || document.body.dataset.view === 'studio'
     ? 'Écrivez à Moodix…'
     : 'Une image, un plan, un son… quelques mots suffisent.';
+};
+const followWelcome = () => {
+  promptWords();
   projectUI.renderResume();
 };
 new MutationObserver(followWelcome).observe($('welcome'), { attributes: true, attributeFilter: ['hidden'] });
+new MutationObserver(promptWords).observe(document.body, { attributes: true, attributeFilter: ['data-view'] });
 followWelcome();
 // The room (« Salle obscure », room.mjs): the light of the latest take behind the page, made once per
 // take; a take ready while the page is out of sight lights a dot on the icon of its tab (logo.md).

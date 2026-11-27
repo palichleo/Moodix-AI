@@ -3495,6 +3495,8 @@ test('« Moodix AI » (« Agent » before), right of « Générer », opens the 
     assert.deepEqual([glass.children[0], glass.children[1].className, glass.children[2]], [tries, 'studio-go-rule', go]);
     assert.equal(tries.attributes['aria-label'], 'Essais : 1');
     assert.deepEqual(tries.find('studio-tries-count').map(count => count.textContent), ['1']);
+    // (0.6.454) The number alone, then its arrow: no × before it (27/11, « je veux juste le numero »).
+    assert.deepEqual(tries.children.map(child => child.glyph ?? child.className), ['studio-tries-count', 'tries-down']);
     assert.equal(agent.find('studio-agent-word')[0].textContent, 'Moodix AI');
     // An icon, its word, its name for screen readers and in its tooltip.
     assert.equal(agent.attributes['aria-label'], 'Demander à Moodix AI');
@@ -4073,6 +4075,11 @@ test('(0.6.254) « × 3 »: three takes one after the other, the same settings a
       ],
     );
     assert.equal(menu().children[0].children.at(-1).glyph, 'check');
+    // (0.6.454) Each line its number alone (no × before it), the one chosen its check after it.
+    assert.deepEqual(
+      menu().children.map(item => item.children.map(child => child.glyph ?? child.className)),
+      [['studio-tries-count', 'check'], ['studio-tries-count'], ['studio-tries-count'], ['studio-tries-count']],
+    );
     choose(3);
     assert.deepEqual([tries().attributes['aria-label'], menu().children[2].attributes['aria-checked']], ['Essais : 3', 'true']);
     // A seed named: the first take has it, the two others one each of their own.
