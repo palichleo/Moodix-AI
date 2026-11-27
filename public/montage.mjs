@@ -47,6 +47,7 @@ import {
   planStarts,
   rulerMarks,
   rulerWord,
+  secondsWord,
   seriesOf,
   snapped,
   subjectsTaken,
@@ -243,6 +244,9 @@ export function setupMontage({
   // of each), the longest it makes, `unavailable` (the reason this computer cannot run it) or `missing` (its files to
   // download); null for a verb it does not make. Empty: the server chooses, and the card names what it answered.
   videoModels = () => [],
+  // (0.6.464, relecture des lots 5 et 6, n° 9) Reads those models again (the tools of the Studio, /api/studio): once a
+  // download made here ends, or the settings closed (toolsChanged), a model there now is no longer said missing in their list.
+  relist = async () => {},
   // (0.6.153, captures 84 et 85) The text of a take to create detailed by the chat model (framing,
   // light, movement) without changing what happens in it, as the wand of the Studio does:
   // `enrich({ prompt, verb }, { signal })` gives { prompt }, or throws why not.
@@ -283,6 +287,7 @@ export function setupMontage({
     layout = 'grid',
     sought = null,
     // (0.6.461, Bobine Pro, B04) The model last chosen in a card (its family): a new take to create is made with it.
+    // (0.6.464) Null while none was: a new take has the model of a take by default (defaultFamily).
     lastModel = rememberedModel(),
     head = 0,
     playing = null,
@@ -413,8 +418,18 @@ export function setupMontage({
       model = videoOf(family);
     return { create_video: longestFor('create_video', family), extend_video: model && !model.extend_video ? false : longestFor('extend_video', family) };
   };
-  /** (0.6.461, Bobine Pro, B04) The family of the model a take to create is made with: its own, LTX 2.5 else. */
-  const familyOf = plan => (isTodo(plan) && plan.todo.model) || DEFAULT_MODEL;
+  /**
+   * (0.6.461, Bobine Pro, B04) The family of the model a take to create is made with: its own, else the one a take has by
+   * default (defaultFamily). (0.6.464, relecture des lots 5 et 6, n° 8) Its own only when the server lists it: one this
+   * version does not know (a file written by hand or by a newer version, a family whose workflows are gone) left the card
+   * without its list, and the take went to the model the server chose. It stays in the file.
+   */
+  const familyOf = (plan, within = montage) => {
+    const own = isTodo(plan) && plan.todo.model;
+    return own && (!(videoModels() ?? []).length || videoOf(own)) ? own : defaultFamily(plan, within);
+  };
+  // (0.6.464) The model each take to create has by default, by take, as last read (defaultFamily).
+  const defaults = new WeakMap();
   /** That model as the server lists it (videoModels); null when it is not listed. */
   const videoOf = family => (videoModels() ?? []).find(model => model.family === family) ?? null;
   /** (0.6.461) The models that make suites, by their names (« LTX 2.5 », « MiniMax H3 »): those a suite is offered. */
@@ -437,27 +452,66 @@ export function setupMontage({
   };
   /** (0.6.461) The name of the model of a take to create, as its card says it: its family's (« MiniMax H3 »), else the server's answer. */
   const modelName = plan => videoOf(familyOf(plan))?.name ?? modelOf(plan.id)?.name ?? '';
-  /** (0.6.461) The model last chosen in a card, as this browser keeps it; LTX 2.5 at first. */
+  /**
+   * (0.6.464, relecture des lots 5 et 6, n° 1) The model of a take to create that has none of its own: LTX 2.5 when it
+   * is ready here (« Oui, LTX 2.5 », 20/11); else the first model ready that makes it as it is (fits); else LTX 2.5,
+   * its download offered (the only one that would). LTX 2.5 lacking its files, a take nobody had chosen a model for
+   * offered its download while MiniMax H3, ready, made it: never a download while a model ready makes the same thing
+   * without being named. Kept by take and by bobine (familyOf is asked at every turn).
+   */
+  function defaultFamily(plan, within = montage) {
+    const listed = videoModels() ?? [];
+    if (!isTodo(plan) || !listed.length) return DEFAULT_MODEL;
+    const verb = verbOf(plan),
+      ready = model => Boolean(model[verb]) && !model[verb].missing && !model[verb].unavailable;
+    if (listed.some(model => model.family === DEFAULT_MODEL && ready(model))) return DEFAULT_MODEL;
+    const known = defaults.get(plan);
+    if (known?.within === within && known.listed === listed) return known.family;
+    const family = listed.find(model => model.family !== DEFAULT_MODEL && ready(model) && fits(plan, model.family, within))?.family ?? DEFAULT_MODEL;
+    defaults.set(plan, { within, listed, family });
+    return family;
+  }
+  /**
+   * (0.6.464, relecture des lots 5 et 6, n° 1 et 2) Whether the model `family` makes the take to create `plan` (of
+   * `within`) as it is: it makes its verb (a suite, a suite), takes its images and its subjects, and refuses it for none
+   * of its own reasons (creationOf, with a text to try when it has none, as modelOf does; a reason of the bobine, a suite
+   * waiting for the take before it, is not the model's).
+   */
+  function fits(plan, family, within = montage) {
+    if (!videoOf(family)?.[verbOf(plan)]) return false;
+    const tried = { ...plan, todo: { ...plan.todo, model: family, ...((plan.todo.prompt ?? '').trim() ? {} : { prompt: 'Prise.' }) } },
+      probe = { ...within, plans: within.plans.map(item => (item.id === plan.id ? tried : item)) };
+    if (['start', 'end'].some(side => plan.photos?.[side] && notTaken(tried, side))) return false;
+    if ((plan.todo.subjects?.length ?? 0) > subjectsTaken(abilities(tried), verbOf(tried))) return false;
+    const own = creationOf(probe, plan.id, lengthOf, { limits, abilities }).reason;
+    return !own || own === creationOf(probe, plan.id, lengthOf).reason;
+  }
+  /**
+   * (0.6.461) The model last chosen in a card, as this browser keeps it. (0.6.464) Null when none was: LTX 2.5 named
+   * for every take laid, though it was not here.
+   */
   function rememberedModel() {
     try {
       const family = page?.localStorage?.getItem?.(MODEL_KEY);
-      return typeof family === 'string' && /^[a-z0-9_]{1,40}$/.test(family) ? family : DEFAULT_MODEL;
+      return typeof family === 'string' && /^[a-z0-9_]{1,40}$/.test(family) ? family : null;
     } catch {
-      return DEFAULT_MODEL;
+      return null;
     }
   }
   /**
    * (0.6.461, Bobine Pro, B04) `next` with its new takes to create (laid by a gesture, by Moodix AI, absent from `from`)
-   * made with the model last chosen, when it is not LTX 2.5 (a take without a model is made with LTX 2.5); a suite only
-   * with a model that makes suites.
+   * made with the model last chosen; not LTX 2.5 while a take has it by default (it has no model of its own then).
+   * (0.6.464, relecture des lots 5 et 6, n° 2) Only to a take it makes as it is (fits): MiniMax H3 was given an image laid
+   * as « une nouvelle prise, qui part de cette image », and left that image out; Wan 2.2 a take laid with a click, without
+   * an image, and refused it. That take has the model it has by default.
    */
   function stamped(next, from = montage) {
-    const model = lastModel !== DEFAULT_MODEL ? videoOf(lastModel) : null;
-    if (!model || !next?.plans) return next;
+    if (!lastModel || !videoOf(lastModel) || !next?.plans) return next;
     const known = new Set((from?.plans ?? []).map(plan => plan.id));
     let touched = false;
     const plans = next.plans.map(plan => {
-      if (!isTodo(plan) || plan.todo.model || known.has(plan.id) || (isSuite(plan) && !model.extend_video)) return plan;
+      if (!isTodo(plan) || plan.todo.model || known.has(plan.id)) return plan;
+      if ((lastModel === DEFAULT_MODEL && defaultFamily(plan, next) === DEFAULT_MODEL) || !fits(plan, lastModel, next)) return plan;
       touched = true;
       return { ...plan, todo: { ...plan.todo, model: lastModel } };
     });
@@ -2158,10 +2212,16 @@ export function setupMontage({
         item.dataset.tip = off;
         item.dataset.tipSide = 'left';
       }
-      item.onclick = () => {
+      // (0.6.464, relecture des lots 5 et 6, n° 7) Chosen with the keyboard, the keys go back to the model of the card, drawn
+      // again with its new name (the same one: as Échap): they went to the page, and the next Tab began at its top. With
+      // the mouse, to the desk, as after a button of the preview (0.6.463): the space bar reads the film.
+      item.onclick = event => {
         if (off) return;
-        closePieces();
+        const mouse = event?.detail > 0;
+        closePieces({ refocus: own && !mouse });
         if (!own) chooseModel(plan.id, model.family);
+        if (mouse) root?.focus?.({ preventScroll: true });
+        else if (!own) live.models?.get(plan.id)?.focus?.({ preventScroll: true });
       };
       items.push(item);
       menu.append(item);
@@ -2176,6 +2236,41 @@ export function setupMontage({
     const able = abilities(plan);
     if (!able || takesPhoto(plan, side, able, partsOf(plan, limits(plan)).count)) return '';
     return `${able.name} ne prend pas d’${side === 'start' ? 'image de début' : 'image de fin'} : elle reste là, mais n’est pas envoyée.`;
+  }
+  /**
+   * (0.6.464, relecture des lots 5 et 6, n° 3) What the card of a take to create says when its model makes it longer than
+   * it is (MiniMax H3 and pi H3 make 5,17 s at least, Wan 2.2 2,06 s; the server makes the take at that length, and pushes
+   * what is glued after it): « MiniMax H3 fait 5,2 s au moins : la prise fera 5,2 s. Pour 2 s : LTX 2.5. », the models
+   * that make it at its length as it is named. Said, never refused (a take of 1,90 s made in 5,17 s, 20/11); not for a
+   * tenth of a second, which LTX 2.5 makes as well. `{ said, brief }` (its first sentence), or null when it is not so, or
+   * when its model is not known.
+   */
+  function shortOf(plan) {
+    const model = videoOf(familyOf(plan)),
+      verb = verbOf(plan),
+      shortest = model?.[verb]?.shortest,
+      { count, seconds } = partsOf(plan, limits(plan));
+    if (!(shortest > 0) || count > 1 || shortest - seconds <= 0.1 + 1e-9) return null;
+    const others = orList(
+        (videoModels() ?? [])
+          .filter(item => item.family !== model.family && item[verb]?.shortest > 0 && item[verb].shortest - seconds <= 0.1 + 1e-9 && fits(plan, item.family))
+          .map(item => item.name),
+      ),
+      brief = `${model.name} fait ${secondsWord(shortest, 'up')} au moins : la prise fera ${secondsWord(shortest, 'up')}.`;
+    return { said: brief + (others ? ` Pour ${secondsWord(seconds)} : ${others}.` : ''), brief };
+  }
+  /**
+   * (0.6.464) That note above the field of its card, in amber as a reason: in a low window its first sentence alone, on a
+   * line, the whole in its bubble and for a screen reader (moodix.css), as what is missing above the button (missingLine):
+   * whole, the card no longer held in « À créer » at 1280 × 720 (201 px for 167). The whole elsewhere.
+   */
+  function noteLine({ said, brief }) {
+    const line = node('p', 'bobine-line-reason is-note'),
+      short = node('span', 'bobine-line-brief', brief);
+    short.setAttribute('aria-hidden', 'true');
+    short.dataset.tip = said;
+    line.append(node('span', 'bobine-line-whole', said), short);
+    return line;
   }
   /** (0.6.462, Bobine Pro, B05) The verb the first part of a take to create is asked with: a suite continues its video. */
   const verbOf = plan => (isSuite(plan) ? 'extend_video' : 'create_video');
@@ -2541,7 +2636,9 @@ export function setupMontage({
       if (enrichingId === item.id) box.append(node('span', 'bobine-line-writing', 'Moodix AI enrichit'));
       // (0.6.200) Why it failed before its field, read without scrolling at 1280 × 720 (its field two lines high
       // then, moodix.css): after it, the reason was under the fade of the list.
-      line.append(top, ...(reason ? [node('p', 'bobine-line-reason', reason)] : []), box, middle);
+      // (0.6.464, relecture des lots 5 et 6, n° 3) Else, made longer by its model than it is: said there, before it is asked.
+      const note = reason ? null : shortOf(plan);
+      line.append(top, ...(reason ? [node('p', 'bobine-line-reason', reason)] : note ? [noteLine(note)] : []), box, middle);
       live.models.set(item.id, right);
       live.states.set(item.id, says);
       live.lines.set(item.id, line);
@@ -3113,6 +3210,9 @@ export function setupMontage({
       if (job.state === 'error') fetchError = 'Téléchargement impossible : ' + job.error;
       // (There, or stopped: what is left of it, asked again with the models.)
       models.clear();
+      // (0.6.464, relecture des lots 5 et 6, n° 9) And their list: the model there now stayed in amber in it, and a take
+      // without a model of its own kept the one it had by default without it.
+      relisted();
       return update();
     }
     Object.assign(downloading, { received: job.received ?? 0, total: job.total || downloading.total });
@@ -3154,6 +3254,20 @@ export function setupMontage({
   function doubt() {
     for (const [key, known] of models) if (known?.missing) doubted.add(key);
     watched.clear();
+  }
+  /**
+   * (0.6.464, relecture des lots 5 et 6, n° 9) The models that make videos read again (relist), then shown as they are
+   * now: « À créer » drawn again, or its models only under a text being written (as modelOf does).
+   */
+  function relisted() {
+    void Promise.resolve()
+      .then(() => relist())
+      .then(() => {
+        if (!root || !montage) return;
+        if (parts?.create && !inPanel()) update();
+        else sayModels();
+      })
+      .catch(() => {});
   }
 
   // Moodix AI writes ------------------------------------------------------------------------------
@@ -4553,7 +4667,10 @@ export function setupMontage({
     /** (0.6.346) The settings were closed, or the engine got ready (studio.mjs `invalidate`): see doubt. */
     toolsChanged() {
       doubt();
-      if (root && montage) sayModels();
+      if (!root || !montage) return;
+      sayModels();
+      // (0.6.464) A model downloaded in Paramètres › Modèles: said there in their list too.
+      relisted();
     },
     /**
      * (0.6.154) The bobine a card of the Archives opens: at once when those of its project are read,

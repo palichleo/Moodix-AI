@@ -17480,10 +17480,13 @@ body[data-view='bobine'] .chat-panel {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* (0.6.464, relecture des lots 5 et 6, n° 5) Sur deux lignes quand il le faut : « 16.79 → 41.79 · 3 × 08.33 S · EN COURS »
+   (231 px pour 180) passait sous le bouton du modèle, contre son bord. Son état va alors sous ses instants. */
 .bobine-line-sub {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px;
+  gap: 3px 8px;
   min-width: 0;
 }
 .bobine-line-when {
@@ -18433,7 +18436,8 @@ body[data-view='bobine'] .chat-panel {
 }
 /* (0.6.461) Ce qu'il lui faut en une ligne (« LTX 2.5 demande un compte Hugging Face. »), seulement dans une fenêtre
    basse (plus bas) : ailleurs, la phrase entière. */
-.bobine-missing-brief {
+.bobine-missing-brief,
+.bobine-line-brief {
   display: none;
 }
 /* Une licence à conditions, à lire avant le téléchargement : au-dessus du bouton, à la place de la phrase. */
@@ -19011,7 +19015,8 @@ body[data-view='bobine'] .chat-panel {
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  #bobine-view .bobine-missing-whole {
+  #bobine-view .bobine-missing-whole,
+  #bobine-view .bobine-line-whole {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -19020,8 +19025,20 @@ body[data-view='bobine'] .chat-panel {
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
   }
-  #bobine-view .bobine-missing-brief {
+  #bobine-view .bobine-missing-brief,
+  #bobine-view .bobine-line-brief {
     display: inline;
+  }
+  /* (0.6.464) Une carte dont le modèle fait la prise plus longue : sa note en une ligne (sa première phrase, l'entière dans
+     sa bulle), et son champ d'une ligne d'abord, comme sans elle (deux au plus, il défile au-delà) : sinon la carte, de
+     201 px, ne tenait plus entière dans « À créer » (167 px à 1280 × 720). */
+  #bobine-view .bobine-line-reason.is-note {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #bobine-view .bobine-desk .bobine-line:has(.bobine-line-reason.is-note) textarea.bobine-line-words {
+    min-height: calc(1lh + 18px);
   }
 }
 /* Moodix AI arrange : sa demande reste lisible, « Arrêter » à portée. */

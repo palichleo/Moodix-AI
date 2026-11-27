@@ -833,6 +833,9 @@ export function setupStudio({
     // (0.6.152) The longest it makes at once: a take longer than it is made in equal parts.
     longestFor: (verb, family) => bobineModel(verb, family)?.longest ?? null,
     videoModels: () => bobineModels(),
+    // (0.6.464) Read again once a download made in the Bobine ends, or the settings closed: its list said a model missing
+    // that was there. (The Studio reads them so too, when it comes on screen.)
+    relist: () => load(),
     // (0.6.146) What happens in a plan, written by Moodix AI from its photos: the chat model comes
     // back first when it has left the card, as for « Enrichir le prompt »; the takes of the conversation shown
     // are named in the request, the others by their own conversation.

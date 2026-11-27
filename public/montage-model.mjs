@@ -895,7 +895,7 @@ export function creationOf(montage, id, lengthOf = () => null, { limits = {}, ab
     // (0.6.461) A model that makes no suite makes it at once, or not at all.
     if (own.extend_video === false && own.create_video > 0 && plan.to - plan.from > own.create_video + 1e-9)
       return {
-        reason: `${able.name} fait ${secondsWord(own.create_video)} au plus d’un coup et ne prolonge pas une vidéo : raccourcissez la prise${suites ? ', ou choisissez ' + suites : ''}.`,
+        reason: `${able.name} fait ${secondsWord(own.create_video, 'down')} au plus d’un coup et ne prolonge pas une vidéo : raccourcissez la prise${suites ? ', ou choisissez ' + suites : ''}.`,
       };
     // (Wan 2.2 animates an image: without one, it makes nothing.)
     if (able.takes?.create_video?.start_image?.required && !plan.photos?.start)
@@ -935,8 +935,13 @@ export function takesWords(model) {
 
 /** (0.6.461) Names said one after the other, the last with « ou »: « LTX 2.5 ou MiniMax H3 », « A, B ou C »; '' for none. */
 export const orList = names => (names.length > 1 ? names.slice(0, -1).join(', ') + ' ou ' + names.at(-1) : (names[0] ?? ''));
-/** (0.6.461) A length as a sentence says it, to the tenth: « 14,4 s ». */
-const secondsWord = seconds => String(tenth(seconds)).replace('.', ',') + ' s';
+/**
+ * (0.6.461) A length as a sentence says it, to the tenth: « 14,4 s ». (0.6.464) Down for what a model makes at most
+ * (`way` 'down': pi H3 makes 14,375 s, « 14,3 s au plus », where « 14,4 s au plus » refused a take of 14,4 s), up for what
+ * it makes at least ('up': MiniMax H3, 5,17 s, « 5,2 s au moins »): a length the take may have.
+ */
+export const secondsWord = (seconds, way = 'near') =>
+  String(way === 'down' ? Math.floor(seconds * 10 + 1e-9) / 10 : way === 'up' ? Math.ceil(seconds * 10 - 1e-9) / 10 : tenth(seconds)).replace('.', ',') + ' s';
 
 /**
  * (0.6.154) The folder « Un fichier par prise » puts the takes of a bobine in, under BOBINES in the folder

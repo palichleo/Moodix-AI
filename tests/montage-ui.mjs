@@ -100,7 +100,7 @@ const INTENTION = 'Prise d’une bobine, demandée dans la Bobine.',
 // `at`-th), and from which second of its file it is shown (a suite holds the video it goes on from).
 const placeOf = (f, at, from = 0) => ({ id: f.ui.state().montage.id, plan: f.ui.state().montage.plans[at].id, from });
 
-function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed = null, create = null, estimate = null, write = null, thumbnail = () => {}, width = 1000, modelFor = null, longestFor = null, videoModels = null, enrich = null, downloads = null, arrange = null, dragImage = null, win = null, canvas = false, base = true, light = null, paint = null, takeFilm = null } = {}) {
+function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed = null, create = null, estimate = null, write = null, thumbnail = () => {}, width = 1000, modelFor = null, longestFor = null, videoModels = null, enrich = null, downloads = null, arrange = null, dragImage = null, win = null, canvas = false, base = true, light = null, paint = null, takeFilm = null, relist = null } = {}) {
   WIDTH = width;
   const calls = [],
     queue = [],
@@ -187,6 +187,8 @@ function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed =
     ...(light ? { light } : {}),
     // (0.6.459) What reads the film of a take: none by default (the takes of the tests have no address of a film).
     ...(takeFilm ? { takeFilm } : {}),
+    // (0.6.464) What reads the models that make videos again (the tools of the Studio).
+    ...(relist ? { relist } : {}),
     halt: () => void halted++,
     api,
     // (`canvas`: a canvas that draws, for the Flux.)
@@ -5467,11 +5469,12 @@ test('(0.6.461, Bobine Pro, B04) the model of each take to create: chosen in its
   await settle();
   // (Asked once for each kind of take, its length aside: the one laid before was asked for it.)
   assert.ok(estimated.some(wanted => wanted.verb === 'create_video' && wanted.args.workflow === 'minimax-h3' && !wanted.args.start_image));
-  // pi H3: it makes 14,4 s at once and no suite: the take of 25 s is not made, said in its card.
+  // pi H3: it makes 14,375 s at once and no suite: the take of 25 s is not made, said in its card (0.6.464: « 14,3 s »,
+  // a length the take may have).
   pick(1, 'pi H3');
   assert.deepEqual(
     [f.said('bobine-line-reason'), f.go()],
-    [['pi H3 fait 14,4 s au plus d’un coup et ne prolonge pas une vidéo : raccourcissez la prise, ou choisissez LTX 2.5 ou MiniMax H3.'], 'Créer 1 prise'],
+    [['pi H3 fait 14,3 s au plus d’un coup et ne prolonge pas une vidéo : raccourcissez la prise, ou choisissez LTX 2.5 ou MiniMax H3.'], 'Créer 1 prise'],
   );
   // Back to LTX 2.5: nothing was thrown away, three parts again.
   pick(1, 'LTX 2.5');
@@ -5483,6 +5486,248 @@ test('(0.6.461, Bobine Pro, B04) the model of each take to create: chosen in its
   f.goMain().onclick();
   await settle();
   assert.deepEqual(asked[0], { verb: 'extend_video', args: { prompt: 'Il marche.', intention: INTENTION, duration: 4, workflow: 'minimax-h3', source: { output: id(1) } }, size: FILM, place: placeOf(f, 1, 5) });
+});
+
+// (0.6.464, relecture des lots 5 et 6) The models of the Bobine as the server lists them, LTX 2.5 here or not: what each
+// takes, the longest and the shortest it makes at once (lib/tool-catalog.mjs videoModels).
+const bobineModels = ({ ltx = true } = {}) => {
+  const roles = (start, end, subjects, required = false) => ({ start_image: { count: start, ...(required ? { required } : {}) }, end_image: { count: end }, reference: { count: subjects } }),
+    suiteRoles = (end, subjects) => ({ source: { count: 1, required: true }, reference: { count: subjects }, end_image: { count: end } }),
+    absent = ltx ? {} : { missing: true };
+  return [
+    { family: 'ltx25', name: 'LTX 2.5', sound: true, create_video: { id: 'ltx-25', name: 'LTX 2.5', roles: roles(1, 1, 2), longest: 10.042, shortest: 0.375, ...absent }, extend_video: { id: 'ltx-25', name: 'LTX 2.5', roles: suiteRoles(1, 0), longest: 9.667, shortest: 0.333, ...absent } },
+    { family: 'minimax_h3', name: 'MiniMax H3', sound: true, create_video: { id: 'minimax-h3', name: 'MiniMax H3 Omni', roles: roles(0, 0, 3), longest: 14.375, shortest: 5.167 }, extend_video: { id: 'minimax-h3', name: 'MiniMax H3 Omni', roles: suiteRoles(0, 3), longest: 13.458, shortest: 4.25 } },
+    { family: 'pi_h3', name: 'pi H3', sound: true, create_video: { id: 'pi-h3', name: 'pi H3', roles: roles(1, 1, 0), longest: 14.375, shortest: 5.167 }, extend_video: null },
+    { family: 'wan22', name: 'Wan 2.2', sound: false, create_video: { id: 'wan-22', name: 'Wan 2.2', roles: roles(1, 0, 0, true), longest: 5.063, shortest: 2.063 }, extend_video: null },
+  ];
+};
+
+test('(0.6.464, relecture des lots 5 et 6, n° 1, 2, 3 et 8) a take without a model of its own has one ready here that makes it as it is (LTX 2.5 when it is); the model last chosen only goes to a take it makes as it is; one this version does not know goes back to that one; a take shorter than its model makes is said so', async () => {
+  const GB = 1024 ** 3,
+    models = bobineModels({ ltx: false }),
+    byFamily = Object.fromEntries(models.map(model => [model.family, model])),
+    offer = { workflowId: 'ltx-25', files: [{ file: 'ltx-2.5.safetensors', size: 20 * GB, license: { name: 'Apache 2.0' } }], bytes: 20 * GB, left: 20 * GB, needsToken: false, page: '' },
+    estimated = [],
+    image = n => ({ conversationId: C, runId: id(n), output: 0 }),
+    stored = {
+      schemaVersion: 1,
+      id: id(1000),
+      name: 'Le pêcheur à l’aube',
+      format: '16:9',
+      width: 1344,
+      height: 768,
+      fps: 24,
+      sounds: [],
+      plans: [
+        { id: id(1001), at: 0, kind: 'video', source: { conversationId: C, runId: id(1), output: 0 }, from: 0, to: 5, frame: 'fit', volume: 1 },
+        { id: id(1002), at: 5, kind: 'video', todo: { prompt: 'Il marche.', suite: true }, from: 0, to: 4, frame: 'fit', volume: 1 },
+        { id: id(1003), at: 12, kind: 'video', todo: { prompt: 'Il se lève.' }, from: 0, to: 6, frame: 'fit', volume: 1, photos: { start: image(3) } },
+        // (Written by a newer version, whose family this one does not know.)
+        { id: id(1004), at: 20, kind: 'video', todo: { prompt: 'Il court.', model: 'inconnu' }, from: 0, to: 6, frame: 'fit', volume: 1 },
+        { id: id(1005), at: 30, kind: 'video', todo: { prompt: 'Il saute.' }, from: 0, to: 25, frame: 'fit', volume: 1, photos: { end: image(5) } },
+      ],
+    };
+  const f = await setup({
+    stored: [stored],
+    extra: [take(5, 'image')],
+    videoModels: () => models,
+    modelFor: (verb, family) => byFamily[family]?.[verb]?.id ?? null,
+    longestFor: (verb, family) => byFamily[family]?.[verb]?.longest ?? null,
+    estimate: async wanted => {
+      estimated.push([wanted.verb, wanted.args.workflow]);
+      return { workflowName: models.find(model => model.create_video.id === wanted.args.workflow)?.create_video.name ?? '', ...(wanted.args.workflow === 'ltx-25' ? { missing: offer } : {}) };
+    },
+  }).open();
+  await settle();
+  await settle();
+  const cardOf = plan => f.get('bobine-line').find(line => line.dataset.id === plan),
+    nameOf = plan => find(cardOf(plan), 'bobine-line-model-name')[0]?.textContent ?? null,
+    // (What is said above its field: a note whole, in its span, beside its first sentence for a low window.)
+    toldOf = plan => find(cardOf(plan), 'bobine-line-reason').map(line => (find(line, 'bobine-line-whole')[0] ?? line).textContent),
+    named = () => f.get('bobine-line').map(line => find(line, 'bobine-line-model-name')[0]?.textContent ?? null),
+    planOf = plan => f.ui.state().montage.plans.find(item => item.id === plan),
+    open = plan => (find(cardOf(plan), 'bobine-line-model')[0].onclick({ stopPropagation() {} }), f.get('bobine-model-menu')[0]),
+    pick = (plan, name) =>
+      open(plan)
+        .children.find(item => find(item, 'bobine-model-name')[0].textContent === name)
+        .onclick({ detail: 1 }),
+    laid = gesture => {
+      const before = new Set(f.ui.state().montage.plans.map(item => item.id));
+      gesture();
+      const added = f.ui.state().montage.plans.filter(item => !before.has(item.id));
+      assert.equal(added.length, 1, 'one take laid');
+      return added[0];
+    },
+    click = () => laid(() => f.lanes()[0].onclick({ clientX: 990, target: f.lanes()[0] }));
+  // LTX 2.5 lacks its files. The suite: MiniMax H3, the first here that makes one, which makes 4,25 s at least (said, not
+  // refused, the others that make 4 s named). From an image of start, which MiniMax H3 does not take: pi H3. Of a family
+  // this version does not know: MiniMax H3, in a button with its list, its family kept in the file. Towards an image of end
+  // for 25 s, which none here makes as it is: LTX 2.5, its download offered (the only one that would).
+  assert.deepEqual(named(), ['MiniMax H3', 'pi H3', 'MiniMax H3', 'LTX 2.5']);
+  assert.deepEqual(toldOf(id(1002)), ['MiniMax H3 fait 4,3 s au moins : la prise fera 4,3 s. Pour 4 s : LTX 2.5.']);
+  // In a low window, its first sentence alone on a line (moodix.css), the whole in its bubble; a screen reader reads the whole.
+  const note = find(cardOf(id(1002)), 'bobine-line-reason')[0],
+    brief = find(note, 'bobine-line-brief')[0];
+  assert.deepEqual(
+    [note.className, brief.textContent, brief.dataset.tip, brief.attributes['aria-hidden']],
+    ['bobine-line-reason is-note', 'MiniMax H3 fait 4,3 s au moins : la prise fera 4,3 s.', 'MiniMax H3 fait 4,3 s au moins : la prise fera 4,3 s. Pour 4 s : LTX 2.5.', 'true'],
+  );
+  assert.deepEqual([toldOf(id(1003)), toldOf(id(1004)), toldOf(id(1005))], [[], [], []]);
+  assert.deepEqual([planOf(id(1004)).todo.model, find(cardOf(id(1004)), 'bobine-line-model')[0].tagName], ['inconnu', 'BUTTON']);
+  assert.deepEqual(
+    open(id(1004)).children.map(item => [find(item, 'bobine-model-name')[0].textContent, item.attributes['aria-checked']]),
+    [['LTX 2.5', 'false'], ['MiniMax H3', 'true'], ['pi H3', 'false'], ['Wan 2.2', 'false']],
+  );
+  f.pagePress({});
+  for (const asked of [['extend_video', 'minimax-h3'], ['create_video', 'pi-h3'], ['create_video', 'minimax-h3'], ['create_video', 'ltx-25']])
+    assert.ok(estimated.some(item => item.join() === asked.join()), asked.join());
+  assert.equal(f.get('bobine-missing').length, 1);
+  // Wan 2.2 chosen for the take of 6 s: refused in its card, in a length it may have (it makes 5,063 s at most).
+  pick(id(1004), 'Wan 2.2');
+  assert.deepEqual([planOf(id(1004)).todo.model, toldOf(id(1004))], ['wan22', ['Wan 2.2 fait 5 s au plus d’un coup et ne prolonge pas une vidéo : raccourcissez la prise, ou choisissez LTX 2.5 ou MiniMax H3.']]);
+  // A take laid with a click has no image: Wan 2.2, which animates one, is not given it; it has MiniMax H3, by default.
+  const bare = click();
+  assert.deepEqual([bare.todo, nameOf(bare.id)], [{ prompt: '' }, 'MiniMax H3']);
+  // MiniMax H3 chosen last; an image laid as « une nouvelle prise, qui part de cette image »: MiniMax H3 would leave the
+  // image out, so the take has pi H3, which makes 5,17 s at least: said in its card, with those that make 5 s from it.
+  pick(id(1003), 'MiniMax H3');
+  assert.equal(planOf(id(1003)).todo.model, 'minimax_h3');
+  const started = laid(() => {
+    f.get('montage-take').find(tile => tile.dataset.id === id(3)).ondragstart({ dataTransfer: { setData() {} } });
+    const target = f.get('is-new')[0],
+      over = { ...event(0), stopPropagation() {} };
+    target.ondragover(over);
+    target.ondrop({ ...event(0), stopPropagation() {} });
+  });
+  assert.deepEqual([started.todo, started.photos, nameOf(started.id)], [{ prompt: '' }, { start: image(3) }, 'pi H3']);
+  assert.deepEqual(toldOf(started.id), ['pi H3 fait 5,2 s au moins : la prise fera 5,2 s. Pour 5 s : LTX 2.5 ou Wan 2.2.']);
+  // A take laid with a click now: MiniMax H3 makes it as it is.
+  const after = click();
+  assert.deepEqual([after.todo, nameOf(after.id), toldOf(after.id)], [{ prompt: '', model: 'minimax_h3' }, 'MiniMax H3', ['MiniMax H3 fait 5,2 s au moins : la prise fera 5,2 s. Pour 5 s : LTX 2.5.']]);
+});
+
+test('(0.6.464, relecture des lots 5 et 6, n° 5 et 7) a model chosen with the keyboard gives the keys back to the model of its card, with the mouse to the desk; the instants of a card go to a second line rather than under its model', async () => {
+  const models = bobineModels(),
+    byFamily = Object.fromEntries(models.map(model => [model.family, model])),
+    stored = {
+      schemaVersion: 1,
+      id: id(1010),
+      name: 'La nuit',
+      format: '16:9',
+      width: 1344,
+      height: 768,
+      fps: 24,
+      sounds: [],
+      plans: [
+        { id: id(1011), at: 0, kind: 'video', source: { conversationId: C, runId: id(1), output: 0 }, from: 0, to: 5, frame: 'fit', volume: 1 },
+        { id: id(1012), at: 6, kind: 'video', todo: { prompt: 'Il se lève.' }, from: 0, to: 6, frame: 'fit', volume: 1 },
+      ],
+    };
+  const f = await setup({
+    stored: [stored],
+    videoModels: () => models,
+    modelFor: (verb, family) => byFamily[family]?.[verb]?.id ?? null,
+    longestFor: (verb, family) => byFamily[family]?.[verb]?.longest ?? null,
+    estimate: async () => ({ workflowName: 'LTX 2.5' }),
+  }).open();
+  await settle();
+  const model = () => find(f.get('bobine-line')[0], 'bobine-line-model')[0],
+    choose = (name, detail) => {
+      model().onclick({ stopPropagation() {} });
+      f.get('bobine-model-menu')[0]
+        .children.find(item => find(item, 'bobine-model-name')[0].textContent === name)
+        .onclick({ detail });
+    },
+    family = () => f.ui.state().montage.plans[1].todo.model;
+  // With the keyboard (Entrée: a click of no detail): MiniMax H3, the keys on the model of the card, drawn again with it.
+  const was = model();
+  choose('MiniMax H3', 0);
+  assert.deepEqual([family(), find(model(), 'bobine-line-model-name')[0].textContent, model() !== was, f.focused() === model()], ['minimax_h3', 'MiniMax H3', true, true]);
+  // The one it has chosen again: as Échap, the keys back to it.
+  choose('MiniMax H3', 0);
+  assert.deepEqual([family(), f.focused() === model()], ['minimax_h3', true]);
+  // With the mouse: to the desk, where the space bar reads the film.
+  choose('LTX 2.5', 1);
+  assert.deepEqual([family(), f.focused() === f.root], ['ltx25', true]);
+  // Its instants, its parts and its state: on a second line when they do not hold beside its model (moodix.css).
+  const { readFile } = await import('node:fs/promises');
+  const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n'),
+    rule = css.match(/\n\.bobine-line-sub \{[^}]*\}/)[0];
+  assert.match(rule, /flex-wrap: wrap;/);
+  assert.match(rule, /gap: 3px 8px;/);
+  // (n° 3) The note of a take its model makes longer, in a low window: its first sentence on a line, its field one line high
+  // first, as without it (a card of 164 px in a list of 167 at 1280 × 720, where it was 201 px).
+  const low = css.slice(css.indexOf('#bobine-view .bobine-line-reason.is-note {'), css.indexOf('}', css.indexOf('.bobine-line:has(.bobine-line-reason.is-note) textarea')) + 1);
+  assert.match(css.slice(css.lastIndexOf('@media (max-height: 800px)', css.indexOf('#bobine-view .bobine-line-reason.is-note {'))), /^@media \(max-height: 800px\) \{/);
+  assert.match(low, /white-space: nowrap;\n    overflow: hidden;\n    text-overflow: ellipsis;/);
+  assert.match(low, /textarea\.bobine-line-words \{\n    min-height: calc\(1lh \+ 18px\);/);
+  assert.match(css, /\n\.bobine-missing-brief,\n\.bobine-line-brief \{\n  display: none;/);
+});
+
+test('(0.6.464, relecture des lots 5 et 6, n° 9) the models are read again once a download made in the Bobine ends, or the settings closed: the model there is no longer in amber in their list, and a take without a model of its own has it again', async () => {
+  const GB = 1024 ** 3,
+    offer = { workflowId: 'ltx-25', files: [{ file: 'ltx-2.5.safetensors', size: 20 * GB, license: { name: 'Apache 2.0' } }], bytes: 20 * GB, left: 20 * GB, needsToken: false, page: '' },
+    job = { state: 'idle' },
+    relists = [],
+    downloads = route => {
+      if (route === 'downloads/start') Object.assign(job, { state: 'running', workflowId: 'ltx-25', name: 'LTX 2.5', received: 0, total: 20 * GB });
+      return structuredClone(route === 'downloads' ? { job } : job);
+    },
+    stored = {
+      schemaVersion: 1,
+      id: id(1020),
+      name: 'Le phare',
+      format: '16:9',
+      width: 1344,
+      height: 768,
+      fps: 24,
+      sounds: [],
+      plans: [
+        { id: id(1021), at: 0, kind: 'video', todo: { prompt: 'Le phare.' }, from: 0, to: 25, frame: 'fit', volume: 1, photos: { end: { conversationId: C, runId: id(3), output: 0 } } },
+        // (Its suite, which waits for it: nothing can be created before LTX 2.5 is here, « Télécharger » in the place of « Créer ».)
+        { id: id(1022), at: 25, kind: 'video', todo: { prompt: 'La mer.', suite: true }, from: 0, to: 6, frame: 'fit', volume: 1 },
+      ],
+    };
+  let here = false,
+    models = bobineModels({ ltx: here });
+  const byFamily = family => models.find(model => model.family === family),
+    f = await setup({
+      stored: [stored],
+      downloads,
+      videoModels: () => models,
+      modelFor: (verb, family) => byFamily(family)?.[verb]?.id ?? null,
+      longestFor: (verb, family) => byFamily(family)?.[verb]?.longest ?? null,
+      estimate: async wanted => ({ workflowName: models.find(model => model.create_video.id === wanted.args.workflow)?.create_video.name ?? '', ...(wanted.args.workflow === 'ltx-25' && !here ? { missing: offer } : {}) }),
+      relist: async () => {
+        relists.push(here);
+        models = bobineModels({ ltx: here });
+      },
+    }).open();
+  await settle();
+  await settle();
+  const named = () => f.get('bobine-line').map(line => find(line, 'bobine-line-model-name')[0].textContent),
+    amber = () => {
+      find(f.get('bobine-line')[0], 'bobine-line-model')[0].onclick({ stopPropagation() {} });
+      const said = f.get('bobine-model-menu')[0].children.filter(item => item.dataset.missing === 'true').map(item => find(item, 'bobine-model-name')[0].textContent);
+      f.pagePress({});
+      return said;
+    };
+  // LTX 2.5 lacking: LTX 2.5 for the take of 25 s towards an image of end, which none here makes as it is; MiniMax H3 for
+  // its suite, the first here that makes one.
+  assert.deepEqual([named(), amber(), f.get('bobine-go-download').length], [['LTX 2.5', 'MiniMax H3'], ['LTX 2.5'], 1]);
+  // Downloaded from « À créer » to its end: their list read again; LTX 2.5 for both, as before it lacked.
+  f.get('bobine-go-download')[0].onclick();
+  await settle();
+  here = true;
+  job.state = 'done';
+  await f.later({ ms: 1000 });
+  await settle();
+  await settle();
+  assert.deepEqual([relists, named(), amber(), f.get('bobine-go-download').length, f.go()], [[true], ['LTX 2.5', 'LTX 2.5'], [], 0, 'Créer 4 prises']);
+  // The settings closed (a model downloaded in Paramètres › Modèles): read again too.
+  f.ui.toolsChanged();
+  await settle();
+  assert.equal(relists.length, 2);
 });
 
 test('(0.6.462, Bobine Pro, B05) the subjects of a take to create: after its start and its end, chosen in « Créations du projet » or dropped on its card, sent under their role, small on its take; those its model does not take greyed, never thrown away', async () => {

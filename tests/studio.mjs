@@ -9475,16 +9475,20 @@ test('the bobine asks each take to its own model by its name, LTX 2.5 unless ano
     suiteRoles = (end, subjects) => ({ source: { count: 1, required: true }, reference: { count: subjects }, end_image: { count: end } }),
     ltxModel = { family: 'ltx25', name: 'LTX 2.5', sound: true, create_video: { id: 'l', name: 'LTX 2.5', roles: roles(1, 1, 2), longest: 10.042 }, extend_video: { id: 'l', name: 'LTX 2.5', roles: suiteRoles(1, 0), longest: 9.667 } },
     minimax = { family: 'minimax_h3', name: 'MiniMax H3', sound: true, create_video: { id: 'v', name: 'MiniMax H3 Omni', roles: roles(0, 0, 3), longest: 14.375 }, extend_video: { id: 'v', name: 'MiniMax H3 Omni', roles: suiteRoles(0, 3), longest: 13.458 } },
-    stored = model => ({
+    stored = (model, bare) => ({
       schemaVersion: 1, id: 'm1', name: 'Film', format: '16:9', width: 1344, height: 768, fps: 24, sounds: [],
-      plans: [{ id: 'a', at: 0, kind: 'video', todo: { prompt: 'Il lève les yeux.', ...(model ? { model } : {}) }, from: 0, to: 12, frame: 'fit', volume: 1, photos: { start: { conversationId: 'c0', runId: 'p1', output: 0 } } }],
-    });
-  for (const [video, model, named, duration, parts, start] of [
+      plans: [{ id: 'a', at: 0, kind: 'video', todo: { prompt: 'Il lève les yeux.', ...(model ? { model } : {}) }, from: 0, to: 12, frame: 'fit', volume: 1, ...(bare ? {} : { photos: { start: { conversationId: 'c0', runId: 'p1', output: 0 } } }) }],
+    }),
+    absent = { ...ltxModel, create_video: { ...ltxModel.create_video, missing: true } };
+  for (const [video, model, named, duration, parts, start, bare = false] of [
     // LTX 2.5 here: twelve seconds in two parts of six, from its image of start.
     [[ltxModel, minimax], undefined, 'l', 6, ['2 × 06.00 s'], true],
-    // Not on this computer: named all the same, the server offers its download (« Télécharger »).
-    [[{ ...ltxModel, create_video: { ...ltxModel.create_video, missing: true } }, minimax], undefined, 'l', 6, ['2 × 06.00 s'], true],
-    // MiniMax H3 chosen in its card: one part (it makes 14,4 s at once), without the image of start it does not take.
+    // (0.6.464, relecture des lots 5 et 6, n° 1) Not on this computer, and MiniMax H3, here, does not take the image of
+    // start: LTX 2.5 named all the same, the only one that makes the take as it is; the server offers its download.
+    [[absent, minimax], undefined, 'l', 6, ['2 × 06.00 s'], true],
+    // Without its image: MiniMax H3, here, makes it as it is; no download is offered for LTX 2.5, which nobody named.
+    [[absent, minimax], undefined, 'v', 12, [], false, true],
+    // MiniMax H3 chosen in its card: one part (it makes 14,375 s at once), without the image of start it does not take.
     [[ltxModel, minimax], 'minimax_h3', 'v', 12, [], false],
     // No list of the models: nothing named, the server chooses; nobody knows what it makes at once, in one part.
     [null, undefined, undefined, 12, [], true],
@@ -9496,7 +9500,7 @@ test('the bobine asks each take to its own model by its name, LTX 2.5 unless ano
           : route === 'tools/action'
             ? () => ({ workflowName: 'LTX 2.5' })
             : /^montages\/[^/]+\/m1$/.test(route)
-              ? () => stored(model)
+              ? () => stored(model, bare)
               : /^montages\/[^/]+$/.test(route)
                 ? () => ({ montages: [{ id: 'm1', name: 'Film' }] })
                 : undefined,
@@ -9506,7 +9510,7 @@ test('the bobine asks each take to its own model by its name, LTX 2.5 unless ano
       const desk = studio.studio.bobine().desk();
       await until(() => studio.asked.some(([route]) => route === 'tools/action'));
       const [, sent] = studio.asked.find(([route]) => route === 'tools/action');
-      assert.equal(sent.arguments.workflow, named, JSON.stringify([video?.map(item => item.name), model]));
+      assert.equal(sent.arguments.workflow, named, JSON.stringify([video?.map(item => item.name + (item.create_video?.missing ? ' (absent)' : '')), model, bare]));
       assert.deepEqual(
         [sent.arguments.duration, desk.find('bobine-line-parts').map(item => item.textContent), Boolean(sent.arguments.start_image)],
         [duration, parts, start],

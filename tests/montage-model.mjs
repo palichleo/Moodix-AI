@@ -401,7 +401,12 @@ test('the pictures along a take: one every 62 px, each the one of its strip at t
 });
 
 test('each take to create with its own model: cut by what it makes at once, refused in words, its images kept but not sent (0.6.461)', async () => {
-  const { orList, partsOf, seriesOf, takesPhoto, takesWords } = await import('../public/montage-model.mjs');
+  const { orList, partsOf, secondsWord, seriesOf, takesPhoto, takesWords } = await import('../public/montage-model.mjs');
+  // (0.6.464) A length in words, to the tenth: down for what a model makes at most, up for what it makes at least.
+  assert.deepEqual(
+    [secondsWord(14.375), secondsWord(14.375, 'down'), secondsWord(5.0625, 'down'), secondsWord(14.3, 'down'), secondsWord(5.1667, 'up'), secondsWord(4.25, 'up'), secondsWord(5.2, 'up')],
+    ['14,4 s', '14,3 s', '5 s', '14,3 s', '5,2 s', '4,3 s', '5,2 s'],
+  );
   // (Bobine Pro, B04) The models of the Bobine, as the server lists them (lib/tool-catalog.mjs videoModels).
   const roles = (start, end, subjects, required = false) => ({ start_image: { count: start, ...(required ? { required } : {}) }, end_image: { count: end }, reference: { count: subjects } }),
     suite = (end, subjects) => ({ source: { count: 1, required: true }, reference: { count: subjects }, end_image: { count: end } }),
@@ -442,13 +447,19 @@ test('each take to create with its own model: cut by what it makes at once, refu
   // pi H3: no suite, so a take of 25 s is made at once or not at all; shorter, its two images are sent.
   const pi = chosen(withSuite, id(21), 'pi_h3');
   assert.deepEqual(Object.values(partsOf(pi.plans[2], limits(pi.plans[2]))), [1, 25]);
-  assert.deepEqual(asked(pi, id(21)), { reason: 'pi H3 fait 14,4 s au plus d’un coup et ne prolonge pas une vidéo : raccourcissez la prise, ou choisissez LTX 2.5 ou MiniMax H3.' });
+  // (0.6.464, relecture des lots 5 et 6, n° 4) What it says is a length the take may have: 14,375 s, « 14,3 s au plus ».
+  assert.deepEqual(asked(pi, id(21)), { reason: 'pi H3 fait 14,3 s au plus d’un coup et ne prolonge pas une vidéo : raccourcissez la prise, ou choisissez LTX 2.5 ou MiniMax H3.' });
+  // At its bound: 14,4 s refused in those words, where « 14,4 s au plus » refused a take of 14,4 s; 14,3 s made.
+  assert.match(asked(withItemChanged(pi, id(21), { to: 14.4 }), id(21)).reason, /^pi H3 fait 14,3 s au plus d’un coup/);
+  assert.equal(asked(withItemChanged(pi, id(21), { to: 14.3 }), id(21)).duration, 14.3);
   const short = withItemChanged(pi, id(21), { to: 12 });
   assert.deepEqual([asked(short, id(21)).duration, Boolean(asked(short, id(21)).start), Boolean(asked(short, id(21)).end)], [12, true, true]);
   // A suite to pi H3 or Wan 2.2: those that make suites are named. Wan 2.2 animates an image, and takes no end.
   assert.deepEqual(asked(chosen(withSuite, id(22), 'pi_h3'), id(22)), { reason: 'pi H3 ne prolonge pas une vidéo. Pour une suite : LTX 2.5 ou MiniMax H3.' });
   const wan = withItemChanged(chosen(withSuite, id(21), 'wan22'), id(21), { to: 5 });
   assert.deepEqual([asked(wan, id(21)).duration, Boolean(asked(wan, id(21)).start), 'end' in asked(wan, id(21))], [5, true, false]);
+  // (0.6.464) Wan 2.2 makes 5,063 s at most: a take of 5,1 s is refused with « 5 s au plus », not « 5,1 s ».
+  assert.match(asked(withItemChanged(wan, id(21), { to: 5.1 }), id(21)).reason, /^Wan 2\.2 fait 5 s au plus d’un coup/);
   const { photos: _photos, ...bare } = wan.plans[2];
   assert.deepEqual(asked({ ...wan, plans: [wan.plans[0], wan.plans[1], bare] }, id(21)), { reason: 'Wan 2.2 anime une image : posez une image de début.' });
   // A suite to MiniMax H3: its image of end stays, not sent; to LTX 2.5, sent.

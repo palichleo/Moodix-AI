@@ -708,17 +708,18 @@ test('the Bobine is told the models that make videos, one by family, what each t
       model.sound,
       ...['create_video', 'extend_video'].map(verb => {
         const entry = model[verb];
-        return entry && [entry.id, Object.fromEntries(Object.entries(entry.roles).map(([role, spec]) => [role, spec.count + (spec.required ? '!' : '')])), Math.round(entry.longest * 1000) / 1000, entry.missing ?? entry.unavailable ?? ''];
+        return entry && [entry.id, Object.fromEntries(Object.entries(entry.roles).map(([role, spec]) => [role, spec.count + (spec.required ? '!' : '')])), Math.round(entry.longest * 1000) / 1000, Math.round(entry.shortest * 1000) / 1000, entry.missing ?? entry.unavailable ?? ''];
       }),
     ]);
   // All here: the four families in the order the router prefers them, then by name; not Wan 2.2 Caméra, which reads a
   // camera of its own (the Bobine does not set one). MiniMax H3 Omni takes subjects only; an LTX 2.5 suite none.
+  // (0.6.464) The shortest each makes, as the server makes a take shorter: MiniMax H3 and pi H3 5,17 s (124 images).
   const all = await Promise.all(Object.values(ids).map(id => shippedOf(id)));
   assert.deepEqual(said(await catalogOf(all).videoModels()), [
-    ['ltx25', 'LTX 2.5', true, [ids.ltx, { start_image: '1', end_image: '1', reference: '2' }, 10.042, ''], [ids.ltx, { source: '1!', reference: '0', end_image: '1' }, 9.667, '']],
-    ['minimax_h3', 'MiniMax H3', true, [ids.minimax, { start_image: '0', end_image: '0', reference: '3' }, 14.375, ''], [ids.minimax, { source: '1!', reference: '3', end_image: '0' }, 13.458, '']],
-    ['pi_h3', 'pi H3', true, [ids.pi, { start_image: '1', end_image: '1', reference: '0' }, 14.375, ''], null],
-    ['wan22', 'Wan 2.2', false, [ids.wan, { start_image: '1!', end_image: '0', reference: '0' }, 5.063, ''], null],
+    ['ltx25', 'LTX 2.5', true, [ids.ltx, { start_image: '1', end_image: '1', reference: '2' }, 10.042, 0.375, ''], [ids.ltx, { source: '1!', reference: '0', end_image: '1' }, 9.667, 0.333, '']],
+    ['minimax_h3', 'MiniMax H3', true, [ids.minimax, { start_image: '0', end_image: '0', reference: '3' }, 14.375, 5.167, ''], [ids.minimax, { source: '1!', reference: '3', end_image: '0' }, 13.458, 4.25, '']],
+    ['pi_h3', 'pi H3', true, [ids.pi, { start_image: '1', end_image: '1', reference: '0' }, 14.375, 5.167, ''], null],
+    ['wan22', 'Wan 2.2', false, [ids.wan, { start_image: '1!', end_image: '0', reference: '0' }, 5.063, 2.063, ''], null],
   ]);
   // LTX 2.5 without its files (offered to download: `missing`), MiniMax H3 that this computer cannot run (its reason),
   // Wan 2.2 the user's own and without its files (nothing to download): greyed with its reason, never left out.
