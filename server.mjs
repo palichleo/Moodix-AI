@@ -337,6 +337,8 @@ export async function createApplication({
   llamaBuilds: givenLlamaBuilds = null,
   // (0.6.451) The dictation (lib/dictation.mjs); tests pass their own.
   dictation: givenDictation = null,
+  // (0.6.459) What reads the film of a take for the timeline of the Bobine (lib/take-film.mjs); tests pass their own.
+  takeFilm: givenTakeFilm = null,
   // A generation call with a two-line prompt is sent back once (lib/thin-prompt.mjs).
   fullPrompts = true,
   currentSources = appSources,
@@ -887,6 +889,8 @@ export async function createApplication({
               ...(thumbnails.has(Thumbnails.key(record.conversationId, record.id, index))
                 ? { thumbUrl: thumbUrl(record.conversationId, record.id, index) }
                 : {}),
+              // (0.6.459) What its piece shows on the timeline of the Bobine: read when first asked (filmOf).
+              ...(['video', 'audio'].includes(record.mediaType) ? { filmUrl: filmUrl(record.conversationId, record.id, index) } : {}),
             }
           : {}),
       })),
@@ -900,6 +904,53 @@ export async function createApplication({
   const thumbUrl = (conversationId, runId, index) =>
     `/media/thumbs/${conversationId}/${runId}/${index}?key=${mediaKey(conversationId + '/' + runId + '/' + index, 'thumb')}` +
     `&v=${thumbnails.version(Thumbnails.key(conversationId, runId, index)).toString(36)}`;
+  // (0.6.459) The film of a take and the strip of its pictures: written once, as a take never changes.
+  const filmUrl = (conversationId, runId, index) =>
+    `/media/films/${conversationId}/${runId}/${index}?key=${mediaKey(conversationId + '/' + runId + '/' + index, 'film')}`;
+  const stripUrl = (conversationId, runId, index) =>
+    `/media/strips/${conversationId}/${runId}/${index}?key=${mediaKey(conversationId + '/' + runId + '/' + index, 'strip')}`;
+  /**
+   * (0.6.459, Bobine Pro, B01) The film of a take: the loudness of its sound and, for a video, pictures along it
+   * (lib/take-film.mjs), read from its file the first time the timeline of the Bobine shows it, then kept with its
+   * thumbnail. One take read at a time, on the processor; a take asked twice meanwhile is read once.
+   */
+  const takeFilm = givenTakeFilm ?? ((path, options) => generation.takeFilm(path, options)),
+    filmsRead = new Map();
+  let filmTurn = Promise.resolve();
+  async function filmOf(conversationId, runId, index) {
+    const key = Thumbnails.key(conversationId, runId, index),
+      kept = await thumbnails.film(key);
+    if (kept) return kept;
+    let reading = filmsRead.get(key);
+    if (!reading) {
+      reading = filmTurn.then(async () => {
+        // (0.6.463) The application asked to stop, closing, or being updated: what waited its turn is not read. A
+        // Python started after « Application arrêtée » wrote in data/thumbnails and kept Node alive meanwhile, while
+        // the new version of an update started.
+        if (closing || leaving || applyingUpdate) throw problem('L’application se ferme.', 503);
+        const record = await gallery.get(conversationId, runId, { includeImages: false }),
+          source = record.outputs[Number(index)]?.source;
+        if (record.provider !== 'native' || !source || !['video', 'audio'].includes(record.mediaType))
+          throw problem('Cette prise n’a ni images ni son à montrer.', 404);
+        const { handle, path } = await generatedMedia(outputDir, source);
+        await handle.close();
+        await thumbnails.keepFilm(key, await takeFilm(path, { pictures: record.mediaType === 'video' }));
+        return thumbnails.film(key);
+      });
+      filmsRead.set(key, reading);
+      filmTurn = reading.catch(() => {}).finally(() => filmsRead.delete(key));
+    }
+    const film = await reading;
+    if (!film) throw problem('Le film de cette prise n’a pas pu être gardé.', 500);
+    return film;
+  }
+  /**
+   * (0.6.463) The readings of films under way or waiting whose key starts with `start` (« conversation. », a take:
+   * « conversation.take. »), ended: a take removed while its film was read had its strip and its wave written after
+   * thumbnails.forget, served and found again at each start.
+   */
+  const filmsDone = start =>
+    Promise.allSettled([...filmsRead].filter(([key]) => key.startsWith(start)).map(([, reading]) => reading));
   /** The creation the cover of a conversation shows: its thumbnail when there is one, else the image itself. */
   const coverOf = conversationId =>
     history.preview(conversationId, async runId => {
@@ -1211,6 +1262,33 @@ export async function createApplication({
         });
         return res.end(req.method === 'HEAD' ? undefined : bytes);
       }
+      // (0.6.459) The film of a take (filmOf): its wave, and where the strip of its pictures is.
+      const film = path.match(/^\/media\/films\/([0-9a-f-]{36})\/([0-9a-f-]{36})\/([0-9]{1,3})$/);
+      if (film) {
+        if (!['GET', 'HEAD'].includes(req.method)) throw problem('Méthode non prise en charge.', 405);
+        checkKey(requestURL, film.slice(1).join('/'), 'film');
+        const { wave, frames } = await filmOf(film[1], film[2], film[3]),
+          body = Buffer.from(JSON.stringify({ ...wave, frames, ...(frames ? { stripUrl: stripUrl(film[1], film[2], film[3]) } : {}) }));
+        // Read once and never changed: the browser keeps it.
+        res.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Content-Length': body.length,
+          'Cache-Control': 'private, max-age=31536000, immutable',
+        });
+        return res.end(req.method === 'HEAD' ? undefined : body);
+      }
+      const strip = path.match(/^\/media\/strips\/([0-9a-f-]{36})\/([0-9a-f-]{36})\/([0-9]{1,3})$/);
+      if (strip) {
+        if (!['GET', 'HEAD'].includes(req.method)) throw problem('Méthode non prise en charge.', 405);
+        checkKey(requestURL, strip.slice(1).join('/'), 'strip');
+        const bytes = await thumbnails.strip(Thumbnails.key(strip[1], strip[2], strip[3]));
+        res.writeHead(200, {
+          'Content-Type': 'image/jpeg',
+          'Content-Length': bytes.length,
+          'Cache-Control': 'private, max-age=31536000, immutable',
+        });
+        return res.end(req.method === 'HEAD' ? undefined : bytes);
+      }
       const attached = path.match(/^\/media\/attachments\/([0-9a-f-]{36})\/([a-z0-9.-]{1,90})$/);
       if (attached) {
         if (!['GET', 'HEAD'].includes(req.method)) throw problem('Méthode non prise en charge.', 405);
@@ -1463,13 +1541,15 @@ export async function createApplication({
       // The Studio: where its results are kept, and the style LoRAs of the loras folders.
       if (req.method === 'GET' && path === '/api/studio') {
         // Asked together: the workflows and the LoRAs are both read from the disk.
-        const [tools, styles, presets] = await Promise.all([
+        const [tools, styles, presets, video] = await Promise.all([
           runtime.tools.studio(),
           generation.styles(),
           studioPresets.all(),
+          // (0.6.461, Bobine Pro, B04) The models a take of the Bobine may be made with, one by family.
+          runtime.tools.videoModels(),
         ]);
         // `presets`: the settings saved for each model (« Enregistrer »).
-        return send(200, { enabled: generation.config.enabled === true, tools, styles, presets });
+        return send(200, { enabled: generation.config.enabled === true, tools, styles, presets, video });
       }
       if (req.method === 'GET' && path === '/api/tools/job') {
         // With what a page draws its card (`proposal`): one reloaded meanwhile follows it again (0.6.82).
@@ -2253,7 +2333,9 @@ export async function createApplication({
       if (path === '/api/studio/delete') {
         if (runtime.active || clearingHistory || persistingGallery) throw problem('Une opération est en cours.', 409);
         await gallery.remove(body.conversationId ?? STUDIO_ID, body.id);
-        // Its thumbnail goes with it (it would stay the cover of its conversation).
+        // Its thumbnail goes with it (it would stay the cover of its conversation). (0.6.463) Its film too, once
+        // read if it was being read.
+        await filmsDone(`${body.conversationId ?? STUDIO_ID}.${body.id}.`);
         await thumbnails.forget(body.conversationId ?? STUDIO_ID, body.id).catch(() => {});
         return send(200, { removed: body.id });
       }
@@ -2592,6 +2674,7 @@ export async function createApplication({
         clearingHistory = true;
         try {
           const erased = await history.erase(body.id, { tab });
+          await filmsDone(`${body.id}.`);
           await thumbnails.forget(body.id);
           return send(200, { erased: erased.erased === true });
         } finally {
@@ -3307,6 +3390,8 @@ export async function createApplication({
       let failure;
       for (const step of [
         () => updates,
+        // (0.6.463) The film being read, if one is: those waiting their turn are refused (filmOf).
+        () => filmTurn,
         () => resources.close(),
         () => modelOperation,
         () => models.pending,

@@ -103,13 +103,24 @@ function enhance(select, view) {
 
   const sync = () => {
     const chosen = select.selectedOptions?.[0] ?? select.options[select.selectedIndex];
-    // (0.6.148) What the face shows of the one chosen, when it says it shorter (« 16:9  1344 × 768 »).
-    text.textContent = chosen?.dataset?.face ?? chosen?.textContent ?? '';
+    // (0.6.148) What the face shows of the one chosen, when it says it shorter (« 16:9  1344 × 768 »). (0.6.463) What
+    // follows it, `data-face-more` (« 1344 × 768 »), in a span of its own that a narrow row can leave out (moodix.css:
+    // the format of the Bobine, its size in its list).
+    const shown = chosen?.dataset?.face ?? chosen?.textContent ?? '',
+      more = chosen?.dataset?.faceMore ?? '';
+    text.textContent = shown;
+    if (more) {
+      const after = page.createElement('span');
+      after.className = 'glass-select-more';
+      after.textContent = ' ' + more;
+      text.append(after);
+    }
     face.disabled = select.disabled;
     // Its classes are the list's, as they change (a value changed in a proposal turns to the accent).
     dress();
     carryTip();
-    if (label) face.setAttribute('aria-label', label.trim() + ' : ' + text.textContent);
+    // (Its name says it whole, even where the row leaves its size out.)
+    if (label) face.setAttribute('aria-label', label.trim() + ' : ' + shown + (more ? ' ' + more : ''));
   };
   const items = () => [...menu.querySelectorAll('[role="option"]:not([aria-disabled="true"])')];
   const beside = event => {

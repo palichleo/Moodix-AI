@@ -1186,6 +1186,8 @@ async function studioPage(tools, routes = {}, options = {}) {
                 enabled: true,
                 styles: ['a.safetensors', 'b.safetensors'],
                 tools,
+                // (0.6.461) The models of the Bobine, one by family (videoModels), when the test gives them.
+                ...(options.video ? { video: options.video } : {}),
                 presets: options.presets ?? {},
               }
             : (route.startsWith('gallery/') || route.startsWith('project-gallery/')) && options.gallery
@@ -9451,7 +9453,7 @@ test('a take to create of the bobine is made as a take of the Studio is, which f
     const { body, desk } = studio;
     desk.find('bobine-go-main')[0].onclick();
     await until(() => desk.find('bobine-line-reason').length === 1);
-    assert.deepEqual([desk.find('bobine-line-reason')[0].textContent, desk.find('bobine-line')[0].dataset.state, desk.find('bobine-line-right')[0].textContent], ['Mémoire vidéo insuffisante.', 'failed', 'Échec']);
+    assert.deepEqual([desk.find('bobine-line-reason')[0].textContent, desk.find('bobine-line')[0].dataset.state, desk.find('bobine-line-state')[0].textContent], ['Mémoire vidéo insuffisante.', 'failed', 'Échec']);
     assert.deepEqual([desk.find('bobine-go-label')[0].textContent, desk.find('bobine-go-main')[0].disabled], ['Créer 1 prise', false]);
     assert.deepEqual([body.dataset.mode, body.find('studio-error')], ['image', []]);
   } finally {
@@ -9477,7 +9479,7 @@ test('a take to create of the bobine is made as a take of the Studio is, which f
       }
       await until(() => !bobine.state().filling && !bobine.state().making);
       assert.deepEqual(
-        [bobine.state().failed.size, desk.find('bobine-line-reason').length, desk.find('bobine-line-right')[0].textContent === 'Échec', desk.find('bobine-go-label')[0].textContent],
+        [bobine.state().failed.size, desk.find('bobine-line-reason').length, desk.find('bobine-line-state')[0].textContent === 'Échec', desk.find('bobine-go-label')[0].textContent],
         [0, 0, false, 'Créer 1 prise'],
       );
       assert.deepEqual(body.find('studio-error'), []);
@@ -9525,7 +9527,7 @@ test('a take to create of the bobine is made as a take of the Studio is, which f
     await settle();
     await until(() => !studio.studio.bobine().state().filling);
     assert.deepEqual(
-      [actions().length, desk.find('bobine-line-reason').length, desk.find('bobine-line-right')[0].textContent === 'Échec', desk.find('bobine-go-label')[0].textContent, go().disabled, notices],
+      [actions().length, desk.find('bobine-line-reason').length, desk.find('bobine-line-state')[0].textContent === 'Échec', desk.find('bobine-go-label')[0].textContent, go().disabled, notices],
       [before, 0, false, 'Créer 1 prise', false, []],
     );
   } finally {
@@ -9539,7 +9541,7 @@ test('a take to create of the bobine is made as a take of the Studio is, which f
   try {
     const { desk, kept, runs } = studio,
       place = { id: 'm1', plan: 'a', from: 0 },
-      said = () => [desk.find('montage-piece')[0].children[0].textContent, desk.find('bobine-line-right')[0].textContent, desk.find('bobine-go-main')[0].disabled];
+      said = () => [desk.find('montage-piece')[0].children[0].textContent, desk.find('bobine-line-state')[0].textContent, desk.find('bobine-go-main')[0].disabled];
     // (The Bobine is the page shown: the Studio tells it when the takes of the project are read again.)
     globalThis.document.body = { dataset: { view: 'bobine' } };
     assert.equal(studio.studio.bobineWorking(), false);
@@ -9566,42 +9568,58 @@ test('a take to create of the bobine is made as a take of the Studio is, which f
   }
 });
 
-test('the bobine asks its takes to LTX 2.5 by its name when the Studio has it ready, and names nothing else (0.6.151)', async () => {
+test('the bobine asks each take to its own model by its name, LTX 2.5 unless another was chosen, and names nothing else (0.6.151, 0.6.461)', async () => {
   // (« Oui, LTX 2.5 », 20/11: a take drawn had gone to the model the server prefers.)
   const photo = { id: 'p1', conversationId: 'c0', mediaType: 'image', prompt: 'Un pêcheur', parameters: {}, outputs: [{ take: 3, originalUrl: '/media/p1', thumbUrl: '/thumb/p1' }] },
     image = { id: 'i', name: 'Image', roles: {}, limits: sizes, size: { width: 1024, height: 1024 }, settings: [], seeded: true },
-    clip = { id: 'v', name: 'MiniMax H3 Omni', family: 'minimax', roles: {}, limits: sizes, size: { width: 768, height: 448 }, settings: [], seeded: true },
-    // (0.6.152) What it makes at once: a take longer than it is made in equal parts.
+    clip = { id: 'v', name: 'MiniMax H3 Omni', family: 'minimax_h3', roles: {}, limits: sizes, size: { width: 768, height: 448 }, settings: [], seeded: true },
     ltx = { id: 'l', name: 'LTX 2.5', family: 'ltx25', roles: {}, limits: sizes, size: { width: 768, height: 448 }, settings: [], seeded: true, lengths: { seconds: [0.375, 5.042, 10.042], standard: 5.042 } },
-    stored = {
+    // (0.6.461, Bobine Pro, B04) The models of the Bobine, one by family (lib/tool-catalog.mjs videoModels): the workflow
+    // of each verb, what it takes, the longest it makes at once (0.6.152: a take longer is made in equal parts).
+    roles = (start, end, subjects) => ({ start_image: { count: start }, end_image: { count: end }, reference: { count: subjects } }),
+    suiteRoles = (end, subjects) => ({ source: { count: 1, required: true }, reference: { count: subjects }, end_image: { count: end } }),
+    ltxModel = { family: 'ltx25', name: 'LTX 2.5', sound: true, create_video: { id: 'l', name: 'LTX 2.5', roles: roles(1, 1, 2), longest: 10.042 }, extend_video: { id: 'l', name: 'LTX 2.5', roles: suiteRoles(1, 0), longest: 9.667 } },
+    minimax = { family: 'minimax_h3', name: 'MiniMax H3', sound: true, create_video: { id: 'v', name: 'MiniMax H3 Omni', roles: roles(0, 0, 3), longest: 14.375 }, extend_video: { id: 'v', name: 'MiniMax H3 Omni', roles: suiteRoles(0, 3), longest: 13.458 } },
+    stored = (model, bare) => ({
       schemaVersion: 1, id: 'm1', name: 'Film', format: '16:9', width: 1344, height: 768, fps: 24, sounds: [],
-      plans: [{ id: 'a', at: 0, kind: 'video', todo: { prompt: 'Il lève les yeux.' }, from: 0, to: 12, frame: 'fit', volume: 1, photos: { start: { conversationId: 'c0', runId: 'p1', output: 0 } } }],
-    };
-  const routes = new Proxy({}, {
-    get: (_, route) =>
-      typeof route !== 'string'
-        ? undefined
-        : route === 'tools/action'
-          ? () => ({ workflowName: 'LTX 2.5' })
-          : /^montages\/[^/]+\/m1$/.test(route)
-            ? () => stored
-            : /^montages\/[^/]+$/.test(route)
-              ? () => ({ montages: [{ id: 'm1', name: 'Film' }] })
-              : undefined,
-  });
-  // (Twelve seconds: two parts of six with LTX 2.5; nobody knows what the other makes: in one part.)
-  for (const [videos, named, parts] of [
-    [[clip, ltx], 'l', ['2 × 06.00 s']],
-    [[clip, { ...ltx, unavailable: 'Un fichier de LTX 2.5 manque.' }], undefined, []],
-    [[clip], undefined, []],
+      plans: [{ id: 'a', at: 0, kind: 'video', todo: { prompt: 'Il lève les yeux.', ...(model ? { model } : {}) }, from: 0, to: 12, frame: 'fit', volume: 1, ...(bare ? {} : { photos: { start: { conversationId: 'c0', runId: 'p1', output: 0 } } }) }],
+    }),
+    absent = { ...ltxModel, create_video: { ...ltxModel.create_video, missing: true } };
+  for (const [video, model, named, duration, parts, start, bare = false] of [
+    // LTX 2.5 here: twelve seconds in two parts of six, from its image of start.
+    [[ltxModel, minimax], undefined, 'l', 6, ['2 × 06.00 s'], true],
+    // (0.6.464, relecture des lots 5 et 6, n° 1) Not on this computer, and MiniMax H3, here, does not take the image of
+    // start: LTX 2.5 named all the same, the only one that makes the take as it is; the server offers its download.
+    [[absent, minimax], undefined, 'l', 6, ['2 × 06.00 s'], true],
+    // Without its image: MiniMax H3, here, makes it as it is; no download is offered for LTX 2.5, which nobody named.
+    [[absent, minimax], undefined, 'v', 12, [], false, true],
+    // MiniMax H3 chosen in its card: one part (it makes 14,375 s at once), without the image of start it does not take.
+    [[ltxModel, minimax], 'minimax_h3', 'v', 12, [], false],
+    // No list of the models: nothing named, the server chooses; nobody knows what it makes at once, in one part.
+    [null, undefined, undefined, 12, [], true],
   ]) {
-    const studio = await studioPage({ create_image: [image], create_video: videos }, routes, { runs: [photo] });
+    const routes = new Proxy({}, {
+      get: (_, route) =>
+        typeof route !== 'string'
+          ? undefined
+          : route === 'tools/action'
+            ? () => ({ workflowName: 'LTX 2.5' })
+            : /^montages\/[^/]+\/m1$/.test(route)
+              ? () => stored(model, bare)
+              : /^montages\/[^/]+$/.test(route)
+                ? () => ({ montages: [{ id: 'm1', name: 'Film' }] })
+                : undefined,
+    });
+    const studio = await studioPage({ create_image: [image], create_video: [clip, ltx] }, routes, { runs: [photo], ...(video ? { video } : {}) });
     try {
       const desk = studio.studio.bobine().desk();
       await until(() => studio.asked.some(([route]) => route === 'tools/action'));
       const [, sent] = studio.asked.find(([route]) => route === 'tools/action');
-      assert.equal(sent.arguments.workflow, named, videos.map(video => video.name + (video.unavailable ? ' (absent)' : '')).join(', '));
-      assert.deepEqual([sent.arguments.duration, desk.find('bobine-line-parts').map(item => item.textContent)], [parts.length ? 6 : 12, parts]);
+      assert.equal(sent.arguments.workflow, named, JSON.stringify([video?.map(item => item.name + (item.create_video?.missing ? ' (absent)' : '')), model, bare]));
+      assert.deepEqual(
+        [sent.arguments.duration, desk.find('bobine-line-parts').map(item => item.textContent), Boolean(sent.arguments.start_image)],
+        [duration, parts, start],
+      );
     } finally {
       studio.restore();
     }

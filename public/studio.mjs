@@ -798,7 +798,11 @@ export function setupStudio({
   // (0.6.148) The Bobine (ex-Montage, public/montage.mjs): a page of its own beside the Studio, which
   // holds it here because it creates its takes as takes of the Studio. The page shows it (`bobine()`).
   // (0.6.151) The model the takes of the Bobine are asked to: LTX 2.5, when it is ready here.
-  const bobineModel = verb => (info?.tools?.[verb] ?? []).find(tool => tool.family === 'ltx25' && !tool.unavailable) ?? null;
+  // (0.6.461, Bobine Pro, B04) The one of each take, chosen in its card among the models that make videos, one by family
+  // (lib/tool-catalog.mjs videoModels): its workflow for a new take and for a suite, also one that lacks its files (the
+  // server offers them), and the longest it makes.
+  const bobineModels = () => info?.video ?? [],
+    bobineModel = (verb, family = 'ltx25') => bobineModels().find(model => model.family === family)?.[verb] ?? null;
   const montage = setupMontage({
     api,
     node,
@@ -826,12 +830,17 @@ export function setupStudio({
     inputOf: record => outputSource(record),
     // (0.6.151) Every take of the Bobine, new or suite, is asked to LTX 2.5 by its name when it is
     // ready here (« Oui, LTX 2.5 », 20/11): it makes the length drawn, from a fraction of a second.
-    modelFor: verb => bobineModel(verb)?.id ?? null,
-    // (0.6.152) The longest it makes at once: a take longer than it is made in equal parts.
-    longestFor: verb => {
-      const seconds = bobineModel(verb)?.lengths?.seconds ?? [];
-      return seconds.length ? Math.max(...seconds) : null;
+    // (0.6.461) None for one this computer cannot run: the Bobine says why, and asks nothing of it.
+    modelFor: (verb, family) => {
+      const tool = bobineModel(verb, family);
+      return tool && !tool.unavailable ? tool.id : null;
     },
+    // (0.6.152) The longest it makes at once: a take longer than it is made in equal parts.
+    longestFor: (verb, family) => bobineModel(verb, family)?.longest ?? null,
+    videoModels: () => bobineModels(),
+    // (0.6.464) Read again once a download made in the Bobine ends, or the settings closed: its list said a model missing
+    // that was there. (The Studio reads them so too, when it comes on screen.)
+    relist: () => load(),
     // (0.6.146) What happens in a plan, written by Moodix AI from its photos: the chat model comes
     // back first when it has left the card, as for « Enrichir le prompt »; the takes of the conversation shown
     // are named in the request, the others by their own conversation.

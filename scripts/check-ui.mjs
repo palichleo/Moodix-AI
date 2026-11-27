@@ -66,14 +66,17 @@ const shipped = await Promise.all(
     .filter(name => name.endsWith('.json'))
     .map(async name => JSON.parse(await readFile(new URL(name, shippedFolder), 'utf8'))),
 );
+const shippedCatalog = new ToolCatalog({
+  list: async () => shipped.map(item => ({ ...validateNativeWorkflow(item), ready: true })),
+  // (0.6.450) What the engine says of a card of 5 Go (runner/pipelines/seedvr2.py, reach): about 7 million pixels
+  // of an image with SeedVR2. The image in 16:9 of the steps below (1344 × 768) has « × 4 » beyond it.
+  capabilities: { seedvr2: { ready: true, mediaType: 'image', reason: '', maxPixels: 7158272 } },
+});
 const shippedStudio = {
   enabled: true,
-  tools: await new ToolCatalog({
-    list: async () => shipped.map(item => ({ ...validateNativeWorkflow(item), ready: true })),
-    // (0.6.450) What the engine says of a card of 5 Go (runner/pipelines/seedvr2.py, reach): about 7 million pixels
-    // of an image with SeedVR2. The image in 16:9 of the steps below (1344 × 768) has « × 4 » beyond it.
-    capabilities: { seedvr2: { ready: true, mediaType: 'image', reason: '', maxPixels: 7158272 } },
-  }).studio(),
+  tools: await shippedCatalog.studio(),
+  // (0.6.461, Bobine Pro, B04) The models a take of the Bobine may be made with, as the server says them.
+  video: await shippedCatalog.videoModels(),
   styles: ['grain-argentique.safetensors', 'portrait-doux.safetensors', 'styles\\lumiere-70s.safetensors'],
   presets: {},
 };
@@ -1389,7 +1392,8 @@ try {
         const box = document.querySelector('#bobine-view .bobine-ask-field'), parts = box ? [...box.children] : [], at = parts.findIndex(part => part.matches('.dictation-mic.in-bobine'));
         if (document.body.dataset.view !== 'bobine' || at < 1 || !parts[at - 1].matches('.bobine-ask-words') || !parts[at + 1]?.matches('.bobine-ask-send')) return false;
         const a = parts[at].getBoundingClientRect(), b = parts[at + 1].getBoundingClientRect();
-        return Math.round(a.width) === 32 && Math.round(a.height) === 32 && ${beside('a', 'b')} && parts[at].getAttribute('aria-disabled') === 'true';
+        // (0.6.460, Bobine Pro, B06) 30 px, as its arrow.
+        return Math.round(a.width) === 30 && Math.round(a.height) === 30 && ${beside('a', 'b')} && parts[at].getAttribute('aria-disabled') === 'true';
       })()`), { within: 2500 });
     // Without its model, a click says why.
     await run('Dictée : sans son modèle, elle dit pourquoi', () => click(bobineMic), () =>
@@ -1686,15 +1690,17 @@ try {
   // in the fil beside the project. Then the Studio again, in its three modes.
   await run('Bobine', () => click('#bobine-open'), () =>
     js(`(() => { const desk = document.querySelector('#bobine-view .bobine-desk'); if (document.body.dataset.view !== 'bobine' || !desk) return false; const blocks = [...desk.querySelectorAll(':scope > .studio-block')], line = desk.querySelector('.montage-timeline')?.getBoundingClientRect(); return blocks.length === 4 && blocks.every(block => { const box = block.getBoundingClientRect(); return box.width > 100 && box.height > 100 && box.bottom <= innerHeight + 1 && box.right <= innerWidth + 1; }) && desk.querySelectorAll('.montage-track').length === 4 && desk.querySelector('.montage-track').dataset.track === 'photos' && [...desk.querySelectorAll('.montage-track')].every(track => track.getBoundingClientRect().bottom <= line.bottom + 1) && Boolean(desk.querySelector('.bobine-create .bobine-go-main')) && document.querySelector('#bobine-fil .montage-export')?.disabled === true && Boolean(document.querySelector('#bobine-thread > #thread:not([hidden])')) && document.getElementById('bobine-open').getAttribute('aria-current') === 'page' && desk.querySelector('.montage-frame').getBoundingClientRect().height > 80 && document.documentElement.scrollHeight <= innerHeight + 1; })()`), { within: 2500 });
-  // (0.6.162) Under the preview, between the time and the format: what is asked to Moodix AI. Its field is
-  // whole in that row, one line high at rest; written in, its arrow lights up. Nothing is asked here.
+  // (0.6.162) What is asked to Moodix AI. (0.6.456, Bobine Pro, B01) Above « Créer », the width of « À créer »:
+  // its field 44 px high, one line at rest, as at 1280 wide (under the preview, it went on two lines there);
+  // written in, its arrow lights up. Nothing is asked here.
   await run('Bobine : demander à Moodix AI', () =>
     js(`(() => { const field = document.querySelector('#bobine-view .bobine-ask-words'); if (!field) return; field.value = 'Invente la suite.'; field.dispatchEvent(new Event('input', { bubbles: true })); })()`), () =>
-    js(`(() => { const row = document.querySelector('#bobine-view .montage-transport'), box = row?.querySelector('.bobine-ask-field'), field = box?.querySelector('.bobine-ask-words'), send = box?.querySelector('.bobine-ask-send'); if (!box || !field || !send) return false; const at = box.getBoundingClientRect(), time = row.querySelector('.montage-clock-total').getBoundingClientRect(), format = row.querySelector('button.montage-format').getBoundingClientRect(); return box.dataset.state === 'typed' && !send.disabled && at.left >= time.right && at.right <= format.left && at.width > 150 && at.height >= 38 && at.height <= 46 && at.bottom <= innerHeight + 1; })()`), { within: 1500 });
+    js(`(() => { const panel = document.querySelector('#bobine-view .bobine-create'), box = panel?.querySelector('.bobine-ask-field'), field = box?.querySelector('.bobine-ask-words'), send = box?.querySelector('.bobine-ask-send'), go = panel?.querySelector('.bobine-go'); if (!box || !field || !send || !go || document.querySelector('#bobine-view .montage-transport .bobine-ask')) return false; const at = box.getBoundingClientRect(), button = go.getBoundingClientRect(), column = panel.getBoundingClientRect(); return box.dataset.state === 'typed' && !send.disabled && at.bottom <= button.top && at.left >= column.left && at.right <= column.right && at.width > 250 && at.height >= 42 && at.height <= 46 && at.bottom <= innerHeight + 1; })()`), { within: 1500 });
   // (0.6.210, LOTS.md, lot 13) A take to create, laid by a click in the void of the takes: its line of « À créer »
-  // shows its pieces (none yet: « + » alone, 26 px high), whose list opens whole in the window, one of our
-  // lists of glass; at 1280 × 720 « À créer » does not scroll and the page neither. Then the list closed and
-  // the take taken back (« Annuler »): the bobine as it was for what follows.
+  // shows its pieces, whose list opens whole in the window, one of our lists of glass; at 1280 × 720 « À créer »
+  // does not scroll and the page neither. Then the list closed and the take taken back (« Annuler »): the bobine
+  // as it was for what follows. (0.6.462, Bobine Pro, B05) Its start and its end empty, in dashes, 40 × 30 without
+  // their words in this low window, then « + » 28 × 30; in its list a subject too (LTX 2.5 takes two).
   await run(
     'Bobine : une prise à créer, ses pièces (1280 × 720)',
     async () => {
@@ -1712,17 +1718,43 @@ try {
       js(`(() => {
         const view = document.getElementById('bobine-view'), lines = view.querySelectorAll('.bobine-line'), list = view.querySelector('.bobine-lines'), add = lines[0]?.querySelector('.bobine-piece-add'), menu = view.querySelector('.bobine-piece-menu');
         if (lines.length !== 1 || !add || !menu?.matches(':popover-open')) return false;
-        const box = menu.getBoundingClientRect(), items = [...menu.querySelectorAll('.glass-menu-item')], field = lines[0].querySelector('textarea').getBoundingClientRect(), go = view.querySelector('.bobine-go').getBoundingClientRect();
+        const box = menu.getBoundingClientRect(), items = [...menu.querySelectorAll('.glass-menu-item')], field = lines[0].querySelector('textarea').getBoundingClientRect(), go = view.querySelector('.bobine-go').getBoundingClientRect(),
+          holes = [...lines[0].querySelectorAll('.bobine-piece.is-empty > .bobine-piece-box')].map(hole => hole.getBoundingClientRect()), plus = add.getBoundingClientRect();
         return list.scrollHeight <= list.clientHeight + 1 && document.documentElement.scrollHeight <= innerHeight + 1 && document.documentElement.scrollWidth <= innerWidth + 1 &&
-          box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight && items.length === 4 && items.filter(item => item.getAttribute('aria-disabled') === 'true').length === 2 &&
-          add.getAttribute('aria-expanded') === 'true' && Math.round(add.getBoundingClientRect().height) === 26 && field.bottom <= go.top && lines[0].querySelector('.bobine-line-middle').getAttribute('aria-label') === 'Nouvelle prise';
+          box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight && items.length === 5 && items.filter(item => item.getAttribute('aria-disabled') === 'true').length === 2 &&
+          holes.length === 2 && holes.every(hole => Math.round(hole.width) === 40 && Math.round(hole.height) === 30) && !lines[0].querySelector('.bobine-piece-word')?.getClientRects().length &&
+          add.getAttribute('aria-expanded') === 'true' && Math.round(plus.height) === 30 && Math.round(plus.width) === 28 && field.bottom <= go.top && lines[0].querySelector('.bobine-line-middle').getAttribute('aria-label') === 'Nouvelle prise';
+      })()`),
+    { within: 2500 },
+  );
+  // (0.6.463) At 1168 × 788, the size of his window: the list closed, the row of the preview whole (« Plein écran » was out
+  // of sight, the format cut: it leaves its size out there), the card of « À créer » whole in its list with the model said
+  // missing in one line (the low windows of the Bobine go to 800 px: at 760, the card with its words did not fit), the
+  // page not scrolling.
+  await run(
+    'Bobine : 1168 × 788',
+    async () => {
+      await click('#bobine-view .bobine-line .bobine-piece-add');
+      await send('Emulation.setDeviceMetricsOverride', { width: 1168, height: 788, deviceScaleFactor: 1, mobile: false });
+      await wait(300);
+      return true;
+    },
+    () =>
+      js(`(() => {
+        const view = document.getElementById('bobine-view'), row = view.querySelector('.montage-transport'), list = view.querySelector('.bobine-lines'), line = view.querySelector('.bobine-line');
+        const face = row?.querySelector('button.montage-format'), full = row?.querySelector('.montage-full');
+        if (!row || !list || !line || !face || !full || view.querySelector('.bobine-piece-menu')) return false;
+        const edge = row.getBoundingClientRect(), at = full.getBoundingClientRect(), shown = face.getBoundingClientRect(), box = line.querySelector('.bobine-piece-box')?.getBoundingClientRect();
+        return at.right <= edge.right - 15 && shown.right <= at.left && row.scrollWidth <= row.clientWidth + 1 && !face.querySelector('.glass-select-more')?.getClientRects().length &&
+          list.scrollHeight <= list.clientHeight + 1 && Math.round(box?.height ?? 0) === 30 && document.documentElement.scrollHeight <= innerHeight + 1 && document.documentElement.scrollWidth <= innerWidth + 1;
       })()`),
     { within: 2500 },
   );
   await run(
     'Bobine : la liste refermée, la prise retirée',
     async () => {
-      await click('#bobine-view .bobine-line .bobine-piece-add');
+      // (0.6.463) Closed already at 1168 × 788 (the step before): « + » pressed only if its list is open.
+      if (await js(`Boolean(document.querySelector('#bobine-view .bobine-piece-menu'))`)) await click('#bobine-view .bobine-line .bobine-piece-add');
       await wait(200);
       const undone = await click('#bobine-fil .bobine-step[aria-label="Annuler (Ctrl+Z)"]');
       await size(1280);
