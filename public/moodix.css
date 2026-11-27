@@ -8005,6 +8005,45 @@ html:not([data-theme='light']) {
 :root[data-lighting='irisee'] :is(.room-veil, .room-glow, .room-halos) {
   display: none;
 }
+/* (0.6.456, Bobine Pro, B01, his mockup of 27/11) The light of the Bobine: the colour of the image under the head of
+   the timeline (montage.mjs, --bobine-light), a halo at 13 % at most behind the screen, very soft, in the place of the
+   light of the last take. The iridescent light never lights there, chosen or not: the colours are judged there. */
+@property --bobine-light {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0, 0, 0, 0);
+}
+.room-reel {
+  position: absolute;
+  inset: 0;
+  display: none;
+  /* Centred on the screen, as wide as it is high in the mockup (B01): it is seen above the screen and in the gaps
+     between the panels, never as far as the edges of the page. */
+  background: radial-gradient(
+    ellipse 48% 50% at 50% 41%,
+    color-mix(in srgb, var(--bobine-light) 13%, transparent) 0%,
+    color-mix(in srgb, var(--bobine-light) 12.2%, transparent) 26%,
+    color-mix(in srgb, var(--bobine-light) 9.6%, transparent) 48%,
+    color-mix(in srgb, var(--bobine-light) 5.6%, transparent) 68%,
+    color-mix(in srgb, var(--bobine-light) 2%, transparent) 86%,
+    transparent 100%
+  );
+  transition: --bobine-light 0.9s ease;
+}
+:root body[data-view='bobine'] .room-reel {
+  display: block;
+}
+:root body[data-view='bobine'] :is(.room-veil, .room-glow, .room-iris) {
+  display: none;
+}
+:root[data-lighting='irisee'][data-light='plusieurs'] body[data-view='bobine'] .room-halos {
+  display: block;
+}
+@media (prefers-reduced-motion: reduce) {
+  .room-reel {
+    transition: none;
+  }
+}
 /* Le vignettage, en S : 0,55 avec plusieurs sources, 0,32 avec une, 0,18 discret. */
 .room-vignette {
   position: absolute;
@@ -16866,14 +16905,15 @@ body[data-view='bobine'] .chat-panel {
   display: flex;
 }
 #bobine-view .bobine-desk {
-  --line-h: 262px;
+  /* (0.6.456, Bobine Pro, B01) 316 px on each side, 12 px between the panels, the timeline 260 px high. */
+  --line-h: 260px;
   flex: 1 1 auto;
   width: 100%;
   min-height: 0;
   display: grid;
-  gap: 14px;
+  gap: 12px;
   align-content: stretch;
-  grid-template-columns: 300px minmax(0, 1fr) 300px;
+  grid-template-columns: 316px minmax(0, 1fr) 316px;
   grid-template-rows: minmax(0, 1fr) var(--line-h);
   grid-template-areas: 'takes prev create' 'line line line';
 }
@@ -16898,15 +16938,48 @@ body[data-view='bobine'] .chat-panel {
 #bobine-view .bobine-desk > .montage-timeline {
   grid-area: line;
 }
+/* (0.6.456, Bobine Pro, B01) The four panels alike: a glass with corners of 12, an edge at 7 %, blurred behind, a
+   soft shadow under it. */
 #bobine-view .studio-block {
   min-height: 0;
-  border: 1px solid rgba(238, 232, 222, 0.08);
+  border: 1px solid rgba(238, 232, 222, 0.07);
   border-radius: 12px;
-  background: rgba(var(--room-glass), 0.46);
-  box-shadow: none;
+  background: rgba(18, 17, 22, 0.66);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
 }
 #bobine-view .studio-block.montage-takes {
-  --block-pad: 14px 16px 12px;
+  --block-pad: 0 12px;
+}
+/* (0.6.456, Bobine Pro, B01) The same head for « Prises » and « À créer »: 46 px, its name in small capitals, its
+   count in mono beside it, its tools at the right. */
+#bobine-view .bobine-panel-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 46px;
+  padding: 0 4px;
+}
+#bobine-view .bobine-panel-name {
+  margin: 0;
+  font: 500 10.5px/1 var(--font-ui);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+#bobine-view .bobine-panel-count {
+  font: 400 11px/1 var(--font-mono);
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-4);
+}
+#bobine-view .bobine-panel-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
 }
 #bobine-view .montage-takes > .studio-block-body {
   gap: 10px;
@@ -16940,11 +17013,9 @@ body[data-view='bobine'] .chat-panel {
 #bobine-view .montage-none {
   font: 400 12px/1.4 var(--font-ui);
 }
-/* L'aperçu, sans bloc autour : le cadre au format de la bobine, puis la lecture et le format. */
+/* L'aperçu : le cadre au format de la bobine, puis la lecture et le format. (0.6.456) Un panneau comme les autres. */
 #bobine-view .studio-block.montage-screen {
-  border: 0;
-  background: none;
-  --block-pad: 0;
+  --block-pad: 14px;
 }
 #bobine-view .montage-screen > .studio-block-body {
   gap: 12px;
@@ -17043,18 +17114,12 @@ body[data-view='bobine'] .chat-panel {
   text-transform: uppercase;
   color: var(--ink);
 }
-/* « À créer », toujours là (capture 70). */
+/* « À créer », toujours là (capture 70). (0.6.456, Bobine Pro, B01) Sa tête est celle de « Prises » : plus de titre en Gloock. */
 #bobine-view .studio-block.bobine-create {
-  --block-pad: 18px 18px 16px;
+  --block-pad: 0 12px 12px;
 }
 #bobine-view .bobine-create > .studio-block-body {
   gap: 0;
-}
-.bobine-create-title {
-  flex: none;
-  margin: 0 0 8px;
-  font: 400 26px/1.1 var(--font-display);
-  color: var(--ink);
 }
 .bobine-lines {
   flex: 1 1 auto;
@@ -18291,55 +18356,36 @@ body[data-view='bobine'] .chat-panel {
   bottom: 82px;
   max-width: calc(100% - 28px);
 }
-/* Demander à Moodix AI (0.6.162, maquette A1 à A10 de claude_design/arrangeur, son choix du 20/11) : sous
-   l'aperçu, entre le temps et le format, là où il n'y avait rien. Le champ grandit vers le haut, sur le
-   bas de l'aperçu ; ce qui vient d'être posé se dit juste au-dessus, sur une plaque de verre. */
+/* Demander à Moodix AI (0.6.162, maquette A1 à A10 de claude_design/arrangeur, son choix du 20/11) : ce
+   qui vient d'être posé se dit juste au-dessus du champ, sur une plaque de verre. (0.6.456, Bobine Pro,
+   B01) Au-dessus de « Créer », de la largeur de « À créer », à 10 px du bouton : sous l'aperçu, il n'avait
+   plus la place (576 px pour tout le transport à 1280 × 720). Le champ fait 44 px ; il grandit vers le
+   haut, sur la liste, qui se resserre. */
 .bobine-ask {
-  position: relative;
-  flex: 100 1 0;
-  align-self: stretch;
+  flex: none;
   min-width: 0;
-  height: 40px;
-  margin: 0 6px 0 10px;
+  margin: 0 0 10px;
 }
 .bobine-ask-stack {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 3;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 8px;
-  /* (Vu dans la vraie page : la rangée du temps ne coupe pas ses mots ; ce qui est dit ici, si.) */
   white-space: normal;
 }
 .bobine-ask-field {
-  align-self: stretch;
   display: flex;
   align-items: flex-end;
-  gap: 8px;
-  min-height: 40px;
-  padding: 3px 4px 3px 12px;
-  border: 1px solid rgba(238, 232, 222, 0.16);
-  border-radius: 12px;
-  background: rgba(20, 19, 24, 0.9);
-  backdrop-filter: blur(14px);
+  gap: 6px;
+  min-height: 44px;
+  padding: 5px 5px 5px 12px;
+  border: 1px solid rgba(238, 232, 222, 0.1);
+  border-radius: 10px;
+  background: rgba(12, 11, 15, 0.62);
 }
 .bobine-ask-field[data-state='typed'],
 .bobine-ask-field:focus-within {
-  border-color: rgba(238, 232, 222, 0.42);
-}
-.bobine-ask-mark {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  margin-bottom: 9px;
-  color: var(--muted);
-}
-.bobine-ask-field[data-state='typed'] .bobine-ask-mark {
-  color: var(--ink);
+  border-color: rgba(238, 232, 222, 0.32);
 }
 #bobine-view .bobine-desk textarea.bobine-ask-words {
   flex: 1 1 auto;
@@ -18438,14 +18484,12 @@ body[data-view='bobine'] .chat-panel {
   font: 400 12.5px/1.4 var(--font-ui);
   color: var(--muted);
 }
-/* Ce qui vient d'être posé : une ligne (les faits, comptés par l'application), dépliée sur demande. Plus
-   large que le champ s'il le faut (à 1280 de large il est étroit), centrée au-dessus de lui. */
+/* Ce qui vient d'être posé : une ligne (les faits, comptés par l'application), dépliée sur demande, de la
+   largeur du champ (0.6.456 : la colonne de « À créer » lui suffit). */
 .bobine-ask-answer {
   flex: none;
   box-sizing: border-box;
-  width: max-content;
-  min-width: 100%;
-  max-width: min(520px, 86vw);
+  min-width: 0;
 }
 .bobine-ask-done,
 .bobine-ask-said {
@@ -18466,8 +18510,9 @@ body[data-view='bobine'] .chat-panel {
   display: flex;
   flex-direction: column;
   gap: 9px;
-  width: 388px;
-  max-width: 86vw;
+  /* (Déplié, ce qu'il a dit défile dans sa plaque plutôt que de pousser la liste hors de la colonne.) */
+  max-height: 260px;
+  overflow-y: auto;
 }
 .bobine-ask-said > .bobine-ask-done {
   padding: 0;
@@ -18534,16 +18579,9 @@ body[data-view='bobine'] .chat-panel {
   letter-spacing: 0.04em;
   color: var(--warning);
 }
-/* (Maquette A8 : la ligne passait sur le texte que l'aperçu montre d'une prise à créer : il remonte.) */
-#bobine-view .montage-frame[data-asked='true'] > .montage-frame-words {
-  bottom: 46px;
-}
-/* (0.6.163, vu avec son ChatGPT le 21/11 : dépliée, la plaque de Moodix AI passait en travers de ce texte,
-   qu'on lisait des deux côtés. Tant qu'elle est dépliée, l'aperçu ne le montre pas.) */
-#bobine-view .montage-frame[data-asked='open'] > .montage-frame-words {
-  display: none;
-}
-/* (Dans sa boîte, à côté de l'Éclipse et de la flèche : pas toute la largeur comme les champs du bureau.) */
+/* (0.6.163, maquette A8) Le texte d'une prise à créer remontait sur l'aperçu, ou ne s'y montrait plus, pendant
+   que Moodix AI parlait dessous (data-asked). (0.6.456) Ce qu'il dit est au-dessus de « Créer » : jamais sur l'aperçu. */
+/* (Dans sa boîte, à côté de la dictée et de la flèche : pas toute la largeur comme les champs du bureau.) */
 #bobine-view .bobine-desk textarea.bobine-ask-words {
   width: auto;
   transition: none;

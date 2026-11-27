@@ -100,10 +100,17 @@ const INTENTION = 'Prise d’une bobine, demandée dans la Bobine.',
 // `at`-th), and from which second of its file it is shown (a suite holds the video it goes on from).
 const placeOf = (f, at, from = 0) => ({ id: f.ui.state().montage.id, plan: f.ui.state().montage.plans[at].id, from });
 
-function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed = null, create = null, estimate = null, write = null, thumbnail = () => {}, width = 1000, modelFor = null, longestFor = null, enrich = null, downloads = null, arrange = null, dragImage = null, win = null, canvas = false, base = true } = {}) {
+function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed = null, create = null, estimate = null, write = null, thumbnail = () => {}, width = 1000, modelFor = null, longestFor = null, enrich = null, downloads = null, arrange = null, dragImage = null, win = null, canvas = false, base = true, light = null, paint = null } = {}) {
   WIDTH = width;
   const calls = [],
     queue = [],
+    // (0.6.456) Every element the page made, in or out of the page (the small picture the light is read from).
+    created = [],
+    // (0.6.456) `paint`: a canvas whose every pixel is that colour [r, g, b], as the light of the room reads it.
+    painted = () => ({
+      drawImage() {},
+      getImageData: (x, y, width, height) => ({ data: Uint8ClampedArray.from({ length: width * height * 4 }, (_, at) => (at % 4 === 3 ? 255 : paint[at % 4])) }),
+    }),
     kept = new Map(stored.map(montage => [montage.id, montage])),
     // (0.6.210) `base: false`: a project with the takes of `extra` alone (none of its own images).
     runs = [
@@ -176,10 +183,15 @@ function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed =
     ...(enrich ? { enrich } : {}),
     ...(arrange ? { arrange } : {}),
     ...(dragImage ? { dragImage } : {}),
+    ...(light ? { light } : {}),
     halt: () => void halted++,
     api,
     // (`canvas`: a canvas that draws, for the Flux.)
-    node: (tag, className, text) => Object.assign(new Fake(tag, className, text), canvas && tag === 'canvas' ? { getContext: () => null } : {}),
+    node: (tag, className, text) => {
+      const made = Object.assign(new Fake(tag, className, text), tag === 'canvas' && paint ? { getContext: painted } : canvas && tag === 'canvas' ? { getContext: () => null } : {});
+      created.push(made);
+      return made;
+    },
     icon: name => new Fake('svg', 'icon-' + name),
     notice: text => notices.push(text),
     project: () => project,
@@ -198,6 +210,7 @@ function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed =
     runs,
     notices,
     kept,
+    made: () => created,
     saves: () => calls.filter(call => call.route === 'montages/save'),
     // (0.6.160) Another project chosen on the page.
     move: name => void (project = name),
@@ -2746,9 +2759,14 @@ const SUITE = { say: 'Deux prises : il se lève, puis la mer.', fill: [], add: [
 
 test('under the preview, a request is asked to Moodix AI; its plan is laid in takes to create, one step of « Annuler » (0.6.162)', async () => {
   const { f, asked, box, field, send, state, type, enter, link, answer } = await asking();
-  // At rest: its words of invitation, nothing to send; between the time and the format.
-  const transport = f.get('montage-transport')[0];
-  assert.deepEqual(transport.children.map(child => child.className.split(' ')[0]), ['montage-play', 'montage-clock', 'montage-clock-total', 'bobine-ask', 'montage-format']);
+  // At rest: its words of invitation, nothing to send. (0.6.456, Bobine Pro, B01) Above « Créer » and what is said of
+  // it, no longer between the time and the format.
+  const transport = f.get('montage-transport')[0],
+    column = find(f.get('bobine-create')[0], 'studio-block-body')[0];
+  assert.deepEqual(transport.children.map(child => child.className.split(' ')[0]), ['montage-play', 'montage-clock', 'montage-clock-total', 'bobine-fil-gap', 'montage-format']);
+  assert.deepEqual(column.children.map(child => child.className.split(' ')[0]), ['bobine-panel-head', 'bobine-lines', 'bobine-ask', 'bobine-waits', 'bobine-stage', 'bobine-foot']);
+  // (No Éclipse at the left of its field any more: the field, the dictation, the arrow.)
+  assert.deepEqual(find(box(), 'bobine-ask-field')[0].children.map(child => child.className.split(' ')[0]), ['bobine-ask-words', 'bobine-ask-send']);
   assert.deepEqual([field().placeholder, field().value, send().disabled, state(), box().attributes['aria-label']], ['Demandez un film, une suite…', '', true, 'rest', 'Moodix AI']);
   // Written: the arrow lights up; spaces alone are no request. Maj+Entrée is a line, not a request.
   type('   ');
@@ -2782,11 +2800,13 @@ test('under the preview, a request is asked to Moodix AI; its plan is laid in ta
   );
   // Said in one line, the facts counted here; the field is empty for the next request; kept at once.
   assert.deepEqual([find(box(), 'bobine-ask-facts')[0].textContent, find(box(), 'bobine-ask-done').length, find(box(), 'bobine-ask-said').length], ['2 prises ajoutées', 1, 0]);
-  assert.deepEqual([field().value, state(), send().disabled, f.go(), f.saves().length > saves, f.get('montage-frame')[0].dataset.asked], ['', 'rest', true, 'Créer 2 prises', true, 'true']);
+  assert.deepEqual([field().value, state(), send().disabled, f.go(), f.saves().length > saves, f.get('montage-frame')[0].dataset.asked], ['', 'rest', true, 'Créer 2 prises', true, undefined]);
+  // (0.6.456) Drawn again since, « À créer » keeps the same box: its field is the one that was written in.
+  assert.equal(find(f.get('bobine-create')[0], 'bobine-ask')[0], box());
   assert.deepEqual(f.saves().at(-1).body.montage.plans.length, 3);
   // « Annuler » takes all of it out at once; « Rétablir » puts it back, and nothing is said of it any more.
   link('Annuler').onclick();
-  assert.deepEqual([f.ui.state().montage.plans.length, f.ui.state().laid, find(box(), 'bobine-ask-done').length, f.get('montage-frame')[0].dataset.asked], [1, null, 0, 'false']);
+  assert.deepEqual([f.ui.state().montage.plans.length, f.ui.state().laid, find(box(), 'bobine-ask-done').length], [1, null, 0]);
   f.ui.redo();
   assert.deepEqual([f.ui.state().montage.plans.length, find(box(), 'bobine-ask-done').length], [3, 0]);
   f.pageKey('z', { ctrlKey: true });
@@ -2823,11 +2843,11 @@ test('the detail of what was laid: what Moodix AI said, and each adjustment with
   );
   // Folded: « 3 ajustements », in place of « Détail ».
   assert.deepEqual([find(box(), 'bobine-ask-facts')[0].textContent, link('Détail'), link('3 ajustements').attributes['aria-expanded'], find(box(), 'bobine-ask-said').length], ['2 prises ajoutées', undefined, 'false', 0]);
-  assert.equal(f.get('montage-frame')[0].dataset.asked, 'true');
   link('3 ajustements').onclick();
   assert.deepEqual([link('3 ajustements').attributes['aria-expanded'], find(box(), 'bobine-ask-say')[0].textContent], ['true', 'Deux prises.']);
-  // (0.6.163) Unfolded, its plate would lie across the text the preview shows of a take: that text is not shown meanwhile.
-  assert.equal(f.get('montage-frame')[0].dataset.asked, 'open');
+  // (0.6.163) Unfolded, its plate lay across the text the preview shows of a take, which was not shown meanwhile.
+  // (0.6.456) Above « Créer », it lies over nothing: the preview keeps that text.
+  assert.equal(f.get('montage-frame')[0].dataset.asked, undefined);
   assert.deepEqual(
     find(box(), 'bobine-ask-notes')[0].children.map(item => item.children.map(part => part.textContent)),
     [
@@ -2839,7 +2859,7 @@ test('the detail of what was laid: what Moodix AI said, and each adjustment with
   // « Annuler » is still there, unfolded; folded again by the same link.
   assert.ok(link('Annuler'));
   link('3 ajustements').onclick();
-  assert.deepEqual([find(box(), 'bobine-ask-said').length, f.get('montage-frame')[0].dataset.asked], [0, 'true']);
+  assert.equal(find(box(), 'bobine-ask-said').length, 0);
   // Without adjustment: « Détail » shows what it said.
   link('Annuler').onclick();
   f.ask = null;
@@ -2863,8 +2883,6 @@ test('nothing laid: what Moodix AI said, a cross, and the request still in its f
   await answer({ say: 'Je ne trouve pas la prise 42 dans ce projet.', fill: [], add: [] });
   assert.deepEqual([f.ui.state().montage === before, f.saves().length, f.ui.state().past], [true, saves, 1], 'the bobine is the same, nothing kept, no step to undo');
   assert.deepEqual([find(box(), 'bobine-ask-facts')[0].textContent, find(box(), 'bobine-ask-say')[0].textContent, link('Annuler'), field().value, state()], ['Moodix AI', 'Je ne trouve pas la prise 42 dans ce projet.', undefined, 'Termine sur la prise 42.', 'typed']);
-  // (0.6.163) What it said is a plate too: the text of the preview is not shown under it.
-  assert.equal(f.get('montage-frame')[0].dataset.asked, 'open');
   // The cross closes it.
   links().find(control => control.attributes['aria-label'] === 'Fermer').onclick();
   assert.deepEqual([f.ui.state().laid, find(box(), 'bobine-ask-said').length], [null, 0]);
@@ -2917,7 +2935,7 @@ test('nothing is asked while the bobine is at work, nor without Moodix AI at han
   assert.deepEqual([bare.get('bobine-ask').length, bare.get('montage-transport')[0].children.map(child => child.className.split(' ')[0])], [0, ['montage-play', 'montage-clock', 'montage-clock-total', 'bobine-fil-gap', 'montage-format']]);
 });
 
-test('the styles of the request: it grows upwards from its row, what is laid is said above it, the text of the preview goes up (0.6.162)', async () => {
+test('the styles of the request: above « Créer », what is laid is said above it, nothing over the preview (0.6.162, 0.6.456)', async () => {
   const { readFile } = await import('node:fs/promises');
   const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
   const rule = selector => {
@@ -2925,17 +2943,23 @@ test('the styles of the request: it grows upwards from its row, what is laid is 
     assert.notEqual(at, -1, selector);
     return css.slice(at, css.indexOf('}', at));
   };
-  assert.match(rule('.bobine-ask'), /position: relative;[\s\S]*flex: 100 1 0;[\s\S]*height: 40px;/);
-  assert.match(rule('.bobine-ask-stack'), /position: absolute;[\s\S]*bottom: 0;[\s\S]*flex-direction: column;/);
-  // (Seen in the real page: the row of the time does not break its words, and what is said above the field
-  // went out of its plate; at 1280 wide, the invitation of the field took two lines.)
+  // (0.6.456, Bobine Pro, B01) In the flow of « À créer », 10 px above the button; its field 44 px high, growing
+  // upwards over the list, which narrows.
+  assert.match(rule('.bobine-ask'), /flex: none;[\s\S]*margin: 0 0 10px;/);
+  assert.doesNotMatch(rule('.bobine-ask'), /position|height: 40px/);
+  assert.match(rule('.bobine-ask-stack'), /display: flex;\n  flex-direction: column;\n  align-items: stretch;\n  gap: 8px;/);
+  assert.doesNotMatch(rule('.bobine-ask-stack'), /position: absolute/);
+  assert.match(rule('.bobine-ask-field'), /min-height: 44px;\n  padding: 5px 5px 5px 12px;/);
+  // (Seen in the real page: what is said above the field went out of its plate; at 1280 wide, the invitation of the
+  // field took two lines.)
   assert.match(rule('.bobine-ask-stack'), /white-space: normal;/);
   assert.match(rule('#bobine-view .bobine-desk textarea.bobine-ask-words::placeholder'), /white-space: nowrap;\n  text-overflow: ellipsis;/);
   assert.match(css, /#bobine-view \.bobine-desk textarea\.bobine-ask-words \{\n  flex: 1 1 auto;\n  field-sizing: content;[\s\S]*?max-height: calc\(5lh \+ 14px\);/);
-  assert.match(rule('.bobine-ask-answer'), /width: max-content;\n  min-width: 100%;/);
+  assert.doesNotMatch(rule('.bobine-ask-answer'), /max-content/);
+  assert.match(rule('.bobine-ask-said'), /max-height: 260px;\n  overflow-y: auto;/);
   assert.match(css, /\n\[hidden\] \{\n  display: none !important;\n\}/);
-  assert.match(rule("#bobine-view .montage-frame[data-asked='true'] > .montage-frame-words"), /bottom: 46px;/);
-  assert.match(rule("#bobine-view .montage-frame[data-asked='open'] > .montage-frame-words"), /display: none;/);
+  // (The text of a take to create no longer goes up, nor hides, under what is said: nothing is said over the preview.)
+  assert.doesNotMatch(css, /\[data-asked=|\.bobine-ask-mark/);
 });
 
 test('asked from its field, the keys are the field’s again once Moodix AI has answered (0.6.162)', async () => {
@@ -4611,4 +4635,77 @@ test('without the audio of the page, or refused, a player of the preview stops a
   await g.later({ ms: 50 });
   const [hearing] = Hearing.made;
   assert.deepEqual([g.ui.state().playing, refused.volume, hearing.asked, hearing.tied.length], [true, 1, 1, 0]);
+});
+
+// ------------------------------------------------------------------ La Bobine, plus belle et plus pro (0.6.456)
+// (His mockup « BobinePro » of 27/11, captures B00 to B07; claude_design/maquette-bobine/PROMPT.md.)
+/** moodix.css as one text, and the last rule of a selector (the one that wins), from its brace to its end. */
+async function proCss() {
+  const { readFile } = await import('node:fs/promises');
+  const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  const rule = selector => {
+    const at = css.lastIndexOf('\n' + selector + ' {');
+    assert.notEqual(at, -1, selector);
+    return css.slice(at, css.indexOf('\n}', at));
+  };
+  return { css, rule };
+}
+
+test('(0.6.456, Bobine Pro, B01) « Prises » and « À créer » have the same head: their name, their count beside it; no title in Gloock', async () => {
+  const f = await setup().open();
+  const heads = f.get('bobine-panel-head');
+  assert.deepEqual(
+    heads.map(head => [find(head, 'bobine-panel-name')[0].textContent, find(head, 'bobine-panel-count')[0].textContent]),
+    [
+      ['Prises', '4'],
+      ['À créer', '0'],
+    ],
+  );
+  assert.equal(under(f.root).some(item => item.tagName === 'H2'), false);
+  // A bobine with a suite to create: counted in its head.
+  const g = await setup({ stored: [suiteOf(6)], extra: [made(7, 120)] }).open();
+  await settle();
+  await settle();
+  assert.deepEqual(g.said('bobine-panel-count'), ['5', '1']);
+});
+
+test('(0.6.456, Bobine Pro, B01) the room is lit by the colour of the image under the head, read once from its small picture; nothing under it, no light', async () => {
+  const lights = [];
+  const f = await setup({ light: colour => lights.push(colour), paint: [200, 100, 50] }).open();
+  assert.deepEqual(lights, ['transparent']);
+  f.get('montage-take')[0].ondblclick();
+  await f.later();
+  const read = () => f.made().filter(item => item.tagName === 'IMG' && item.src === '/thumb/1' && typeof item.onload === 'function');
+  assert.deepEqual([read().length, lights.length], [1, 1]);
+  read()[0].onload();
+  // (200, 100, 50) saturated a little, then as bright as a light: its strongest channel at 228.
+  assert.equal(lights.at(-1), 'rgb(228 93 26)');
+  // Undone, the bobine is empty: the room is not lit; done again, the colour is known, nothing is read again.
+  f.ui.undo();
+  await f.later();
+  assert.equal(lights.at(-1), 'transparent');
+  f.ui.redo();
+  await f.later();
+  assert.deepEqual([lights.at(-1), read().length], ['rgb(228 93 26)', 1]);
+});
+
+test('(0.6.456, Bobine Pro, B01) the styles of the page: 316 px on each side, the panels alike, heads of 46 px, a light at 13 % at most, never the iridescent one', async () => {
+  const { css, rule } = await proCss();
+  assert.match(rule('#bobine-view .bobine-desk'), /--line-h: 260px;[\s\S]*gap: 12px;[\s\S]*grid-template-columns: 316px minmax\(0, 1fr\) 316px;/);
+  assert.match(
+    rule('#bobine-view .studio-block'),
+    /border: 1px solid rgba\(238, 232, 222, 0\.07\);[\s\S]*border-radius: 12px;[\s\S]*background: rgba\(18, 17, 22, 0\.66\);[\s\S]*backdrop-filter: blur\(18px\);[\s\S]*box-shadow: 0 18px 44px rgba\(0, 0, 0, 0\.28\);/,
+  );
+  assert.match(rule('#bobine-view .bobine-panel-head'), /height: 46px;/);
+  assert.match(rule('#bobine-view .bobine-panel-name'), /font: 500 10\.5px\/1 var\(--font-ui\);[\s\S]*letter-spacing: 0\.2em;[\s\S]*text-transform: uppercase;[\s\S]*color: var\(--text-2\);/);
+  assert.match(rule('#bobine-view .bobine-panel-count'), /var\(--font-mono\)[\s\S]*color: var\(--text-4\);/);
+  // The light of the image: 13 % at its heart, never more; in the place of the light of the last take, and of the
+  // iridescent light, which stays out of the Bobine even chosen.
+  const stops = [...rule('.room-reel').matchAll(/var\(--bobine-light\) ([\d.]+)%/g)].map(match => Number(match[1]));
+  assert.deepEqual([stops[0], Math.max(...stops)], [13, 13]);
+  assert.match(css, /\n:root body\[data-view='bobine'\] \.room-reel \{\n {2}display: block;\n\}/);
+  assert.match(css, /\n:root body\[data-view='bobine'\] :is\(\.room-veil, \.room-glow, \.room-iris\) \{\n {2}display: none;\n\}/);
+  const { readFile } = await import('node:fs/promises');
+  const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
+  assert.ok(html.indexOf('class="room-halos"') < html.indexOf('class="room-reel"') && html.indexOf('class="room-reel"') < html.indexOf('class="room-iris"'));
 });

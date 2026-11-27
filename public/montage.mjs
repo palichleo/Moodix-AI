@@ -226,6 +226,9 @@ export function setupMontage({
   arrange = null,
   // (0.6.452) The dictation (public/dictation.mjs): its microphone in that field, at the left of its arrow (D10).
   dictation = null,
+  // (0.6.456, Bobine Pro, B01) The light of the room in the Bobine: the colour of the image under the head, a CSS
+  // colour or 'transparent' (moodix.css, .room-reel draws it behind the screen).
+  light = color => page?.document?.documentElement?.style?.setProperty?.('--bobine-light', color),
 }) {
   let root = null,
     filRoot = null,
@@ -466,6 +469,67 @@ export function setupMontage({
     section.append(body);
     return { section, body };
   };
+  /**
+   * (0.6.456, Bobine Pro, B01) The head of « Prises » and of « À créer », the same: its name in small capitals, its
+   * count in mono beside it, its tools at the right (moodix.css, 46 px high). « À créer » had a title in Gloock.
+   */
+  const headOf = (name, count, { named, counted, tools = [] }) => {
+    const row = node('div', 'bobine-panel-head');
+    row.append(node('span', 'bobine-panel-name ' + named, name), node('span', 'bobine-panel-count ' + counted, String(count)));
+    if (tools.length) {
+      const box = node('span', 'bobine-panel-tools');
+      box.append(...tools);
+      row.append(box);
+    }
+    return row;
+  };
+  /**
+   * (0.6.456, Bobine Pro, B01) The light of the room in the Bobine: the colour of the image under the head of the
+   * timeline, read once from its small picture (16 × 16, the lit parts counting more), saturated a little and made
+   * as bright as a light is; moodix.css lays it at 13 % at most. Nothing under the head: no light.
+   */
+  const tints = new Map();
+  let tinted;
+  function colourOf(image) {
+    const side = 16,
+      canvas = node('canvas');
+    canvas.width = canvas.height = side;
+    const context = canvas.getContext?.('2d', { willReadFrequently: true });
+    if (!context) return null;
+    try {
+      context.drawImage(image, 0, 0, side, side);
+      const { data } = context.getImageData(0, 0, side, side),
+        sum = [0, 0, 0];
+      let weights = 0;
+      for (let at = 0; at < data.length; at += 4) {
+        const weight = 0.2 + (0.2126 * data[at] + 0.7152 * data[at + 1] + 0.0722 * data[at + 2]) / 255;
+        for (let channel = 0; channel < 3; channel++) sum[channel] += data[at + channel] * weight;
+        weights += weight;
+      }
+      const mean = sum.map(value => value / weights),
+        luma = 0.2126 * mean[0] + 0.7152 * mean[1] + 0.0722 * mean[2],
+        tint = mean.map(value => Math.max(0, luma + (value - luma) * 1.35)),
+        top = Math.max(1, ...tint);
+      return `rgb(${tint.map(value => Math.round(Math.min(255, (value * 228) / top))).join(' ')})`;
+    } catch {
+      return null;
+    }
+  }
+  function lightFrom(url) {
+    if (url === tinted) return;
+    tinted = url;
+    if (!url) return void light('transparent');
+    if (tints.has(url)) return void light(tints.get(url) ?? 'transparent');
+    tints.set(url, null);
+    const image = node('img');
+    image.decoding = 'async';
+    image.onload = () => {
+      const colour = colourOf(image);
+      tints.set(url, colour);
+      if (tinted === url) light(colour ?? 'transparent');
+    };
+    image.src = url;
+  }
 
   // What is kept ---------------------------------------------------------------------------------
   async function read() {
@@ -965,6 +1029,8 @@ export function setupMontage({
     put(frame.dataset, 'todo', String(todo));
     put(frame.dataset, 'busy', String(busy));
     put(frame.dataset, 'hole', String(hole));
+    // (0.6.456) The room lit by what is under the head, read from its small picture; kept while a take is made.
+    if (!busy) lightFrom((seen?.source && pictureOf(recordOf(seen.source))) || null);
     blank.hidden = Boolean(url) || hole;
     // (0.6.200) « En cours » without its figure: the button of « Créer » says how far it is.
     const said = !at
@@ -1290,11 +1356,10 @@ export function setupMontage({
     const { section, body } = block('is-settings', 'montage-takes'),
       all = runs() ?? [],
       shown = all.filter(record => filter === 'all' || (record.mediaType || 'image') === filter),
-      headRow = node('div', 'montage-head'),
+      headRow = headOf('Prises', all.length, { named: 'montage-label', counted: 'montage-count' }),
       filters = node('div', 'montage-filters'),
       grid = node('div', 'montage-grid');
     section.setAttribute('aria-label', 'Prises du projet');
-    headRow.append(node('span', 'montage-label', 'Prises'), node('span', 'montage-count', String(all.length)));
     for (const [id, label] of FILTERS) {
       const pill = button('montage-filter', label, () => {
         filter = id;
@@ -1447,16 +1512,16 @@ export function setupMontage({
     }
     format.disabled = busy();
     format.onchange = () => change({ ...montage, format: format.value, ...usualSize(format.value) });
-    // (0.6.162) Between the time and the format, where nothing was: what is asked to Moodix AI.
-    transport.append(playButton, time, whole, arrange ? askBox() : node('span', 'bobine-fil-gap'), format);
+    // (0.6.162) What is asked to Moodix AI was between the time and the format. (0.6.456, Bobine Pro, B01) It is above
+    // « Créer » now (createPanel): with panels of 316 px, the preview is 576 px wide at 1280 × 720, and its field went
+    // on two lines there.
+    transport.append(playButton, time, whole, node('span', 'bobine-fil-gap'), format);
     stage.append(frame);
     body.append(stage, transport);
     stop();
     media?.flux?.stop();
     for (const player of [...(media?.players ?? []), ...(media?.sounds.values() ?? [])]) untie(player);
     media = { video, spare, players: [video, spare], warm, picture, blank, caption, words, text, end, frame, sounds: new Map(), flux: null, fluxFrom: null, measured: false };
-    // (0.6.162) Drawn again while a line of Moodix AI is said under it: its text stays above that line.
-    frame.dataset.asked = askedState();
     Object.assign(live, { clock: time, whole, play: playButton });
     return section;
   }
@@ -1936,9 +2001,15 @@ export function setupMontage({
     // (0.6.182) The step and the time of the take being made, above the button too (sayStep).
     live.step = node('p', 'bobine-stage', '');
     sayStep();
+    // (0.6.456, Bobine Pro, B01) What is asked to Moodix AI, above « Créer » and what is said of it: the same box while
+    // the panel is drawn again (its words, its place in them), made again when the page is.
+    const asking = arrange ? (live.ask?.host ?? askBox()) : null;
+    if (asking) sayAsk();
     body.append(
-      node('h2', 'bobine-create-title', 'À créer'),
+      // (0.6.456, Bobine Pro, B01) The head of « Prises », its count the takes to create.
+      headOf('À créer', series.length, { named: 'bobine-create-title', counted: 'bobine-create-count' }),
       lines,
+      ...(asking ? [asking] : []),
       ...(said ? [node('p', 'bobine-missing', said)] : []),
       live.waiting,
       live.step,
@@ -2540,13 +2611,8 @@ export function setupMontage({
     sayAsk();
     return host;
   }
-  /**
-   * (0.6.163) What the preview does of the text it shows of a take to create while Moodix AI says
-   * something under it: 'true', its line: the text goes up above it; 'open', its plate unfolded, or what
-   * it said with nothing laid: the text is not shown (seen with his own ChatGPT on 21/11: the plate lay
-   * across it, the text read on both sides); 'false' otherwise.
-   */
-  const askedState = () => (!laid ? 'false' : laid.open || !(laid.count || laid.filled) ? 'open' : 'true');
+  // (0.6.163) The text of a take to create went up over the preview, or was not shown, while Moodix AI said something
+  // under it (data-asked). (0.6.456) What it says is above « Créer » now: it never lies over the preview.
   function sayAsk() {
     const shown = live.ask;
     if (!shown) return;
@@ -2560,15 +2626,12 @@ export function setupMontage({
     tuneAsk();
     shown.slot.replaceChildren(...answerOf());
     shown.slot.hidden = !laid;
-    // (Maquette A8: the line passed over the text the preview shows of a take to create: that text goes up.)
-    if (media?.frame) media.frame.dataset.asked = askedState();
   }
   function fieldBox() {
+    // (0.6.456, Bobine Pro, B01) The field, the dictation and the arrow: no Éclipse at its left any more.
     const box = node('div', 'bobine-ask-field'),
-      mark = icon('eclipse'),
       field = node('textarea', 'bobine-ask-words'),
       send = button('bobine-ask-send', '', () => void ask(), 'arrow', 'Demander à Moodix AI');
-    mark.setAttribute('class', 'bobine-ask-mark');
     Object.assign(field, { value: wish, rows: 1, maxLength: 2000, placeholder: 'Demandez un film, une suite…' });
     field.setAttribute('aria-label', 'Demander à Moodix AI : un film, une suite');
     field.oninput = () => {
@@ -2584,7 +2647,7 @@ export function setupMontage({
     // (0.6.452, D10) The microphone of the dictation, at the left of the arrow; greyed while the Bobine is at work
     // (its field is closed then).
     const mic = dictation?.mic('bobine', { held: () => (busy() ? 'La Bobine travaille : sa demande attend la fin.' : '') });
-    box.append(mark, field, ...(mic ? [mic] : []), send);
+    box.append(field, ...(mic ? [mic] : []), send);
     Object.assign(live.ask, { field, send });
     return box;
   }
