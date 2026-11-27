@@ -40,6 +40,7 @@ import {
   linkOf,
   mono,
   montageSeconds,
+  orList,
   partsOf,
   placed,
   planAt,
@@ -50,6 +51,8 @@ import {
   snapped,
   takeFound,
   takeSeconds,
+  takesPhoto,
+  takesWords,
   todoPlans,
   trackOf,
   usualSize,
@@ -67,6 +70,11 @@ import {
   withoutItem,
   withoutPhoto,
 } from './montage-model.mjs';
+
+// (0.6.461, Bobine Pro, B04) The model of a take to create that has none of its own (« Oui, LTX 2.5 », 20/11), and where
+// this browser keeps the one last chosen in a card.
+const DEFAULT_MODEL = 'ltx25',
+  MODEL_KEY = 'moodix.bobine.model';
 
 // (0.6.194, audit of 21/11, B9) In the order of the Archives (KINDS of library.mjs): images before videos.
 const FILTERS = [
@@ -221,10 +229,17 @@ export function setupMontage({
   // computer: `modelFor(verb)` gives its id, or null (the server chooses, as for any creation). His
   // answer of 20/11 « Oui, LTX 2.5 »: a take drawn of 1,90 s had gone to MiniMax H3 Omni, which
   // made 5,17 s of it in 201 s.
+  // (0.6.461, Bobine Pro, B04) Each take to create with its own model: `modelFor(verb, family)`, the family chosen in
+  // its card (LTX 2.5 unless another one was).
   modelFor = () => null,
   // (0.6.152) The longest that model makes at once, by verb (seconds), or null: a take to create
-  // longer than it is made in equal parts (montage-model.mjs `partsOf`).
+  // longer than it is made in equal parts (montage-model.mjs `partsOf`). (0.6.461) `longestFor(verb, family)`.
   longestFor = () => null,
+  // (0.6.461, Bobine Pro, B04) The models a take to create may be made with (lib/tool-catalog.mjs videoModels):
+  // `[{ family, name, sound, create_video, extend_video }]`, each verb's workflow with what it takes (`roles`, how many
+  // of each), the longest it makes, `unavailable` (the reason this computer cannot run it) or `missing` (its files to
+  // download); null for a verb it does not make. Empty: the server chooses, and the card names what it answered.
+  videoModels = () => [],
   // (0.6.153, captures 84 et 85) The text of a take to create detailed by the chat model (framing,
   // light, movement) without changing what happens in it, as the wand of the Studio does:
   // `enrich({ prompt, verb }, { signal })` gives { prompt }, or throws why not.
@@ -264,6 +279,8 @@ export function setupMontage({
     // closed). Kept while the page lives, as the filter is.
     layout = 'grid',
     sought = null,
+    // (0.6.461, Bobine Pro, B04) The model last chosen in a card (its family): a new take to create is made with it.
+    lastModel = rememberedModel(),
     head = 0,
     playing = null,
     // (0.6.457, Bobine Pro) The film read again from its start when it ends; its sound cut while it is read. Kept
@@ -387,7 +404,72 @@ export function setupMontage({
     resized = null;
   const inSeries = () => filling?.stage === 'running' || filling?.stage === 'paused';
   // (0.6.152) What the model of the takes makes at once: what a take to create is cut by.
-  const limits = () => ({ create_video: longestFor('create_video'), extend_video: longestFor('extend_video') });
+  // (0.6.461, Bobine Pro, B04) Its own model's: `extend_video` false for one that makes no suite (pi H3, Wan 2.2).
+  const limits = plan => {
+    const family = familyOf(plan),
+      model = videoOf(family);
+    return { create_video: longestFor('create_video', family), extend_video: model && !model.extend_video ? false : longestFor('extend_video', family) };
+  };
+  /** (0.6.461, Bobine Pro, B04) The family of the model a take to create is made with: its own, LTX 2.5 else. */
+  const familyOf = plan => (isTodo(plan) && plan.todo.model) || DEFAULT_MODEL;
+  /** That model as the server lists it (videoModels); null when it is not listed. */
+  const videoOf = family => (videoModels() ?? []).find(model => model.family === family) ?? null;
+  /** (0.6.461) The models that make suites, by their names (« LTX 2.5 », « MiniMax H3 »): those a suite is offered. */
+  const extenders = () => (videoModels() ?? []).filter(model => model.extend_video && !model.extend_video.unavailable).map(model => model.name);
+  /**
+   * (0.6.461) What the model of a take to create can do (montage-model.mjs creationOf): its name, the reason this computer
+   * cannot run it, what it takes for a new clip and for a suite (how many of each role; null: it does not make it), and
+   * the models that make suites. Null when the server does not list it: nothing is refused nor left out then.
+   */
+  const abilities = plan => {
+    const model = videoOf(familyOf(plan));
+    return model
+      ? {
+          name: model.name,
+          unavailable: model.create_video?.unavailable ?? '',
+          takes: { create_video: model.create_video?.roles ?? null, extend_video: model.extend_video?.roles ?? null },
+          extenders: extenders(),
+        }
+      : null;
+  };
+  /** (0.6.461) The name of the model of a take to create, as its card says it: its family's (« MiniMax H3 »), else the server's answer. */
+  const modelName = plan => videoOf(familyOf(plan))?.name ?? modelOf(plan.id)?.name ?? '';
+  /** (0.6.461) The model last chosen in a card, as this browser keeps it; LTX 2.5 at first. */
+  function rememberedModel() {
+    try {
+      const family = page?.localStorage?.getItem?.(MODEL_KEY);
+      return typeof family === 'string' && /^[a-z0-9_]{1,40}$/.test(family) ? family : DEFAULT_MODEL;
+    } catch {
+      return DEFAULT_MODEL;
+    }
+  }
+  /**
+   * (0.6.461, Bobine Pro, B04) `next` with its new takes to create (laid by a gesture, by Moodix AI, absent from `from`)
+   * made with the model last chosen, when it is not LTX 2.5 (a take without a model is made with LTX 2.5); a suite only
+   * with a model that makes suites.
+   */
+  function stamped(next, from = montage) {
+    const model = lastModel !== DEFAULT_MODEL ? videoOf(lastModel) : null;
+    if (!model || !next?.plans) return next;
+    const known = new Set((from?.plans ?? []).map(plan => plan.id));
+    let touched = false;
+    const plans = next.plans.map(plan => {
+      if (!isTodo(plan) || plan.todo.model || known.has(plan.id) || (isSuite(plan) && !model.extend_video)) return plan;
+      touched = true;
+      return { ...plan, todo: { ...plan.todo, model: lastModel } };
+    });
+    return touched ? { ...next, plans } : next;
+  }
+  /** (0.6.461) The model chosen in the card of a take to create: kept in it, and the one the next takes are made with. */
+  function chooseModel(id, family) {
+    lastModel = family;
+    try {
+      page?.localStorage?.setItem?.(MODEL_KEY, family);
+    } catch {
+      // (Not kept in this browser: the page keeps it while it lives.)
+    }
+    change(withItemChanged(montage, id, { model: family }));
+  }
   const busy = () => Boolean(making || writing || inSeries() || arranging);
   // (0.6.452) The arrow of the Arrangeur follows the dictation of its field.
   dictation?.watch(() => tuneAsk());
@@ -465,7 +547,7 @@ export function setupMontage({
       const { plan, from } = record.bobine;
       if (!isTodo(itemOf(plan))) continue;
       if (!laid) remember(montage);
-      montage = withTodoMade(montage, plan, record, { from, limits: limits(), partId: newId() });
+      montage = withTodoMade(montage, plan, record, { from, limits, partId: newId() });
       laidHere.add(record.id);
       laid = true;
     }
@@ -746,7 +828,8 @@ export function setupMontage({
     const why = refusal();
     if (why) return void notice(why);
     remember(montage, group);
-    settle(next, { select, sliding, still });
+    // (0.6.461) A take to create laid by this change is made with the model last chosen.
+    settle(stamped(next), { select, sliding, still });
   }
   /** Why the bobine cannot be changed now ('' when it can). */
   function refusal() {
@@ -1746,14 +1829,14 @@ export function setupMontage({
 
   // « À créer » -------------------------------------------------------------------------------------
   /** (0.6.144) The arguments a take to create is asked with (creationOf): thrown, in the user's words, when a take it needs is gone. */
-  function argsOf(wanted) {
+  function argsOf(wanted, family = DEFAULT_MODEL) {
     const named = (item, what) => {
       const record = recordOf(item.source);
       if (!record) throw new Error(`${what} n’est plus dans le projet.`);
       return { ...inputOf(record), ...(item.frame ? { frame: item.frame } : {}) };
     };
     const args = { prompt: wanted.prompt, intention: 'Prise d’une bobine, demandée dans la Bobine.', duration: wanted.duration },
-      model = modelFor(wanted.verb);
+      model = modelFor(wanted.verb, family);
     if (model) args.workflow = model;
     if (wanted.format) args.format = wanted.format;
     // (0.6.190) « L’image de début », no longer « La photo de début »: « image » in every word of the Bobine
@@ -1775,11 +1858,11 @@ export function setupMontage({
     // threw, and the answer of the server just come for its kind was thrown away with it, asked again later.
     if (!plan || !isTodo(plan) || !estimate) return null;
     const probe = plan.todo.prompt.trim() ? montage : withItemChanged(montage, id, { prompt: 'Prise.' }),
-      wanted = creationOf(probe, id, lengthOf, { limits: limits() });
+      wanted = creationOf(probe, id, lengthOf, { limits, abilities });
     if (wanted.reason) return null;
     let args;
     try {
-      args = argsOf(wanted);
+      args = argsOf(wanted, familyOf(plan));
     } catch {
       return null;
     }
@@ -1803,14 +1886,21 @@ export function setupMontage({
   }
   const inPanel = () => Boolean(page?.document?.activeElement && parts?.create?.contains?.(page.document.activeElement));
   function sayModels() {
-    for (const [id, span] of live.models ?? []) {
-      const model = itemOf(id) ? modelOf(id) : null;
-      if (model && !span.dataset.state) span.textContent = model.name;
+    for (const [id, said] of live.models ?? []) {
+      const plan = itemOf(id),
+        model = plan ? modelOf(id) : null;
+      if (!model) continue;
+      // (0.6.461, Bobine Pro, B04) A model listed keeps the name of its family (« MiniMax H3 »); one this computer lacks
+      // is in amber.
+      if (!videoOf(familyOf(plan)) && said.textContent !== model.name) said.textContent = model.name;
+      if (model.missing) said.dataset.missing = 'true';
+      else delete said.dataset.missing;
     }
     // (0.6.459, Bobine Pro, B01) And on its piece of the timeline.
     for (const [id, span] of live.pieceModels ?? []) {
-      const model = itemOf(id) ? modelOf(id) : null;
-      if (model && span.textContent !== model.name) span.textContent = model.name;
+      const plan = itemOf(id),
+        name = plan && isTodo(plan) ? modelName(plan) : '';
+      if (name && span.textContent !== name) span.textContent = name;
     }
   }
   /** What a line of « À créer » says of what it is: « Suite de la prise 24 · image de fin » (0.6.190), « Nouvelle prise ». */
@@ -1846,7 +1936,7 @@ export function setupMontage({
    * « À créer » itself, not in its line: a press in it is not a press on the line, which chooses its take
    * and draws the list again.
    */
-  function openPieces(plan, kind, anchor, menu, items) {
+  function openPieces(plan, kind, anchor, menu, items, { align = 'start' } = {}) {
     closeExport();
     closePieces();
     menu.onkeydown = event => {
@@ -1861,7 +1951,8 @@ export function setupMontage({
     };
     pieceMenu = { id: plan.id, kind, menu, anchor, beside: event => !menu.contains?.(event.target) && !anchor.contains?.(event.target) && closePieces() };
     (parts?.create ?? root)?.append?.(menu);
-    openPopup(menu, anchor, { align: 'start' });
+    // (0.6.461) The list of the model against the right edge of its card, under it (B04); the others from the left.
+    openPopup(menu, anchor, { align });
     anchor.setAttribute('aria-expanded', 'true');
     page?.addEventListener?.('pointerdown', pieceMenu.beside, true);
     // The first choice that can be made in hand; when none can, the first all the same: its reason is read there.
@@ -1947,6 +2038,96 @@ export function setupMontage({
     openPieces(plan, 'pick-' + side, anchor, menu, items);
   }
   /**
+   * (0.6.461, Bobine Pro, B04) The model of a take to create, at the right of its card: « LTX 2.5 ⌄ », which opens the
+   * list of the models that make videos (pickModel). In amber when it is not on this computer (`model`, what the server
+   * answered: « Télécharger » takes the place of « Créer »). Greyed, as its pieces, while the bobine cannot be changed.
+   * Without the list of the models (a server that does not give it), the name the server answered, as before.
+   */
+  function modelButton(plan, model) {
+    const listed = videoOf(familyOf(plan));
+    if (!listed) {
+      const said = node('span', 'bobine-line-right', model?.name || '');
+      if (model?.missing) said.dataset.missing = 'true';
+      return said;
+    }
+    const held = refusal(),
+      control = node('button', 'bobine-line-right bobine-line-model');
+    control.type = 'button';
+    control.append(node('span', 'bobine-line-model-name', listed.name), icon('chevron'));
+    control.setAttribute('aria-haspopup', 'menu');
+    control.setAttribute('aria-expanded', 'false');
+    control.setAttribute('aria-label', 'Modèle de la prise : ' + listed.name);
+    control.dataset.tip = held || 'Choisir le modèle de cette prise';
+    control.disabled = Boolean(held);
+    if (model?.missing) control.dataset.missing = 'true';
+    control.onclick = event => {
+      // (Not a press on its card: the card would be drawn again under its list.)
+      event?.stopPropagation?.();
+      if (pieceMenu?.id === plan.id && pieceMenu.kind === 'model') return closePieces({ refocus: true });
+      pickModel(plan, control);
+    };
+    return control;
+  }
+  /**
+   * (0.6.461, Bobine Pro, B04) The models that make videos, in a list of glass under the model of a card, against its right
+   * edge: under each name what it takes (« Début, fin, 2 sujets, son »), the one of the take checked in the accent. For a
+   * suite, those that make none are greyed, their reason in the bubble at the left of the list (« pi H3 ne prolonge pas
+   * une vidéo. Pour une suite : LTX 2.5 ou MiniMax H3. »), as one this computer cannot run. One that is not on it may be
+   * chosen, its name in amber: its download takes the place of « Créer ». The one chosen is kept in the take, and the
+   * takes laid after are made with it (chooseModel).
+   */
+  function pickModel(plan, anchor) {
+    const menu = node('div', 'glass-menu bobine-piece-menu bobine-model-menu'),
+      family = familyOf(plan),
+      suite = isSuite(plan),
+      suites = orList(extenders()),
+      items = [];
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', 'Modèle de la prise');
+    for (const model of videoModels() ?? []) {
+      const own = model.family === family,
+        words = takesWords(model),
+        off = model.create_video?.unavailable
+          ? `${model.name} : ${model.create_video.unavailable}`
+          : suite && !model.extend_video
+            ? `${model.name} ne prolonge pas une vidéo.${suites ? ' Pour une suite : ' + suites + '.' : ''}`
+            : '',
+        item = node('button', 'glass-menu-item bobine-model-item' + (off ? ' is-off' : '')),
+        text = node('span', 'bobine-model-text');
+      item.type = 'button';
+      item.setAttribute('role', 'menuitemradio');
+      item.setAttribute('aria-checked', String(own));
+      item.setAttribute('aria-label', `${model.name}, ${words}`);
+      text.append(node('span', 'bobine-model-name', model.name), node('span', 'bobine-model-takes', words));
+      item.append(text);
+      if (own) item.append(icon('check'));
+      if (model[suite ? 'extend_video' : 'create_video']?.missing) item.dataset.missing = 'true';
+      // Why it cannot be chosen, under the pointer and on the focus: at the left of the list (B04).
+      if (off) {
+        item.setAttribute('aria-disabled', 'true');
+        item.dataset.tip = off;
+        item.dataset.tipSide = 'left';
+      }
+      item.onclick = () => {
+        if (off) return;
+        closePieces();
+        if (!own) chooseModel(plan.id, model.family);
+      };
+      items.push(item);
+      menu.append(item);
+    }
+    openPieces(plan, 'model', anchor, menu, items, { align: 'end' });
+  }
+  /**
+   * (0.6.461, Bobine Pro, B04) Why the model of a take to create does not take its image of `side` ('start', 'end'): it
+   * stays in its card, greyed with this reason, and is not sent ('' when it takes it, or when its model is not known).
+   */
+  function notTaken(plan, side) {
+    const able = abilities(plan);
+    if (!able || takesPhoto(plan, side, able, partsOf(plan, limits(plan)).count)) return '';
+    return `${able.name} ne prend pas d’${side === 'start' ? 'image de début' : 'image de fin'} : elle reste là, mais n’est pas envoyée.`;
+  }
+  /**
    * (0.6.210, LOTS.md, lot 13; captures 103, 103b and 104) The pieces of a take to create, in its line of
    * « À créer », where « Nouvelle prise · image de fin » was written: what it starts from and ends on, named
    * as on the plateau of the Studio and on a card of the Chat (public/pieces.mjs), each 26 px high with its
@@ -1985,14 +2166,17 @@ export function setupMontage({
       if (!photo) continue;
       const role = side + '_image',
         record = recordOf(photo),
-        said = PIECES[role].name + (record ? ' · ' + (takeLabel(photo) || 'Image') : ' : sa prise n’est plus dans le projet'),
+        // (0.6.461, Bobine Pro, B04) Its model does not take it: greyed, with why; kept, not sent.
+        left = notTaken(plan, side),
+        said = PIECES[role].name + (record ? ' · ' + (takeLabel(photo) || 'Image') : ' : sa prise n’est plus dans le projet') + (left ? '. ' + left : ''),
         piece = chip('button', '', PIECE_WORDS[role], pictureOf(record), 'image');
       piece.dataset.side = side;
       piece.dataset.missing = String(!record);
+      if (left) piece.dataset.left = 'true';
       piece.setAttribute('aria-label', said);
       piece.setAttribute('aria-haspopup', 'menu');
       piece.setAttribute('aria-expanded', 'false');
-      piece.dataset.tip = held || said;
+      piece.dataset.tip = held || left || said;
       piece.disabled = Boolean(held);
       piece.onclick = event => {
         // (Not a press on its line: the line would be drawn again under its list.)
@@ -2012,10 +2196,20 @@ export function setupMontage({
         const { name, given } = PIECES[role];
         if (which === 'start' && suite) return { name, off: 'Une suite part de la fin de sa vidéo : elle n’a que son image de fin.' };
         if (plan.photos?.[which]) return { name, note: given, off: `${name} : ${given}. Cliquez sur sa pièce pour en changer.` };
+        // (0.6.461, Bobine Pro, B04) One its model does not take: which ones do.
+        const able = abilities(plan);
+        if (able && !takesPhoto(plan, which, able, partsOf(plan, limits(plan)).count)) {
+          const verb = which === 'start' || !(suite || partsOf(plan, limits(plan)).count > 1) ? 'create_video' : 'extend_video',
+            others = orList((videoModels() ?? []).filter(item => (item[verb]?.roles?.[role]?.count ?? 0) > 0).map(item => item.name));
+          return { name, off: `${able.name} ne prend pas d’${which === 'start' ? 'image de début' : 'image de fin'}${others ? ' : choisissez ' + others : ''}.` };
+        }
         return { name, run: () => pickImage(plan, which, add) };
       };
-      // (Capture 104) What only another model takes is not made here: every take of the Bobine is made by one.
-      const outside = `Pas dans la Bobine : toutes ses prises sont faites par ${model?.name || 'LTX 2.5'}.`;
+      // (Capture 104) What only another model takes is not made here. (0.6.461, B04) The models of the Bobine, by name.
+      const names = (videoModels() ?? []).map(item => item.name),
+        outside = names.length
+          ? `Pas dans la Bobine : ses prises se font avec ${orList(names)}.`
+          : `Pas dans la Bobine : toutes ses prises sont faites par ${model?.name || 'LTX 2.5'}.`;
       piecesList(plan, 'add', add, 'Ajouter une pièce', [
         side('start', 'start_image'),
         side('end', 'end_image'),
@@ -2057,7 +2251,7 @@ export function setupMontage({
     const { section, body } = block('is-settings', 'bobine-create'),
       lines = node('div', 'bobine-lines'),
       starts = planStarts(montage),
-      series = seriesOf(montage, lengthOf, { limits: limits(), writable }),
+      series = seriesOf(montage, lengthOf, { limits, abilities, writable }),
       ready = creatable(),
       can = new Set(ready.map(item => item.id));
     section.setAttribute('aria-label', 'À créer');
@@ -2079,7 +2273,10 @@ export function setupMontage({
         model = modelOf(item.id),
         // (Capture 86: while Moodix AI writes it, its model stays at the right, its field says it.)
         written = writing?.id === item.id,
-        right = node('span', 'bobine-line-right', (written ? '' : state) || model?.name || ''),
+        // (0.6.461, Bobine Pro, B04) Its model at the right, which opens the list of the others (modelButton); its
+        // state (« En cours », « Échec ») under what it is, beside its instants (Moodix AI writing, its field says it).
+        right = modelButton(plan, model),
+        says = node('span', 'bobine-line-state', written ? '' : state),
         field = node('textarea', 'bobine-line-words'),
         reason =
           failed.get(item.id) ||
@@ -2088,11 +2285,11 @@ export function setupMontage({
             : item.ready && !can.has(item.id) && !model?.missing
               ? 'Elle continue la prise d’avant, qui ne peut pas être créée.'
               : '');
-      if (model?.missing) absent ??= model;
+      // (0.6.461, Bobine Pro, B04) Named as its card names it: « MiniMax H3 », not « MiniMax H3 Omni ».
+      if (model?.missing) absent ??= { ...model, name: modelName(plan) || model.name };
       line.dataset.id = item.id;
       line.dataset.state = failed.has(item.id) && !state.startsWith('En') ? 'failed' : beingMade(item.id) ? 'making' : enrichingId === item.id ? 'enriching' : '';
-      if (model?.missing) right.dataset.missing = 'true';
-      if (state && !written) right.dataset.state = 'true';
+      says.hidden = !says.textContent;
       line.setAttribute('aria-pressed', String(chosen === item.id));
       // (0.6.153, captures 84 et 85) What has a text can be enriched; just enriched, it lights up a moment.
       line.dataset.enrichable = String(Boolean(enrich) && Boolean(item.prompt));
@@ -2105,6 +2302,7 @@ export function setupMontage({
         times = node('span', 'bobine-line-sub');
       times.append(node('span', 'bobine-line-when', `${mono(from)} → ${mono(to)}`));
       if (item.parts > 1) times.append(node('span', 'bobine-line-parts', `${item.parts} × ${mono(item.part)} s`));
+      times.append(says);
       heading.append(node('span', 'bobine-line-title', whatOf(plan).split(' · ')[0]), times);
       top.append(heading, right);
       line.dataset.under = String(head >= from - 1e-6 && head < to - 1e-6);
@@ -2146,7 +2344,7 @@ export function setupMontage({
       // then, moodix.css): after it, the reason was under the fade of the list.
       line.append(top, ...(reason ? [node('p', 'bobine-line-reason', reason)] : []), box, middle);
       live.models.set(item.id, right);
-      live.states.set(item.id, right);
+      live.states.set(item.id, says);
       live.lines.set(item.id, line);
       lines.append(line);
     }
@@ -2159,6 +2357,9 @@ export function setupMontage({
     const foot = node('div', 'bobine-go');
     // What is said above the button, in amber: the model this computer lacks, or why it cannot be downloaded.
     let said = absent ? `${absent.name} n’est pas sur cet ordinateur.` : '',
+      // (0.6.461) What it says in a line in a low window (moodix.css), the whole in its bubble: whole, its four lines took
+      // the room of « À créer » at 1280 × 720, whose card could not be seen whole any more.
+      briefly = '',
       licences = null;
     live.download = null;
     if (downloading || (absent?.offer && !ready.length && !inSeries())) {
@@ -2188,10 +2389,11 @@ export function setupMontage({
         if (offer.needsToken) {
           fetch.disabled = true;
           said = `${name} demande un compte Hugging Face : acceptez sa licence${offer.page ? ' sur ' + offer.page : ''}, puis enregistrez votre jeton dans Paramètres › Modèles › Fichiers.`;
+          briefly = `${name} demande un compte Hugging Face.`;
         }
         watch({ name, offer });
       }
-      if (fetchError) said = fetchError;
+      if (fetchError) [said, briefly] = [fetchError, ''];
       foot.append(fetch);
       Object.assign(live, { goMain: null, goLabel: null, goFill: null, pause: null });
     } else {
@@ -2245,7 +2447,7 @@ export function setupMontage({
       headOf('À créer', series.length, { named: 'bobine-create-title', counted: 'bobine-create-count' }),
       lines,
       ...(askHost ? [askHost] : []),
-      ...(said ? [node('p', 'bobine-missing', said)] : []),
+      ...(said ? [missingLine(said, briefly)] : []),
       live.waiting,
       live.step,
       ...(licences ? [licences] : []),
@@ -2255,6 +2457,22 @@ export function setupMontage({
     sayGo();
     sayDownload();
     return section;
+  }
+  /**
+   * What is said in amber above the button. (0.6.461) With `briefly`, that line alone in a low window, cut with « … » if
+   * need be, the whole in its bubble and for a screen reader (moodix.css); the whole everywhere else.
+   */
+  function missingLine(said, briefly) {
+    const line = node('p', 'bobine-missing');
+    if (!briefly) {
+      line.textContent = said;
+      return line;
+    }
+    const brief = node('span', 'bobine-missing-brief', briefly);
+    brief.setAttribute('aria-hidden', 'true');
+    brief.dataset.tip = said;
+    line.append(node('span', 'bobine-missing-whole', said), brief);
+    return line;
   }
   /** (0.6.155) Whether there is more of « À créer » under its bottom: it fades there (moodix.css). */
   function fade(lines = live.list) {
@@ -2308,12 +2526,12 @@ export function setupMontage({
     if (writing || arranging || inSeries() || making) return refusal();
     if (enrichingId) return 'Moodix AI enrichit le texte d’une prise : attendez la fin.';
     if (!create) return '';
-    const series = seriesOf(montage, lengthOf, { limits: limits(), writable }),
+    const series = seriesOf(montage, lengthOf, { limits, abilities, writable }),
       can = new Set(creatable().map(item => item.id)),
       first = series.find(item => !can.has(item.id));
     if (!series.length) return 'Aucune prise à créer dans cette bobine.';
     if (!first) return '';
-    if (first.ready && modelMissing(first.id)) return `${modelOf(first.id).name} n’est pas sur cet ordinateur.`;
+    if (first.ready && modelMissing(first.id)) return `${modelName(itemOf(first.id)) || modelOf(first.id).name} n’est pas sur cet ordinateur.`;
     if (!first.ready && !first.prompt && !first.blocked)
       return series.filter(item => !item.ready && !item.prompt && !item.blocked).length > 1
         ? 'Écrivez ce qui se passe dans les prises à créer.'
@@ -2327,7 +2545,7 @@ export function setupMontage({
    */
   function creatable() {
     const ready = [];
-    for (const item of seriesOf(montage, lengthOf, { limits: limits(), writable }))
+    for (const item of seriesOf(montage, lengthOf, { limits, abilities, writable }))
       if (item.ready && !modelMissing(item.id) && (!item.after || ready.some(other => other.id === item.after))) ready.push({ id: item.id, parts: item.parts });
     return ready;
   }
@@ -2340,14 +2558,14 @@ export function setupMontage({
    */
   async function makePlan(id) {
     if (making || writing || !create) return null;
-    const wanted = creationOf(montage, id, lengthOf, { limits: limits() });
+    const wanted = creationOf(montage, id, lengthOf, { limits, abilities });
     if (wanted.reason) {
       failed.set(id, wanted.reason);
       return null;
     }
     let args;
     try {
-      args = argsOf(wanted);
+      args = argsOf(wanted, familyOf(itemOf(id)));
     } catch (error) {
       failed.set(id, error.message);
       return null;
@@ -2396,7 +2614,7 @@ export function setupMontage({
     making = null;
     if (record) {
       // (0.6.152) A take made in parts: its first part made, what is left of it stays to create.
-      const laid = withTodoMade(montage, id, record, { from: wanted.from, limits: limits(), partId: newId() });
+      const laid = withTodoMade(montage, id, record, { from: wanted.from, limits, partId: newId() });
       // (0.6.295) Laid, and said so, only where its take to create still is: said laid in a bobine that had
       // it no more, it was never laid again (layMissed), and an « Annuler » that changed nothing was kept.
       if (laid !== montage) {
@@ -2418,7 +2636,10 @@ export function setupMontage({
     if (live.bar) live.bar.style.width = Math.round((beingMade(id)?.fraction ?? 0) * 100) + '%';
     if (live.making) live.making.textContent = stateOf(id);
     const line = live.states?.get(id);
-    if (line) line.textContent = stateOf(id, { line: true });
+    if (line) {
+      line.textContent = stateOf(id, { line: true });
+      line.hidden = !line.textContent;
+    }
     sayStep();
   }
   /**
@@ -2479,7 +2700,7 @@ export function setupMontage({
    */
   function recount(series, id) {
     const left = itemOf(id),
-      need = isTodo(left) ? partsOf(left, limits()).count : 0;
+      need = isTodo(left) ? partsOf(left, limits(left)).count : 0;
     let have = 0;
     while (series.ids[series.done + have] === id) have++;
     // (Never without end: a model that made next to nothing each time would be asked again and again.)
@@ -3028,7 +3249,8 @@ export function setupMontage({
     asks = [...asks, { request, say: plan.say ?? '' }].slice(-ASKS);
     if (result.montage !== before) {
       remember(before);
-      montage = result.montage;
+      // (0.6.461) The takes it lays are made with the model last chosen.
+      montage = stamped(result.montage, before);
       pending = true;
       // (Done: the field is empty for the next one. Nothing laid, its words stay to be said otherwise.)
       wish = '';
@@ -3457,12 +3679,13 @@ export function setupMontage({
           if (todo) {
             // (0.6.459, B01) Its model at the bottom right, in mono (modelOf; sayModels says it once the server answered);
             // its dashes lit while the head is on it (sayTime).
-            const model = node('span', 'montage-piece-model', modelOf(item.id)?.name ?? '');
+            // (0.6.461, Bobine Pro, B04) Its own model, as its card names it.
+            const model = node('span', 'montage-piece-model', modelName(item));
             live.pieceModels.set(item.id, model);
             live.under.push({ piece, from: at, to: at + (item.to - item.from) });
             piece.append(model);
             // (0.6.152, capture 74) Made in parts: where each part after the first begins, a suite.
-            const { count } = partsOf(item, limits());
+            const { count } = partsOf(item, limits(item));
             for (let part = 1; part < count; part++) {
               const cut = node('span', 'bobine-part', '↳ Suite');
               cut.style.left = (100 * part) / count + '%';

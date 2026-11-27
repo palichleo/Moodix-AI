@@ -17494,12 +17494,45 @@ body[data-view='bobine'] .chat-panel {
 .bobine-line[aria-pressed='true'] .bobine-line-when {
   color: var(--ink);
 }
-.bobine-line-right[data-state='true'] {
-  color: var(--ink);
-  text-transform: uppercase;
+/* (0.6.461, Bobine Pro, B04) Son modèle, un bouton à liseré de 26 px sur 80 : son nom en mono de 10,5 px (10 sur la
+   maquette : la taille des étiquettes, la plus petite de la page, règle du 16/11), un petit « ⌄ » à 8 px de lui ; il
+   ouvre la liste des modèles, et reste tel quel pendant qu'elle est ouverte (B04). En ambre quand il n'est pas sur cet
+   ordinateur. */
+#bobine-view .bobine-line-model {
+  gap: 8px;
+  padding: 0 8px;
+  border-color: rgba(238, 232, 222, 0.16);
+  background: rgba(238, 232, 222, 0.05);
+  color: var(--text-2);
+  cursor: pointer;
 }
-.bobine-line-right[data-missing='true'],
-.bobine-line[data-state='failed'] .bobine-line-right {
+#bobine-view .bobine-line-model > svg {
+  width: 7px;
+  height: 7px;
+  opacity: 0.6;
+  transform: rotate(90deg);
+}
+#bobine-view .bobine-line-model:hover:enabled {
+  border-color: rgba(238, 232, 222, 0.32);
+  color: var(--text-1);
+}
+#bobine-view .bobine-line-model:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+#bobine-view .bobine-line-right[data-missing='true'] {
+  color: var(--warning);
+}
+/* (0.6.461) Son état (« En cours », « Échec ») à côté de ses instants, en mono comme eux : son modèle tient la droite. */
+.bobine-line-state {
+  flex: none;
+  font: 400 10.5px/1.3 var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.bobine-line[data-state='failed'] .bobine-line-state {
   color: var(--warning);
 }
 /* (0.6.460, Bobine Pro, B01 et B06) Son texte dans un puits plus sombre que la carte (le fond des champs du bureau), aux
@@ -18380,6 +18413,11 @@ body[data-view='bobine'] .chat-panel {
 #bobine-view .bobine-create .bobine-missing {
   margin: 10px 0 0;
 }
+/* (0.6.461) Ce qu'il lui faut en une ligne (« LTX 2.5 demande un compte Hugging Face. »), seulement dans une fenêtre
+   basse (plus bas) : ailleurs, la phrase entière. */
+.bobine-missing-brief {
+  display: none;
+}
 /* Une licence à conditions, à lire avant le téléchargement : au-dessus du bouton, à la place de la phrase. */
 #bobine-view .bobine-create .license-block {
   flex: none;
@@ -18522,6 +18560,11 @@ body[data-view='bobine'] .chat-panel {
   opacity: 0.45;
   cursor: default;
 }
+/* (0.6.461, Bobine Pro, B04) Une image que le modèle de la prise ne prend pas : grisée, gardée, pas envoyée ; on peut la
+   changer ou la retirer, sa raison dans sa bulle. */
+#bobine-view .bobine-piece[data-left='true']:enabled {
+  opacity: 0.45;
+}
 /* Leur liste, une de nos listes de verre : le nom de chaque choix à gauche, ce qu’on en dit à droite
    (« déjà donnée », « avec SCAIL-2 »), comme « Ajouter » du Studio. */
 .glass-menu.bobine-piece-menu .glass-menu-item {
@@ -18534,6 +18577,50 @@ body[data-view='bobine'] .chat-panel {
 }
 .glass-menu.bobine-piece-menu .glass-menu-note {
   margin-left: 0;
+}
+/* (0.6.461, Bobine Pro, B04) La liste des modèles : 250 px, à 5 px de son bord ; chaque modèle sur 58 px, son nom (13,5 px,
+   500) et ce qu'il prend dessous (12 px, TX3), la coche d'accent du sien à droite. Grisé, son nom et ce qu'il prend en
+   TX4, sa raison dans sa bulle. Un modèle qui n'est pas sur cet ordinateur : son nom en ambre. */
+.glass-menu.bobine-model-menu {
+  gap: 0;
+  width: 250px;
+  padding: 5px;
+}
+.glass-menu.bobine-piece-menu .glass-menu-item.bobine-model-item {
+  min-height: 58px;
+  padding: 0 16px 0 14px;
+  white-space: normal;
+}
+.bobine-model-text {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.bobine-model-name {
+  color: var(--text-1);
+  font: 500 13.5px/1.2 var(--font-ui);
+}
+.bobine-model-takes {
+  color: var(--text-3);
+  font: 400 12px/1.25 var(--font-ui);
+}
+.bobine-model-item > svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  color: var(--accent);
+}
+.glass-menu-item.bobine-model-item.is-off {
+  opacity: 1;
+}
+.glass-menu-item.bobine-model-item.is-off:is(:hover, :focus-visible) {
+  background: rgba(238, 232, 222, 0.05);
+}
+.bobine-model-item.is-off :is(.bobine-model-name, .bobine-model-takes) {
+  color: var(--text-4);
+}
+.bobine-model-item[data-missing='true']:not(.is-off) .bobine-model-name {
+  color: var(--warning);
 }
 /* « Créations du projet » : les images du projet, quatre par rangée ; celle que la prise a déjà est cerclée. */
 .glass-menu.bobine-pick {
@@ -18812,6 +18899,25 @@ body[data-view='bobine'] .chat-panel {
   #bobine-view .bobine-create .bobine-ask,
   #bobine-view .bobine-create .bobine-foot {
     margin-top: 8px;
+  }
+  /* (0.6.461) Ce qu'il manque, en une ligne : la phrase entière, sur quatre lignes, prenait la place de la carte de
+     « À créer ». Elle reste dans sa bulle et pour un lecteur d'écran. */
+  #bobine-view .bobine-create .bobine-missing:has(> .bobine-missing-brief) {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #bobine-view .bobine-missing-whole {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  #bobine-view .bobine-missing-brief {
+    display: inline;
   }
 }
 /* Moodix AI arrange : sa demande reste lisible, « Arrêter » à portée. */

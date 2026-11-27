@@ -66,14 +66,17 @@ const shipped = await Promise.all(
     .filter(name => name.endsWith('.json'))
     .map(async name => JSON.parse(await readFile(new URL(name, shippedFolder), 'utf8'))),
 );
+const shippedCatalog = new ToolCatalog({
+  list: async () => shipped.map(item => ({ ...validateNativeWorkflow(item), ready: true })),
+  // (0.6.450) What the engine says of a card of 5 Go (runner/pipelines/seedvr2.py, reach): about 7 million pixels
+  // of an image with SeedVR2. The image in 16:9 of the steps below (1344 × 768) has « × 4 » beyond it.
+  capabilities: { seedvr2: { ready: true, mediaType: 'image', reason: '', maxPixels: 7158272 } },
+});
 const shippedStudio = {
   enabled: true,
-  tools: await new ToolCatalog({
-    list: async () => shipped.map(item => ({ ...validateNativeWorkflow(item), ready: true })),
-    // (0.6.450) What the engine says of a card of 5 Go (runner/pipelines/seedvr2.py, reach): about 7 million pixels
-    // of an image with SeedVR2. The image in 16:9 of the steps below (1344 × 768) has « × 4 » beyond it.
-    capabilities: { seedvr2: { ready: true, mediaType: 'image', reason: '', maxPixels: 7158272 } },
-  }).studio(),
+  tools: await shippedCatalog.studio(),
+  // (0.6.461, Bobine Pro, B04) The models a take of the Bobine may be made with, as the server says them.
+  video: await shippedCatalog.videoModels(),
   styles: ['grain-argentique.safetensors', 'portrait-doux.safetensors', 'styles\\lumiere-70s.safetensors'],
   presets: {},
 };

@@ -68,6 +68,11 @@ test('a montage is kept as it is said, plans end to end: nothing else is carried
   assert.deepEqual(validateMontage(film({ plans: [...film().plans, todo] })).plans[3], todo);
   assert.equal('suite' in validateMontage(film({ plans: [...film().plans, { ...todo, todo: { prompt: '', suite: false } }] })).plans[3].todo, false);
   assert.throws(() => validateMontage(film({ plans: [{ ...todo, todo: { prompt: '', suite: 'oui' } }] })), /Prise 1 : suite invalide/);
+  // (0.6.461, Bobine Pro, B04) And the model chosen in its card, the family of its workflow; nothing else.
+  const chosen = { ...todo, todo: { prompt: 'Il se lève.', suite: true, model: 'minimax_h3' } };
+  assert.deepEqual(validateMontage(film({ plans: [...film().plans, chosen] })).plans[3], chosen);
+  for (const model of ['', 'MiniMax', 'a/b', 3, 'x'.repeat(41)])
+    assert.throws(() => validateMontage(film({ plans: [{ ...todo, todo: { prompt: '', model } }] })), /Prise 1 : modèle de la prise à créer invalide/);
   // What the page computes by dragging is rounded to the millisecond: no 0.30000000000000004.
   const dragged = validateMontage(film({ plans: [{ id: id(1), source: take(1), kind: 'video', from: 0.1 + 0.2, to: 1.3004 }] }));
   assert.deepEqual([dragged.plans[0].from, dragged.plans[0].to, montageSeconds(dragged)], [0.3, 1.3, 1]);

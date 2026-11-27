@@ -100,7 +100,7 @@ const INTENTION = 'Prise d’une bobine, demandée dans la Bobine.',
 // `at`-th), and from which second of its file it is shown (a suite holds the video it goes on from).
 const placeOf = (f, at, from = 0) => ({ id: f.ui.state().montage.id, plan: f.ui.state().montage.plans[at].id, from });
 
-function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed = null, create = null, estimate = null, write = null, thumbnail = () => {}, width = 1000, modelFor = null, longestFor = null, enrich = null, downloads = null, arrange = null, dragImage = null, win = null, canvas = false, base = true, light = null, paint = null, takeFilm = null } = {}) {
+function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed = null, create = null, estimate = null, write = null, thumbnail = () => {}, width = 1000, modelFor = null, longestFor = null, videoModels = null, enrich = null, downloads = null, arrange = null, dragImage = null, win = null, canvas = false, base = true, light = null, paint = null, takeFilm = null } = {}) {
   WIDTH = width;
   const calls = [],
     queue = [],
@@ -180,6 +180,7 @@ function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed =
     ...(write ? { write } : {}),
     ...(modelFor ? { modelFor } : {}),
     ...(longestFor ? { longestFor } : {}),
+    ...(videoModels ? { videoModels } : {}),
     ...(enrich ? { enrich } : {}),
     ...(arrange ? { arrange } : {}),
     ...(dragImage ? { dragImage } : {}),
@@ -266,10 +267,11 @@ function setup({ stored = [], fail = {}, extra = [], busyWith = null, followed =
     popLabels: () => under(f.pop()).slice(1).map(item => item.attributes['aria-label']).filter(Boolean),
     // « À créer »: each line, [its instants, its model or state, what it is, why it cannot be created].
     // (0.6.210) What it is: the name of the row of its pieces (written in the line before).
+    // (0.6.461) Its state beside its instants, its model at the right: the state when there is one.
     lines: () =>
       f.get('bobine-line').map(line => [
         find(line, 'bobine-line-when')[0].textContent,
-        find(line, 'bobine-line-right')[0].textContent,
+        find(line, 'bobine-line-state')[0]?.textContent || find(line, 'bobine-line-right')[0].textContent,
         find(line, 'bobine-line-middle')[0].attributes['aria-label'],
         find(line, 'bobine-line-reason').map(reason => reason.textContent).join(''),
       ]),
@@ -936,8 +938,11 @@ test('in the void, a ghost of 5 s follows the pointer; a click lays it (0.6.169)
   g.pointer.up();
   assert.deepEqual(g.ui.state().montage.plans.map(plan => [plan.at, plan.to]), [[0, 30]]);
   assert.deepEqual([g.lines()[0][0], g.said('bobine-line-parts')], ['00.00 → 30.00', ['2 × 15.00 s']]);
-  // (0.6.460, Bobine Pro, B01) Beside its instants, under what it is.
-  assert.deepEqual(g.get('bobine-line-sub')[0].children.map(part => part.className), ['bobine-line-when', 'bobine-line-parts']);
+  // (0.6.460, Bobine Pro, B01) Beside its instants, under what it is. (0.6.461, B04) Its state after them, unsaid at rest.
+  assert.deepEqual(
+    g.get('bobine-line-sub')[0].children.map(part => [part.className, Boolean(part.hidden)]),
+    [['bobine-line-when', false], ['bobine-line-parts', false], ['bobine-line-state', true]],
+  );
   assert.deepEqual(find(g.plans()[0], 'bobine-part').map(cut => [cut.textContent, cut.style.left]), [['↳ Suite', '50%']]);
 });
 
@@ -1989,7 +1994,13 @@ test('a licence with conditions is read in « À créer » before the download, 
   assert.deepEqual(f.said('bobine-missing'), ['Téléchargement impossible : Disque plein.']);
   // A model behind a Hugging Face account: said, the button greyed.
   const { f: g } = await series({ times: { workflowName: 'LTX 2.5', missing: { ...offer, needsToken: true, page: 'huggingface.co/Lightricks' } }, downloads });
-  assert.deepEqual([g.get('bobine-go-download')[0].disabled, g.said('bobine-missing')], [true, ['LTX 2.5 demande un compte Hugging Face : acceptez sa licence sur huggingface.co/Lightricks, puis enregistrez votre jeton dans Paramètres › Modèles › Fichiers.']]);
+  // (0.6.461) In a low window, in a line (moodix.css): the whole in its bubble, and for a screen reader.
+  const account = 'LTX 2.5 demande un compte Hugging Face : acceptez sa licence sur huggingface.co/Lightricks, puis enregistrez votre jeton dans Paramètres › Modèles › Fichiers.',
+    brief = g.get('bobine-missing-brief')[0];
+  assert.deepEqual(
+    [g.get('bobine-go-download')[0].disabled, g.said('bobine-missing-whole'), brief.textContent, brief.dataset.tip, brief.attributes['aria-hidden']],
+    [true, [account], 'LTX 2.5 demande un compte Hugging Face.', account, 'true'],
+  );
   // Its download already under way (from Paramètres › Modèles): followed here.
   Object.assign(job, { state: 'running', workflowId: 'ltx', name: 'LTX 2.5', received: 10 * GB, total: 20 * GB });
   const { f: h } = await series({ times: { workflowName: 'LTX 2.5', missing: offer }, downloads });
@@ -5194,4 +5205,124 @@ test('(0.6.460, Bobine Pro, B01) « À créer »: a card by take to create, what
   // (The edge of its field without the id of the page: the amber of a failure, and the tint under the wand, go over it.)
   assert.match(rule('.bobine-line textarea.bobine-line-words'), /border-color: rgba\(238, 232, 222, 0\.06\);/);
   assert.doesNotMatch(css.match(/\n#bobine-view \.bobine-desk textarea\.bobine-line-words \{[^}]*\}/)[0], /border-color|background/);
+});
+
+test('(0.6.461, Bobine Pro, B04) the model of each take to create: chosen in its card, kept in it, the next takes made with it; what it does not take greyed, never thrown away', async () => {
+  const roles = (start, end, subjects, required = false) => ({ start_image: { count: start, ...(required ? { required } : {}) }, end_image: { count: end }, reference: { count: subjects } }),
+    suiteRoles = (end, subjects) => ({ source: { count: 1, required: true }, reference: { count: subjects }, end_image: { count: end } }),
+    models = [
+      { family: 'ltx25', name: 'LTX 2.5', sound: true, create_video: { id: 'ltx-25', name: 'LTX 2.5', roles: roles(1, 1, 2), longest: 10.04 }, extend_video: { id: 'ltx-25', name: 'LTX 2.5', roles: suiteRoles(1, 0), longest: 9.67 } },
+      { family: 'minimax_h3', name: 'MiniMax H3', sound: true, create_video: { id: 'minimax-h3', name: 'MiniMax H3 Omni', roles: roles(0, 0, 3), longest: 14.375 }, extend_video: { id: 'minimax-h3', name: 'MiniMax H3 Omni', roles: suiteRoles(0, 3), longest: 13.46 } },
+      { family: 'pi_h3', name: 'pi H3', sound: true, create_video: { id: 'pi-h3', name: 'pi H3', roles: roles(1, 1, 0), longest: 14.375 }, extend_video: null },
+      { family: 'wan22', name: 'Wan 2.2', sound: false, create_video: { id: 'wan-22', name: 'Wan 2.2', roles: roles(1, 0, 0, true), longest: 5.06 }, extend_video: null },
+    ],
+    byFamily = Object.fromEntries(models.map(model => [model.family, model])),
+    estimated = [],
+    asked = [],
+    image = n => ({ conversationId: C, runId: id(n), output: 0 }),
+    stored = {
+      schemaVersion: 1,
+      id: id(980),
+      name: 'La lune',
+      format: '16:9',
+      width: 1344,
+      height: 768,
+      fps: 24,
+      sounds: [],
+      plans: [
+        { id: id(981), at: 0, kind: 'video', source: { conversationId: C, runId: id(1), output: 0 }, from: 0, to: 5, frame: 'fit', volume: 1 },
+        { id: id(982), at: 5, kind: 'video', todo: { prompt: 'Il marche.', suite: true }, from: 0, to: 4, frame: 'fit', volume: 1 },
+        { id: id(983), at: 12, kind: 'video', todo: { prompt: 'Il se lève.' }, from: 0, to: 25, frame: 'fit', volume: 1, photos: { start: image(3), end: image(5) } },
+      ],
+    };
+  const f = await setup({
+    stored: [stored],
+    extra: [take(5, 'image')],
+    videoModels: () => models,
+    modelFor: (verb, family) => byFamily[family]?.[verb]?.id ?? null,
+    longestFor: (verb, family) => byFamily[family]?.[verb]?.longest ?? null,
+    estimate: async wanted => (estimated.push(structuredClone(wanted)), { workflowName: models.find(model => model.create_video.id === wanted.args.workflow)?.create_video.name ?? '' }),
+    create: wanted => (asked.push(structuredClone(wanted)), new Promise(() => {})),
+  }).open();
+  await settle();
+  const card = at => f.get('bobine-line')[at],
+    button = at => find(card(at), 'bobine-line-model')[0],
+    named = () => [0, 1].map(at => find(button(at), 'bobine-line-model-name')[0].textContent),
+    todo = at => f.ui.state().montage.plans[at].todo,
+    open = at => (button(at).onclick({ stopPropagation() {} }), f.get('bobine-model-menu')[0]),
+    items = menu =>
+      menu.children.map(item => [find(item, 'bobine-model-name')[0].textContent, find(item, 'bobine-model-takes')[0].textContent, item.attributes['aria-checked'], item.dataset.tip ?? '', find(item, 'icon-check').length]),
+    pick = (at, name) =>
+      open(at)
+        .children.find(item => find(item, 'bobine-model-name')[0].textContent === name)
+        .onclick();
+  // LTX 2.5 for both at first, in a button with its « ⌄ »; the take of 25 s in three parts of what LTX 2.5 makes at once.
+  assert.deepEqual([named(), find(button(0), 'icon-chevron').length, f.said('bobine-line-parts'), f.go()], [['LTX 2.5', 'LTX 2.5'], 1, ['3 × 08.33 s'], 'Créer 4 prises']);
+  // The list of the suite: what each takes, LTX 2.5 checked; those that make no suite greyed, their reason at the left.
+  const menu = open(0);
+  assert.deepEqual([button(0).attributes['aria-expanded'], menu.attributes.role], ['true', 'menu']);
+  assert.deepEqual(items(menu), [
+    ['LTX 2.5', 'Début, fin, 2 sujets, son', 'true', '', 1],
+    ['MiniMax H3', '3 sujets, son', 'false', '', 0],
+    ['pi H3', 'Début, fin, son', 'false', 'pi H3 ne prolonge pas une vidéo. Pour une suite : LTX 2.5 ou MiniMax H3.', 0],
+    ['Wan 2.2', 'Début seulement, sans son', 'false', 'Wan 2.2 ne prolonge pas une vidéo. Pour une suite : LTX 2.5 ou MiniMax H3.', 0],
+  ]);
+  assert.deepEqual(
+    menu.children.map(item => [item.attributes['aria-disabled'], item.dataset.tipSide]),
+    [[undefined, undefined], [undefined, undefined], ['true', 'left'], ['true', 'left']],
+  );
+  // A greyed one is not chosen.
+  menu.children[2].onclick();
+  assert.deepEqual([todo(1).model, f.get('bobine-model-menu').length], [undefined, 1]);
+  // MiniMax H3 for the suite: kept in the take, said in its card and on its take of the timeline; asked to it.
+  menu.children[1].onclick();
+  assert.deepEqual([todo(1), named(), f.get('bobine-model-menu').length], [{ prompt: 'Il marche.', suite: true, model: 'minimax_h3' }, ['MiniMax H3', 'LTX 2.5'], 0]);
+  assert.deepEqual(f.said('montage-piece-model').slice(0, 2), ['MiniMax H3', 'LTX 2.5']);
+  await settle();
+  assert.ok(estimated.some(wanted => wanted.verb === 'extend_video' && wanted.args.workflow === 'minimax-h3' && !wanted.args.end_image));
+  // Its « + »: no image of end with MiniMax H3 for a suite, which LTX 2.5 takes; the models of the Bobine named.
+  f.adder(0).onclick({ stopPropagation() {} });
+  const outside = 'Pas dans la Bobine : ses prises se font avec LTX 2.5, MiniMax H3, pi H3 ou Wan 2.2.';
+  assert.deepEqual(f.choices(), [
+    ['Image de début', '', 'Une suite part de la fin de sa vidéo : elle n’a que son image de fin.'],
+    ['Image de fin', '', 'MiniMax H3 ne prend pas d’image de fin : choisissez LTX 2.5.'],
+    '—',
+    ['Vidéo à suivre', 'avec SCAIL-2', outside],
+    ['Personnage', 'avec SCAIL-2', outside],
+  ]);
+  f.adder(0).onclick({ stopPropagation() {} });
+  // A take laid now is made with MiniMax H3, the model last chosen.
+  const before = new Set(f.ui.state().montage.plans.map(plan => plan.id));
+  f.lanes()[0].onclick({ clientX: 990, target: f.lanes()[0] });
+  assert.deepEqual(f.ui.state().montage.plans.find(plan => !before.has(plan.id))?.todo, { prompt: '', model: 'minimax_h3' });
+  // The new take to MiniMax H3: two parts of 12,5 s, the button counts again; its images kept, greyed, not sent.
+  pick(1, 'MiniMax H3');
+  assert.deepEqual([todo(2).model, f.said('bobine-line-parts'), f.go()], ['minimax_h3', ['2 × 12.50 s'], 'Créer 3 prises']);
+  assert.deepEqual(f.ui.state().montage.plans[2].photos, { start: image(3), end: image(5) });
+  assert.deepEqual(
+    ['Début', 'Fin'].map(word => [f.piece(1, word).dataset.left, f.piece(1, word).dataset.tip]),
+    [
+      ['true', 'MiniMax H3 ne prend pas d’image de début : elle reste là, mais n’est pas envoyée.'],
+      ['true', 'MiniMax H3 ne prend pas d’image de fin : elle reste là, mais n’est pas envoyée.'],
+    ],
+  );
+  await settle();
+  // (Asked once for each kind of take, its length aside: the one laid before was asked for it.)
+  assert.ok(estimated.some(wanted => wanted.verb === 'create_video' && wanted.args.workflow === 'minimax-h3' && !wanted.args.start_image));
+  // pi H3: it makes 14,4 s at once and no suite: the take of 25 s is not made, said in its card.
+  pick(1, 'pi H3');
+  assert.deepEqual(
+    [f.said('bobine-line-reason'), f.go()],
+    [['pi H3 fait 14,4 s au plus d’un coup et ne prolonge pas une vidéo : raccourcissez la prise, ou choisissez LTX 2.5 ou MiniMax H3.'], 'Créer 1 prise'],
+  );
+  // Back to LTX 2.5: nothing was thrown away, three parts again.
+  pick(1, 'LTX 2.5');
+  assert.deepEqual(
+    [todo(2).model, f.said('bobine-line-parts'), f.go(), ['Début', 'Fin'].map(word => f.piece(1, word).dataset.left)],
+    ['ltx25', ['3 × 08.33 s'], 'Créer 4 prises', [undefined, undefined]],
+  );
+  // Created: the suite first, asked to MiniMax H3 by its name, without an image of end; then the take, to LTX 2.5.
+  f.goMain().onclick();
+  await settle();
+  assert.deepEqual(asked[0], { verb: 'extend_video', args: { prompt: 'Il marche.', intention: INTENTION, duration: 4, workflow: 'minimax-h3', source: { output: id(1) } }, size: FILM, place: placeOf(f, 1, 5) });
 });

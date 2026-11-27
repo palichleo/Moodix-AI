@@ -367,7 +367,9 @@ export function withItemChanged(montage, id, changes, { longest = null } = {}) {
     // (0.6.142) A plan to make has no take yet: a length wanted, within what a clip can be, and its text.
     if (isTodo(item)) {
       if (changes.to !== undefined) next.to = tenth(clamp(changes.to, TODO_LIMITS.shortest, TODO_LIMITS.longest));
-      if (typeof changes.prompt === 'string') next.todo = { ...item.todo, prompt: changes.prompt.slice(0, TODO_LIMITS.prompt) };
+      if (typeof changes.prompt === 'string') next.todo = { ...next.todo, prompt: changes.prompt.slice(0, TODO_LIMITS.prompt) };
+      // (0.6.461, Bobine Pro, B04) The model it is made with, chosen in its card: the family of its workflow.
+      if (typeof changes.model === 'string' && /^[a-z0-9_]{1,40}$/.test(changes.model)) next.todo = { ...next.todo, model: changes.model };
       if (changes.frame === 'fit' || changes.frame === 'fill') next.frame = changes.frame;
       return next;
     }
@@ -648,11 +650,11 @@ export function withTodoMade(montage, id, record, { from = 0, limits = {}, partI
   // (Relecture du 21/11) A bobine full has no room for what is left: the take made takes its place whole.
   // creationOf refuses it before (the bobine is not changed while a take is made); a take more, there,
   // was one beyond what the server keeps, and nothing of the bobine was kept any more.
-  const { count } = partsOf(plan, limits);
+  const { count } = partsOf(plan, limitsFor(limits, plan));
   if (count > 1 && partId && montage.plans.length < MONTAGE_LIMITS.plans) {
     const part = { ...made, id: partId },
-      // (To the millisecond, not the tenth: the take ends where it ended, part after part.)
-      left = { ...todoPlan(id, TODO_LIMITS.shortest, { at: endOf(part), todo: { prompt: plan.todo.prompt, suite: true } }), to: round(Math.max(TODO_LIMITS.shortest, plan.to - plan.from - (part.to - part.from))), frame: plan.frame, volume: plan.volume, ...(plan.photos?.end ? { photos: { end: plan.photos.end } } : {}) },
+      // (To the millisecond, not the tenth: the take ends where it ended, part after part.) (0.6.461) With its model.
+      left = { ...todoPlan(id, TODO_LIMITS.shortest, { at: endOf(part), todo: { prompt: plan.todo.prompt, suite: true, ...(plan.todo.model ? { model: plan.todo.model } : {}) } }), to: round(Math.max(TODO_LIMITS.shortest, plan.to - plan.from - (part.to - part.from))), frame: plan.frame, volume: plan.volume, ...(plan.photos?.end ? { photos: { end: plan.photos.end } } : {}) },
       plans = [...montage.plans];
     plans.splice(index, 1, part, left);
     // (0.6.438) What started under the take goes on with its first part, which starts where it did.
@@ -675,16 +677,35 @@ export function withTodoMade(montage, id, record, { from = 0, limits = {}, partI
  * each part as long as the shortest of the two allows). Without them, parts of TODO_LIMITS.part at most.
  * « Ce sont plusieurs suites de la même prise, à la chaîne […]. Un seul texte pour toute la longueur, une
  * seule photo de fin, au bout de la dernière partie. »
+ * (0.6.461, Bobine Pro, B04) Those of its own model: `extend_video` false for a model that makes no suite (pi H3,
+ * Wan 2.2), which makes a take in one part or not at all (creationOf says why).
  */
 export function partsOf(plan, limits = {}) {
   const seconds = plan.to - plan.from,
     known = value => (value > 0 ? value : TODO_LIMITS.part),
     suite = Boolean(plan.todo?.suite),
     alone = known(limits[suite ? 'extend_video' : 'create_video']);
-  if (seconds <= alone + 1e-9) return { count: 1, seconds: round(seconds) };
+  if (seconds <= alone + 1e-9 || limits.extend_video === false) return { count: 1, seconds: round(seconds) };
   const each = suite ? alone : Math.min(alone, known(limits.extend_video)),
     count = Math.ceil(seconds / each - 1e-9);
   return { count, seconds: round(seconds / count) };
+}
+
+/**
+ * (0.6.461, Bobine Pro, B04) The limits of the model of a take to create: `limits` itself, or what `limits(plan)` gives
+ * when each take has its own model.
+ */
+const limitsFor = (limits, plan) => (typeof limits === 'function' ? limits(plan) : limits) ?? {};
+
+/**
+ * (0.6.461, Bobine Pro, B04) Whether the model of a take to create takes its image of `side` ('start', 'end'), read on
+ * what it takes (`able.takes`, by verb: how many of each role; see creationOf). The start goes with a new clip; the end
+ * with the last part, a suite when the take is one or is made in `parts`. True when it is not known: nothing is left out.
+ */
+export function takesPhoto(plan, side, able, parts = 1) {
+  const suite = Boolean(plan.todo?.suite) && !plan.photos?.start,
+    roles = able?.takes?.[side === 'end' && (suite || parts > 1) ? 'extend_video' : 'create_video'];
+  return !roles || (roles[side + '_image']?.count ?? 0) > 0;
 }
 
 /**
@@ -728,7 +749,7 @@ export function linkOf(montage, id, lengthOf = () => null) {
  *   be either.
  * `kind`: what it goes on from (linkOf).
  */
-export function seriesOf(montage, lengthOf = () => null, { limits = {}, writable = () => false } = {}) {
+export function seriesOf(montage, lengthOf = () => null, { limits = {}, abilities = null, writable = () => false } = {}) {
   const items = [];
   montage.plans.forEach((plan, index) => {
     if (!isTodo(plan)) return;
@@ -744,9 +765,9 @@ export function seriesOf(montage, lengthOf = () => null, { limits = {}, writable
       probe = prompt || (!written && !blocked) ? montage : withItemChanged(montage, plan.id, { prompt: 'Prise.' }),
       // (The plan before it is to make too: the last one read. Without its text it waits for nothing.)
       before = link.kind === 'wait' && written ? items.at(-1) : null,
-      reason = before ? (before.ready ? '' : 'Elle continue la prise d’avant, qui ne peut pas être créée.') : (creationOf(probe, plan.id, lengthOf, { limits }).reason ?? ''),
+      reason = before ? (before.ready ? '' : 'Elle continue la prise d’avant, qui ne peut pas être créée.') : (creationOf(probe, plan.id, lengthOf, { limits, abilities }).reason ?? ''),
       // (0.6.152) How many parts it is made in, and how long each is.
-      parts = partsOf(plan, limits);
+      parts = partsOf(plan, limitsFor(limits, plan));
     items.push({
       id: plan.id,
       number: index + 1,
@@ -773,16 +794,24 @@ export function seriesOf(montage, lengthOf = () => null, { limits = {}, writable
  *   'extend_video'`), whose file holds the video first: the plan shows it from `from`. With an end photo,
  *   the continuation arrives on it (`end`; since 0.6.152, no longer a new clip from the last image);
  * - else a clip of its own, from its text (and its end photo).
+ * (0.6.461, Bobine Pro, B04) Each take with its own model: `limits` may be `plan => limits`, and `abilities(plan)` says
+ * what that model can do when it is known (`{ name, unavailable, takes, extenders }`: the reason this computer cannot run
+ * it, what it takes for a new clip and for a suite by verb, how many of each role, null for a verb it does not make, and
+ * the models that make suites). A photo it does not take stays on the take and is not asked (takesPhoto).
  */
-export function creationOf(montage, id, lengthOf = () => null, { limits = {} } = {}) {
+export function creationOf(montage, id, lengthOf = () => null, { limits = {}, abilities = null } = {}) {
   const index = montage.plans.findIndex(plan => plan.id === id),
     plan = montage.plans[index];
   if (!isTodo(plan)) return { reason: 'Cette prise est déjà créée.' };
   const prompt = (plan.todo.prompt ?? '').trim();
   if (!prompt) return { reason: 'Écrivez ce qui se passe dans cette prise.' };
+  const own = limitsFor(limits, plan),
+    able = typeof abilities === 'function' ? abilities(plan) : null;
+  // (0.6.461) A model this computer cannot run (no NVIDIA card): its reason, nothing asked.
+  if (able?.unavailable) return { reason: `${able.name} : ${able.unavailable}` };
   // (0.6.152) Made in parts: what is asked now is its first part; the photo it arrives on is the one
   // of its last part.
-  const parts = partsOf(plan, limits);
+  const parts = partsOf(plan, own);
   // (Relecture du 21/11) Each part becomes a take of the bobine: it needs room for them all. Created
   // without, the bobine went beyond its 200 takes, and the server refused it whole from then on.
   const over = montage.plans.length + parts.count - 1 - MONTAGE_LIMITS.plans;
@@ -795,23 +824,59 @@ export function creationOf(montage, id, lengthOf = () => null, { limits = {} } =
     prompt,
     duration: tenth(parts.seconds),
     format: montage.format,
-    ...(plan.photos?.end && parts.count === 1 ? { end: { source: plan.photos.end } } : {}),
+    ...(plan.photos?.end && parts.count === 1 && takesPhoto(plan, 'end', able) ? { end: { source: plan.photos.end } } : {}),
     from: 0,
     ...(parts.count > 1 ? { parts: parts.count } : {}),
   };
   const link = linkOf(montage, id, lengthOf),
-    before = montage.plans[index - 1];
-  if (link.kind === 'photo') return { ...wanted, start: { source: plan.photos.start } };
+    before = montage.plans[index - 1],
+    suites = orList(able?.extenders ?? []);
+  if (able && (link.kind === 'photo' || link.kind === 'own')) {
+    // (0.6.461) A model that makes no suite makes it at once, or not at all.
+    if (own.extend_video === false && own.create_video > 0 && plan.to - plan.from > own.create_video + 1e-9)
+      return {
+        reason: `${able.name} fait ${secondsWord(own.create_video)} au plus d’un coup et ne prolonge pas une vidéo : raccourcissez la prise${suites ? ', ou choisissez ' + suites : ''}.`,
+      };
+    // (Wan 2.2 animates an image: without one, it makes nothing.)
+    if (able.takes?.create_video?.start_image?.required && !plan.photos?.start)
+      return { reason: `${able.name} anime une image : posez une image de début.` };
+  }
+  if (link.kind === 'photo') return takesPhoto(plan, 'start', able) ? { ...wanted, start: { source: plan.photos.start } } : wanted;
   if (link.kind === 'wait') return { reason: 'Créez d’abord la prise d’avant : celle-ci la continue.' };
   if (link.kind === 'own') return wanted;
   if (link.kind === 'loose') return { reason: 'Cette suite n’est plus collée à la vidéo qu’elle continue : rapprochez-la, ou retirez-la.' };
   if (link.kind === 'cut')
     return { reason: 'La vidéo d’avant est coupée avant sa fin : rendez-lui sa fin, ou posez une image de début.' };
+  // (0.6.461) A model that makes no suite (pi H3, Wan 2.2): those that do are named.
+  if (able && !able.takes?.extend_video)
+    return { reason: `${able.name} ne prolonge pas une vidéo.${suites ? ' Pour une suite : ' + suites + '.' : ''}` };
   // (0.6.152) A suite towards its photo is a continuation that arrives on it (end_image on extend_video,
   // his choice of 20/11 for the Bobine and the Studio), no longer a new clip from the last image.
   const { format: _format, ...rest } = wanted;
   return { ...rest, verb: 'extend_video', continues: before.source, from: link.whole };
 }
+
+/**
+ * (0.6.461, Bobine Pro, B04) What a model takes for a new take, as the list of the models says it under its name: read on
+ * what its workflow takes (`create_video.roles`, how many of each) and whether it makes sound (`sound`). « Début, fin,
+ * 2 sujets, son » (LTX 2.5), « 3 sujets, son » (MiniMax H3 Omni), « Début, fin, son » (pi H3), « Début seulement, sans
+ * son » (Wan 2.2).
+ */
+export function takesWords(model) {
+  const count = role => model?.create_video?.roles?.[role]?.count ?? 0,
+    subjects = count('reference'),
+    words =
+      count('start_image') && !count('end_image') && !subjects
+        ? ['début seulement']
+        : [count('start_image') ? 'début' : '', count('end_image') ? 'fin' : '', subjects ? `${subjects} sujet${subjects > 1 ? 's' : ''}` : ''].filter(Boolean);
+  const said = [...words, model?.sound ? 'son' : 'sans son'].join(', ');
+  return said.charAt(0).toUpperCase() + said.slice(1);
+}
+
+/** (0.6.461) Names said one after the other, the last with « ou »: « LTX 2.5 ou MiniMax H3 », « A, B ou C »; '' for none. */
+export const orList = names => (names.length > 1 ? names.slice(0, -1).join(', ') + ' ou ' + names.at(-1) : (names[0] ?? ''));
+/** (0.6.461) A length as a sentence says it, to the tenth: « 14,4 s ». */
+const secondsWord = seconds => String(tenth(seconds)).replace('.', ',') + ' s';
 
 /**
  * (0.6.154) The folder « Un fichier par prise » puts the takes of a bobine in, under BOBINES in the folder

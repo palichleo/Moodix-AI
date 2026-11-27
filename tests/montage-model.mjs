@@ -399,3 +399,65 @@ test('the pictures along a take: one every 62 px, each the one of its strip at t
   assert.deepEqual([framesAlong({ width: 0, from: 0, to: 3 }), framesAlong({ width: 62 * 500, to: 3, most: 400 }).length], [[], 400]);
   assert.deepEqual([frameAt(9.99, 10, 20), frameAt(-1, 10, 20), frameAt(12, 10, 20), frameAt(3, 0, 5), frameAt(3, 10, 0)], [19, 0, 19, 0, -1]);
 });
+
+test('each take to create with its own model: cut by what it makes at once, refused in words, its images kept but not sent (0.6.461)', async () => {
+  const { orList, partsOf, seriesOf, takesPhoto, takesWords } = await import('../public/montage-model.mjs');
+  // (Bobine Pro, B04) The models of the Bobine, as the server lists them (lib/tool-catalog.mjs videoModels).
+  const roles = (start, end, subjects, required = false) => ({ start_image: { count: start, ...(required ? { required } : {}) }, end_image: { count: end }, reference: { count: subjects } }),
+    suite = (end, subjects) => ({ source: { count: 1, required: true }, reference: { count: subjects }, end_image: { count: end } }),
+    models = {
+      ltx25: { family: 'ltx25', name: 'LTX 2.5', sound: true, create_video: { roles: roles(1, 1, 2), longest: 10.042 }, extend_video: { roles: suite(1, 0), longest: 9.667 } },
+      minimax_h3: { family: 'minimax_h3', name: 'MiniMax H3', sound: true, create_video: { roles: roles(0, 0, 3), longest: 14.375 }, extend_video: { roles: suite(0, 3), longest: 13.458 } },
+      pi_h3: { family: 'pi_h3', name: 'pi H3', sound: true, create_video: { roles: roles(1, 1, 0), longest: 14.375 }, extend_video: null },
+      wan22: { family: 'wan22', name: 'Wan 2.2', sound: false, create_video: { roles: roles(1, 0, 0, true), longest: 5.063 }, extend_video: null },
+    },
+    familyOf = plan => plan.todo?.model ?? 'ltx25',
+    limits = plan => {
+      const model = models[familyOf(plan)];
+      return { create_video: model.create_video.longest, extend_video: model.extend_video ? model.extend_video.longest : false };
+    },
+    abilities = plan => {
+      const model = models[familyOf(plan)];
+      return { name: model.name, unavailable: '', takes: { create_video: model.create_video.roles, extend_video: model.extend_video?.roles ?? null }, extenders: ['LTX 2.5', 'MiniMax H3'] };
+    };
+  assert.deepEqual(Object.values(models).map(takesWords), ['Début, fin, 2 sujets, son', '3 sujets, son', 'Début, fin, son', 'Début seulement, sans son']);
+  assert.deepEqual([orList([]), orList(['LTX 2.5']), orList(['LTX 2.5', 'MiniMax H3']), orList(['A', 'B', 'C'])], ['', 'LTX 2.5', 'LTX 2.5 ou MiniMax H3', 'A, B ou C']);
+  const lengthOf = wanted => (wanted.runId === id(1) ? 5 : null),
+    photo = n => ({ conversationId: C, runId: id(n), output: 0 }),
+    film = withTake(empty(), clip(1, 5), { id: id(11) }),
+    // A new take of 25 s at 10 s, its image of start and of end; a suite of 4 s right after the video, its image of end.
+    drawn = withTodoDrawn(film, { id: id(21), at: 10, seconds: 25 }).montage,
+    withSuite = { ...drawn, plans: [drawn.plans[0], { id: id(22), at: 5, kind: 'video', todo: { prompt: 'Il marche.', suite: true }, from: 0, to: 4, frame: 'fit', volume: 1, photos: { end: photo(4) } }, { ...drawn.plans[1], at: 10, todo: { prompt: 'Il se lève.' }, photos: { start: photo(2), end: photo(3) } }] },
+    chosen = (montage, plan, model) => withItemChanged(montage, plan, { model }),
+    asked = (montage, plan) => creationOf(montage, plan, lengthOf, { limits, abilities });
+  // LTX 2.5: 25 s in three parts (each within the 9,7 s of its suites), its image of start sent, its end with the last.
+  assert.deepEqual(Object.values(partsOf(withSuite.plans[2], limits(withSuite.plans[2]))), [3, 8.333]);
+  assert.deepEqual([asked(withSuite, id(21)).parts, Boolean(asked(withSuite, id(21)).start), 'end' in asked(withSuite, id(21))], [3, true, false]);
+  // MiniMax H3: two parts of 12,5 s; it takes no image of start nor of end: kept on the take, not sent.
+  const minimax = chosen(withSuite, id(21), 'minimax_h3');
+  assert.deepEqual([minimax.plans[2].todo, minimax.plans[2].photos], [{ prompt: 'Il se lève.', model: 'minimax_h3' }, { start: photo(2), end: photo(3) }]);
+  assert.deepEqual(Object.values(partsOf(minimax.plans[2], limits(minimax.plans[2]))), [2, 12.5]);
+  assert.deepEqual([asked(minimax, id(21)).duration, 'start' in asked(minimax, id(21))], [12.5, false]);
+  assert.deepEqual(['start', 'end'].map(side => takesPhoto(minimax.plans[2], side, abilities(minimax.plans[2]), 2)), [false, false]);
+  // pi H3: no suite, so a take of 25 s is made at once or not at all; shorter, its two images are sent.
+  const pi = chosen(withSuite, id(21), 'pi_h3');
+  assert.deepEqual(Object.values(partsOf(pi.plans[2], limits(pi.plans[2]))), [1, 25]);
+  assert.deepEqual(asked(pi, id(21)), { reason: 'pi H3 fait 14,4 s au plus d’un coup et ne prolonge pas une vidéo : raccourcissez la prise, ou choisissez LTX 2.5 ou MiniMax H3.' });
+  const short = withItemChanged(pi, id(21), { to: 12 });
+  assert.deepEqual([asked(short, id(21)).duration, Boolean(asked(short, id(21)).start), Boolean(asked(short, id(21)).end)], [12, true, true]);
+  // A suite to pi H3 or Wan 2.2: those that make suites are named. Wan 2.2 animates an image, and takes no end.
+  assert.deepEqual(asked(chosen(withSuite, id(22), 'pi_h3'), id(22)), { reason: 'pi H3 ne prolonge pas une vidéo. Pour une suite : LTX 2.5 ou MiniMax H3.' });
+  const wan = withItemChanged(chosen(withSuite, id(21), 'wan22'), id(21), { to: 5 });
+  assert.deepEqual([asked(wan, id(21)).duration, Boolean(asked(wan, id(21)).start), 'end' in asked(wan, id(21))], [5, true, false]);
+  const { photos: _photos, ...bare } = wan.plans[2];
+  assert.deepEqual(asked({ ...wan, plans: [wan.plans[0], wan.plans[1], bare] }, id(21)), { reason: 'Wan 2.2 anime une image : posez une image de début.' });
+  // A suite to MiniMax H3: its image of end stays, not sent; to LTX 2.5, sent.
+  assert.equal('end' in asked(chosen(withSuite, id(22), 'minimax_h3'), id(22)), false);
+  assert.deepEqual(asked(withSuite, id(22)).end, { source: photo(4) });
+  // The series counts the parts of each by its own model; the take made in parts gives what is left its model.
+  assert.deepEqual(seriesOf(minimax, lengthOf, { limits, abilities }).map(item => [item.id, item.parts]), [[id(22), 1], [id(21), 2]]);
+  const made = withTodoMade(minimax, id(21), clip(5, 12.5), { limits, partId: id(23) });
+  assert.deepEqual(made.plans.slice(2).map(plan => [plan.id, plan.todo ?? null]), [[id(23), null], [id(21), { prompt: 'Il se lève.', suite: true, model: 'minimax_h3' }]]);
+  // Kept by the server as it is.
+  assert.deepEqual(kept(minimax).plans, minimax.plans);
+});

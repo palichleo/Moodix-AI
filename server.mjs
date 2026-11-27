@@ -1530,13 +1530,15 @@ export async function createApplication({
       // The Studio: where its results are kept, and the style LoRAs of the loras folders.
       if (req.method === 'GET' && path === '/api/studio') {
         // Asked together: the workflows and the LoRAs are both read from the disk.
-        const [tools, styles, presets] = await Promise.all([
+        const [tools, styles, presets, video] = await Promise.all([
           runtime.tools.studio(),
           generation.styles(),
           studioPresets.all(),
+          // (0.6.461, Bobine Pro, B04) The models a take of the Bobine may be made with, one by family.
+          runtime.tools.videoModels(),
         ]);
         // `presets`: the settings saved for each model (« Enregistrer »).
-        return send(200, { enabled: generation.config.enabled === true, tools, styles, presets });
+        return send(200, { enabled: generation.config.enabled === true, tools, styles, presets, video });
       }
       if (req.method === 'GET' && path === '/api/tools/job') {
         // With what a page draws its card (`proposal`): one reloaded meanwhile follows it again (0.6.82).
