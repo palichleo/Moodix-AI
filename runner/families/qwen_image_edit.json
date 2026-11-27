@@ -241,6 +241,7 @@
     ]
   },
   "preference": -1,
+  "chatFirst": ["create_image"],
   "prompts": {
     "create_image": "An editing instruction in English, for a model that sees the images given and changes only what it is told: one to three sentences. Say what to change, add, remove or replace, where it is in the picture, and how it must look (colour, material, size, pose, light). Picture 1 is the image to modify; Picture 2 and Picture 3 are the other images given, named so when they are used (\"the woman of Picture 1 wears the coat of Picture 2\"). Text to write goes in quotes, in the language asked. Never describe the whole picture again: what is not named stays as it is."
   }

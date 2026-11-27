@@ -75,6 +75,9 @@ test('(0.6.474) it does not move under the pointer: the line above it keeps its 
     rule('#studio-view .studio-under > *'),
     /overflow: hidden;[^]*white-space: nowrap;[^]*text-overflow: ellipsis;/,
   );
+  // What a model not on this computer lacks (0.6.480), said in that line: at its height, nothing above it (its margin
+  // of 10 px put its words half out of the line).
+  assert.match(rule('#studio-view .studio-absent-line'), /margin: 0;[^]*font: 400 12\.5px\/19px var\(--font-ui\);/);
   // The row of an empty Sortie (its line of 117 px and its margins of 4), full or not.
   assert.match(rule('#studio-view .studio-block.is-output .studio-sortie-row'), /flex: none;[^]*height: 125px;/);
   assert.match(rule('.studio-empty-strip'), /height: 117px;[^]*margin: 4px;/);

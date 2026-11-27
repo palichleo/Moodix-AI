@@ -28,6 +28,12 @@ const numeric = value => typeof value === 'number' && Number.isFinite(value);
 // « Sujet 1 », « À prolonger »…), written as a sentence writes them: the card shows them in capitals by its
 // style sheet (« DÉBUT »), as before.
 const PLACES = { start_image: PIECE_WORDS.start_image, end_image: PIECE_WORDS.end_image };
+// (0.6.476) What the × of an image of a card says, in the words of the Bobine (« Retirer l’image de début »).
+const TAKE_OUT = {
+  start_image: 'Retirer l’image de début',
+  end_image: 'Retirer l’image de fin',
+  source: 'Retirer l’image à modifier',
+};
 // (0.6.271) Every role a family says « as: source » (runner/families): Qwen-Image-Edit's « edit_image » was
 // missing, and its image to modify was shown as « Sujet 1 », a drop on it replacing it.
 const SOURCES = new Set(['source_video', 'driving_video', 'source_image', 'img2img', 'edit_image', 'refilm_source']);
@@ -64,8 +70,16 @@ const decimal = value => String(value).replace('.', ',');
  * workflow takes one more (`onAdd(role)`: « Créations du projet » opens under them, in the card);
  * each case says its role (`data-role`) for an image dropped or pasted on it; a changed value turns
  * to the accent (`is-changed`). `form.shelf`: the place of « Créations du projet ».
+ * (0.6.476) What its model does not send (`request.held`) stays in its place, greyed, why in its bubble, and the line
+ * of the server says what to do (`request.warning`); each image may be taken out with its × (`onRemove(which)`:
+ * `{ input: n }`, the n-th it sends, `{ held: n }`, the n-th it holds), except what its model cannot do without
+ * (`request.fixedInputs`) and the video a suite continues.
  */
-export function renderProposal(container, request, { node, onStage, card = false, onAdd = null } = {}) {
+export function renderProposal(
+  container,
+  request,
+  { node, onStage, card = false, onAdd = null, onRemove = null } = {},
+) {
   container.replaceChildren();
   const plan = request.plan || {},
     editable = plan.editable || {},
@@ -146,8 +160,12 @@ export function renderProposal(container, request, { node, onStage, card = false
   } else if (plan.prompt) promptField = field('Prompt (fixé par le modèle)', fixed(plan.prompt), { wide: true });
   if (promptField && !card) container.append(promptField);
 
-  // Text settings (the lyrics of a song): wide, under the prompt.
-  const texts = [...items.values()].filter(item => item.type === 'string' && !item.choices && !item.locked);
+  // Text settings (the lyrics of a song): wide, under the prompt. (0.6.476) In a card, whose prompt is folded at its
+  // foot, a negative prompt (Wan 2.2's, in Chinese) goes under « Paramètres avancés »: unfolded above everything, it
+  // made the card of Wan 2.2 taller than the window at 1280 × 720, and its model, chosen in its title, out of view.
+  const texts = [...items.values()].filter(
+    item => item.type === 'string' && !item.choices && !item.locked && !(card && item.key === 'negative_prompt'),
+  );
   for (const item of texts) {
     const input = control(item);
     input.setAttribute('aria-label', labelOf(item.key));
@@ -404,7 +422,7 @@ export function renderProposal(container, request, { node, onStage, card = false
     // (0.6.198) The words of the dice of the Studio (« Graine au hasard » before).
     roll.title = 'Tirer une seed au hasard';
     roll.setAttribute('aria-label', 'Tirer une seed au hasard');
-    roll.append(diceIcon(node));
+    roll.append(symbol(node, 'dice', 'proposal-dice'));
     roll.onclick = () => {
       const max = Math.min(seedItem.max ?? 2 ** 32, Number.MAX_SAFE_INTEGER);
       seed.value = String(Math.floor(Math.random() * (max + 1)));
@@ -446,7 +464,11 @@ export function renderProposal(container, request, { node, onStage, card = false
     }
     const input = control(item);
     controls.set(key, input);
-    const wrapper = field(label, input, { help: item.note || HELP[key] });
+    // (0.6.476) A text (the negative prompt of a card) on the whole width, its words under it.
+    const wrapper = field(label, input, {
+      help: item.note || HELP[key],
+      wide: item.type === 'string' && !item.choices,
+    });
     more.append(wrapper);
     if (subjectSetting(key)) subjectFields.push(wrapper);
   }
@@ -522,9 +544,20 @@ export function renderProposal(container, request, { node, onStage, card = false
       ratio = numeric(size.width) && numeric(size.height) && size.height > 0 ? size.width / size.height : 16 / 9;
     const referenceRole = slots.find(role => !SOURCES.has(role) && !PLACES[role]) ?? 'reference',
       empties = [];
-    const tile = (ref, label, { shape = ratio, add = '', role = '', off = '' } = {}) => {
+    const tile = (
+      ref,
+      label,
+      { shape = ratio, add = '', role = '', off = '', held = false, why = '', remove = null } = {},
+    ) => {
       if (!ref && role) empties.push(role);
-      const box = node('figure', 'proposal-input' + (ref ? '' : ' is-empty') + (shape ? '' : ' is-reference') + (off ? ' is-off' : '')),
+      const box = node(
+          'figure',
+          'proposal-input' +
+            (ref ? '' : ' is-empty') +
+            (shape ? '' : ' is-reference') +
+            (off ? ' is-off' : '') +
+            (held ? ' is-held' : ''),
+        ),
         frame = node(ref ? 'span' : 'button', 'proposal-input-frame'),
         // (0.6.209, capture 106) A reference of the project is named under its word as it is written in the
         // message, « #ref3 »: the image named there is the one seen here, in that role.
@@ -551,15 +584,51 @@ export function renderProposal(container, request, { node, onStage, card = false
       }
       // Left out: why, in its bubble (help-tips.mjs); it has no role, its name is its word.
       if (off) frame.setAttribute('data-tip', off);
+      // (0.6.476) Held by its model: in its place, greyed, why in its bubble (the words of the Bobine).
+      if (held) frame.setAttribute('data-tip', why);
+      // (0.6.476) Its × takes it out of the card: the proposal is made again without it (« Retirer l’image de début »).
+      if (ref && remove) {
+        const cross = node('button', 'proposal-input-remove');
+        cross.type = 'button';
+        cross.setAttribute('aria-label', remove.said);
+        cross.setAttribute('data-tip', remove.said);
+        cross.append(symbol(node, 'close', 'proposal-input-cross'));
+        cross.onclick = event => {
+          event?.stopPropagation?.();
+          onRemove?.(remove.which);
+        };
+        frame.append(cross);
+      }
       box.append(frame, node('figcaption', off ? 'proposal-input-ref' : '', label));
       if (named) box.append(node('span', 'proposal-input-ref', named));
       return box;
     };
+    // (0.6.476) What its model holds and does not send, by the role of its verb (`as`), each with its place in `held`;
+    // the × of an image it sends (not one its model cannot do without: `fixedInputs`) and of one it holds.
+    const held = (request.held ?? []).map((item, at) => ({ item, at })),
+      heldAs = as => held.filter(({ item }) => item.as === as),
+      fixed = new Set(request.fixedInputs ?? []),
+      sent = (ref, said) => {
+        const index = placed.findIndex(item => item.ref === ref);
+        return onRemove && index >= 0 && !fixed.has(index) ? { which: { input: index }, said } : null;
+      },
+      kept = (at, said) => (onRemove ? { which: { held: at }, said } : null),
+      heldTile = ({ item, at }, label, said, shape = ratio) =>
+        tile({ label: item.label, preview: item.preview }, label, {
+          shape,
+          held: true,
+          why: item.why,
+          remove: kept(at, said),
+        });
     const frames = [];
-    for (const { ref, role, name } of placed.filter(item => SOURCES.has(item.role))) frames.push(tile(ref, doing(name, role), { role }));
+    for (const { ref, role, name } of placed.filter(item => SOURCES.has(item.role)))
+      frames.push(tile(ref, doing(name, role), { role, remove: sent(ref, TAKE_OUT.source) }));
+    for (const entry of heldAs('source')) frames.push(heldTile(entry, PIECE_WORDS.source, TAKE_OUT.source));
     for (const [role, label] of Object.entries(PLACES)) {
-      const found = placed.find(item => item.role === role);
-      if (found) frames.push(tile(found.ref, label, { role }));
+      const found = placed.find(item => item.role === role),
+        waiting = heldAs(role)[0];
+      if (found) frames.push(tile(found.ref, label, { role, remove: sent(found.ref, TAKE_OUT[role]) }));
+      else if (waiting) frames.push(heldTile(waiting, label, TAKE_OUT[role]));
       else if (slots.includes(role))
         frames.push(tile(null, label, { role, add: role === 'end_image' ? 'Ajouter une image de fin' : 'Ajouter une image de début' }));
     }
@@ -567,9 +636,15 @@ export function renderProposal(container, request, { node, onStage, card = false
       room = Math.min(3, slots.filter(role => !SOURCES.has(role) && !PLACES[role]).length),
       subject = PIECE_WORDS.reference;
     // (0.6.209, capture 97) Who is put in a video says « Personnage », as on the plateau of the Studio.
-    const refs = references.map(({ ref, role, name }, index) =>
-      tile(ref, name === PIECES.character.name ? PIECE_WORDS.character : subject + ' ' + (index + 1), { shape: 0, role }),
-    );
+    const refs = references.map(({ ref, role, name }, index) => {
+      const word = name === PIECES.character.name ? PIECE_WORDS.character : subject + ' ' + (index + 1);
+      return tile(ref, word, { shape: 0, role, remove: sent(ref, 'Retirer le ' + word.toLowerCase()) });
+    });
+    // (0.6.476) The subjects it holds, after those it sends: « Sujet 3 », greyed.
+    heldAs('reference').forEach((entry, index) => {
+      const word = subject + ' ' + (references.length + index + 1);
+      refs.push(heldTile(entry, word, 'Retirer le ' + word.toLowerCase(), 0));
+    });
     // (0.6.209, capture 106) The case of one more subject says what it takes (no word before): « Sujet »,
     // « Sujet 2 » after one given.
     if (references.length < room)
@@ -606,6 +681,8 @@ export function renderProposal(container, request, { node, onStage, card = false
   if (plan.edited?.length)
     notes.push('Modifié par vous : ' + plan.edited.map(labelOf).join(', ') + '.');
   for (const note of notes) container.append(node('p', 'field-help proposal-note', note));
+  // (0.6.476) What its model does not send, and what to do (« … : retirez l’image de début ou le sujet. »).
+  if (request.warning) container.append(node('p', 'field-help proposal-note proposal-warning', request.warning));
   container.append(message);
 
   // A card places its two folds at its foot, beside Annuler and Générer.
@@ -689,14 +766,18 @@ export function renderProposal(container, request, { node, onStage, card = false
   return form;
 }
 
-function diceIcon(node) {
+/**
+ * (0.6.476) A symbol of the sprite of the page (« #i-dice », « #i-close »), as app.js draws them (icon), without a word
+ * for a screen reader; the card of a proposal draws its own with it (proposal-card.mjs).
+ */
+export function symbol(node, name, className = '') {
   const make = tag =>
     globalThis.document?.createElementNS ? document.createElementNS('http://www.w3.org/2000/svg', tag) : node(tag);
   const svg = make('svg'),
     use = make('use');
   svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('class', 'proposal-dice');
-  use.setAttribute('href', '#i-dice');
+  if (className) svg.setAttribute('class', className);
+  use.setAttribute('href', '#i-' + name);
   svg.append(use);
   return svg;
 }

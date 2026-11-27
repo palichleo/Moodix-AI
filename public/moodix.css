@@ -9775,6 +9775,105 @@ body:not([data-view='chat']) .resume {
   margin: 0 6px;
   background: rgba(238, 232, 222, 0.12);
 }
+/* (0.6.476) Une image que le modèle choisi ne prend pas : gardée à sa place, grisée (pas son ×), sa raison dans sa
+   bulle ; elle n'est pas envoyée. Le × d'une image la retire de la carte, la proposition refaite sans elle : un rond
+   sombre de 18 px dans son coin, sous le pointeur ou au clavier, toujours là sur une image grisée et sur un écran
+   tactile. Il paraît d'un coup, sans fondu. */
+.proposal-input.is-held .proposal-input-frame > :is(img, .proposal-input-file) {
+  opacity: 0.38;
+  filter: grayscale(1);
+}
+.proposal-input.is-held figcaption {
+  color: var(--text-4);
+}
+.proposal-input-frame:has(> .proposal-input-remove) {
+  position: relative;
+}
+.proposal-input-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid #2a2e37;
+  border-radius: 999px;
+  background: #0b0c0f;
+  color: var(--text-2);
+  opacity: 0;
+}
+.proposal-input-remove > svg {
+  width: 9px;
+  height: 9px;
+  stroke-width: 2.2;
+}
+.proposal-input:is(:hover, :focus-within, .is-held) .proposal-input-remove {
+  opacity: 1;
+}
+.proposal-input-remove:hover {
+  color: var(--text-1);
+}
+@media (hover: none) {
+  .proposal-input-remove {
+    opacity: 1;
+  }
+}
+/* (0.6.476) La ligne qui dit ce que le modèle choisi n'envoie pas, et quoi faire : en ambre, comme une raison. */
+.proposal-note.proposal-warning {
+  color: var(--warning);
+}
+/* (0.6.476) Le modèle d'une vidéo de Moodix AI, dans le titre de sa carte : un bouton à liseré, comme le modèle d'une
+   carte « À créer » de la Bobine (« LTX 2.5 ⌄ ») ; il ouvre la liste des modèles, une de nos listes de verre. En ambre
+   quand celui choisi n'est pas sur cet ordinateur : son téléchargement est proposé dans la carte, à la place de ses
+   réglages, comme le fait la carte « Il manque un fichier » (que la carte habille de son verre, sans le doubler). */
+.proposal-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: 24px;
+  min-height: 0;
+  margin: -7px 0;
+  padding: 0 8px;
+  border: 1px solid rgba(238, 232, 222, 0.16);
+  border-radius: 7px;
+  background: rgba(238, 232, 222, 0.05);
+  color: var(--text-2);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.proposal-model > svg {
+  width: 7px;
+  height: 7px;
+  opacity: 0.6;
+  transform: rotate(90deg);
+}
+.proposal-model:hover {
+  border-color: rgba(238, 232, 222, 0.32);
+  color: var(--text-1);
+}
+.proposal-model[data-missing='true'] {
+  color: var(--warning);
+}
+#messages .proposal-card .proposal-offer .missing-card {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+/* (0.6.476) Un texte sous « Paramètres avancés » (le prompt négatif de Wan 2.2) : sur toute la largeur de ses deux
+   colonnes. */
+#messages .proposal-card .proposal-panels .proposal-grid > .proposal-field.is-wide {
+  grid-column: 1 / -1;
+}
 .proposal-foot {
   display: flex;
   align-items: center;
@@ -19133,6 +19232,21 @@ body[data-view='bobine'] .chat-panel {
   #bobine-view .bobine-desk .bobine-line:has(.bobine-line-reason.is-note) textarea.bobine-line-words {
     min-height: calc(1lh + 18px);
   }
+  /* (0.6.475) Faite en parties, sa note dans la bulle de « 3 × 08.33 S », en ambre comme elle : sur une ligne à elle,
+     la carte d'un texte de deux lignes (184 px) ne tenait plus entière dans « À créer » (167 px à 1280 × 720). Sa
+     ligne reste pour un lecteur d'écran. */
+  #bobine-view .bobine-line-reason.is-note.is-parts {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  #bobine-view .bobine-line-parts[data-tip] {
+    color: var(--warning);
+  }
 }
 /* Moodix AI arrange : sa demande reste lisible, « Arrêter » à portée. */
 .bobine-ask-field[data-state='working'] {
@@ -20034,6 +20148,19 @@ body[data-view='bobine'] .chat-panel {
   left: auto;
   right: calc(100% + 8px);
   transform: translateY(-50%);
+}
+/* (0.6.475) Une place que le modèle de sa prise ne prend pas (MiniMax H3 : ni début ni fin ; Wan 2.2 : pas de fin) :
+   grisée comme les pièces de sa carte, sa raison dans sa bulle ; elle ne s'allume pas sous une image portée, qui y est
+   refusée avec ces mots. Une image déjà posée là, gardée mais pas envoyée, aussi. */
+#bobine-view .montage-photo[data-left='true'] {
+  opacity: 0.45;
+}
+#bobine-view .montage-photos[data-carrying='true'] .montage-photo.is-slot[data-left='true'] {
+  border-color: rgba(238, 232, 222, 0.3);
+  color: rgba(238, 232, 222, 0.42);
+}
+.montage-photos[data-carrying='true'] .montage-photo[data-left='true']:not(.is-slot) {
+  outline: none;
 }
 
 /* Une fenêtre basse (1280 × 720, 240 px de timeline) : la règle 26 px (25 dans le panneau), Images 32, Prises 92,
@@ -21289,6 +21416,130 @@ body:has(dialog[open]) :is(.camera-ball, .camera-menu-option) :is(.camera-ball-l
 }
 #studio-view .studio-rail > .output-action-compare[aria-pressed='true'] > svg {
   color: var(--accent);
+}
+
+/* ------------------------------------------------------------------ (0.6.480) A model not on this computer */
+/* (claude_design/maquette-studio-sans-modele, approved on 27/11.) Its name in amber, in its list and alone; what it is
+   for under it, then « Pas sur cet ordinateur · 17,7 Go » in amber; « Télécharger · 17,7 Go » in the glass of
+   « Générer », as wide as its words (217 px, as approved), its arrow of 16 px drawn with a line; what it lacks in
+   amber above the buttons (0.6.474: in the line kept there, .studio-under). */
+#studio-view .studio-set-model :is(.studio-model-pick, .studio-model-name).is-absent {
+  color: var(--warning);
+}
+#studio-view .studio-model-note.studio-absent-note {
+  padding: 0 12px 10px;
+  color: var(--text-3);
+  font: 400 12.5px/1.45 var(--font-ui);
+}
+#studio-view .studio-absent-note .studio-absent-size {
+  font-weight: 500;
+  color: var(--warning);
+}
+#studio-view .studio-go-glass .studio-go.studio-get svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-right: 9px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* (0.6.474) In the line above the buttons, at its height: with 10 px of margin, 9 px of its words' 17.5 were seen. */
+#studio-view .studio-absent-line {
+  margin: 0;
+  text-align: center;
+  font: 400 12.5px/19px var(--font-ui);
+  color: var(--warning);
+}
+/* A licence with conditions, read before anything is downloaded: on the screen, over it, the licence scrolled in
+   itself as in the Bobine (the page never moves), « Refuser » always under it (at 1280 × 720 it was below the edge);
+   « J’ai lu, télécharger » in the place of « Générer ». */
+#studio-view .studio-screen.has-license {
+  position: relative;
+}
+#studio-view .studio-license-pane {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 14px;
+  box-sizing: border-box;
+  padding: 20px 24px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: rgba(12, 11, 14, 0.88);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  box-shadow: inset 0 0 0 1px rgba(238, 232, 222, 0.14);
+}
+#studio-view .studio-license-pane > .license-block {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-width: 560px;
+  margin: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+#studio-view .studio-license-pane :is(.license-line, .license-limits) {
+  font-size: 13.5px;
+}
+#studio-view .studio-license-pane .license-files {
+  font-size: 12px;
+}
+#studio-view .studio-license-pane > .studio-decline {
+  flex: none;
+  height: 38px;
+  min-height: 0;
+  margin: 0;
+  padding: 0 16px;
+  border: 1px solid rgba(238, 232, 222, 0.16);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-2);
+  font: 400 14.5px/1 var(--font-ui);
+}
+#studio-view .studio-license-pane > .studio-decline:is(:hover, :focus-visible) {
+  border-color: rgba(238, 232, 222, 0.3);
+  color: var(--text-1);
+}
+/* While the generation engine starts (studio.mjs, engineWait): the glass of « Générer », its bar going and coming
+   under « Le moteur démarre… »; nothing else moves, nothing fades in. */
+#studio-view .studio-engine-go {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 206px;
+  height: 100%;
+  padding: 0 22px;
+  overflow: hidden;
+  color: var(--text-2);
+  font: 500 14.5px/1 var(--font-ui);
+}
+#studio-view .studio-engine-go .studio-go-bar {
+  width: 30%;
+  animation: studio-go-wait 1.6s ease-in-out infinite alternate;
+}
+@media (prefers-reduced-motion: reduce) {
+  #studio-view .studio-engine-go .studio-go-bar {
+    width: 100%;
+    opacity: 0.5;
+    animation: none;
+  }
+}
+.studio-desk.is-engine.is-arriving .studio-block-body > :not(.studio-screen),
+.studio-desk.is-engine.is-arriving .studio-screen > * {
+  animation: none;
+}
+/* (Empty, the frame of the Réglages was a line of 2 px at the top of its column: its settings come with the Studio.) */
+#studio-view .studio-desk.is-engine .studio-block.is-settings {
+  visibility: hidden;
 }
 
 /* ------------------------------------------------------------------ the dictation (0.6.452) */
