@@ -85,6 +85,23 @@ test('the Archives: a page of its own, headed by the fil of the Chat and the Stu
   assert.match(css, /body\[data-view='library'\] \.chat-area,\nbody\[data-view='library'\] \.composer-region \{/);
   // Its own scroll; the sheet by day, each take at its format on rows of 196 px (capture 31).
   assert.match(css, /body\[data-view='library'\] \.library-view \{[^}]*overflow-y: auto;/);
+  // (0.6.474) The sheet alone scrolls, under the head, which stays at the top with the fil and the kinds (étude du
+  // 27/11, défaut 8: they went up with the sheet). Its bar at the right edge of the window, the foot kept for the
+  // miniature of a work.
+  assert.match(
+    css,
+    /body\[data-view='library'\] #library-view \{\n {2}overflow-y: hidden;\n {2}padding: 18px 0 0;\n\}/,
+  );
+  assert.match(css, /#library-view > \.library-head \{\n {2}margin: 0 36px 16px;\n\}/);
+  assert.match(
+    css,
+    /#library-view > \.library-creations \{\n {2}flex: 1 1 auto;\n {2}min-height: 0;\n {2}padding: 0 36px 48px;\n/,
+  );
+  assert.match(css, /#library-view > \.library-creations \{[^}]*overflow-y: auto;/);
+  assert.match(
+    css,
+    /body:has\(> \.work-mini:not\(\[hidden\]\):not\(\.is-foot\)\) #library-view > \.library-creations \{\n {2}padding-bottom: 280px;/,
+  );
   assert.match(css, /\.library-row \{\n {2}display: flex;\n {2}flex-wrap: wrap;\n {2}gap: 10px;/);
   // (0.6.281) The rule that sizes them: 196 px times their ratio as a start, at their format (the width and
   // the height of 196 px written before it never acted).

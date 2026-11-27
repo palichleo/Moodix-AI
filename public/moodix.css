@@ -10183,6 +10183,30 @@ body:not([data-view='chat']) .resume {
   --block-pad: 14px 16px 16px;
   gap: 12px;
 }
+/* (0.6.474) The line under the screen, above the buttons, keeps its place, empty or not: « Générer » never moves under
+   the pointer. One line of 19 px, 8 px from the screen and from the bar (the gap of the block, 12, less 4 on each
+   side): 23 px of the screen. What is said there (the failure of a take, any sentence put in it) longer than its line
+   is cut there, whole in its bubble (studio.mjs, wholeInBubble). Said under the buttons, a failure pushed « Générer »
+   up by 31 px on one line (1912 px wide), by 50 px on two (1280 to 1440); kept there, that room is taken from the
+   menu of the Caméra and from « Plus de réglages », which hold above « Générer » with 2 to 17 px to spare (measured on
+   27/11 at 1280 × 720 and 1912 × 948: scripts/check-ui.mjs, « rien sous la Sortie, tout à portée »). */
+#studio-view .studio-under {
+  flex: none;
+  align-self: stretch;
+  min-width: 0;
+  height: 19px;
+  margin: -4px 0;
+  overflow: hidden;
+  font-size: var(--size-2);
+  line-height: 19px;
+  text-align: center;
+}
+#studio-view .studio-under > * {
+  overflow: hidden;
+  line-height: 19px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .studio-screen-head {
   position: relative;
   display: flex;
@@ -10700,6 +10724,16 @@ body:not([data-view='chat']) .resume {
   gap: var(--strip-gap);
   align-items: flex-start;
   padding: 2px 2px 6px;
+}
+/* (0.6.474) The Sortie as tall full as empty (his rule « Sortie fixe »): its row keeps the height of an empty Sortie
+   (125 px: its line of 117 and its margins), which the Studio is laid out for. A sound alone made it 104 px,
+   « EN COURS » coming beside it 124, more takes than its width 132: « Générer » moved by up to 28 px from one project
+   to the next, and when a creation began; full, the room above it was 7 px short (« Plus de réglages » scrolled at
+   1280 × 720, the column Entrée with the Caméra at 1440 × 900). The bar that scrolls the takes, when they are more than
+   its width, goes 7 px past the row, over the room under the Sortie (18 px). */
+#studio-view .studio-block.is-output .studio-sortie-row {
+  flex: none;
+  height: 125px;
 }
 #studio-view .studio-item {
   position: relative;
@@ -11704,6 +11738,35 @@ body[data-view='library'] .library-view {
    scrolls sideways, was crushed to nothing by a long sheet). */
 #library-view > * {
   flex-shrink: 0;
+}
+/* (0.6.474) The head of the Archives (the fil, the number of takes, Tout · Images · Vidéos · Sons) stays at the top:
+   the sheet scrolls under it, the page does not. It went up with the sheet, out of sight and of reach (610 px above
+   the window after a few rows). The sides and the foot of the page go to the head and to the sheet: its bar at the
+   right edge of the window, as the bar of the page was. */
+body[data-view='library'] #library-view {
+  overflow-y: hidden;
+  padding: 18px 0 0;
+}
+#library-view > .library-head {
+  margin: 0 36px 16px;
+}
+#library-view > .library-creations {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 36px 48px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+body:has(> .work-mini:not([hidden]):not(.is-foot)) #library-view > .library-creations {
+  padding-bottom: 280px;
+}
+@media (max-width: 720px) {
+  #library-view > .library-head {
+    margin: 0 16px 16px;
+  }
+  #library-view > .library-creations {
+    padding: 0 16px 32px;
+  }
 }
 
 /* ------------------------------------------------------------------ the Paramètres (phase 5) */
@@ -13595,6 +13658,17 @@ body[data-setup='incomplete'] #resume-last {
   font: 400 11px/1 var(--font-mono);
   letter-spacing: 0.14em;
   text-transform: uppercase;
+}
+/* (0.6.474) « Génération en cours dans « … » », a work of another conversation: the line leads there (app.js,
+   awayWork), as the miniature of the Studio does. */
+#chat-form .compose-state.is-link {
+  cursor: pointer;
+}
+#chat-form .compose-state.is-link:hover,
+#chat-form .compose-state.is-link:focus-visible {
+  color: var(--text-1);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 #chat-form .cancel-button .cancel-word {
   display: none;
@@ -21465,7 +21539,7 @@ body:has(dialog[open]) :is(.camera-ball, .camera-menu-option) :is(.camera-ball-l
 /* (claude_design/maquette-studio-sans-modele, approved on 27/11.) Its name in amber, in its list and alone; what it is
    for under it, then « Pas sur cet ordinateur · 17,7 Go » in amber; « Télécharger · 17,7 Go » in the glass of
    « Générer », as wide as its words (217 px, as approved), its arrow of 16 px drawn with a line; what it lacks in
-   amber under the buttons. */
+   amber above the buttons (0.6.474: in the line kept there, .studio-under). */
 #studio-view .studio-set-model :is(.studio-model-pick, .studio-model-name).is-absent {
   color: var(--warning);
 }
@@ -21489,10 +21563,11 @@ body:has(dialog[open]) :is(.camera-ball, .camera-menu-option) :is(.camera-ball-l
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+/* (0.6.474) In the line above the buttons, at its height: with 10 px of margin, 9 px of its words' 17.5 were seen. */
 #studio-view .studio-absent-line {
-  margin: 10px 0 0;
+  margin: 0;
   text-align: center;
-  font: 400 12.5px/1.4 var(--font-ui);
+  font: 400 12.5px/19px var(--font-ui);
   color: var(--warning);
 }
 /* A licence with conditions, read before anything is downloaded: on the screen, over it, the licence scrolled in
