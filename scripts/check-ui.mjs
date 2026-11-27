@@ -422,6 +422,9 @@ try {
   const pending = new Map();
   socket.onmessage = event => {
     const message = JSON.parse(event.data);
+    // (0.6.466) The creation the steps of the queue of the Studio simulate (studioQueue): this copy makes none.
+    if (message.method === 'Fetch.requestPaused' && creation && CREATION.test(message.params.request.url))
+      return void creationPaused(message.params);
     if (message.id && pending.has(message.id)) {
       pending.get(message.id)(message);
       pending.delete(message.id);
@@ -465,6 +468,74 @@ try {
   // of each sound the page posted (its WAV is read in the page: a body of a Blob is not shown to Fetch).
   let dictationSaid = null;
   const dictationPosted = [];
+  // (0.6.466) A creation of the Studio, simulated for the steps of its queue (studioQueue): its requests answered here,
+  // the take under way said by /api/status as the server says it. `fail`: the reason its next answer gives; `asked`:
+  // the prompts of the requests that went.
+  let creation = null;
+  const CREATION = /\/api\/(tools\/(action|revise|execute|job|cancel)|status)(\?|$)/,
+    OVER = new Set(['done', 'error', 'cancelled']);
+  async function creationPaused({ requestId, request, responseStatusCode }) {
+    const answer = value =>
+      send('Fetch.fulfillRequest', {
+        requestId,
+        responseCode: 200,
+        responseHeaders: [{ name: 'Content-Type', value: 'application/json; charset=utf-8' }],
+        body: Buffer.from(JSON.stringify(value)).toString('base64'),
+      });
+    try {
+      const url = request.url,
+        job = creation.job;
+      if (responseStatusCode !== undefined) {
+        const { body, base64Encoded } = await send('Fetch.getResponseBody', { requestId }),
+          status = JSON.parse(base64Encoded ? Buffer.from(body, 'base64').toString('utf8') : body);
+        return await answer({ ...status, toolJob: job && !OVER.has(job.state) ? job : null });
+      }
+      if (/\/api\/tools\/action$/.test(url)) {
+        const { name = 'create_image', arguments: args = {} } = JSON.parse(request.postData || '{}'),
+          at = creation.asked.push(String(args.prompt ?? ''));
+        creation.proposal = {
+          requestId: 'demande-file-' + at,
+          approvalToken: 'jeton-file',
+          tool: name,
+          call: {
+            id: 'call_file' + String(at).padStart(20, '0'),
+            type: 'function',
+            function: { name, arguments: JSON.stringify(args) },
+          },
+          args,
+          workflowName: 'Krea 2',
+          plan: { prompt: String(args.prompt ?? ''), parameters: { width: 1344, height: 768 } },
+        };
+        return await answer(creation.proposal);
+      }
+      if (/\/api\/tools\/revise$/.test(url)) return await answer(creation.proposal);
+      if (/\/api\/tools\/execute$/.test(url)) {
+        creation.job = {
+          id: 'travail-file-' + creation.asked.length,
+          state: 'generating',
+          progress: 'Génération · 5/8',
+          fraction: 0.46,
+          elapsed: { ms: 72000, running: true },
+          media: 'image',
+          workflowName: 'Krea 2',
+          studio: true,
+        };
+        return await answer(creation.job);
+      }
+      if (/\/api\/tools\/cancel$/.test(url)) {
+        if (job && !OVER.has(job.state)) job.state = 'cancelled';
+        return await answer({ cancelled: true });
+      }
+      // /api/tools/job: the take under way, or how it ended; refused once `fail` is said.
+      if (job && creation.fail && !OVER.has(job.state)) {
+        Object.assign(job, { state: 'error', error: creation.fail });
+        creation.fail = '';
+      }
+      return await answer(job);
+    } catch {
+      // The page has moved on (a request cancelled): nothing to answer.
+    }
+  }
   async function paused({ requestId, request, responseStatusCode, responseHeaders }) {
     const answer = (body, type = 'application/json; charset=utf-8') =>
       send('Fetch.fulfillRequest', {
@@ -1012,6 +1083,164 @@ try {
     );
     await rail();
     await run('Chat (image agrandie)', () => click('#chat-open'), view('chat'));
+  }
+  /**
+   * (0.6.466) The queue of the Studio (claude_design/maquette-file-studio): a take of the Studio under way (simulated:
+   * `creation`), three requests put after it by « Générer ensuite »; that take refused, its tile says why and the next
+   * request goes; that one stopped, what waits is paused (« Reprendre · 2 »). Each time at 1280 × 720, 1440 × 900 and
+   * 1912 × 948: the tiles whole in the Sortie and in their order, none of their words under 12 px but their small
+   * capitals of 10.5 px, none cut; the group of « Générer » in its block; the page not scrolling. Emptied after.
+   */
+  async function studioQueue() {
+    const look = (tiles, label) => `(() => {
+      const found = [],
+        desk = document.querySelector('#studio-view .studio-desk'),
+        out = desk?.querySelector('.studio-block.is-output'),
+        strip = out?.querySelector('.studio-strip');
+      if (!out || !strip) return ['pas de Sortie'];
+      const inside = (box, room) =>
+          box.left >= room.left - 0.5 && box.right <= room.right + 0.5 &&
+          box.top >= room.top - 0.5 && box.bottom <= room.bottom + 0.5,
+        size = element => parseFloat(getComputedStyle(element).fontSize),
+        words = tile => [...tile.querySelector('.studio-queued-head').children].map(part => part.textContent)
+          .filter(Boolean).join(' '),
+        tiles = [...out.querySelectorAll('.studio-item.is-queued')];
+      if (tiles.map(words).join(' | ') !== ${JSON.stringify(tiles.join(' | '))})
+        found.push('vignettes « ' + tiles.map(words).join(' | ') + ' »');
+      for (const tile of tiles) {
+        const pick = tile.querySelector('.studio-queued-pick'),
+          box = pick.getBoundingClientRect();
+        if (!inside(box, out.getBoundingClientRect()) || !inside(box, strip.getBoundingClientRect()))
+          found.push(words(tile) + ' : hors de la Sortie');
+        for (const part of pick.querySelectorAll('.studio-queued-head, .studio-queued-text, .studio-queued-foot')) {
+          const capitals = part.matches('.studio-queued-head'),
+            small = capitals
+              ? Math.abs(size(part) - 10.5) > 0.05 || getComputedStyle(part).textTransform !== 'uppercase'
+              : size(part) < 12;
+          if (small) found.push(words(tile) + ' : ' + part.className + ' à ' + size(part) + ' px');
+          if (part.scrollWidth > part.clientWidth + 1 || part.getBoundingClientRect().bottom > box.bottom + 0.5)
+            found.push(words(tile) + ' : ' + part.className + ' coupé');
+        }
+      }
+      const group = desk.querySelector('.studio-go-group'),
+        block = group?.closest('.studio-block'),
+        word = group?.querySelector('.studio-go-label')?.textContent;
+      if (!group || !block || !inside(group.getBoundingClientRect(), block.getBoundingClientRect()))
+        found.push('le groupe de « Générer » sort de son bloc');
+      const wanted = ${JSON.stringify(label)};
+      if (word !== wanted) found.push('« ' + word + ' » au lieu de « ' + wanted + ' »');
+      const page = document.documentElement;
+      if (page.scrollHeight > innerHeight + 1 || page.scrollWidth > innerWidth + 1) found.push('la page défile');
+      return found;
+    })()`;
+    const sized = (width, height) =>
+      send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+    const over = async (tiles, label) => {
+      const seen = [];
+      for (const [width, height] of [
+        [1280, 720],
+        [1440, 900],
+        [1912, 948],
+      ]) {
+        await sized(width, height);
+        await wait(300);
+        for (const what of await js(look(tiles, label))) seen.push(`${what} (${width} × ${height})`);
+      }
+      for (const what of seen) problems.push([step, 'état', what]);
+      return seen.length === 0;
+    };
+    const write = text =>
+      js(`(() => {
+        const area = document.getElementById('studio-prompt');
+        if (!area) return false;
+        area.value = ${JSON.stringify(text)};
+        area.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      })()`);
+    const kept = [
+      { urlPattern: '*/api/studio', requestStage: 'Request' },
+      { urlPattern: '*/api/tools/actions', requestStage: 'Request' },
+    ];
+    creation = { asked: [], job: null, proposal: null, fail: '' };
+    await send('Fetch.enable', {
+      patterns: [
+        ...kept,
+        ...['action', 'revise', 'execute', 'job*', 'cancel'].map(name => ({ urlPattern: '*/api/tools/' + name })),
+        { urlPattern: '*/api/status*', requestStage: 'Response' },
+      ],
+    });
+    await run(
+      'Studio : une prise en cours, « Générer ensuite » à la place de « Générer »',
+      async () => {
+        await sized(1440, 900);
+        await click('#studio-open');
+        await wait(800);
+        await click('#studio-kinds .kind-tab[aria-label="Image"]');
+        if (!(await write('Un vieux pêcheur répare son filet sur le ponton, lumière dorée du matin'))) return false;
+        await wait(100);
+        return click('#studio-view .studio-go');
+      },
+      () =>
+        js(`(() => {
+          const go = document.querySelector('#studio-view .studio-go-glass.is-working.is-next .studio-go.is-next');
+          return go?.querySelector('.studio-go-label').textContent === 'Générer ensuite' &&
+            go.querySelector('.studio-go-percent').textContent === '46 %';
+        })()`),
+      { within: 5000 },
+    );
+    await run(
+      'Studio : trois demandes en file, entières dans la Sortie',
+      async () => {
+        for (const text of [
+          'La même scène à la tombée de la nuit, une lanterne posée sur le filet',
+          'Le pêcheur lance son filet, la caméra recule lentement vers le large, des mouettes passent au-dessus de lui',
+          'Clapotis de l’eau contre le ponton',
+        ]) {
+          if (!(await write(text))) return false;
+          await wait(100);
+          if (!(await click('#studio-view .studio-go.is-next'))) return false;
+          await wait(150);
+        }
+      },
+      () => over(['En attente 3', 'En attente 2', 'En attente 1'], 'Générer ensuite'),
+    );
+    const failed = `document.querySelectorAll('#studio-view .studio-item.is-queued.is-failed').length === 1`,
+      next = () => creation.asked.length === 2 && creation.job?.state === 'generating';
+    await run(
+      'Studio : la prise refusée, sa vignette « Échec », la demande suivante partie',
+      async () => {
+        creation.fail = 'Le modèle n’a pas pu être chargé.';
+        await until(async () => next() && js(failed), 6000);
+      },
+      () => over(['En attente 2', 'En attente 1', 'Échec'], 'Générer ensuite'),
+    );
+    const paused = `document.querySelectorAll('#studio-view .studio-item.is-queued.is-paused').length === 2`;
+    await run(
+      'Studio : « Arrêter », ce qui attend en pause, « Reprendre · 2 »',
+      async () => {
+        if (!(await click('#studio-view .studio-stop'))) return false;
+        await until(() => js(paused), 6000);
+      },
+      () => over(['En pause 2', 'En pause 1', 'Échec'], 'Reprendre · 2'),
+    );
+    await run(
+      'Studio : « Vider la file », puis l’échec retiré par sa croix',
+      async () => {
+        if (!(await click('#studio-view .studio-clear'))) return false;
+        await wait(100);
+        return click('#studio-view .studio-item.is-queued.is-failed .studio-item-del');
+      },
+      () =>
+        js(`!document.querySelector('#studio-view .studio-item.is-queued') &&
+          document.querySelector('#studio-view .studio-go-label')?.textContent === 'Générer'`).then(
+          empty => empty && creation.asked.length === 2,
+        ),
+      { within: 1500 },
+    );
+    await send('Fetch.enable', { patterns: kept });
+    await wait(300);
+    creation = null;
+    await write('');
   }
   /**
    * (0.6.262) The menu of the camera at the keys, at 1440 × 900 under LTX 2.5: Entrée on its ball opens it, the focus
@@ -2095,6 +2324,8 @@ try {
   await cameraKept();
   // (0.6.258) With the tools of the Studio still given: the loupe of an image made larger, in its own conversation.
   await loupe();
+  // (0.6.466) Then its queue, with a creation simulated.
+  await studioQueue();
   await send('Fetch.disable');
   laidOut = false;
   console.log(`Vérification de l’interface (${browser.split(/[\\/]/).pop()}) : ${results.filter(([, ok]) => ok).length}/${results.length} étapes.`);

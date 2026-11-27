@@ -20135,3 +20135,156 @@ body:has(dialog[open]) :is(.camera-ball, .camera-menu-option) :is(.camera-ball-l
   font-size: 13px;
   color: var(--text-2);
 }
+
+/* ------------------------------------------------------------------ (0.6.466) The queue of the Studio */
+/* claude_design/maquette-file-studio (its file.css, under the names of the product). « ▸ Générer ensuite · 46 % | ■ »
+   in the glass of « Générer » while a take of the Studio is made (266 px, 206 before; in a series, as wide as « 1/3 ·
+   46 % » needs); « ▸ Reprendre · 3 | × » once the queue is paused. Nothing fades, nothing blinks: the states change at
+   once, as the Sortie; only the bar of a wait moves between two requests, as when a take begins. */
+#studio-view .studio-go-glass.is-working.is-next {
+  width: auto;
+  min-width: 266px;
+}
+#studio-view .studio-go-group:not(.is-checking) .studio-go-glass.is-working .studio-go.is-next {
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 0 16px 0 18px;
+  cursor: pointer;
+}
+#studio-view .studio-go-group:not(.is-checking) .studio-go-glass.is-working .studio-go.is-next[aria-disabled='true'] {
+  cursor: default;
+}
+#studio-view .studio-go-glass.is-working .studio-go.is-next:not([aria-disabled='true']):is(:hover, :focus-visible) {
+  background: rgba(238, 232, 222, 0.08);
+}
+#studio-view .studio-go-percent {
+  position: relative;
+  z-index: 1;
+  margin-left: auto;
+  color: var(--text-2);
+  font: 500 12.5px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+#studio-view .studio-go-group:not(.is-checking) .studio-go-glass.is-paused .studio-go {
+  min-width: 168px;
+}
+/* Its ×, « Vider la file », in the place of « Arrêter » and of its size. */
+#studio-view .studio-go-group:not(.is-checking) .studio-go-glass .studio-clear {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-1);
+}
+#studio-view .studio-go-glass .studio-clear:is(:hover, :focus-visible) {
+  background: rgba(238, 232, 222, 0.08);
+}
+#studio-view .studio-go-glass .studio-clear:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -3px;
+}
+#studio-view .studio-go-glass .studio-clear svg {
+  width: 14px;
+  height: 14px;
+}
+/* A request in the Sortie: a sound of the Sortie, narrower (196 × 96), with no picture. « EN ATTENTE · 1 » in the
+   small capitals of the Sortie (10.5 px), two lines of its prompt (13 px), its model and its format (12 px). */
+#studio-view .studio-item.is-queued .studio-item-pick.studio-queued-pick {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  align-content: start;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 196px;
+  min-width: 196px;
+  height: var(--strip-h);
+  padding: 12px 13px 11px;
+  border-radius: 8px;
+  background: rgba(var(--room-glass), 0.5);
+  outline: 1px solid rgba(238, 232, 222, 0.12);
+  outline-offset: -1px;
+  color: var(--text-2);
+  text-align: left;
+  cursor: default;
+}
+#studio-view .studio-item.is-queued .studio-item-pick.studio-queued-pick:hover {
+  outline: 1px solid rgba(238, 232, 222, 0.24);
+}
+#studio-view .studio-item.is-queued .studio-item-pick.studio-queued-pick:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.studio-queued-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-3);
+  font: 400 var(--size-label)/1 var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.studio-queued-head > :first-child {
+  color: var(--text-2);
+}
+.studio-queued-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--text-2);
+  font: 400 13px/1.25 var(--font-ui);
+  overflow-wrap: anywhere;
+}
+.studio-queued-foot {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-3);
+  font: 400 12px/1 var(--font-ui);
+  white-space: nowrap;
+}
+.studio-queued-what {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.studio-queued-tries {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-2);
+}
+.studio-queued-foot svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+/* Paused: its word in the colour of a warning. Failed: its word and its reason in that of the errors, a click takes
+   its settings back. */
+#studio-view .studio-item.is-queued.is-paused .studio-queued-head > :first-child {
+  color: var(--warning);
+}
+#studio-view .studio-item.is-queued.is-failed .studio-item-pick.studio-queued-pick {
+  outline-color: color-mix(in srgb, var(--danger) 30%, transparent);
+  cursor: pointer;
+}
+#studio-view .studio-item.is-queued.is-failed :is(.studio-queued-head > :first-child, .studio-queued-text) {
+  color: var(--danger);
+}
+/* Its cross at its top right (its rank under it while the pointer is there); shown at once, never faded in. */
+#studio-view .studio-item.is-queued .studio-item-del {
+  top: 6px;
+  right: 6px;
+  left: auto;
+  transition: none;
+}

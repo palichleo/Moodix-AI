@@ -61,3 +61,34 @@ test('hovered or focused, unavailable, and under way', () => {
   assert.match(rule("#studio-view .studio-go[role='progressbar'] svg"), /display: none;/);
   assert.match(rule('#studio-view .studio-go:disabled'), /cursor: progress;/);
 });
+
+test('(0.6.466) the queue: « Générer ensuite », « Reprendre » and its tiles, no text under 12 px', () => {
+  const glass = '#studio-view .studio-go-group:not(.is-checking) .studio-go-glass';
+  // « ▸ Générer ensuite · 46 % » in the glass of « Générer » while a take of the Studio is made.
+  assert.match(rule('#studio-view .studio-go-glass.is-working.is-next'), /width: auto;[^]*min-width: 266px;/);
+  assert.match(rule(glass + '.is-working .studio-go.is-next'), /justify-content: flex-start;[^]*cursor: pointer;/);
+  assert.match(rule(glass + ".is-working .studio-go.is-next[aria-disabled='true']"), /cursor: default;/);
+  const percent = rule('#studio-view .studio-go-percent');
+  assert.match(percent, /margin-left: auto;[^]*font: 500 12\.5px\/1 var\(--font-mono\);/);
+  // « ▸ Reprendre · 3 | × »: its cross in the place of « Arrêter », of its size.
+  assert.match(rule(glass + '.is-paused .studio-go'), /min-width: 168px;/);
+  assert.match(rule(glass + ' .studio-clear'), /width: 54px;[^]*height: 100%;[^]*background: transparent;/);
+  assert.match(rule('#studio-view .studio-go-glass .studio-clear:focus-visible'), /outline: 2px solid var\(--focus\);/);
+  // A request in the Sortie: 196 px wide, as high as the strip; small capitals of 10.5 px, texts of 12 px at least.
+  const tile = '#studio-view .studio-item.is-queued';
+  const pick = rule(tile + ' .studio-item-pick.studio-queued-pick');
+  assert.match(pick, /width: 196px;[^]*min-width: 196px;[^]*height: var\(--strip-h\);/);
+  assert.match(css, /--size-label: 10\.5px;/);
+  const head = rule('.studio-queued-head');
+  assert.match(head, /font: 400 var\(--size-label\)\/1 var\(--font-mono\);[^]*text-transform: uppercase;/);
+  assert.match(rule('.studio-queued-text'), /-webkit-line-clamp: 2;[^]*font: 400 13px\/1\.25 var\(--font-ui\);/);
+  assert.match(rule('.studio-queued-foot'), /font: 400 12px\/1 var\(--font-ui\);/);
+  assert.match(rule(tile + '.is-paused .studio-queued-head > :first-child'), /color: var\(--warning\);/);
+  assert.match(rule(tile + '.is-failed .studio-item-pick.studio-queued-pick'), /cursor: pointer;/);
+  assert.match(rule(tile + ' .studio-item-del'), /transition: none;/);
+  // Nothing fades in, nothing blinks; no size under 12 px but that of the small capitals.
+  const queue = css.slice(css.indexOf('(0.6.466) The queue of the Studio'));
+  assert.doesNotMatch(queue, /animation|opacity|transition: (?!none;)/);
+  const sizes = [...queue.matchAll(/font(?:-size)?: (?:\d+ )?(\d+(?:\.\d+)?)px/g)].map(([, size]) => Number(size));
+  assert.deepEqual(sizes, [12.5, 13, 12]);
+});

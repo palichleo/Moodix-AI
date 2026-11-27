@@ -734,6 +734,8 @@ async function clearHistory() {
     await historyWrite;
     await api(target ? 'history/delete' : 'history/clear', { confirm: true, ...(target ? { id: target.id } : {}) });
     forgetCopies(target?.id ?? null);
+    // (0.6.466) What its queue of the Studio had to make goes with it.
+    state.studio?.forgetQueue?.(target?.id ?? null);
     state.historyItems = target ? state.historyItems.filter(item => item.id !== target.id) : [];
     // The conversation set aside goes with it (its work is over: deleting one is refused during a work).
     if (state.aside && (!target || target.id === state.aside.conversationId)) dropAside();
@@ -1414,11 +1416,16 @@ function updateControls() {
   const away = state.work && !shownHere(state.work.conversationId) ? workHeld() : '';
   // A proposal waits (in the Studio, or in a card of the conversation): a new message declines it.
   const proposing = !away && Boolean(state.studio?.proposing?.() || state.proposalCard);
+  // (0.6.466) The queue of the Studio holds the chat until its end, from one of its requests to the next too (no take
+  // is made for a second between two: a message would take the card from the next one). Never queued itself.
+  const queueHolds = !away && Boolean(state.studio?.queueHolds?.()),
+    queued = state.studio?.queued?.() || 0;
   // Whether a message would not leave now, whatever it says (0.6.90): « Régénérer » asks nothing then
   // (takeBack), its question would let the conversation set aside go for a message that stays.
   state.sendHeld = Boolean(
     state.projectWorking ||
       toolBusy ||
+      queueHolds ||
       away ||
       !state.connected ||
       s.state === 'stopping' ||
@@ -1432,18 +1439,22 @@ function updateControls() {
   const dictating = state.dictation?.busy('chat') ? DICTATING : '';
   $('send').disabled =
     state.sendHeld || Boolean(dictating) || (!$('prompt').value.trim() && !state.images.length && !state.videos.length);
-  $('send').hidden = !away && ((state.generating && !proposing) || toolBusy);
+  $('send').hidden = !away && ((state.generating && !proposing) || toolBusy || queueHolds);
   if ((away || dictating) && $('send').dataset) $('send').dataset.tip = away || dictating;
   else if ($('send').dataset?.tip) delete $('send').dataset.tip;
   // Interrompre only while something runs: Moodix thinking or writing, a generation (16/11). A
   // proposal waiting for the user (a card, the Studio) runs nothing: a new message declines it.
-  $('cancel').hidden = Boolean(away) || proposing || (!state.generating && (!toolBusy || s.toolJob.blocked));
+  $('cancel').hidden =
+    Boolean(away) || proposing || (!state.generating && !queueHolds && (!toolBusy || s.toolJob.blocked));
   // (0.6.180) A generation under way: the button stops it, and says so, as the Studio's « Arrêter » does. It
   // said « Interrompre la réponse » all the same, for a take of the Bobine too.
+  // (0.6.466) With requests of the Studio after it: what it does to them (they wait for « Reprendre »).
   const cancelLabel = state.waitingForModel
     ? 'Annuler le message en attente'
-    : toolBusy && !s.toolJob.blocked
-      ? 'Arrêter la génération'
+    : (toolBusy && !s.toolJob.blocked) || queueHolds
+      ? queued
+        ? 'Arrêter la génération : la file du Studio se met en pause'
+        : 'Arrêter la génération'
       : 'Interrompre la réponse';
   // The model loading under a message sent: « EN ATTENTE » and « Annuler », in words (51).
   $('cancel').classList.toggle('is-word', Boolean(state.waitingForModel));
@@ -1481,9 +1492,12 @@ function updateControls() {
     : proposing
     ? 'Proposition dans le Studio · un message la refuse'
     : toolBusy
-    ? Number.isFinite(s.toolJob.fraction)
-      ? Math.floor(Math.min(1, Math.max(0, s.toolJob.fraction)) * 100) + '\u202f%'
-      : s.toolJob.progress || 'Génération en cours…'
+    ? (Number.isFinite(s.toolJob.fraction)
+        ? Math.floor(Math.min(1, Math.max(0, s.toolJob.fraction)) * 100) + '\u202f%'
+        : s.toolJob.progress || 'Génération en cours…') + (queued ? ` · ${queued} en attente` : '')
+    : queueHolds
+    ? // (0.6.466) Between two requests of the queue of the Studio: « Génération en cours… · 3 en attente ».
+      'Génération en cours…' + (queued ? ` · ${queued} en attente` : '')
     : state.preparing
       ? 'Préparation des images…'
       : state.waitingForModel
@@ -3324,7 +3338,9 @@ function workHeld({ short = false } = {}) {
     const name = `« ${titleOf(work.conversationId) || 'Nouvelle conversation'} »`;
     if (state.proposalCard || state.studio?.proposing?.())
       return short ? 'Moodix attend votre accord ailleurs' : `Moodix attend votre accord dans ${name} : répondez-lui d’abord.`;
-    if (job && !job.blocked) return short ? 'Génération en cours ailleurs' : `Génération en cours dans ${name} : attendez sa fin.`;
+    // (0.6.466) Between two requests of the queue of the Studio too: no take on the server for a second.
+    if ((job && !job.blocked) || (work.kind === 'studio' && state.studio?.queueHolds?.()))
+      return short ? 'Génération en cours ailleurs' : `Génération en cours dans ${name} : attendez sa fin.`;
     return short ? 'Moodix répond ailleurs' : `Moodix répond dans ${name} : attendez la fin de sa réponse.`;
   }
   if (!work && job && !job.blocked && job.conversationId && !shownHere(job.conversationId)) {
@@ -3547,7 +3563,14 @@ async function sendMessage(event) {
   event.preventDefault();
   // One work at a time (0.6.81): written in another conversation, the message waits for its end.
   if (state.work && !shownHere(state.work.conversationId)) return notice(workHeld());
-  if ($('send').disabled) return;
+  if ($('send').disabled) {
+    // (0.6.466, B3) Written while a creation is made here (a take, the queue of the Studio): the message waits, and
+    // Entrée says why. It said nothing.
+    const written = $('prompt').value.trim() || state.images.length || state.videos.length,
+      making = (state.status?.toolJob && !state.status.toolJob.blocked) || state.studio?.queueHolds?.();
+    if (written && making) notice(state.studio?.queueReason?.() || 'Le chat attend la fin de la génération en cours.');
+    return;
+  }
   if (state.generating) {
     // A proposal of Moodix waits (a card, or the Studio): this message answers it instead, and
     // the card goes (Moodix answers with another).
@@ -5166,8 +5189,10 @@ const studioUI = setupStudio({
   gpuMade: () => Boolean(state.status.toolJob?.blocked && state.status.toolJob.record),
   mark: () => moodixMark()[0],
   recoverGPU: () => recoverGPU(),
-  blocked: () =>
-    workHeld() ||
+  // (0.6.466) `own`: asked for what follows a take of the Studio (its next try, the next request of its queue), which
+  // the work of the page is: not held by it, wherever the page is meanwhile.
+  blocked: (own = false) =>
+    (own ? '' : workHeld()) ||
     (state.generating || state.status.busy
       ? 'Attendez la fin de la réponse en cours.'
       : state.preparing || state.loadingHistory || state.updating || state.closingApp
@@ -5212,6 +5237,15 @@ const studioUI = setupStudio({
   making: () => (state.work?.take && shownHere(state.work.conversationId) ? state.work.take : null),
   // (0.6.253) « Générer » greyed and pressed: its bubble at once.
   sayTip: element => helpTips.show(element),
+  // (0.6.466) Its queue, kept in this tab with its identity (studio-queue.mjs): found again by this tab reloaded only.
+  queueStorage: (() => {
+    try {
+      return sessionStorage;
+    } catch {
+      return null;
+    }
+  })(),
+  tab: TAB,
 });
 state.studio = studioUI;
 const generationUI = setupGenerationUI({
@@ -5558,6 +5592,8 @@ $('chat-form').addEventListener('click', event => {
 });
 $('cancel').onclick = () => {
   if (state.controller) state.controller.abort();
+  // (0.6.466) Between two requests of the queue of the Studio, no take on the server: the Studio stops it (all pause).
+  else if (!state.status.toolJob && state.studio?.queueHolds?.()) state.studio.stopQueue();
   else api('tools/cancel', { jobId: state.status.toolJob?.id }).catch(error => notice(error.message));
 };
 // The model and its reflection in the bar of the chat (17/11): the reflection of the local model,
@@ -6090,6 +6126,8 @@ window.addEventListener('beforeunload', event => {
     // (0.6.82). Moodix writing, a card waiting for the user, a series still to make would be lost.
     // Without the history, nothing is found again: asked for those too.
     (state.work && (!['studio', 'follow'].includes(state.work.kind) || !state.saveHistory)) ||
+    // (0.6.466, B1) The requests of the queue of the Studio: kept by a reload (paused), lost with the tab.
+    state.studio?.queueWaits?.() > 0 ||
     state.savingHistory ||
     state.historyDirty ||
     $('prompt').value.trim() ||
