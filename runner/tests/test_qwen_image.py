@@ -161,6 +161,30 @@ class FusedPassTests(unittest.TestCase):
     def test_a_model_whose_given_images_read_the_step(self):
         self.compare(zero=False)
 
+    def test_the_position_tables_are_asked_on_the_processor_and_laid_where_the_text_is(self):
+        # (0.6.462) The library keeps for ever what its position embedding computes for a device (lru_cache):
+        # asked for the card, 8 MiB stayed there after every picture, and the engine could never say the card
+        # was free again (« GPU cleanup incomplete », then « carte restée prise » after a retouch that worked).
+        from types import SimpleNamespace
+
+        asked = []
+
+        def embed(shapes, max_txt_seq_len=None, device=None):
+            asked.append((shapes, max_txt_seq_len, device))
+            return [SimpleNamespace(to=lambda where, name=name: (name, where)) for name in ('images', 'text')]
+
+        grid = [(1, 3, 5)]
+        made = qwen_image.positions(SimpleNamespace(pos_embed=embed), grid, 7, 'cuda:0')
+        self.assertEqual(asked, [([grid], 7, torch.device('cpu'))])
+        self.assertEqual(made, (('images', 'cuda:0'), ('text', 'cuda:0')))
+        # And the pass of a picture reads them from there (the tables of its steps, where its text is).
+        model = tiny(True)
+        _latents, held, text, grid = inputs(given=((10, 6),))
+        with torch.no_grad():
+            mods = qwen_image.modulations(model, SIGMAS, zero=True)
+            prepared = qwen_image.prepare(model, text, held, grid, mods)
+        self.assertEqual({table.device for table in prepared.tables}, {prepared.text.device})
+
     def test_the_feed_forward_a_few_rows_at_a_time_gives_the_same_rows(self):
         model, prepared, latents = self.compare(steps=(2,))
         with torch.no_grad():

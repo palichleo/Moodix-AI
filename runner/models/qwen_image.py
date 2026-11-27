@@ -230,6 +230,19 @@ def unpack(tokens, height, width):
     return value.reshape(1, CHANNELS, height, width)
 
 
+def positions(model, grid, length, device):
+    """The rotary frequencies of the picture and the images given (`grid`), and of `length` tokens of text, on
+    `device`: diffusers' position embedding, asked on the processor and laid on the device here.
+
+    (0.6.462) The library keeps for ever what it computes for a device (functools.lru_cache on its position
+    embedding): asked for the card, it kept 8 MiB there after every picture (four tables of complex numbers).
+    The engine could then never say the card was free again (« GPU cleanup incomplete: 0.007782 GiB still
+    allocated »): « carte restée prise » after a retouch that had worked. They are computed once a picture:
+    nothing is lost."""
+    images, said = model.pos_embed([grid], max_txt_seq_len=length, device=torch.device('cpu'))
+    return images.to(device), said.to(device)
+
+
 def prepare(model, text, given, grid, mods, zero=True, int8_attention=False):
     """What every step of a picture reads, computed once:
 
@@ -242,7 +255,7 @@ def prepare(model, text, given, grid, mods, zero=True, int8_attention=False):
     """
     words = model.txt_in(model.txt_norm(text))
     held = model.img_in(given) if given is not None and given.shape[1] else None
-    images, said = model.pos_embed([grid], max_txt_seq_len=words.shape[1], device=words.device)
+    images, said = positions(model, grid, words.shape[1], words.device)
     made = grid[0][1] * grid[0][2]
     return SimpleNamespace(
         text=words,
