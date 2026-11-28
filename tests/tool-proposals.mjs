@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { Resources } from '../lib/resources.mjs';
 import { ToolCatalog } from '../lib/tool-catalog.mjs';
 import { ToolRuntime, takesStyles } from '../lib/tool-runtime.mjs';
+import { preparationBytes } from '../lib/python-environment.mjs';
 import { resolveNativeWorkflow, validateNativeWorkflow } from '../lib/native-workflows.mjs';
 import { SUITE_NOTE } from '../lib/unasked-suite.mjs';
 
@@ -1929,8 +1930,8 @@ test('a model of the card that is not on this computer: its download offered wit
 });
 
 test('(0.6.479) a model of the card lacking only the engine: offered as one lacking its files, with it', async () => {
-  // (Greyed with its reason before, its download nowhere to press.)
-  const engine = { bytes: 3213357020 },
+  // (Greyed with its reason before, its download nowhere to press.) (0.6.506) The engine as measured on 27/11.
+  const engine = { bytes: preparationBytes('win32') },
     workflows = shipped().map(workflow =>
       workflow.pipeline === 'minimax_h3'
         ? { ...workflow, ready: false, builtin: true, unavailableKind: 'engine' }

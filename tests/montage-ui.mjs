@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mono, setupMontage } from '../public/montage.mjs';
 import { KINDS } from '../public/library.mjs';
+import { preparationBytes } from '../lib/python-environment.mjs';
 
 // (0.6.148) La Bobine (ex-Montage, the fourth mode of the Studio from 0.6.137 to 0.6.146): a page of its
 // own, three fixed columns (« Prises », the preview, « À créer ») over a timeline of four tracks, a small
@@ -2049,33 +2050,37 @@ test('a licence with conditions is read in « À créer » before the download, 
 test('(0.6.479) a new installation: « Télécharger » of « À créer » brings the engine, said as prepared', async () => {
   // The user's choice of 27/11 (« Oui, d'un seul clic »): the engine of generation comes with the first model.
   const GB = 1024 ** 3,
+    // (0.6.506) The engine as the server says it on Windows, measured on 27/11: « 2,1 Go ».
+    ENGINE = preparationBytes('win32'),
     free = [{ file: 'ltx-2.5-int8.safetensors', size: 20 * GB, license: { name: 'Apache 2.0' } }],
     offer = { workflowId: 'ltx', files: free, bytes: 20 * GB, left: 20 * GB, needsToken: false, page: '' };
-  offer.engine = { bytes: 3 * GB };
+  offer.engine = { bytes: ENGINE };
   const job = { state: 'idle' },
     downloads = route => {
-      if (route === 'downloads/start')
-        Object.assign(job, { state: 'running', workflowId: 'ltx', name: 'LTX 2.5', received: 0, total: 23 * GB });
+      if (route === 'downloads/start') {
+        const total = 20 * GB + ENGINE;
+        Object.assign(job, { state: 'running', workflowId: 'ltx', name: 'LTX 2.5', received: 0, total });
+      }
       return structuredClone(route === 'downloads' ? { job } : job);
     },
     idle = route => (route === 'downloads' ? { job: { state: 'idle' } } : {});
   const { f } = await series({ times: { workflowName: 'LTX 2.5', missing: offer }, downloads });
   const fetch = () => f.get('bobine-go-download')[0],
     engine =
-      'Le moteur de génération de Moodix se télécharge avec : environ 3,0 Go, une seule fois pour tous les modèles.';
+      'Le moteur de génération de Moodix se télécharge avec : environ 2,1 Go, une seule fois pour tous les modèles.';
   // (In a low window, what it lacks alone in a line, the whole in its bubble: two sentences took the room of
   // « À créer ».)
   assert.deepEqual(
     [fetch().textContent, f.said('bobine-missing-whole'), f.said('bobine-missing-brief')],
     [
-      'Télécharger · 23,0 Go',
+      'Télécharger · 22,1 Go',
       ['LTX 2.5 n’est pas sur cet ordinateur. ' + engine],
       ['LTX 2.5 n’est pas sur cet ordinateur.'],
     ],
   );
   fetch().onclick();
   await settle();
-  assert.equal(fetch().textContent, '0 / 23,0 Go');
+  assert.equal(fetch().textContent, '0 / 22,1 Go');
   // Its files there, the engine prepared: what it does, in the place of the figures (uv does not tell its bytes).
   Object.assign(job, { received: 20 * GB, engine: 'preparing', current: 'Préparation du moteur' });
   await f.later({ ms: 1000 });
@@ -2086,14 +2091,14 @@ test('(0.6.479) a new installation: « Télécharger » of « À créer » bring
     { f: g } = await series({ times: { workflowName: 'LTX 2.5', missing: gated }, downloads: idle });
   assert.deepEqual(
     [g.get('bobine-go-download')[0].textContent, g.said('bobine-missing-whole')[0].endsWith(' Fichiers.')],
-    ['Télécharger · 23,0 Go', true],
+    ['Télécharger · 22,1 Go', true],
   );
   // Its files all here (decision of 27/11): offered as a file to download, what it lacks said, never « n’est pas sur
   // cet ordinateur ».
   const alone =
-      'Les fichiers sont là : il manque le moteur de génération de Moodix, environ 3,0 Go, ' +
+      'Les fichiers sont là : il manque le moteur de génération de Moodix, environ 2,1 Go, ' +
       'installé une seule fois pour tous les modèles.',
-    whole = { workflowId: 'ltx', files: [], bytes: 0, left: 0, needsToken: false, page: '', engine: { bytes: 3 * GB } },
+    whole = { workflowId: 'ltx', files: [], bytes: 0, left: 0, needsToken: false, page: '', engine: { bytes: ENGINE } },
     { f: e } = await series({ times: { workflowName: 'LTX 2.5', missing: whole }, downloads: idle });
   assert.deepEqual(
     [
@@ -2102,7 +2107,7 @@ test('(0.6.479) a new installation: « Télécharger » of « À créer » bring
       e.said('bobine-missing-whole'),
       e.said('bobine-missing-brief'),
     ],
-    ['Télécharger · 3,0 Go', alone, [alone], ['Il manque le moteur de génération.']],
+    ['Télécharger · 2,1 Go', alone, [alone], ['Il manque le moteur de génération.']],
   );
 });
 

@@ -9,6 +9,10 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createApplication } from '../server.mjs';
 import { setupCitedTakes } from '../public/cited-takes.mjs';
+import { preparationBytes } from '../lib/python-environment.mjs';
+
+// (0.6.506) The engine of a new installation as the server says it on Windows (measured on 27/11): « 2,1 Go ».
+const ENGINE = preparationBytes('win32');
 
 /** The project each file dropped in the Studio was kept in (« #ref3 » of that project). */
 const importedInto = [];
@@ -3850,8 +3854,7 @@ test('(0.6.474) a model not on this computer: what it lacks in the line kept abo
 test('(0.6.479) new installation: the engine counted, alone when the files are here, « Préparation… »', async () => {
   // (27/11, the computer of a friend: Qwen-Image-Edit downloaded, « Générer » answered « Moteur de génération
   // arrêté ». Never the screen of the engine that starts beside its download.)
-  const GIB = 1024 ** 3,
-    engineOffer = { bytes: 3 * GIB },
+  const engineOffer = { bytes: ENGINE },
     krea = absentModel('krea', 'Krea 2'),
     qwen = absentModel('qwen', 'Qwen-Image-Edit'),
     tools = { create_image: [krea, qwen] };
@@ -3868,7 +3871,7 @@ test('(0.6.479) new installation: the engine counted, alone when the files are h
           workflowId: body.id,
           name: 'Qwen-Image-Edit',
           received: 0,
-          total: 3 * GIB,
+          total: ENGINE,
           engine: 'preparing',
           current: 'Préparation du moteur',
         }),
@@ -3880,25 +3883,25 @@ test('(0.6.479) new installation: the engine counted, alone when the files are h
     const { body } = page,
       line = () => body.find('studio-absent-line').map(said => said.textContent),
       alone =
-        'Les fichiers sont là : il manque le moteur de génération de Moodix, environ 3,0 Go, ' +
+        'Les fichiers sont là : il manque le moteur de génération de Moodix, environ 2,1 Go, ' +
         'installé une seule fois pour tous les modèles.';
     // Its files and the engine its click prepares: counted in its button, said in its bubble.
     const [get] = body.find('studio-get');
     assert.deepEqual(
       [labelOf(get), get.title],
       [
-        'Télécharger · 20,7 Go',
+        'Télécharger · 19,8 Go',
         'Licence : Apache-2.0. En téléchargeant, vous l’acceptez. Le moteur de génération de Moodix se télécharge ' +
-          'avec : environ 3,0 Go, une seule fois pour tous les modèles.',
+          'avec : environ 2,1 Go, une seule fois pour tous les modèles.',
       ],
     );
-    assert.equal(body.find('studio-absent-size')[0].textContent, 'Pas sur cet ordinateur · 20,7 Go');
+    assert.equal(body.find('studio-absent-size')[0].textContent, 'Pas sur cet ordinateur · 19,8 Go');
     const pick = body.find('studio-model-pick')[0];
     assert.deepEqual(
       pick.children.map(option => [option.textContent, option.title]),
       [
-        ['Krea 2 · pas sur cet ordinateur', '20,7 Go à télécharger'],
-        ['Qwen-Image-Edit · il manque le moteur', '3,0 Go à télécharger'],
+        ['Krea 2 · pas sur cet ordinateur', '19,8 Go à télécharger'],
+        ['Qwen-Image-Edit · il manque le moteur', '2,1 Go à télécharger'],
       ],
     );
     // Its files all here: the engine alone, never « pas sur cet ordinateur ».
@@ -3906,8 +3909,8 @@ test('(0.6.479) new installation: the engine counted, alone when the files are h
     pick.onchange();
     page.studio.render();
     const [only] = body.find('studio-get');
-    assert.deepEqual([labelOf(only), only.title], ['Télécharger · 3,0 Go', alone]);
-    assert.equal(body.find('studio-absent-size')[0].textContent, 'Il manque le moteur de génération · 3,0 Go');
+    assert.deepEqual([labelOf(only), only.title], ['Télécharger · 2,1 Go', alone]);
+    assert.equal(body.find('studio-absent-size')[0].textContent, 'Il manque le moteur de génération · 2,1 Go');
     assert.deepEqual(line(), ['Les fichiers de Qwen-Image-Edit sont là : il manque le moteur de génération.']);
     assert.equal(body.find('studio-absent-line')[0].title, alone);
     page.page['studio-view'].onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
@@ -3956,11 +3959,11 @@ test('(0.6.479) an engine prepared by a download begun elsewhere: in « Téléch
       workflowId: 'qwen',
       name: 'Qwen-Image-Edit',
       received: 0,
-      total: 3 * 1024 ** 3,
+      total: ENGINE,
       engine: 'preparing',
       current: 'Préparation du moteur',
     };
-  Object.assign(qwen.missing, { files: [], bytes: 0, left: 0, engine: { bytes: 3 * 1024 ** 3 } });
+  Object.assign(qwen.missing, { files: [], bytes: 0, left: 0, engine: { bytes: ENGINE } });
   const page = await studioPage(
     { create_image: [qwen] },
     { downloads: () => ({ job }) },
@@ -3978,6 +3981,97 @@ test('(0.6.479) an engine prepared by a download begun elsewhere: in « Téléch
     assert.equal(page.body.find('studio-engine-go').length, 1);
   } finally {
     page.restore();
+  }
+});
+
+test('(0.6.506) Agrandir of a model whose files are here: « Télécharger · 2,1 Go » for its engine', async () => {
+  // 27/11: « Agrandir » greyed, « Aucun modèle ne sait agrandir une image. », while SeedVR2 waited for the engine of a
+  // new installation alone. Lit now (tools/actions, `engine`): its page says what it lacks and brings it, as the Studio
+  // does for a model to make an image with.
+  const image = {
+      id: 'w',
+      name: 'Image',
+      roles: {},
+      limits: sizes,
+      direct: true,
+      size: { width: 1024, height: 1024 },
+      settings: [],
+      seeded: true,
+    },
+    waiting = (id, name, finish) => ({
+      id,
+      name,
+      media: 'image',
+      verb: 'upscale',
+      roles: { source: { count: 1, media: ['image'], required: true } },
+      settings: [],
+      finish,
+      unavailable: 'Le moteur de génération n’est pas encore installé.',
+      missing: { workflowId: id, files: [], bytes: 0, left: 0, needsToken: false, page: '', engine: { bytes: ENGINE } },
+    }),
+    seedvr = waiting('sv', 'Upscale SeedVR2', { key: 'scale', choices: [2, 4], standard: 2 }),
+    esrgan = waiting('es', 'Upscale rapide (Real-ESRGAN ×4)', { factor: 4 });
+  let job = { state: 'idle' };
+  const page = await studioPage(
+    { create_image: [image], upscale: [seedvr, esrgan] },
+    {
+      'tools/actions': () => ({ upscale: [], engine: { upscale: { image: 'Upscale SeedVR2' } } }),
+      'downloads/start': body =>
+        (job = { state: 'running', workflowId: body.id, name: 'Upscale SeedVR2', received: 0, total: ENGINE }),
+      downloads: () => ({ job }),
+    },
+    { runs: [{ id: 'a', conversationId: 'c1', prompt: 'un phare', outputs: [{ originalUrl: '/a.png', take: 1 }] }] },
+  );
+  const { body, asked, restore } = page;
+  const rail = name => body.find('studio-rail')[0]?.find('output-action-' + name)[0],
+    lines = () => body.find('studio-absent-line').map(line => line.textContent),
+    alone =
+      'Les fichiers sont là : il manque le moteur de génération de Moodix, environ 2,1 Go, ' +
+      'installé une seule fois pour tous les modèles.';
+  try {
+    await settle();
+    assert.equal(rail('upscale').disabled, false);
+    rail('upscale').onclick();
+    assert.equal(body.find('studio-finish').length, 1);
+    // SeedVR2 in hand, its factor as when it is there; « Télécharger · 2,1 Go » in the place of « ▶ Agrandir ».
+    const [get] = body.find('studio-get');
+    assert.deepEqual([labelOf(get), get.title], ['Télécharger · 2,1 Go', alone]);
+    assert.deepEqual(lines(), ['Les fichiers de Upscale SeedVR2 sont là : il manque le moteur de génération.']);
+    assert.equal(body.find('studio-absent-size')[0].textContent, 'Il manque le moteur de génération · 2,1 Go');
+    assert.deepEqual(
+      body.find('studio-finish-chip').map(chip => [chip.children[0].textContent, chip.attributes['aria-checked']]),
+      [
+        ['× 2', 'true'],
+        ['× 4', 'false'],
+      ],
+    );
+    // The other, chosen in its list: in hand, waiting for the same engine.
+    const pick = body.find('studio-model-pick')[0];
+    assert.deepEqual(
+      pick.children.map(option => option.textContent),
+      ['Upscale SeedVR2 · il manque le moteur', 'Upscale rapide (Real-ESRGAN ×4) · il manque le moteur'],
+    );
+    pick.value = 'es';
+    pick.onchange();
+    assert.deepEqual(
+      [body.find('studio-finish-factor')[0]?.textContent, lines()],
+      ['× 4', ['Les fichiers de Upscale rapide (Real-ESRGAN ×4) sont là : il manque le moteur de génération.']],
+    );
+    body.find('studio-model-pick')[0].value = 'sv';
+    body.find('studio-model-pick')[0].onchange();
+    // Pressed: the engine downloaded for it; what comes back at its end is « Agrandir », the button of this page.
+    await body.find('studio-get')[0].onclick();
+    await settle();
+    assert.deepEqual(
+      asked.filter(([route]) => route === 'downloads/start').map(([, sent]) => sent),
+      [{ id: 'sv' }],
+    );
+    assert.deepEqual(lines(), ['Upscale SeedVR2 se télécharge : « Agrandir » revient à la fin.']);
+    job = { ...job, engine: 'preparing', current: 'Préparation du moteur' };
+    const installs = 'Le moteur de génération s’installe, une seule fois : « Agrandir » revient à la fin.';
+    assert.ok(await untilSeen(() => lines()[0] === installs), lines()[0]);
+  } finally {
+    restore();
   }
 });
 
@@ -14281,7 +14375,7 @@ test('(0.6.503, queue) the engine being installed: « Reprendre » of the window
 // (0.6.503) Its model lacks only the engine of a new installation (its files all here): its tile says that, never « pas
 // sur cet ordinateur »; its model and what it lacks first (the tile of the window cuts its words at two lines).
 test('(0.6.503, queue) a request whose model lacks only the engine: its tile says the engine lacks', async () => {
-  const engine = { bytes: 3 * 1024 ** 3 },
+  const engine = { bytes: ENGINE },
     page = await pausedB(
       model => ({
         unavailable: 'Le moteur de génération n’est pas encore installé.',

@@ -3,6 +3,10 @@ import test from 'node:test';
 import { setupFirstLaunch } from '../public/first-launch.mjs';
 import { missingFileCard, roomText, sizeText } from '../public/missing-file.mjs';
 import { ToolCatalog } from '../lib/tool-catalog.mjs';
+import { preparationBytes } from '../lib/python-environment.mjs';
+
+// (0.6.506) The engine of a new installation as the server says it on Windows (measured on 27/11): « 2,1 Go ».
+const ENGINE = preparationBytes('win32');
 
 // The states of etats-maquette.md (16/11): the first launch (50), a missing file (53).
 class Element {
@@ -198,13 +202,14 @@ test('53 · a missing file: its card, the download as it goes, « Arrêter », a
 
 test('(0.6.479) 53 · a new installation: the engine comes with the file, in its size, said as prepared', async () => {
   const GIB = 1024 ** 3,
+    total = 20 * GIB + ENGINE,
     host = new Element('div'),
     jobs = [
       { job: { state: 'idle' } },
       { job: { state: 'running', workflowId: 'qwen', engine: 'preparing', current: 'Préparation du moteur' } },
-      { job: { state: 'cancelled', workflowId: 'qwen', engine: 'preparing', received: 20 * GIB, total: 23 * GIB } },
+      { job: { state: 'cancelled', workflowId: 'qwen', engine: 'preparing', received: 20 * GIB, total } },
     ];
-  Object.assign(jobs[1].job, { received: 20 * GIB, total: 23 * GIB });
+  Object.assign(jobs[1].job, { received: 20 * GIB, total });
   const card = missingFileCard({
     host,
     request: {
@@ -216,7 +221,7 @@ test('(0.6.479) 53 · a new installation: the engine comes with the file, in its
         files: [{ file: 'qwen_image_edit_2511.safetensors', size: 20 * GIB }],
         bytes: 20 * GIB,
         left: 20 * GIB,
-        engine: { bytes: 3 * GIB },
+        engine: { bytes: ENGINE },
       },
     },
     node,
@@ -224,7 +229,7 @@ test('(0.6.479) 53 · a new installation: the engine comes with the file, in its
     api: async route => ({
       json: async () =>
         route === 'downloads/start'
-          ? { state: 'running', workflowId: 'qwen', engine: 'waiting', received: 0, total: 23 * GIB }
+          ? { state: 'running', workflowId: 'qwen', engine: 'waiting', received: 0, total }
           : (jobs.shift() ?? jobs.at(-1)),
     }),
     wait: async () => {
@@ -236,15 +241,15 @@ test('(0.6.479) 53 · a new installation: the engine comes with the file, in its
   const said = [];
   await settle();
   // The size of the whole on its button; the engine said under the files.
-  assert.equal(find(host, 'missing-go')[0].children.at(-1).textContent, 'Télécharger · 23,0 Go');
+  assert.equal(find(host, 'missing-go')[0].children.at(-1).textContent, 'Télécharger · 22,1 Go');
   assert.match(
     find(host, 'missing-note')[0].textContent,
-    / Le moteur de génération de Moodix se télécharge avec : environ 3,0 Go, une seule fois pour tous les modèles\.$/,
+    / Le moteur de génération de Moodix se télécharge avec : environ 2,1 Go, une seule fois pour tous les modèles\.$/,
   );
   await card.start();
   assert.ok(said.includes('Préparation du moteur de génération : quelques minutes, une seule fois.'), said.join(' | '));
   // Stopped while the engine was prepared: its files are there, the engine is what is left.
-  assert.equal(find(host, 'missing-go')[0].children.at(-1).textContent, 'Télécharger · 3,0 Go');
+  assert.equal(find(host, 'missing-go')[0].children.at(-1).textContent, 'Télécharger · 2,1 Go');
 });
 
 test('(0.6.479) 53 · its files all here, on a new installation: the engine alone, said as such', async () => {
@@ -258,7 +263,7 @@ test('(0.6.479) 53 · its files all here, on a new installation: the engine alon
       requestId: 'r',
       tool: 'edit_image',
       workflowName: 'Qwen-Image-Edit',
-      missing: { workflowId: 'qwen', files: [], bytes: 0, left: 0, engine: { bytes: 3 * GIB } },
+      missing: { workflowId: 'qwen', files: [], bytes: 0, left: 0, engine: { bytes: ENGINE } },
     },
     node,
     icon,
@@ -267,7 +272,7 @@ test('(0.6.479) 53 · its files all here, on a new installation: the engine alon
       return {
         json: async () =>
           route === 'downloads/start'
-            ? { state: 'running', workflowId: 'qwen', engine: 'preparing', received: 0, total: 3 * GIB }
+            ? { state: 'running', workflowId: 'qwen', engine: 'preparing', received: 0, total: ENGINE }
             : { job: asked.length > 2 ? { state: 'done', workflowId: 'qwen', engine: 'ready' } : { state: 'idle' } },
       };
     },
@@ -282,14 +287,14 @@ test('(0.6.479) 53 · its files all here, on a new installation: the engine alon
   );
   assert.deepEqual(
     find(host, 'missing-file').map(item => item.children.map(part => part.textContent)),
-    [['', 'Moteur de génération de Moodix', '3,0 Go']],
+    [['', 'Moteur de génération de Moodix', '2,1 Go']],
   );
   assert.equal(
     find(host, 'missing-note')[0].textContent,
-    'Les fichiers sont là : il manque le moteur de génération de Moodix, environ 3,0 Go, ' +
+    'Les fichiers sont là : il manque le moteur de génération de Moodix, environ 2,1 Go, ' +
       'installé une seule fois pour tous les modèles.',
   );
-  assert.equal(find(host, 'missing-go')[0].children.at(-1).textContent, 'Télécharger · 3,0 Go');
+  assert.equal(find(host, 'missing-go')[0].children.at(-1).textContent, 'Télécharger · 2,1 Go');
   await card.start();
   assert.deepEqual(asked.find(([route]) => route === 'downloads/start')[1], { id: 'qwen' });
   assert.equal(find(host, 'missing-done')[0].textContent, 'Le moteur est prêt. Je reprends votre demande…');
@@ -314,7 +319,7 @@ test('(0.6.479) 53 · behind a Hugging Face account: the model named, its token,
         left: 20 * GIB,
         needsToken: true,
         page: 'huggingface.co/Lightricks/LTX-2.5',
-        engine: { bytes: 3 * GIB },
+        engine: { bytes: ENGINE },
       },
     },
     node,
@@ -327,10 +332,10 @@ test('(0.6.479) 53 · behind a Hugging Face account: the model named, its token,
     find(host, 'missing-note')[0].textContent,
     'LTX 2.5 demande un compte Hugging Face : acceptez la licence sur huggingface.co/Lightricks/LTX-2.5 avec ce ' +
       'compte, créez un jeton de lecture sur huggingface.co/settings/tokens, puis enregistrez votre jeton dans ' +
-      'Paramètres › Modèles › Fichiers. Le moteur de génération de Moodix se télécharge avec : environ 3,0 Go, ' +
+      'Paramètres › Modèles › Fichiers. Le moteur de génération de Moodix se télécharge avec : environ 2,1 Go, ' +
       'une seule fois pour tous les modèles.',
   );
-  assert.equal(find(host, 'missing-go')[0].children.at(-1).textContent, 'Télécharger · 23,0 Go');
+  assert.equal(find(host, 'missing-go')[0].children.at(-1).textContent, 'Télécharger · 22,1 Go');
 });
 
 test('(0.6.479) 53 · no token yet: « Télécharger » greyed, why in its bubble, back once one is saved', async () => {

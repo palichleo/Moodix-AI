@@ -340,6 +340,7 @@
     "repo": "OpenMOSS-Team/MOSS-Image-SFT",
     "revision": "f972bd4b4b9e3852133cc5da954d87bc32cd8fb9",
     "folder": true,
+    "subfolder": "tokenizer",
     "size": 19990448,
     "license": {
       "name": "Apache-2.0",
@@ -347,11 +348,11 @@
     },
     "files": [
       {
-        "path": "tokenizer/tokenizer.json",
+        "path": "tokenizer.json",
         "size": 19989325
       },
       {
-        "path": "tokenizer/tokenizer_config.json",
+        "path": "tokenizer_config.json",
         "size": 1123
       }
     ]

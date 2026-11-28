@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GROUPS, licenseSentence, lineOf, linesOf, progressShare, progressText, sizeText, speedOf, versionData } from '../public/models-page.mjs';
+import { preparationBytes } from '../lib/python-environment.mjs';
 
 const GIB = 1024 ** 3;
+// (0.6.506) The engine of a new installation as the server says it on Windows (measured on 27/11): « 2,1 Go ».
+const ENGINE = preparationBytes('win32');
 const record = (id, more = {}) => ({ id, name: id, pipeline: 'ltx25', mediaType: 'video', enabled: true, ready: true, ...more });
 const model = (...workflows) => ({ name: 'LTX 2.5', does: 'Vidéos et prolongations.', group: 'video', order: 1, workflows });
 const offer = (bytes, more = {}) => ({ files: [], bytes, left: bytes, complete: true, ...more });
@@ -69,30 +72,30 @@ test('a line says the version its model uses; what is in its way decides the res
 
 test('(0.6.479) on a new installation, the engine its click prepares is in its size once, and said meanwhile', () => {
   // The user's choice of 27/11 (« Oui, d'un seul clic »): the total on the button.
-  const engine = { engine: { bytes: 3 * GIB } },
+  const engine = { engine: { bytes: ENGINE } },
     lacking = [record('a', { ready: false }), record('b', { ready: false })],
     line = lineOf(model({ id: 'a' }, { id: 'b' }), lacking, {
       offers: { a: offer(20 * GIB, engine), b: offer(GIB, engine) },
       job: { state: 'idle' },
     });
-  assert.deepEqual([line.state, line.bytes], ['download', 24 * GIB]);
+  assert.deepEqual([line.state, line.bytes], ['download', 21 * GIB + ENGINE]);
   // Its files all here: the engine alone (the friend's Qwen-Image-Edit, downloaded before this version).
   const alone = lineOf(model({ id: 'a' }), [record('a', { ready: false, unavailableReason: 'Moteur arrêté.' })], {
     offers: { a: offer(0, engine) },
     job: {},
   });
-  assert.deepEqual([alone.state, alone.bytes], ['download', 3 * GIB]);
+  assert.deepEqual([alone.state, alone.bytes], ['download', ENGINE]);
   // Prepared after the files: what it does, in the place of the figures (uv does not tell its bytes).
   const job = {
     state: 'running',
     engine: 'preparing',
     current: 'Démarrage du moteur',
     received: 20 * GIB,
-    total: 23 * GIB,
+    total: 20 * GIB + ENGINE,
   };
   assert.equal(progressText(job, 5e6), 'Démarrage du moteur');
   assert.equal(progressText({ ...job, current: '' }), 'Préparation du moteur');
-  assert.equal(progressText({ ...job, engine: 'waiting', current: 'ltx.safetensors' }), '20,0 / 23,0 Go');
+  assert.equal(progressText({ ...job, engine: 'waiting', current: 'ltx.safetensors' }), '20,0 / 22,1 Go');
 });
 
 test('without lines from the server, a line a workflow, in the group of what it makes', () => {

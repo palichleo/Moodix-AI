@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isSingle, kindOf, partsOf, sectionsOf } from '../public/model-sections.mjs';
+import { preparationBytes } from '../lib/python-environment.mjs';
 
 /**
  * (0.6.481) The page « Modèles » in sections (27/11): MiniMax H3 holds Omni, De base and pi H3; Wan 2.2 its own
@@ -208,7 +209,8 @@ test('(0.6.479) a new installation: each row of a section counts the engine its 
       record('mm', { ready: false, unavailableReason: 'Fichier introuvable pour « Modèle ».' }),
       record('pi', { pipeline: 'pi_h3', ready: false }),
     ],
-    engine = { bytes: 3 * GIB },
+    // (0.6.506) As the server says it on Windows, measured on 27/11.
+    engine = { bytes: preparationBytes('win32') },
     absent = [
       { file: OMNI, name: 'Omni', download: 'mm' },
       { file: FL2VA, name: 'De base', download: 'mm_v0123456789abcdef' },
@@ -222,10 +224,10 @@ test('(0.6.479) a new installation: each row of a section counts the engine its 
   assert.deepEqual(
     partsOf(section, workflows, downloads).map(part => [part.label, part.state, part.download.bytes]),
     [
-      ['Omni', 'download', 45 * GIB],
-      ['De base', 'download', 42 * GIB],
+      ['Omni', 'download', 42 * GIB + engine.bytes],
+      ['De base', 'download', 39 * GIB + engine.bytes],
       // Its files all here: the engine alone.
-      ['pi H3', 'download', 3 * GIB],
+      ['pi H3', 'download', engine.bytes],
     ],
   );
 });

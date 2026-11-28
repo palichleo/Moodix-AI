@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { GenerationService, generationConfig } from '../lib/generation-service.mjs';
 import { createApplication } from '../server.mjs';
+import { preparationRoom } from '../lib/python-environment.mjs';
 
 test('checkpoint directory defaults to this installation, custom paths persist and old settings still load', async t => {
   const root = await mkdtemp(join(tmpdir(), 'native-folders-'));
@@ -473,6 +474,9 @@ test('(0.6.479) the engine a download prepares: on a new installation only, stop
   const engine = service.downloads.engine;
   // About what it downloads, from what the code knows (runner/uv.lock, and an estimate of PyTorch).
   assert.ok(engine.bytes > 2 * 1024 ** 3 && engine.bytes < 5 * 1024 ** 3, String(engine.bytes));
+  // (0.6.506) And what it takes on the disk once prepared, in its folder: read before a download begins.
+  assert.deepEqual([engine.room, engine.folder], [preparationRoom(), join(root, 'runtime')]);
+  assert.ok(engine.room >= engine.bytes, String(engine.room));
   // A new installation: to prepare; with a Python of the user's, never.
   assert.equal(await engine.needed(), true);
   service.config.pythonPath = process.execPath;
@@ -647,6 +651,50 @@ test('(0.6.503) the engine being prepared by a download: its models still lack i
   await service.downloads.task;
   assert.deepEqual([service.downloads.status().state, state], ['done', 'ready']);
   assert.deepEqual(await listed(), [undefined, null]);
+});
+
+test('(0.6.506) a tokenizer put one level too deep by an older download is mended at start', async t => {
+  // MOSS Image: its tokenizer in qwen35_tokenizer/tokenizer/, refused by the registry, never offered again.
+  const root = await mkdtemp(join(tmpdir(), 'native-nested-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  // Its workflow as Moodix ships it, beside a catalog whose tokenizer has files of a few bytes.
+  const shipped = join(root, 'runner', 'workflows'),
+    id = '3d6f1a8c-2b7e-4f59-9c41-8e0a5d2b7c36',
+    catalog = JSON.parse(await readFile(new URL('../runner/downloads.json', import.meta.url), 'utf8')),
+    bodies = { 'tokenizer.json': '{"model":{"vocab":{"a":0}}}', 'tokenizer_config.json': '{}' },
+    files = catalog.qwen35_tokenizer.files.map(file => ({ ...file, size: Buffer.byteLength(bodies[file.path]) })),
+    target = join(root, 'models', 'text_encoders', 'qwen35_tokenizer');
+  await mkdir(shipped, { recursive: true });
+  const workflow = await readFile(new URL(`../runner/workflows/${id}.json`, import.meta.url));
+  await writeFile(join(shipped, id + '.json'), workflow);
+  await writeFile(
+    join(root, 'runner', 'downloads.json'),
+    JSON.stringify({ qwen35_tokenizer: { ...catalog.qwen35_tokenizer, files } }),
+  );
+  await mkdir(join(target, 'tokenizer'), { recursive: true });
+  for (const [name, body] of Object.entries(bodies)) await writeFile(join(target, 'tokenizer', name), body);
+  const said = [];
+  t.mock.method(console, 'log', (...words) => said.push(words.join(' ')));
+  const service = await new GenerationService({
+    root,
+    dataDir: join(root, 'data'),
+    workflowDir: join(root, 'workflow'),
+    builtinWorkflowDir: shipped,
+    outputDir: join(root, 'output'),
+    worker: { status: () => ({ state: 'stopped', capabilities: {} }), start: async () => {}, close: async () => {} },
+    environment: {
+      status: () => ({ state: 'idle' }),
+      exists: async () => false,
+      cancel: async () => {},
+      close: async () => {},
+    },
+  }).init();
+  t.after(() => service.close());
+  assert.deepEqual((await readdir(target)).sort(), ['tokenizer.json', 'tokenizer_config.json']);
+  assert.deepEqual(
+    said.filter(line => line.startsWith('Dossier')),
+    ['Dossier réparé, ses fichiers remontés d’un niveau : ' + target],
+  );
 });
 
 test('the engine is told to import its libraries as it starts, unless the user turned that off (0.6.105)', async t => {

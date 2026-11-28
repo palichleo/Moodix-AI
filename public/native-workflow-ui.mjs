@@ -176,6 +176,8 @@ export function setupNativeWorkflows(options) {
     // What the shipped workflows can download, the download in progress, whether a token is kept.
     downloads = { offers: {}, job: { state: 'idle' }, hasToken: false },
     following = false,
+    // (0.6.506) What the start of a download said of the engine under the list, which goes when it is stopped.
+    engineSaid = '',
     // The workflow whose licences with conditions are shown to be confirmed, before its download;
     // its « J’ai lu, télécharger », which takes the focus when the list is drawn again.
     licenseAsked = '',
@@ -400,8 +402,9 @@ export function setupNativeWorkflows(options) {
             : 'après les fichiers';
       if (downloads.job.engine && offer?.engine?.bytes > 0)
         importStatus(
-          `Le moteur de génération de Moodix s’installe ${when} : ` +
-            `environ ${sizeText(offer.engine.bytes)}, une seule fois pour tous les modèles.`,
+          (engineSaid =
+            `Le moteur de génération de Moodix s’installe ${when} : ` +
+            `environ ${sizeText(offer.engine.bytes)}, une seule fois pour tous les modèles.`),
         );
       renderList();
       followDownload();
@@ -898,6 +901,10 @@ export function setupNativeWorkflows(options) {
                 ? `${next.name} est prêt, avec le moteur de génération.`
                 : `${next.name} : fichiers téléchargés et rangés.`,
             );
+          // (0.6.506) Stopped: « … s’installe maintenant » stayed under the list after « Arrêter » (27/11). What
+          // is left is on the button of its line again.
+          else if (engineSaid && $('native-import-status').textContent === engineSaid) importStatus('');
+          engineSaid = '';
           if ($('settings').open) await refresh({ settings: false }).catch(() => renderList());
           else renderList();
           return;

@@ -9,6 +9,7 @@ import {
   environmentVariables,
   nothingInstalled,
   preparationBytes,
+  preparationRoom,
   runEnvironmentCommand,
 } from '../lib/python-environment.mjs';
 
@@ -102,6 +103,16 @@ test('(0.6.479) a first preparation downloads the wheels of runner/uv.lock, and 
     assert.equal(preparationBytes(platform), Math.round(sized + PREPARATION[platform].estimate));
   }
   assert.equal(preparationBytes('darwin'), 0);
+});
+
+test('(0.6.506) on Windows the engine is said as measured: about 2,1 Go to download, 3,9 Gio on the disk', () => {
+  // (27/11: 2 399 710 141 bytes received, about 105 Mo of them again after a stop; 3,888 Gio in the runtime folder.)
+  assert.equal(preparationBytes('win32'), 2300676470);
+  assert.equal(preparationRoom('win32'), Math.round(3.9 * 1024 ** 3));
+  // Linux, not measured: its estimate as before, and on the disk at least what it downloads.
+  assert.equal(PREPARATION.linux.estimate, 1024 ** 3);
+  assert.equal(preparationRoom('linux'), preparationBytes('linux'));
+  assert.equal(preparationRoom('darwin'), 0);
 });
 
 test('(0.6.479) an environment is prepared once its preparation ended, not when its folder is there', async t => {

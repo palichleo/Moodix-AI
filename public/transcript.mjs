@@ -16,6 +16,9 @@ const MADE = {
   upscale: 'Agrandissement',
   interpolate: 'Interpolation',
 };
+// (0.6.506) What a call makes, in the words of the page: also how a take asked without a prompt is named
+// (« Agrandissement · #ref1 », lib/tool-runtime.mjs), where the name of its function was written before.
+export const madeName = name => MADE[name] ?? String(name ?? '');
 const LOOKED = {
   local_read_output: 'A regardé une création précédente.',
   local_read_resource: 'A regardé une ressource de la bibliothèque.',

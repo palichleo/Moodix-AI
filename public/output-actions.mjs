@@ -79,6 +79,11 @@ export const ACTION_TIPS = Object.fromEntries(ACTIONS.map(action => [action.id, 
 const CACHE_MS = 5000;
 /** The words of an action under the pointer; greyed, why under them. */
 const tipOf = (action, reason = '') => (reason ? `${action.tip}\n${reason}` : action.tip);
+/**
+ * (0.6.506) Its model there, waiting only for the engine of a new installation (`engine` of GET /api/tools/actions):
+ * the button is lit, its page of the Studio offers « Télécharger » for the engine. Said as that page says it.
+ */
+const lacksEngine = name => `Les fichiers de ${name} sont là : il manque le moteur de génération.`;
 
 /**
  * `actions(record, index)` builds the row of one take. `onAction(record, index, id)` receives
@@ -152,11 +157,14 @@ export function outputActions({
       };
       if (action.verb) {
         // Disabled until the server says an active workflow can do it (what it said last, when it did).
-        const waits = held();
-        button.disabled = Boolean(waits) || !(known?.[action.verb] || []).includes(media);
+        // (0.6.506) Or that its model waits only for the engine (`engine`): lit, its page brings the engine.
+        const waits = held(),
+          engine = known?.engine?.[action.verb]?.[media];
+        button.disabled = Boolean(waits) || !((known?.[action.verb] || []).includes(media) || engine);
         if (waits) button.title = rail ? waits : tipOf(action, waits);
         else if (known && button.disabled)
           button.title = rail ? action.missing(media) : tipOf(action, action.missing(media));
+        else if (engine && !rail) button.title = tipOf(action, lacksEngine(engine));
         buttons.push([button, action]);
       }
       row.append(button);
@@ -165,9 +173,11 @@ export function outputActions({
       return load().then(verbs => {
         for (const [button, action] of buttons) {
           const waits = held(),
-            ready = !waits && (verbs[action.verb] || []).includes(media);
+            engine = verbs.engine?.[action.verb]?.[media],
+            ready = !waits && ((verbs[action.verb] || []).includes(media) || Boolean(engine));
           button.disabled = !ready;
-          if (!rail) button.title = tipOf(action, ready ? '' : waits || action.missing(media));
+          if (!rail)
+            button.title = tipOf(action, ready ? (engine ? lacksEngine(engine) : '') : waits || action.missing(media));
           else if (!ready) button.title = waits || action.missing(media);
           else {
             // Ready again: its bubble of before goes (public/help-tips.mjs turned its title into a tip).
