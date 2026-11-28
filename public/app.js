@@ -1652,8 +1652,13 @@ function raisedOver(form) {
   const box = form?.getBoundingClientRect?.(),
     page = document.documentElement;
   if (!box?.width || !page?.clientWidth) return 0;
+  // (0.6.505) Over what lies above the input of a new conversation too, its welcome (« Racontez-moi votre idée. »)
+  // or the card before the first message: risen over the input alone, opened, it covered the end of that title
+  // (1168 × 788).
+  const shown = [$('welcome'), $('setup-card')].map(item => !item?.hidden && item?.getBoundingClientRect?.()),
+    top = Math.min(box.top, ...shown.filter(above => above?.height > 0).map(above => above.top));
   // Its left edge: 232 px wide, 16 px from the right of the page (moodix.css, .work-mini), with 8 px of air.
-  return box.right > page.clientWidth - 16 - 232 - 8 ? Math.ceil(page.clientHeight - box.top + 12) : 0;
+  return box.right > page.clientWidth - 16 - 232 - 8 ? Math.ceil(page.clientHeight - top + 12) : 0;
 }
 
 /** Whether `version` (x.y.z) is newer than the one installed: an update is offered only then. */

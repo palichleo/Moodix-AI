@@ -5677,11 +5677,17 @@ test('(0.6.464, relecture des lots 5 et 6, n° 1, 2, 3 et 8) a take without a mo
   assert.deepEqual(named(), ['MiniMax H3', 'pi H3', 'MiniMax H3', 'LTX 2.5']);
   assert.deepEqual(toldOf(id(1002)), ['MiniMax H3 fait 4,3 s au moins : la prise fera 4,3 s. Pour 4 s : LTX 2.5.']);
   // In a low window, its first sentence alone on a line (moodix.css), the whole in its bubble; a screen reader reads the whole.
+  // (0.6.505) There, that line is the bubble of its instants (`is-when`).
   const note = find(cardOf(id(1002)), 'bobine-line-reason')[0],
     brief = find(note, 'bobine-line-brief')[0];
   assert.deepEqual(
     [note.className, brief.textContent, brief.dataset.tip, brief.attributes['aria-hidden']],
-    ['bobine-line-reason is-note', 'MiniMax H3 fait 4,3 s au moins : la prise fera 4,3 s.', 'MiniMax H3 fait 4,3 s au moins : la prise fera 4,3 s. Pour 4 s : LTX 2.5.', 'true'],
+    [
+      'bobine-line-reason is-note is-when',
+      'MiniMax H3 fait 4,3 s au moins : la prise fera 4,3 s.',
+      'MiniMax H3 fait 4,3 s au moins : la prise fera 4,3 s. Pour 4 s : LTX 2.5.',
+      'true',
+    ],
   );
   assert.deepEqual([toldOf(id(1003)), toldOf(id(1004)), toldOf(id(1005))], [[], [], []]);
   assert.deepEqual([planOf(id(1004)).todo.model, find(cardOf(id(1004)), 'bobine-line-model')[0].tagName], ['inconnu', 'BUTTON']);
@@ -6163,8 +6169,12 @@ test('(0.6.475, défauts de la Bobine, n° 3) made in parts, the note of its sub
   const parts = find(parted, 'bobine-line-parts')[0];
   assert.deepEqual([parts.textContent, parts.dataset.tip], ['3 × 08.33 s', note]);
   assert.deepEqual(find(parted, 'bobine-line-reason').map(line => [line.className, find(line, 'bobine-line-whole')[0].textContent]), [['bobine-line-reason is-note is-parts', note]]);
-  // A take made at once: no parts, its note on its line as before.
-  assert.deepEqual([find(short, 'bobine-line-parts').length, find(short, 'bobine-line-reason').map(line => line.className)], [0, ['bobine-line-reason is-note']]);
+  // A take made at once: no parts, its note on its line as before. (0.6.505) In a low window, the bubble of its
+  // instants.
+  assert.deepEqual(
+    [find(short, 'bobine-line-parts').length, find(short, 'bobine-line-reason').map(line => line.className)],
+    [0, ['bobine-line-reason is-note is-when']],
+  );
   const { readFile } = await import('node:fs/promises');
   const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n'),
     at = css.indexOf('  #bobine-view .bobine-line-reason.is-note.is-parts {'),
@@ -6325,3 +6335,105 @@ test('(0.6.475, défauts de la Bobine, n° 5) on the track Images, a place its m
   g.photos().ondrop(event(50));
   assert.deepEqual([g.notices.at(-1), g.ui.state().montage.plans[0].photos ?? null], [start, null]);
 });
+
+// ------------------------------------------------------------------ (0.6.505) Petits défauts du 27/11
+/** (0.6.505) The rules of moodix.css from `head` (its first line, as written) to the end of the rule of `last`. */
+async function cssRules(head, last) {
+  const { readFile } = await import('node:fs/promises');
+  const css = (await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8')).replace(/\r\n/g, '\n'),
+    at = css.indexOf(head),
+    media = css.lastIndexOf('@media (max-height: 800px) {', at),
+    // (How deep it is in the block of a low window: 1 when it is right in it.)
+    depth = [...css.slice(media, at)].reduce((sum, char) => sum + (char === '{') - (char === '}'), 0);
+  return { css, at, depth, rule: at < 0 ? '' : css.slice(at, css.indexOf('}', css.indexOf(last, at)) + 1) };
+}
+
+test(
+  '(0.6.505, petits défauts, n° 2) made longer by its model, the note of a take is the bubble of its instants in a ' +
+    'low window, in amber, its line kept for a screen reader; one made in parts keeps that of its parts',
+  async () => {
+    const image = n => ({ conversationId: C, runId: id(n), output: 0 }),
+      two = 'Un vieux pêcheur en manteau de laine traverse les planches mouillées du ponton, la brume se lève.',
+      todo = (n, at, to, more) => ({ id: id(n), at, kind: 'video', todo: more, from: 0, to, frame: 'fit', volume: 1 }),
+      stored = {
+        schemaVersion: 1,
+        id: id(1090),
+        name: 'Courte longue',
+        format: '16:9',
+        width: 1344,
+        height: 768,
+        fps: 24,
+        sounds: [],
+        plans: [
+          { id: id(1091), at: 0, kind: 'video', source: image(1), from: 0, to: 5.04, frame: 'fit', volume: 1 },
+          // (2 s with MiniMax H3, which makes 5,17 s at least, its text of two lines: « 05.04 → 07.04 ».)
+          todo(1092, 5.04, 2, { prompt: two, model: 'minimax_h3' }),
+          // (25 s: three parts of 8,33 s with LTX 2.5, whose suites take no subject.)
+          todo(1093, 7.04, 25, { prompt: 'La barque s’éloigne.', subjects: [image(5), image(6)] }),
+          // (5 s with LTX 2.5: nothing to say.)
+          todo(1094, 32.04, 5, { prompt: 'Un regard.' }),
+        ],
+      },
+      models = bobineModels(),
+      byFamily = family => models.find(model => model.family === family),
+      f = await setup({
+        stored: [stored],
+        extra: photos(),
+        videoModels: () => models,
+        modelFor: (verb, family) => byFamily(family)?.[verb]?.id ?? null,
+        longestFor: (verb, family) => byFamily(family)?.[verb]?.longest ?? null,
+        estimate: async () => ({ workflowName: 'LTX 2.5' }),
+      }).open();
+    await settle();
+    const [short, parted, plain] = f.get('bobine-line'),
+      when = card => find(card, 'bobine-line-when')[0],
+      said = 'MiniMax H3 fait 5,2 s au moins : la prise fera 5,2 s. Pour 2 s : LTX 2.5.',
+      subjects = 'LTX 2.5 : les sujets ne vont qu’à la première partie (8,3 s). Pour toutes les parties : MiniMax H3.';
+    // Its instants carry the whole note in their bubble; its line, which only a low window hides, says it whole.
+    assert.deepEqual([when(short).textContent, when(short).dataset.tip], ['05.04 → 07.04', said]);
+    assert.deepEqual(
+      find(short, 'bobine-line-reason').map(line => [line.className, find(line, 'bobine-line-whole')[0].textContent]),
+      [['bobine-line-reason is-note is-when', said]],
+    );
+    // Made in parts: the bubble of its parts (0.6.475), none on its instants. With nothing to say: no bubble, no line.
+    assert.deepEqual(
+      [
+        when(parted).dataset.tip,
+        find(parted, 'bobine-line-parts')[0].dataset.tip,
+        find(parted, 'bobine-line-reason').map(line => line.className),
+      ],
+      [undefined, subjects, ['bobine-line-reason is-note is-parts']],
+    );
+    assert.deepEqual([when(plain).dataset.tip, find(plain, 'bobine-line-reason').length], [undefined, 0]);
+    // In the block of a low window: its line out of sight (1 px, clipped), its instants in amber.
+    const { at, depth, rule } = await cssRules(
+      '  #bobine-view .bobine-line-reason.is-note.is-when {',
+      '#bobine-view .bobine-line-when[data-tip] {',
+    );
+    assert.deepEqual([at > 0, depth], [true, 1], 'in a low window');
+    assert.match(
+      rule,
+      new RegExp(
+        String.raw`\{\n {4}position: absolute;\n {4}width: 1px;\n {4}height: 1px;\n {4}margin: -1px;\n` +
+          String.raw` {4}overflow: hidden;\n {4}clip: rect\(0, 0, 0, 0\);`,
+      ),
+    );
+    assert.match(rule, /#bobine-view \.bobine-line-when\[data-tip\] \{\n {4}color: var\(--warning\);\n {2}\}$/);
+  },
+);
+
+test(
+  '(0.6.505, petits défauts, n° 2) in a low window, what is said above « Créer » is 8 px under what comes before ' +
+    'it, as the rest of « À créer »',
+  async () => {
+    // At 1280 × 720 with a model to download, 10 px left the list 139,5 px for a card of 140,2 (border, 9 px of
+    // padding, its head of 36,2, its field of one line, 38, its pieces of 30, 8 px between them): 1,7 px beyond it.
+    const { css, at, depth, rule } = await cssRules(
+        '  #bobine-view .bobine-create .bobine-missing {\n    margin-top: 8px;',
+        '#bobine-view .bobine-create .bobine-missing {',
+      ),
+      anywhere = css.indexOf('#bobine-view .bobine-create .bobine-missing {\n  margin: 10px 0 0;\n}');
+    assert.deepEqual([at > 0, depth, anywhere > 0 && anywhere < at], [true, 1, true], 'after the rule of any window');
+    assert.equal(rule, '  #bobine-view .bobine-create .bobine-missing {\n    margin-top: 8px;\n  }');
+  },
+);

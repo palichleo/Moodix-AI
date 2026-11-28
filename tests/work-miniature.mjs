@@ -828,3 +828,95 @@ test('(0.6.478) the page puts the queue under the settings of its Studio, over t
   sync();
   assert.deepEqual([mini.element.hidden, mini.work], [true, null]);
 });
+
+// ---- (0.6.505) Petits défauts du 27/11
+// The queue of another conversation lying in the Studio, 1168 × 788: 135 px under the settings, more than ROOM (102),
+// but its name, why it is paused and its foot stuck at its bottom (« Reprendre · 3 », « Vider la file ») left no room
+// for its first line, whole under that foot (46 px of 46). Its title alone then, as at 1280 × 720, opened over the
+// settings by its chevron.
+test('(0.6.505) in the Studio, a queue of another conversation counts its name, why, its foot: its title alone', () => {
+  const { mini, part } = miniature(),
+    has = name => mini.element.classList.contains(name),
+    shown = 'b2222222-2222-4222-8222-222222222222',
+    groups = [{ word: 'En pause', state: 'paused', rows: [row('q1', 'un bateau'), row('q2', 'une île')] }],
+    stopped = queuePart({ groups, why: 'Génération arrêtée.', stopped: true, foot: RESUME }),
+    // 1168 × 788, Krea 2 here (studio.mjs, queueDock).
+    dock = { left: 876, width: 268, bottom: 193, room: 135, over: 475, under: 343, floor: 179 },
+    at = (given, room) => {
+      mini.queue([given]);
+      mini.place('corner', { alone: true, home: shown, dock: { ...dock, room } });
+      return [mini.folded, has('is-docked'), has('has-pill-foot')];
+    };
+  // Its name, « Génération arrêtée. », its foot: 102 + 28 + 25 + 45 = 200 px needed. Its title alone, on the foot of
+  // the screen; « Reprendre » behind its chevron (its line has no room for the name of another conversation).
+  assert.deepEqual(at(stopped, 135), [true, true, false]);
+  assert.equal(mini.element.style.values['--work-mini-bottom'], '193px');
+  part('work-mini-fold').onclick();
+  assert.deepEqual([mini.folded, has('is-over')], [false, true]);
+  part('work-mini-fold').onclick();
+  // 1440 × 900 (247 px), and with a model not on this computer (202): its list, as it was.
+  assert.deepEqual(at(stopped, 247), [false, true, false]);
+  assert.deepEqual(at(stopped, 202), [false, true, false]);
+  // « Page rechargée : … » takes two lines (41,8 px): with a model not on this computer at 1440 × 900, its title alone
+  // (it covered 2 px of the first line); at 1912 × 948 (250 px), its list.
+  const reloaded = { ...stopped, why: 'Page rechargée : les 2 demandes attendent « Reprendre ».', stopped: false };
+  assert.deepEqual(at(reloaded, 202), [true, true, false]);
+  assert.deepEqual(at(reloaded, 250), [false, true, false]);
+  // Only waiting (no why, no foot): its name alone, 130 px, room enough at 1168 × 788.
+  assert.deepEqual(at(queuePart(), 135), [false, true, false]);
+  // The queue of the conversation shown, its button saying « Reprendre »: no name, no why, no foot, as before.
+  mini.queue([{ ...stopped, why: '', foot: null }]);
+  mini.place('corner', { alone: true, home: WORK.conversationId, dock });
+  assert.deepEqual([mini.folded, has('has-pill-foot')], [false, false]);
+  // Its button saying « Télécharger » (a model not on this computer, the settings 45 px taller at 1440 × 900): why and
+  // its foot, room enough; at 1168 × 788 its line with « Reprendre · 2 » (0.6.501).
+  mini.queue([stopped]);
+  mini.place('corner', { alone: true, home: WORK.conversationId, dock: { ...dock, room: 202 } });
+  assert.deepEqual([mini.folded, has('has-pill-foot')], [false, false]);
+  mini.place('corner', { alone: true, home: WORK.conversationId, dock: { ...dock, room: 90 } });
+  assert.deepEqual([mini.folded, has('has-pill-foot')], [true, true]);
+});
+
+// In the Chat of a new conversation at 1168 × 788, the pill rose 12 px over the input, at the end of « Racontez-moi
+// votre idée. »: opened by its chevron, it covered the end of that title (16 × 79 px). It rises over the welcome too;
+// opened, never above the foot of the top bar, its foot in sight.
+test('(0.6.505) a new conversation: its pill rises over the welcome, opened on neither title nor input', async () => {
+  const form = { getBoundingClientRect: () => ({ width: 760, right: 964, top: 404.1, bottom: 536.1, height: 132 }) },
+    welcome = { hidden: false, getBoundingClientRect: () => ({ top: 284.8, bottom: 404.1, height: 119.3 }) },
+    card = { hidden: true, getBoundingClientRect: () => ({ top: 0, bottom: 0, height: 0 }) },
+    screen = { clientWidth: 1168, clientHeight: 788 };
+  const { mini, state, sync } = shownPage({
+    studio: { queueView: () => [queuePart({ why: 'Génération arrêtée.', foot: RESUME })], queueDock: () => null },
+    elements: { 'chat-form': form, welcome, 'setup-card': card },
+    page: { body: { dataset: {} }, documentElement: screen },
+  });
+  const raised = () => [
+    mini.element.classList.contains('is-raised'),
+    mini.folded,
+    mini.element.style.values['--work-mini-raise'],
+  ];
+  state.view = 'chat';
+  state.conversationId = 'b2222222-2222-4222-8222-222222222222';
+  sync();
+  // 12 px over the welcome (788 - 284,8 + 12): its foot 272 px from the top of the page, above the title.
+  assert.deepEqual(raised(), [true, true, '516px']);
+  // The card before the first message, shown above the input with no welcome: over it.
+  Object.assign(welcome, { hidden: true });
+  Object.assign(card, { hidden: false, getBoundingClientRect: () => ({ top: 300, bottom: 390, height: 90 }) });
+  sync();
+  assert.deepEqual(raised(), [true, true, '500px']);
+  // A conversation with its messages (no welcome, the input at the foot of the page): over the input, as before.
+  card.hidden = true;
+  form.getBoundingClientRect = () => ({ width: 760, right: 964, top: 644, bottom: 766, height: 122 });
+  sync();
+  assert.deepEqual(raised(), [true, true, '156px']);
+  // Opened there, never above the foot of the top bar (72 px): its list scrolls in it, its foot at its bottom.
+  const css = await readFile(new URL('../public/moodix.css', import.meta.url), 'utf8'),
+    rules = selector =>
+      [...css.matchAll(new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' \\{([^}]*)\\}', 'g'))].map(
+        found => found[1],
+      );
+  const highest = /max-height: calc\(100vh - var\(--work-mini-raise\) - 72px\);/;
+  assert.ok(rules('.work-mini.is-raised').some(rule => highest.test(rule)));
+  assert.ok(rules('.work-mini.is-raised .work-mini-foot').some(rule => /position: sticky;/.test(rule)));
+});

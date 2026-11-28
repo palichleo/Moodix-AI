@@ -32,6 +32,20 @@ const ROOM = 30 + 46 + 26;
 /** (0.6.501) The height of its pill (moodix.css), and how far it lies from the settings above it and the Sortie. */
 const PILL = 44,
   APART = 4;
+/**
+ * (0.6.505) What a list says there beyond ROOM, above its first line or at its foot, stuck at the bottom of the window
+ * over its lines (moodix.css): the name of another conversation (28 px), why it is paused (25 px a line), « Reprendre
+ * · 3 » and « Vider la file » (45 px). ROOM alone, at 1168 × 788 the first line of the queue of another conversation
+ * lay whole under its foot (46 px of 46).
+ */
+const NAME = 28,
+  WHY = 25,
+  FOOT = 45;
+/**
+ * (0.6.505) How many lines why it is paused takes at the width of the settings (268 px): measured, 24,9 px for « La
+ * carte graphique est restée prise. » (36 characters), 41,8 px for each « Page rechargée : … » (50 and more).
+ */
+const whyLines = text => (String(text).length > 40 ? 2 : 1);
 const KINDS = { image: 'Image', video: 'Vidéo', audio: 'Son' };
 // What « waiting » says when nothing else is said (waitFor).
 const WAITING = 'En attente de votre accord';
@@ -165,7 +179,15 @@ export function setupMiniature({
     footed = false;
   // (0.6.478) Lying in the Studio where a line has no room (1280 × 720): its title alone, until its chevron opens it
   // over the settings.
-  const tight = () => Boolean(docked) && docked.room < ROOM;
+  // (0.6.505) Its room counted from what its first list says: the queue of another conversation, its name, why it is
+  // paused and its foot (1168 × 788: 135 px under the settings, 188 needed), is its title alone too.
+  const tight = () => Boolean(docked) && docked.room < roomOf(parts[0]);
+  /** (0.6.505) The room a list needs under the settings for its first line whole: ROOM, and what it says beyond. */
+  function roomOf(part) {
+    if (!part) return ROOM;
+    const why = part.why ? WHY * whyLines(part.why) : 0;
+    return ROOM + (part.conversation !== home ? NAME : 0) + why + (part.foot ? FOOT : 0);
+  }
   const foldedNow = () =>
     pillHere || tight() ? !openedHere : docked ? closedHere : folded;
   /**

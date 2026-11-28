@@ -2338,6 +2338,9 @@ export function setupMontage({
     // (0.6.475) `parts`: the note of a take made in parts, said in a low window by the bubble of its parts.
     const line = node('p', 'bobine-line-reason is-note' + (parts ? ' is-parts' : '')),
       short = node('span', 'bobine-line-brief', brief);
+    // (0.6.505) Else that of a take its model makes longer, said in a low window by the bubble of its instants (the
+    // card gives it to them).
+    if (!parts) line.className += ' is-when';
     short.setAttribute('aria-hidden', 'true');
     short.dataset.tip = said;
     line.append(node('span', 'bobine-line-whole', said), short);
@@ -2693,7 +2696,8 @@ export function setupMontage({
         to = from + plan.to - plan.from,
         heading = node('div', 'bobine-line-head'),
         times = node('span', 'bobine-line-sub');
-      times.append(node('span', 'bobine-line-when', `${mono(from)} → ${mono(to)}`));
+      const when = node('span', 'bobine-line-when', `${mono(from)} → ${mono(to)}`);
+      times.append(when);
       const parted = item.parts > 1 ? node('span', 'bobine-line-parts', `${item.parts} × ${mono(item.part)} s`) : null;
       if (parted) times.append(parted);
       times.append(says);
@@ -2749,6 +2753,10 @@ export function setupMontage({
       // reader (moodix.css): on a line of its own, the card of a text of two lines (184 px) no longer held whole in
       // « À créer » (167 px at 1280 × 720).
       if (note && parted) parted.dataset.tip = note.said;
+      // (0.6.505) Made longer by its model (« MiniMax H3 fait 5,2 s au moins »), that note is the bubble of its
+      // instants « 05.04 → 07.04 » in the same way: on a line of its own, the card of a take of 2 s with a text of two
+      // lines (184,4 px) was no longer held whole in « À créer » (167 px at 1280 × 720).
+      else if (note) when.dataset.tip = note.said;
       const inParts = Boolean(parted),
         noted = reason ? node('p', 'bobine-line-reason', reason) : note && noteLine(note, { parts: inParts });
       line.append(top, ...(noted ? [noted] : []), box, middle);

@@ -1042,6 +1042,87 @@ test('a section’s model downloads from its row; its licence below, its advance
   assert.deepEqual([section().dataset.open, find(section(), 'model-progress').length], [undefined, 1]);
 });
 
+test('(0.6.505) a model of one version it lacks and downloads alone keeps its line: never « 1 modèles »', async t => {
+  const f = await setup(t);
+  const giga = 1024 ** 3,
+    EDIT = 'qwen_image_edit_2511_int8_convrot.safetensors',
+    ALONE = 'qe_v0123456789abcdef';
+  // Its files here under its asset (a file that stands in for the version Moodix ships, not read as one), the
+  // engine of a new installation missing: that version is offered on its own, and the model lacks the engine alone.
+  f.workflows.push({
+    ...structuredClone(f.template),
+    id: 'qe',
+    name: 'Qwen-Image-Edit',
+    pipeline: 'qwen_image_edit',
+    builtin: true,
+    enabled: false,
+    ready: false,
+    unavailableReason: 'Le moteur de génération n’est pas installé.',
+  });
+  const engine = {
+      files: [],
+      bytes: 0,
+      left: 0,
+      complete: true,
+      needsToken: false,
+      page: '',
+      engine: { bytes: 3 * giga },
+    },
+    models = [
+      {
+        name: 'Qwen-Image-Edit',
+        does: 'Retouche une image en suivant le texte.',
+        group: 'image',
+        order: 3,
+        workflows: [
+          {
+            id: 'qe',
+            family: 'qwen_image_edit',
+            provided: EDIT,
+            used: 'D:\\models\\qwen-edit.safetensors',
+            versions: [],
+            absent: [{ file: EDIT, name: '2511', download: ALONE }],
+          },
+        ],
+      },
+    ];
+  const api = f.api;
+  f.api = async (route, body) =>
+    route === 'generation'
+      ? Response.json({
+          ...(await (await api(route, body)).json()),
+          models,
+          downloads: { offers: { qe: engine }, versions: { [ALONE]: engine }, job: { state: 'idle' }, hasToken: false },
+        })
+      : api(route, body);
+  f.ui = setupNativeWorkflows({ api: (...args) => f.api(...args), state: {}, node: f.node, notice() {} });
+  await f.ui.refresh();
+  const under = root => [root, ...root.children.flatMap(child => under(child))],
+    find = (root, name) => under(root).filter(item => String(item.className).split(' ').includes(name)),
+    line = find(f.$('workflow-list'), 'model-line').find(item => item.dataset.model === 'Qwen-Image-Edit');
+  // Its line as any model alone: no section, no count; « Télécharger » in the place of its version, then its
+  // switch, its « Réglages » and the chevron of its versions.
+  assert.deepEqual(
+    [line.className, find(line, 'model-version').map(item => item.textContent)],
+    ['model-line', []],
+  );
+  assert.deepEqual(
+    under(find(line, 'model-download')[0])
+      .map(item => item.textContent)
+      .filter(Boolean),
+    ['Télécharger · 3,0 Go'],
+  );
+  assert.deepEqual(
+    [
+      find(line, 'model-ai').length,
+      find(line, 'model-settings').map(item => item.attributes['aria-label']),
+      find(line, 'model-chevron').map(item => item.attributes['aria-label']),
+    ],
+    [1, ['Réglages de Qwen-Image-Edit'], ['Versions de Qwen-Image-Edit']],
+  );
+  assert.ok(!under(f.$('workflow-list')).some(item => /^\d+ modèles?$/.test(item.textContent)), 'no count');
+});
+
 test('an existing tokenizer is never replaced by a suggestion, and families without one show no tokenizer', async t => {
   const f = await setup(t);
   await f.ui.edit(f.template);

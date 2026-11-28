@@ -19407,6 +19407,27 @@ body[data-view='bobine'] .chat-panel {
   #bobine-view .bobine-line-parts[data-tip] {
     color: var(--warning);
   }
+  /* (0.6.505) Made longer by its model (« MiniMax H3 fait 5,2 s au moins »), its note in the bubble of its instants
+     « 05.04 → 07.04 », in amber as it: on a line of its own, the card of a take of 2 s with a text of two lines
+     (184,4 px) was no longer held whole in « À créer » (167 px at 1280 × 720). Its line stays for a screen reader. */
+  #bobine-view .bobine-line-reason.is-note.is-when {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  #bobine-view .bobine-line-when[data-tip] {
+    color: var(--warning);
+  }
+  /* (0.6.505) What is said above the button, 8 px under what comes before it, as all of « À créer » here (10 px
+     elsewhere): with it, the list kept 139,5 px for a card of 140,2 (its pieces 30 px high since 0.6.462), which
+     went 1,7 px beyond it at 1280 × 720 (a model to download). */
+  #bobine-view .bobine-create .bobine-missing {
+    margin-top: 8px;
+  }
 }
 /* Moodix AI arrange : sa demande reste lisible, « Arrêter » à portée. */
 .bobine-ask-field[data-state='working'] {
@@ -22987,6 +23008,25 @@ body:has(dialog[open]) :is(.camera-ball, .camera-menu-option) :is(.camera-ball-l
    its send button. The messages leave it room at their foot. */
 .work-mini.is-raised {
   bottom: var(--work-mini-raise);
+}
+/* (0.6.505) Risen over the welcome of a new conversation too (app.js, raisedOver): opened, never above the foot of the
+   top bar (72 px); its list scrolls in it, and with a take above it the window does. Opened over the input alone, it
+   covered the end of « Racontez-moi votre idée. » (1168 × 788). */
+.work-mini.is-raised {
+  max-height: calc(100vh - var(--work-mini-raise) - 72px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* (0.6.505) Its foot in sight at the bottom of the window there, its lines scrolling under it, as in the Studio: risen
+   over the welcome (200 px at 1168 × 788), « Reprendre · 3 » was out of sight. */
+.work-mini.is-raised .work-mini-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin: 0 -6px -6px;
+  padding: 8px 6px 6px;
+  border-top: 1px solid rgba(238, 232, 222, 0.08);
+  background: var(--surface);
 }
 body:has(> .work-mini.is-raised:not([hidden])) .messages {
   padding-bottom: 80px;

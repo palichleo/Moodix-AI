@@ -2677,6 +2677,10 @@ try {
         if (lines.length !== 1 || !add || !menu?.matches(':popover-open')) return false;
         const box = menu.getBoundingClientRect(), items = [...menu.querySelectorAll('.glass-menu-item')], field = lines[0].querySelector('textarea').getBoundingClientRect(), go = view.querySelector('.bobine-go').getBoundingClientRect(),
           holes = [...lines[0].querySelectorAll('.bobine-piece.is-empty > .bobine-piece-box')].map(hole => hole.getBoundingClientRect()), plus = add.getBoundingClientRect();
+        // (0.6.505) The card whole in its list to half a pixel: with the model to download said above « Créer », it
+        // went 1,7 px beyond it, which scrollHeight, rounded, did not tell.
+        const card = lines[0].getBoundingClientRect(), room = list.getBoundingClientRect();
+        if (card.top < room.top - 0.5 || card.bottom > room.bottom + 0.5) return false;
         return list.scrollHeight <= list.clientHeight + 1 && document.documentElement.scrollHeight <= innerHeight + 1 && document.documentElement.scrollWidth <= innerWidth + 1 &&
           box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight && items.length === 5 && items.filter(item => item.getAttribute('aria-disabled') === 'true').length === 2 &&
           holes.length === 2 && holes.every(hole => Math.round(hole.width) === 40 && Math.round(hole.height) === 30) && !lines[0].querySelector('.bobine-piece-word')?.getClientRects().length &&
@@ -2907,8 +2911,23 @@ try {
   await run('prompt déplié', () => click('#studio-view .studio-prompt-more'), () =>
     js(`!document.querySelector('#studio-view .studio-prompt-field.is-folded') && document.querySelector('#studio-view .studio-prompt-more')?.getAttribute('aria-expanded') === 'true'`), { within: 1500 });
   // (Refused in the Studio, the turn ends there, without a word of the model: 16/11.)
-  await run('refuser la proposition', () => click('#studio-view .studio-decline'), () =>
-    js(`!document.querySelector('#studio-view .studio-explain') && !document.querySelector('#studio-view .studio-prompt-more') && !document.querySelector('#studio-view .studio-decline') && !document.getElementById('agent-open').classList.contains('is-thinking')`), { within: 3000 });
+  // (0.6.505) And the step waits for that end: « Générer » no longer held by « Moodix répond : attendez la fin de sa
+  // réponse. », « Interrompre » gone. It comes after the Studio is drawn without the proposal (its call let go, the
+  // conversation saved: 34 ms measured, more under load). The step after this one pressed « Générer » 170 ms after
+  // « Refuser », and failed whenever that end came later (beside another check-ui, or beside npm test).
+  await run(
+    'refuser la proposition',
+    () => click('#studio-view .studio-decline'),
+    () =>
+      js(`(() => {
+        const view = document.getElementById('studio-view'), go = view.querySelector('.studio-go'),
+          agent = document.getElementById('agent-open');
+        return !view.querySelector('.studio-explain') && !view.querySelector('.studio-prompt-more') &&
+          !view.querySelector('.studio-decline') && !agent.classList.contains('is-thinking') &&
+          Boolean(go) && !go.classList.contains('is-unavailable') && document.getElementById('cancel').hidden;
+      })()`),
+    { within: 3000 },
+  );
   // (0.6.253, generer-maquette.md, A01) « Générer » greyed and pressed: its reason in its bubble at once, the prompt
   // lit, the cursor in it; nothing is made. Moodix AI beside it, named, in a glass of its own, 8 px away.
   await run(

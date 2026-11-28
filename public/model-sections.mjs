@@ -156,5 +156,7 @@ export function partsOf(section, workflows, downloads) {
 /**
  * Whether a section is drawn as one line (its model alone: « Réglages » and « Proposé à Moodix AI » on its
  * line, as before) or with a row for each of its models.
+ * (0.6.505) One model, whatever it is, keeps its line: as a section of one row, it said « 1 modèles » (its version
+ * offered on its own, a file standing in for it that is not read as one; its only version to convert, or not read).
  */
-export const isSingle = parts => parts.length === 0 || (parts.length === 1 && parts[0].serves);
+export const isSingle = parts => parts.length <= 1;
