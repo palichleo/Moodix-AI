@@ -1,17 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ModelDownloads, formatBytes } from '../lib/model-downloads.mjs';
+import { GenerationAssets } from '../lib/generation-assets.mjs';
 import { held, twice } from './fixtures/held-renames.mjs';
 
 const MODEL = Buffer.from('model weights '.repeat(200)),
   VOCAB = Buffer.from('{"a":1}'),
   sha = data => createHash('sha256').update(data).digest('hex');
 
-async function fixture(t, { catalog, free = 1024 ** 4, onDone = null, engine = null } = {}) {
+// (0.6.506) `statfs` and `deviceOf`: the disks as a test sets them, one disk of `free` bytes otherwise.
+async function fixture(t, { catalog, free = 1024 ** 4, onDone = null, engine = null, statfs, deviceOf } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'atelier-downloads-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const models = join(root, 'models');
@@ -65,7 +67,8 @@ async function fixture(t, { catalog, free = 1024 ** 4, onDone = null, engine = n
     assets,
     folderOf: (family, role) => join(models, role === 'model' ? 'diffusion_models' : 'text_encoders'),
     fetchImpl,
-    statfs: async () => ({ bavail: free, bsize: 1 }),
+    statfs: statfs ?? (async () => ({ bavail: free, bsize: 1 })),
+    ...(deviceOf ? { deviceOf } : {}),
     onDone,
     engine,
   });
@@ -263,6 +266,65 @@ test('(0.6.503) the engine being prepared by a download is still offered: its mo
   release();
   assert.equal((await f.finish()).state, 'done');
   assert.deepEqual(await f.downloads.offers([f.workflow, whole]), {});
+});
+
+test('(0.6.506) the room the engine takes once prepared is read first, with the files on the same disk', async t => {
+  // 27/11: 3,9 Gio in its folder (the cache of uv included) for 2,1 downloaded, which no download read before.
+  const GIB = 1024 ** 3,
+    room = Math.round(3.9 * GIB),
+    // What every download leaves free on a disk.
+    margin = 2 * GIB,
+    engine = Object.assign(engineOf(), { room }),
+    free = { bytes: room + margin + MODEL.length - 1 },
+    f = await fixture(t, { engine, statfs: async () => ({ bavail: free.bytes, bsize: 1 }), deviceOf: async () => 7 });
+  engine.folder = join(f.root, 'runtime');
+  // One disk: the engine counted with the files of the first folder, in the sentence of any lack of room.
+  await assert.rejects(f.downloads.start(f.workflow), {
+    status: 507,
+    message:
+      `Pas assez de place dans ${join(f.models, 'diffusion_models')} : 1 Mo à télécharger et 3,9 Go pour ` +
+      'installer le moteur de génération, 5,9 Go libres.',
+  });
+  assert.deepEqual([f.requests, f.downloads.status().state, engine.signals], [[], 'idle', []]);
+  free.bytes += 1;
+  await f.downloads.start(f.workflow);
+  assert.deepEqual([(await f.finish()).state, engine.ready], ['done', true]);
+});
+
+test('(0.6.506) the engine on a disk of its own: its room read there, the files of a model here or not', async t => {
+  const GIB = 1024 ** 3,
+    room = Math.round(3.9 * GIB),
+    engine = Object.assign(engineOf(), { room }),
+    spare = { bytes: room + 2 * GIB - 1 },
+    read = [],
+    disks = {
+      statfs: async path => {
+        read.push(path);
+        return { bavail: path.startsWith(f.models) ? 1024 ** 4 : spare.bytes, bsize: 1 };
+      },
+      deviceOf: async path => (path.startsWith(f.models) ? 'D:' : 'C:'),
+    },
+    f = await fixture(t, { engine, ...disks }),
+    whole = { id: 'whole', name: 'Real-ESRGAN', pipeline: 'krea2', builtin: true, ready: false, components: {} };
+  engine.folder = join(f.root, 'runtime');
+  // Not there yet on a new installation: its disk read through the folder above it, which nothing makes meanwhile.
+  const refused = {
+    status: 507,
+    message: `Pas assez de place dans ${engine.folder} : 3,9 Go pour installer le moteur de génération, 5,9 Go libres.`,
+  };
+  await assert.rejects(f.downloads.start(f.workflow), refused);
+  await assert.rejects(f.downloads.start(whole), refused);
+  assert.deepEqual([f.requests, read.at(-1), engine.signals], [[], f.root, []]);
+  await assert.rejects(stat(engine.folder), { code: 'ENOENT' });
+  spare.bytes += 1;
+  await f.downloads.start(f.workflow);
+  assert.deepEqual([(await f.finish()).state, engine.ready], ['done', true]);
+  // An engine prepared asks nothing of its disk any more.
+  const ready = Object.assign(engineOf(), { room, ready: true }),
+    other = await fixture(t, { engine: ready, statfs: async () => ({ bavail: 3 * GIB, bsize: 1 }) });
+  ready.folder = join(other.root, 'runtime');
+  await other.downloads.start(other.workflow);
+  assert.equal((await other.finish()).state, 'done');
 });
 
 test('a shipped workflow offers what it lacks, and the files land in their folders, registered for it', async t => {
@@ -966,4 +1028,159 @@ test('no cut, no new try: what is not the rest of this file, a source in error, 
     assert.deepEqual(kept.subarray(0, 1000), MODEL.subarray(0, 1000), kind);
     if (kind !== 'disk') assert.equal(kept.length, 1000, kind);
   }
+});
+
+test('(0.6.506) a tokenizer in a folder of its repository lands at the root of its own, and registers', async t => {
+  // MOSS Image on a new installation: its tokenizer is in tokenizer/ of its repository. Its files landed in
+  // qwen35_tokenizer/tokenizer/, the registry refused the folder (« tokenizer_config.json est absent »), the download
+  // ended in an error after the 15 Go before it, and nothing was offered again: the folder was there.
+  const root = await mkdtemp(join(tmpdir(), 'atelier-downloads-tokenizer-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const shipped = JSON.parse(await readFile(new URL('../runner/downloads.json', import.meta.url), 'utf8')),
+    bodies = {
+      'tokenizer.json': Buffer.from('{"model":{"vocab":{"a":0,"b":1}},"added_tokens":[{"id":2}]}'),
+      'tokenizer_config.json': Buffer.from('{"added_tokens_decoder":{}}'),
+    };
+  // Its source as Moodix ships it, with files of a few bytes in the place of its 20 Mo.
+  const source = shipped.qwen35_tokenizer,
+    files = source.files.map(file => ({ ...file, size: bodies[file.path.split('/').pop()].length })),
+    catalogPath = join(root, 'downloads.json');
+  await writeFile(
+    catalogPath,
+    JSON.stringify({ qwen35_tokenizer: { ...source, size: files.reduce((sum, file) => sum + file.size, 0), files } }),
+  );
+  const assets = new GenerationAssets(join(root, 'generation-assets.json')),
+    folder = join(root, 'models', 'text_encoders'),
+    requests = [];
+  const downloads = new ModelDownloads({
+    catalogPath,
+    dataDir: root,
+    assets,
+    folderOf: () => folder,
+    fetchImpl: async url => {
+      requests.push(url);
+      return new Response(bodies[decodeURIComponent(url.split('/').at(-1))], { status: 200 });
+    },
+    statfs: async () => ({ bavail: 1024 ** 4, bsize: 1 }),
+  });
+  const workflow = {
+    id: 'moss',
+    name: 'MOSS Image',
+    pipeline: 'moss',
+    builtin: true,
+    ready: false,
+    components: { tokenizer: { policy: 'fixed', asset: 'tokenizer-asset', file: 'qwen35_tokenizer' } },
+  };
+  await downloads.start(workflow);
+  await downloads.task;
+  const status = downloads.status();
+  assert.deepEqual([status.state, status.error], ['done', '']);
+  // Fetched from tokenizer/ of the repository; at the root of its folder here, where the engine reads it (moss.py).
+  const from = `https://huggingface.co/${source.repo}/resolve/${source.revision}/tokenizer/`;
+  assert.deepEqual(requests.sort(), [from + 'tokenizer.json', from + 'tokenizer_config.json']);
+  const landed = (await readdir(join(folder, 'qwen35_tokenizer'))).sort();
+  assert.deepEqual(landed, ['tokenizer.json', 'tokenizer_config.json']);
+  const [registered] = await assets.list();
+  assert.equal(registered.path, await realpath(join(folder, 'qwen35_tokenizer')));
+  assert.equal(registered.inspection.format, 'tokenizer');
+  assert.deepEqual(await downloads.missing(workflow), []);
+});
+
+/**
+ * (0.6.506) The tokenizer of MOSS Image where a download of before left it, its catalog as Moodix ships it with files
+ * of a few bytes in the place of its 20 Mo; the folder of a source without `subfolder` beside (clip_tokenizer). `lay`
+ * writes files in a folder; `tree` lists a folder whole, each file with its size.
+ */
+async function nested(t) {
+  const root = await mkdtemp(join(tmpdir(), 'atelier-downloads-nested-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const shipped = JSON.parse(await readFile(new URL('../runner/downloads.json', import.meta.url), 'utf8')),
+    bodies = {
+      'tokenizer.json': Buffer.from('{"model":{"vocab":{"a":0,"b":1}},"added_tokens":[{"id":2}]}'),
+      'tokenizer_config.json': Buffer.from('{"added_tokens_decoder":{}}'),
+    },
+    files = shipped.qwen35_tokenizer.files.map(file => ({ ...file, size: bodies[file.path].length })),
+    clip = { ...shipped.clip_tokenizer, files },
+    catalogPath = join(root, 'downloads.json'),
+    folder = join(root, 'models', 'text_encoders');
+  await writeFile(catalogPath, JSON.stringify({ qwen35_tokenizer: { ...shipped.qwen35_tokenizer, files }, clip }));
+  const assets = new GenerationAssets(join(root, 'generation-assets.json'), { roots: () => [folder] }),
+    downloads = new ModelDownloads({ catalogPath, dataDir: root, assets, folderOf: () => folder }),
+    owners = new Map([
+      ['qwen35_tokenizer', new Set(['moss|tokenizer'])],
+      ['clip', new Set(['moss|tokenizer'])],
+    ]),
+    lay = async (place, names = Object.keys(bodies)) => {
+      await mkdir(place, { recursive: true });
+      for (const name of names) await writeFile(join(place, name), bodies[name] ?? Buffer.from('autre'));
+    },
+    tree = async (place, prefix = '') => {
+      const found = [],
+        entries = await readdir(place, { withFileTypes: true });
+      for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : 1))) {
+        const path = join(place, entry.name),
+          name = prefix + entry.name;
+        if (entry.isDirectory()) found.push(name + '/', ...(await tree(path, name + '/')));
+        else found.push(`${name} ${(await stat(path)).size}`);
+      }
+      return found;
+    },
+    tokenizer = () =>
+      assets.resolve('tokenizer-asset', { kind: 'tokenizer', family: 'moss', file: 'qwen35_tokenizer' });
+  return { root, folder, target: join(folder, 'qwen35_tokenizer'), downloads, owners, bodies, lay, tree, tokenizer };
+}
+
+test('(0.6.506) a tokenizer a download of before put one level too deep is mended: its files moved up', async t => {
+  // Its files in qwen35_tokenizer/tokenizer/: refused (« tokenizer_config.json est absent »), never offered again.
+  const f = await nested(t);
+  await f.lay(join(f.target, 'tokenizer'));
+  await assert.rejects(f.tokenizer(), /tokenizer_config\.json/);
+  assert.deepEqual(await f.downloads.repairNested(f.owners), { mended: [f.target], failed: [] });
+  // Moved in the same folder, the level they were in gone once empty: nothing else removed.
+  assert.deepEqual(await f.tree(f.folder), [
+    'qwen35_tokenizer/',
+    `qwen35_tokenizer/tokenizer.json ${f.bodies['tokenizer.json'].length}`,
+    `qwen35_tokenizer/tokenizer_config.json ${f.bodies['tokenizer_config.json'].length}`,
+  ]);
+  // Found, and registered, as the engine reads it.
+  const found = await f.tokenizer();
+  assert.deepEqual([found.path, found.inspection.format], [await realpath(f.target), 'tokenizer']);
+  // Once: read again, nothing more to do.
+  assert.deepEqual(await f.downloads.repairNested(f.owners), { mended: [], failed: [] });
+});
+
+test('(0.6.506) a tokenizer already at its root, or a folder of another content, is left as it is', async t => {
+  const f = await nested(t),
+    level = join(f.target, 'tokenizer');
+  // Its files at its root (a copy one level down beside them, as the user may have made it): nothing.
+  await f.lay(f.target);
+  await f.lay(level);
+  const whole = await f.tree(f.folder);
+  assert.deepEqual(await f.downloads.repairNested(f.owners), { mended: [], failed: [] });
+  assert.deepEqual(await f.tree(f.folder), whole);
+  // Something else at the root, beside that level; a file of more in it; a file of another size; nothing.
+  for (const lay of [
+    async () => f.lay(f.target, ['notes.txt']),
+    async () => f.lay(level, ['tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json']),
+    async () => {
+      await f.lay(level);
+      await writeFile(join(level, 'tokenizer.json'), '{}');
+    },
+  ]) {
+    await rm(f.target, { recursive: true, force: true });
+    await f.lay(level);
+    await lay();
+    const before = await f.tree(f.folder);
+    assert.deepEqual(await f.downloads.repairNested(f.owners), { mended: [], failed: [] });
+    assert.deepEqual(await f.tree(f.folder), before);
+  }
+  // A source without `subfolder` (its files never one level down), nor a folder elsewhere than where Moodix
+  // downloads it, is ever looked at.
+  await rm(f.target, { recursive: true, force: true });
+  const elsewhere = join(f.root, 'ComfyUI', 'models', 'text_encoders', 'qwen35_tokenizer', 'tokenizer');
+  await f.lay(join(f.folder, 'clip', 'tokenizer'));
+  await f.lay(elsewhere);
+  const [here, there] = [await f.tree(f.folder), await f.tree(join(f.root, 'ComfyUI'))];
+  assert.deepEqual(await f.downloads.repairNested(f.owners), { mended: [], failed: [] });
+  assert.deepEqual([await f.tree(f.folder), await f.tree(join(f.root, 'ComfyUI'))], [here, there]);
 });

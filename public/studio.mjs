@@ -792,7 +792,13 @@ export function setupStudio({
     // (0.6.240) A clip filmed again is filmed by the model made for it, whatever made the clip.
     if (refilming()) return first;
     // (0.6.256) Agrandir, Interpoler: the model chosen on their page, never the one of the mode's own draft.
-    if (finishOn()) return usable.find(item => item.id === finishing.workflow) ?? first;
+    // (0.6.506) One there that waits only for its engine, chosen in their list, too.
+    if (finishOn())
+      return (
+        usable.find(item => item.id === finishing.workflow) ??
+        absent.find(item => item.id === finishing.workflow) ??
+        first
+      );
     if (mode === 'video' && extending && !proposal)
       return usable.find(item => item.id === (extending.workflowId ?? draft.workflow)) ?? first;
     return (
@@ -7900,7 +7906,8 @@ export function setupStudio({
   // ------------------------------------------------------------------ a model not on this computer (0.6.480)
   /**
    * What a model not on this computer leaves to download, as its button says it (« 17,7 Go »). (0.6.479) With the
-   * engine of a new installation, which the same click prepares: « 3,0 Go » for that engine alone.
+   * engine of a new installation, which the same click prepares: « 2,1 Go » for that engine alone ((0.6.506) as
+   * measured on 27/11, « 3,0 Go » before).
    */
   const missingSize = workflow =>
     sizeText(withEngine(workflow.missing.left || workflow.missing.bytes, workflow.missing));
@@ -7910,12 +7917,15 @@ export function setupStudio({
    * (0.6.479) What the download in hand does, above its button: its files, then the engine of a new installation
    * (`engine`, from GET /api/downloads), which uv prepares without telling its bytes (sayFetch).
    */
-  const fetchSaid = name =>
-    fetching?.engine !== 'preparing'
-      ? `${name} se télécharge : « Générer » revient à la fin.`
+  const fetchSaid = name => {
+    // (0.6.506) On the page Agrandir or Interpoler, its own button comes back (the engine alone fetched there).
+    const back = `« ${finishOn() ? FINISH[finishing.verb].go : 'Générer'} » revient à la fin.`;
+    return fetching?.engine !== 'preparing'
+      ? `${name} se télécharge : ${back}`
       : /^Démarrage/.test(fetching.current || '')
-        ? 'Le moteur de génération démarre : « Générer » revient à la fin.'
-        : 'Le moteur de génération s’installe, une seule fois : « Générer » revient à la fin.';
+        ? `Le moteur de génération démarre : ${back}`
+        : `Le moteur de génération s’installe, une seule fois : ${back}`;
+  };
   /**
    * Why nothing is made with a model not on this computer, in the bubble of its button (and of the keys of « Générer »,
    * greyedWhy): its download under way, another one meanwhile, the account its source asks for, or what it lacks.

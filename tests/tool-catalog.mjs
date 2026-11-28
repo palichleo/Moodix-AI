@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { ToolCatalog, serves } from '../lib/tool-catalog.mjs';
 import { CAPABLE } from '../lib/model-wording.mjs';
+import { preparationBytes } from '../lib/python-environment.mjs';
 
 const video = (id, references, extra = {}) => ({
   schemaVersion: 1,
@@ -1504,7 +1505,8 @@ test('the Studio is told the models of an image, a video and a sound this comput
   );
   // What a stopped download left to fetch; the music model, which cannot be downloaded from here, left out as before.
   assert.deepEqual(told('create_audio'), [[ids.effects, [3e9, 1e9], 'Fichier manquant.']]);
-  // A take made larger or a clip continued: only what is here, never a download from those pages.
+  // A take made larger or a clip continued: only what is here, never their files downloaded from those pages.
+  // ((0.6.506) The engine alone, yes, for Agrandir and Interpoler: the test after the next one.)
   assert.deepEqual([studio.upscale, studio.extend_video], [[], []]);
   // Without `offers` (the chat, the Bobine), as before: nothing lacking its files is listed.
   const before = await catalogOf(workflows).studio();
@@ -1539,7 +1541,8 @@ test('(0.6.479) new installation: the Studio and the Bobine are told the models 
     shippedOf(ids.ltx, { unavailableKind: 'engine' }),
   ]);
   // As ModelDownloads.offers answers then: the engine beside each, the engine alone for a model whose files are here.
-  const engine = { bytes: 3213357020 },
+  // (0.6.506) Its size as measured on Windows on 27/11.
+  const engine = { bytes: preparationBytes('win32') },
     alone = { files: [], bytes: 0, left: 0, complete: true, needsToken: false, page: '', engine },
     file = { role: 'model', file: 'krea.safetensors', size: 19e9, license: null },
     offers = () => ({
@@ -1567,4 +1570,60 @@ test('(0.6.479) new installation: the Studio and the Bobine are told the models 
   // The Bobine: LTX 2.5 to download as one lacking its files (its button « Télécharger »), not greyed with its reason.
   const ltx = (await catalogOf(workflows).videoModels()).find(model => model.family === 'ltx25');
   assert.deepEqual([ltx.create_video.missing, ltx.create_video.unavailable], [true, undefined]);
+});
+
+test('(0.6.506) Agrandir and Interpoler are told a model whose files are here, waiting for the engine', async () => {
+  // 27/11: SeedVR2 had its files, the engine of a new installation was all it lacked; « Agrandir » said « Aucun
+  // modèle ne sait agrandir une image. » and its page had nothing to offer.
+  const { readFile } = await import('node:fs/promises');
+  const shippedOf = async (id, more = {}) => ({
+    ...JSON.parse(await readFile(new URL(`../runner/workflows/${id}.json`, import.meta.url), 'utf8')),
+    ready: false,
+    builtin: true,
+    unavailableKind: 'engine',
+    unavailableReason: 'Le moteur de génération n’est pas encore installé.',
+    ...more,
+  });
+  const ids = {
+    seedvr: '6b0f2e5c-7d1a-4c8e-9a3f-5e2d1c0b9a87',
+    esrgan: '5e1b8c3a-9d2f-4a6e-b7c4-1f0d6e3a9b85',
+    video: '2c7e9a41-5b3d-4f8a-a1c6-7d0e3b9f2a58',
+    rife: '9f3c6a2e-4d1b-4e8f-8c7a-3b5d0e2f6a19',
+  };
+  const engine = { bytes: preparationBytes('win32') },
+    alone = { files: [], bytes: 0, left: 0, complete: true, needsToken: false, page: '', engine },
+    file = { role: 'upscaler', file: 'realesr.pth', size: 64e6, license: null },
+    workflows = await Promise.all([
+      shippedOf(ids.esrgan),
+      shippedOf(ids.seedvr),
+      // Its files missing too: never a download from the page of a take, as before.
+      shippedOf(ids.video, { unavailableKind: 'files' }),
+      shippedOf(ids.rife),
+    ]),
+    offers = () => ({
+      [ids.seedvr]: alone,
+      [ids.esrgan]: alone,
+      [ids.video]: { ...alone, files: [file], bytes: 64e6, left: 64e6 },
+      [ids.rife]: alone,
+    });
+  const studio = await catalogOf(workflows).studio({ offers }),
+    listed = verb => studio[verb].map(item => [item.id, item.media, item.missing ?? null]),
+    missing = id => ({ workflowId: id, files: [], bytes: 0, left: 0, needsToken: false, page: '', engine });
+  // SeedVR2 first, as the router prefers it: the one its page puts in hand, « Télécharger · 2,1 Go ».
+  assert.deepEqual(listed('upscale'), [
+    [ids.seedvr, 'image', missing(ids.seedvr)],
+    [ids.esrgan, 'image', missing(ids.esrgan)],
+  ]);
+  assert.deepEqual(listed('interpolate'), [[ids.rife, 'video', missing(ids.rife)]]);
+  // Its factor as when it is there, greyed for the router with its reason.
+  assert.deepEqual(studio.upscale[0].finish.choices, [2, 4]);
+  assert.equal(studio.upscale[0].unavailable, 'Le moteur de génération n’est pas encore installé.');
+  // The buttons of a take say the same models (actions(), `engine`): a clip has none waiting for its engine alone.
+  assert.deepEqual((await catalogOf(workflows).actions()).engine, {
+    upscale: { image: 'Upscale SeedVR2' },
+    interpolate: { video: 'Interpoler (RIFE 4.26)' },
+  });
+  // Ready, or without `offers` (the chat): as before.
+  const before = await catalogOf(workflows).studio();
+  assert.deepEqual([before.upscale, before.interpolate], [[], []]);
 });

@@ -3,8 +3,11 @@ import { familyCatalog } from '../lib/families.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { validateNativeWorkflow } from '../lib/native-workflows.mjs';
+import { preparationBytes } from '../lib/python-environment.mjs';
 import { setupNativeWorkflows } from '../public/native-workflow-ui.mjs';
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+// (0.6.506) The engine of a new installation as the server says it on Windows (measured on 27/11): « 2,1 Go ».
+const ENGINE = preparationBytes('win32');
 
 function fixture() {
   const nodes = new Map();
@@ -709,7 +712,7 @@ test('a model to download says « Télécharger » and its size in the place of 
     seedvr: offer([{ role: 'model', file: 'seedvr2.safetensors', size: giga, license: apache }], { convert: true, room: 2 * giga }),
     gated: offer([{ role: 'model', file: 'ltx.safetensors', size: 2 * giga, license: apache }], { needsToken: true, page: 'huggingface.co/Lightricks/LTX-2.5' }),
     // (0.6.479) A new installation, a model whose files are all here: the engine alone.
-    whole: offer([], { engine: { bytes: 3 * giga } }),
+    whole: offer([], { engine: { bytes: ENGINE } }),
   };
   const api = f.api,
     starts = [],
@@ -757,17 +760,17 @@ test('a model to download says « Télécharger » and its size in the place of 
   // (0.6.479) The engine its click prepares, said on its button; none of it where it is prepared already. Its files
   // all here, the engine alone.
   const engine =
-    'Les fichiers sont là : il manque le moteur de génération de Moodix, environ 3,0 Go, ' +
+    'Les fichiers sont là : il manque le moteur de génération de Moodix, environ 2,1 Go, ' +
     'installé une seule fois pour tous les modèles.';
   assert.deepEqual(
     download('Real-ESRGAN')
       .children.map(item => item.textContent)
       .filter(Boolean),
-    ['Télécharger · 3,0 Go'],
+    ['Télécharger · 2,1 Go'],
   );
   // (Its bubble, what it fetches alone, as the Studio and the Bobine say it.)
   assert.equal(download('Real-ESRGAN').title, engine);
-  assert.equal(download('Real-ESRGAN').attributes['aria-label'], 'Télécharger Real-ESRGAN (3,0 Go). ' + engine);
+  assert.equal(download('Real-ESRGAN').attributes['aria-label'], 'Télécharger Real-ESRGAN (2,1 Go). ' + engine);
   assert.doesNotMatch(download('Krea 2').title, /moteur de génération/);
 
   // A licence with conditions: the click downloads nothing and shows it, to accept or to refuse.
@@ -847,7 +850,7 @@ test('a model to download says « Télécharger » and its size in the place of 
   f.api = async (route, body) => {
     if (route !== 'downloads/start') return answering(route, body);
     starts.push(body);
-    job = { state: 'running', workflowId: body.id, name: 'Real-ESRGAN', received: 0, total: 3 * giga };
+    job = { state: 'running', workflowId: body.id, name: 'Real-ESRGAN', received: 0, total: ENGINE };
     return Response.json(Object.assign(job, { engine: 'preparing', current: 'Préparation du moteur' }));
   };
   await download('Real-ESRGAN').onclick();
@@ -855,7 +858,7 @@ test('a model to download says « Télécharger » and its size in the place of 
   assert.deepEqual(starts.at(-1), { id: 'whole' });
   assert.equal(
     f.$('native-import-status').textContent,
-    'Le moteur de génération de Moodix s’installe maintenant : environ 3,0 Go, une seule fois pour tous les modèles.',
+    'Le moteur de génération de Moodix s’installe maintenant : environ 2,1 Go, une seule fois pour tous les modèles.',
   );
   assert.deepEqual(
     find(lineOf('Real-ESRGAN'), 'model-progress-text').map(item => item.textContent),
@@ -863,22 +866,68 @@ test('a model to download says « Télécharger » and its size in the place of 
   );
   await find(lineOf('Real-ESRGAN'), 'model-stop')[0].onclick();
   // (0.6.479) A file the engine converts: the engine comes before the files, which need it.
-  offers.seedvr.engine = { bytes: 3 * giga };
+  offers.seedvr.engine = { bytes: ENGINE };
   job = { state: 'idle' };
   await f.ui.refresh();
   f.api = async (route, body) => {
     if (route !== 'downloads/start') return answering(route, body);
-    job = { state: 'running', workflowId: body.id, name: 'Upscale SeedVR2', received: 0, total: 4 * giga };
+    job = { state: 'running', workflowId: body.id, name: 'Upscale SeedVR2', received: 0, total: giga + ENGINE };
     return Response.json(Object.assign(job, { engine: 'preparing', current: 'Préparation du moteur' }));
   };
   await download('Upscale SeedVR2').onclick();
   f.api = answering;
   assert.equal(
     f.$('native-import-status').textContent,
-    'Le moteur de génération de Moodix s’installe avant les fichiers, qui en ont besoin : environ 3,0 Go, ' +
+    'Le moteur de génération de Moodix s’installe avant les fichiers, qui en ont besoin : environ 2,1 Go, ' +
       'une seule fois pour tous les modèles.',
   );
   await find(lineOf('Upscale SeedVR2'), 'model-stop')[0].onclick();
+});
+
+test('(0.6.506) « Arrêter » takes away what the start of the download said of the engine under the list', async t => {
+  // 27/11, on this page: « … s’installe maintenant … » stayed after « Arrêter », its line back to « Télécharger ».
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = await setup(t);
+  f.workflows.push({ ...structuredClone(f.template), id: 'whole', name: 'Real-ESRGAN', builtin: true, ready: false });
+  const offers = {
+      whole: { files: [], bytes: 0, left: 0, complete: true, needsToken: false, page: '', engine: { bytes: ENGINE } },
+    },
+    api = f.api;
+  let job = { state: 'idle' };
+  f.api = async (route, body) => {
+    if (route === 'generation')
+      return Response.json({ ...(await (await api(route, body)).json()), downloads: { offers, job, hasToken: false } });
+    const started = { state: 'running', name: 'Real-ESRGAN', received: 0, total: ENGINE, engine: 'preparing' };
+    if (route === 'downloads/start') job = { ...started, workflowId: body.id };
+    // (As the server answers « Arrêter »: still under way until its preparation has let go.)
+    if (route === 'downloads/start' || route === 'downloads/cancel') return Response.json(job);
+    if (route === 'downloads') return Response.json({ job });
+    return api(route, body);
+  };
+  f.ui = setupNativeWorkflows({ api: (...args) => f.api(...args), state: {}, node: f.node, notice() {} });
+  await f.ui.refresh();
+  const under = root => [root, ...root.children.flatMap(child => under(child))],
+    find = (root, name) => under(root).filter(item => String(item.className).split(' ').includes(name)),
+    line = () => find(f.$('workflow-list'), 'model-line').find(item => item.dataset.model === 'Real-ESRGAN'),
+    status = () => [f.$('native-import-status').hidden, f.$('native-import-status').textContent],
+    said =
+      'Le moteur de génération de Moodix s’installe maintenant : environ 2,1 Go, ' +
+      'une seule fois pour tous les modèles.',
+    // The next look at the download, a second later.
+    poll = async () => {
+      t.mock.timers.tick(1000);
+      for (let turn = 0; turn < 10; turn++) await new Promise(resolve => setImmediate(resolve));
+    };
+  await find(line(), 'model-download')[0].onclick();
+  assert.deepEqual(status(), [false, said]);
+  await find(line(), 'model-stop')[0].onclick();
+  await poll();
+  // Not stopped yet: it stays.
+  assert.deepEqual(status(), [false, said]);
+  job = { ...job, state: 'cancelled' };
+  await poll();
+  assert.deepEqual(status(), [true, '']);
+  assert.equal(line().dataset.state, 'download');
 });
 
 test('a section’s model downloads from its row; its licence below, its advance on the section (0.6.481)', async t => {

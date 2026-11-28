@@ -178,10 +178,87 @@ test('the server lists which media each output button can act on', async () => {
   });
   // « Animer »: none here, no video workflow starts from an image. (0.6.244) « Changer la caméra »: none either
   // without a model that films a video again.
-  assert.deepEqual(await tools.actions(), { upscale: ['video'], interpolate: ['video'], extend_video: [], refilm_video: [], animate: [] });
+  // (0.6.506) None waiting for its engine alone (`engine`).
+  assert.deepEqual(await tools.actions(), {
+    upscale: ['video'],
+    interpolate: ['video'],
+    extend_video: [],
+    refilm_video: [],
+    animate: [],
+    engine: {},
+  });
   // With the model of « Changer la caméra » ready: its button is lit on a video.
   const filming = new ToolCatalog({ list: async () => [workflow('refilm', 'ltx25_refilm', 'video', 'refilm_source')] });
-  assert.deepEqual(await filming.actions(), { upscale: [], interpolate: [], extend_video: [], refilm_video: ['video'], animate: [] });
+  assert.deepEqual(await filming.actions(), {
+    upscale: [],
+    interpolate: [],
+    extend_video: [],
+    refilm_video: ['video'],
+    animate: [],
+    engine: {},
+  });
+});
+
+test('(0.6.506) a model of Agrandir there, waiting only for the engine: its button lit, which says it', async () => {
+  // 27/11: « Agrandir » greyed, « Aucun modèle ne sait agrandir une image. », while SeedVR2 had its files and waited
+  // for the engine of a new installation alone, before its « Télécharger » and while it was prepared.
+  const workflow = (id, name, pipeline, more = {}) => ({
+    id,
+    name,
+    description: id,
+    enabled: true,
+    ready: true,
+    builtin: true,
+    pipeline,
+    mediaType: 'image',
+    parameters: {},
+    components: {},
+    loras: [],
+    references: [{ id: 'source', role: 'source_image', required: true }],
+    ...more,
+  });
+  const engine = { ready: false, unavailableKind: 'engine', unavailableReason: 'Moteur pas encore installé.' },
+    actionsOf = async list => new ToolCatalog({ list: async () => list }).actions(),
+    waiting = await actionsOf([
+      workflow('esrgan', 'Real-ESRGAN', 'realesrgan_image', engine),
+      workflow('seedvr2', 'Upscale SeedVR2', 'seedvr2', engine),
+    ]);
+  // The one its page puts in hand: the one the router prefers, as the Studio lists them.
+  assert.deepEqual([waiting.upscale, waiting.engine], [[], { upscale: { image: 'Upscale SeedVR2' } }]);
+  // Nothing of it beside a ready one of the same kind; nor for a model of the user's, nor one lacking its files.
+  const others = await actionsOf([
+    workflow('esrgan', 'Real-ESRGAN', 'realesrgan_image'),
+    workflow('seedvr2', 'Upscale SeedVR2', 'seedvr2', engine),
+  ]);
+  assert.deepEqual([others.upscale, others.engine], [['image'], {}]);
+  const mine = await actionsOf([workflow('mine', 'Le mien', 'seedvr2', { ...engine, builtin: false })]),
+    lacking = { ...engine, unavailableKind: 'files' },
+    files = await actionsOf([workflow('seedvr2', 'Upscale SeedVR2', 'seedvr2', lacking)]);
+  assert.deepEqual([mine.engine, files.engine], [{}, {}]);
+  // The button of a take: lit, its click goes to its page; in the chat, its bubble says what it waits for.
+  const calls = [],
+    lacks = 'Les fichiers de Upscale SeedVR2 sont là : il manque le moteur de génération.',
+    said = { upscale: [], interpolate: [], animate: [], engine: { upscale: { image: 'Upscale SeedVR2' } } },
+    answer = async () => Response.json(said),
+    chat = outputActions({ api: answer, node, onDetails() {}, onAction: (...args) => calls.push(args) }),
+    row = chat({ id: 'still' }, 0);
+  await new Promise(setImmediate);
+  const upscale = row.children.find(button => label(button) === 'Agrandir et affiner');
+  assert.deepEqual([upscale.disabled, upscale.title], [false, 'Agrandir et affiner ce résultat\n' + lacks]);
+  upscale.onclick();
+  assert.deepEqual(calls, [[{ id: 'still' }, 0, 'upscale']]);
+  // Drawn again from what the server said last: lit at once, the same words.
+  const again = chat({ id: 'other' }, 1).children.find(button => label(button) === 'Agrandir et affiner');
+  assert.deepEqual([again.disabled, again.title], [false, 'Agrandir et affiner ce résultat\n' + lacks]);
+  // In the column of the Studio: lit, no bubble (its page says it); a video, still greyed with its reason.
+  const rail = outputActions({ api: answer, node, onDetails: null, onAction() {}, rail: true }),
+    column = rail({ id: 'still' }, 0);
+  await new Promise(setImmediate);
+  assert.deepEqual([column.children[0].disabled, column.children[0].title], [false, undefined]);
+  const film = rail({ id: 'run', mediaType: 'video' }, 0);
+  await new Promise(setImmediate);
+  const filmUpscale = film.children.find(button => label(button) === 'Agrandir');
+  assert.deepEqual([filmUpscale.disabled, filmUpscale.title], [true, 'Aucun modèle ne sait agrandir une vidéo.']);
 });
 
 test('an image upscale goes to SeedVR2 before Real-ESRGAN unless the model names a workflow', async () => {

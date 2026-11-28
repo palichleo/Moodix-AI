@@ -727,7 +727,8 @@ test('an image attached in the chat is upscaled from the file the user gave, not
   const attachment = 'original-' + 'b'.repeat(64) + '.png';
   let staged = 0,
     generated,
-    opened;
+    opened,
+    saved;
   const workflow = {
     schemaVersion: 1,
     id: 'seedvr2',
@@ -752,7 +753,7 @@ test('an image attached in the chat is upscaled from the file the user gave, not
   const runtime = new ToolRuntime({
     catalog,
     engine: { state: 'ready', stop: async () => {}, start: async () => {} },
-    gallery: { put: async record => record, get: async () => assert.fail('No earlier output is involved') },
+    gallery: { put: async record => (saved = record), get: async () => assert.fail('No earlier output is involved') },
     getConfig: () => ({ enabled: true, autoAllow: true, maxIterations: 5, baseUrl: 'native' }),
     engineConfig: () => ({}),
     sourceMedia: async (ref, conversation) => {
@@ -795,6 +796,9 @@ test('an image attached in the chat is upscaled from the file the user gave, not
   assert.equal(opened, attachment);
   assert.equal(staged, 1);
   assert.deepEqual(generated.references, [{ input: 'source', role: 'source_image', path: '/local/original.png' }]);
+  // (0.6.506) Without a prompt, the take is named by what was done, in the words of the page, and its source:
+  // « upscale · #ref1 » named the conversation of an Agrandir of the Studio.
+  assert.equal(saved.prompt, 'Agrandissement · Image 1');
 });
 
 test('a source the worker refuses fails before the chat model is unloaded, and its staged copy is removed', async () => {

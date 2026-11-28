@@ -264,6 +264,34 @@ test('every file of a shipped workflow has its source: a missing one offers its 
   assert.deepEqual(missing, []);
 });
 
+test('(0.6.506) a folder Moodix downloads lands with what its component reads at its root', async () => {
+  const { readFile: read, readdir: list } = await import('node:fs/promises');
+  const { families } = await import('../lib/families.mjs');
+  const folder = new URL('../runner/workflows/', import.meta.url);
+  const catalog = JSON.parse(await read(new URL('../runner/downloads.json', import.meta.url), 'utf8'));
+  const wrong = [];
+  for (const name of (await list(folder)).filter(file => file.endsWith('.json'))) {
+    const workflow = JSON.parse(await read(new URL(name, folder), 'utf8'));
+    for (const [role, policy] of Object.entries(workflow.components ?? {})) {
+      const source = catalog[policy?.file];
+      if (policy?.policy !== 'fixed' || !source?.folder) continue;
+      // `files` are the folder as it lands; `subfolder`, where they are in the repository (lib/model-downloads.mjs).
+      const names = new Set(source.files.map(file => file.path)),
+        format = families()[workflow.pipeline]?.components?.[role]?.format,
+        reads =
+          format === 'tokenizer'
+            ? names.has('tokenizer_config.json') &&
+              (names.has('tokenizer.json') || (names.has('vocab.json') && names.has('merges.txt')))
+            : format === 'pipeline' && names.has('model_index.json');
+      if (!reads) wrong.push(`${workflow.name} · ${role} · ${policy.file}`);
+      if ('subfolder' in source)
+        assert.ok(String(source.subfolder).split('/').every(part => /^[\w-][\w.-]*$/.test(part)), policy.file);
+    }
+  }
+  // The tokenizer of MOSS Image landed in qwen35_tokenizer/tokenizer/: refused, and never offered again.
+  assert.deepEqual(wrong, []);
+});
+
 test('every source names its licence, as the table of the notices gives it; one with conditions says its limits', async () => {
   const { readFile: read } = await import('node:fs/promises');
   const catalog = JSON.parse(await read(new URL('../runner/downloads.json', import.meta.url), 'utf8'));
